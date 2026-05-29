@@ -95,7 +95,7 @@ describe('mergeRoles()', () => {
     store.roles.push(makeRole({ id: 'tgt', name: { en: 'Solution Architect' } }))
     store.projects.push(makeProject({
       roles: [
-        { id: 'pr1', role_id: 'src', name: { en: 'Architect' }, long_description: {}, summary: {}, sort_order: 0, disabled: false },
+        { id: 'pr1', role_id: 'src', name: { en: 'Architect' }, sort_order: 0, disabled: false },
       ],
     }))
     const out = mergeRoles(store, 'src', 'tgt')
@@ -145,12 +145,12 @@ describe('countRoleReferences()', () => {
     store.roles.push(makeRole({ id: 'r' }))
     store.projects.push(makeProject({
       roles: [
-        { id: 'a', role_id: 'r', name: {}, long_description: {}, summary: {}, sort_order: 0, disabled: false },
+        { id: 'a', role_id: 'r', name: {}, sort_order: 0, disabled: false },
       ],
     }))
     store.projects.push(makeProject({
       roles: [
-        { id: 'b', role_id: 'r', name: {}, long_description: {}, summary: {}, sort_order: 0, disabled: false },
+        { id: 'b', role_id: 'r', name: {}, sort_order: 0, disabled: false },
       ],
     }))
     expect(countRoleReferences(store, 'r')).toBe(2)

@@ -21,8 +21,6 @@ export interface ProjectRole {
   id: string
   role_id: string
   name: LocalizedString        // snapshot
-  long_description: LocalizedString
-  summary: LocalizedString
   sort_order: number
   disabled: boolean
 }

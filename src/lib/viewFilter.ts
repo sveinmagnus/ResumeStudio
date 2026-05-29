@@ -110,17 +110,17 @@ function renderItem(sectionKey: string, item: unknown, locale: string): string {
 
   switch (sectionKey) {
     case 'projects': {
-      const roles = (it.roles as Array<{ name: LocalizedString; long_description: LocalizedString }> ?? [])
-        .map((role) => `<div style="margin-top:4px"><strong>${resolve(role.name, locale)}</strong>: ${resolve(role.long_description, locale)}</div>`)
-        .join('')
+      const roleNames = (it.roles as Array<{ name: LocalizedString; disabled?: boolean }> ?? [])
+        .filter((role) => !role.disabled)
+        .map((role) => resolve(role.name, locale))
+        .filter(Boolean)
       const skills = (it.skills as Array<{ name: LocalizedString }> ?? [])
         .map((s) => `<span class="ve-tag">${resolve(s.name, locale)}</span>`)
         .join('')
       return `<div class="ve-item">
         <h3>${l('customer')}</h3>
-        <div class="ve-meta">${meta([r, l('industry')])}</div>
+        <div class="ve-meta">${meta([r, l('industry'), roleNames.join(', ')])}</div>
         <div class="ve-desc">${l('long_description') || l('description')}</div>
-        ${roles ? `<div class="ve-desc">${roles}</div>` : ''}
         ${skills ? `<div class="ve-tags">${skills}</div>` : ''}
       </div>`
     }

@@ -15,6 +15,13 @@ interface EditorCardProps {
   title: string
   subtitle?: string
   meta?: string
+  /**
+   * Full descriptive text shown in the COLLAPSED list view, below the title
+   * row. Multi-line, no truncation — the point is to let the user scan the
+   * full content while looking over the list. Hidden when the card is open
+   * (the same text is being edited inline below).
+   */
+  preview?: string
   starred?: boolean
   disabled?: boolean
   canStar?: boolean
@@ -30,7 +37,7 @@ interface EditorCardProps {
 }
 
 export function EditorCard({
-  section, id, title, subtitle, meta, starred, disabled,
+  section, id, title, subtitle, meta, preview, starred, disabled,
   canStar = true, canDisable = true, sortable = true, children,
 }: EditorCardProps) {
   const { expandedItemId, setExpandedItem, updateItem, removeItem, reorderItem } = useStore()
@@ -102,6 +109,9 @@ export function EditorCard({
           </button>
         </div>
       </div>
+      {!open && preview && (
+        <div className="ec-preview" onClick={() => setExpandedItem(id)}>{preview}</div>
+      )}
       {open && <div className="ec-body">{children}</div>}
 
       <style>{`
@@ -143,6 +153,14 @@ export function EditorCard({
         .ec-act.on { color: var(--gold); }
         .ec-act.on-off { color: var(--accent); }
         .ec-del:hover { background: var(--accent-wash); color: var(--accent); }
+        .ec-preview {
+          padding: 0 18px 14px;
+          font-size: 13px;
+          line-height: 1.55;
+          color: var(--ink-soft);
+          white-space: pre-wrap;
+          cursor: pointer;
+        }
         .ec-body {
           padding: 6px 18px 20px; border-top: 1px solid var(--line);
           animation: fadeIn .25s ease;

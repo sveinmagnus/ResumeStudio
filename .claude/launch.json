@@ -4,7 +4,7 @@
     {
       "name": "resume-studio",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeArgs": ["run", "dev:client"],
       "port": 5173
     }
   ]

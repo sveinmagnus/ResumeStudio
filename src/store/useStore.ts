@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid'
 import type { ResumeStore, Resume, LocalizedString } from '../types'
 import { importFromCVPartner } from '../lib/importer'
 import { detectLocalesInData, sortLocales } from '../lib/locales'
+import { foldRoleDescriptions } from '../lib/migrate'
 
 interface AppState {
   data: ResumeStore
@@ -125,9 +126,12 @@ export const useStore = create<AppState>((set, get) => {
     },
 
     loadStore: (store) => {
-      const locales = store.resume?.supported_locales ?? ['en']
+      // Bring older persisted data up to the current shape before it enters
+      // the store (e.g. fold legacy per-role descriptions into the project).
+      const migrated = foldRoleDescriptions(store)
+      const locales = migrated.resume?.supported_locales ?? ['en']
       set({
-        data: store, hasData: true, mutationCount: 0,
+        data: migrated, hasData: true, mutationCount: 0,
         primaryLocale: locales[0] ?? 'en',
         secondaryLocale: locales[1] ?? null,
       })

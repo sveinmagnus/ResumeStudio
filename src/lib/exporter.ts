@@ -232,6 +232,11 @@ function renderProjects(items: unknown[], locale: string): Paragraph[] {
       ],
     }))
     const sub: string[] = []
+    const roleNames = ((p.roles as Array<AnyItem & { disabled?: boolean }> | undefined) ?? [])
+      .filter((role) => !role.disabled)
+      .map((role) => ls(role, 'name', locale))
+      .filter(Boolean)
+    if (roleNames.length)           sub.push(roleNames.join(', '))
     if (ls(p, 'industry', locale))  sub.push(ls(p, 'industry', locale))
     if (p.team_size)                sub.push(`Team of ${p.team_size as number}`)
     if (p.percent_allocated)        sub.push(`${p.percent_allocated as number}% allocation`)
@@ -241,21 +246,6 @@ function renderProjects(items: unknown[], locale: string): Paragraph[] {
     const longDesc  = ls(p, 'long_description', locale)
     if (shortDesc && shortDesc !== title)       out.push(para(shortDesc, { after: 80 }))
     if (longDesc)                                out.push(para(longDesc,  { after: 100 }))
-
-    const roles = (p.roles as Array<AnyItem & { disabled?: boolean }> | undefined) ?? []
-    for (const role of roles) {
-      if (role.disabled) continue
-      const n = ls(role, 'name', locale)
-      const d = ls(role, 'long_description', locale)
-      if (!n && !d) continue
-      out.push(new Paragraph({
-        spacing: { after: 60 },
-        children: [
-          ...(n ? [new TextRun({ text: `${n}: `, bold: true, font: BODY_FONT })] : []),
-          ...(d ? [new TextRun({ text: d, font: BODY_FONT })] : []),
-        ],
-      }))
-    }
 
     const highlights = (p.highlights as LocalizedString[] | undefined) ?? []
     for (const h of highlights) {

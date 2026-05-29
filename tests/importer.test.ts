@@ -221,6 +221,25 @@ describe('importFromCVPartner — projects', () => {
     expect(store.projects[0].use_anonymized).toBe(false)
   })
 
+  it('folds role descriptions into the single project long_description', () => {
+    const store = importFromCVPartner({
+      project_experiences: [
+        {
+          _id: 'p1',
+          customer: { en: 'X' },
+          long_description: { en: 'Project background.' },
+          roles: [
+            { _id: 'pr1', name: { en: 'Architect' }, long_description: { en: 'Designed the platform.' } },
+          ],
+        },
+      ],
+    })
+    // Role free text is merged into the project description, prefixed with the
+    // role name; roles themselves carry no description field anymore.
+    expect(store.projects[0].long_description.en).toBe('Project background.\n\nArchitect: Designed the platform.')
+    expect('long_description' in store.projects[0].roles[0]).toBe(false)
+  })
+
   it('parses start/end YearMonth from year_from/month_from + year_to/month_to', () => {
     const store = importFromCVPartner({
       project_experiences: [

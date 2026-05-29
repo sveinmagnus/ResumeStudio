@@ -33,12 +33,13 @@ export function ProjectsEditor() {
           title={resolve(p.customer, primaryLocale) || resolve(p.description, primaryLocale)}
           subtitle={resolve(p.description, primaryLocale)}
           meta={fmtRange(p.start, p.end)}
+          preview={resolve(p.long_description, primaryLocale)}
           starred={p.starred} disabled={p.disabled}>
 
           <DualField label="Customer" value={p.customer} onChange={(v) => updateItem('projects', p.id, { customer: v })} />
           <DualField label="Description (short)" value={p.description} onChange={(v) => updateItem('projects', p.id, { description: v })} />
           <DualField label="Industry" value={p.industry} onChange={(v) => updateItem('projects', p.id, { industry: v })} />
-          <DualField label="Background & context" value={p.long_description} onChange={(v) => updateItem('projects', p.id, { long_description: v })} multiline rows={5} />
+          <DualField label="Description" value={p.long_description} onChange={(v) => updateItem('projects', p.id, { long_description: v })} multiline rows={6} />
 
           <FieldRow>
             <DateField label="Start" value={p.start} onChange={(v) => updateItem('projects', p.id, { start: v })} />
@@ -114,14 +115,14 @@ function ProjectRolesEditor({ project }: { project: Project }) {
     })
   }
   const add = () => {
-    const role: ProjectRole = { id: newId(), role_id: '', name: {}, long_description: {}, summary: {}, sort_order: project.roles.length, disabled: false }
+    const role: ProjectRole = { id: newId(), role_id: '', name: {}, sort_order: project.roles.length, disabled: false }
     updateItem('projects', project.id, { roles: [...project.roles, role] })
   }
   const remove = (rid: string) => updateItem('projects', project.id, { roles: project.roles.filter((r) => r.id !== rid) })
 
   return (
     <div className="sub-block">
-      <div className="sub-head">Roles on this project</div>
+      <div className="sub-head">Roles on this project <span className="sub-hint">describe the work in the project Description above</span></div>
       {project.roles.map((role) => (
         <div key={role.id} className="nested-card">
           <div className="nested-top">
@@ -136,7 +137,6 @@ function ProjectRolesEditor({ project }: { project: Project }) {
             <button className="hl-del" onClick={() => remove(role.id)}><X size={14} /></button>
           </div>
           {!role.role_id && <DualField label="Role name" value={role.name} onChange={(v) => update(role.id, { name: v })} />}
-          <DualField label="What was done in this role" value={role.long_description} onChange={(v) => update(role.id, { long_description: v })} multiline rows={3} />
         </div>
       ))}
       <button className="sub-add" onClick={add}><Plus size={13} /> Add role</button>

@@ -5,6 +5,7 @@ import type {
   TechnologyCategory, Position, Presentation, HonorAward,
   LocalizedString, YearMonth, ProjectRole, ProjectSkill, CategorySkill, KeyPoint
 } from '../types'
+import { appendLocalized, buildRoleParagraph } from './migrate'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -272,14 +273,25 @@ export function importFromCVPartner(raw: Record<string, unknown>): ResumeStore {
   const projects: Project[] = []
 
   for (const p of rawProjects) {
+    // Project description starts from the project's own long_description, then
+    // each role's free text is folded in — we keep a single description field
+    // per project rather than separating background from role descriptions.
+    let projectLongDescription = localized(p.long_description)
+
     const projectRoles: ProjectRole[] = (p.roles || []).map((r, i) => {
       const globalRoleId = r.cv_role_id ? roleIdMap.get(r.cv_role_id) : undefined
+      projectLongDescription = appendLocalized(
+        projectLongDescription,
+        buildRoleParagraph({
+          name: localized(r.name),
+          long_description: localized(r.long_description),
+          summary: localized(r.summary),
+        }),
+      )
       return {
         id: uuidv4(),
         role_id: globalRoleId || uuidv4(),
         name: localized(r.name),
-        long_description: localized(r.long_description),
-        summary: localized(r.summary),
         sort_order: r.order || i,
         disabled: r.disabled || false,
       }
@@ -311,7 +323,7 @@ export function importFromCVPartner(raw: Record<string, unknown>): ResumeStore {
       use_anonymized: p.customer_selected === 'customer_anonymized',
       industry: localized(p.industry),
       description: localized(p.description),
-      long_description: localized(p.long_description),
+      long_description: projectLongDescription,
       highlights: [],
       roles: projectRoles,
       skills: projectSkills,
