@@ -7,26 +7,25 @@ import { resolve } from '../../lib/locales'
 import {
   mergeSkills, mergeRoles, countSkillReferences, countRoleReferences,
 } from '../../lib/merge'
-import type { Skill, Role, Reference, TechnologyCategory, CategorySkill } from '../../types'
+import type { Skill, Role, Reference, TechnologyCategory, CategorySkill, LocalizedString } from '../../types'
 import { X, Plus, Combine } from 'lucide-react'
 
 // ── Skill registry ───────────────────────────────────────────────────────────
 
 export function SkillsEditor() {
-  const { data, primaryLocale, addItem, updateItem, loadStore } = useStore()
+  const { data, primaryLocale, addItem, updateItem, replaceData } = useStore()
   const items = [...data.skills].sort((a, b) => resolve(a.name, primaryLocale).localeCompare(resolve(b.name, primaryLocale)))
 
-  // compute usage counts across projects
-  const usage = new Map<string, number>()
-  data.projects.forEach((p) => p.skills.forEach((s) => usage.set(s.skill_id, (usage.get(s.skill_id) || 0) + 1)))
+  // Usage spans projects AND technology categories — countSkillReferences
+  // already enumerates every reference site, so reuse it rather than an
+  // inline scan that would silently miss the tech-category branch.
+  const usage = new Map(items.map((s) => [s.id, countSkillReferences(data, s.id)]))
 
   const onMerge = (sourceId: string, targetId: string) => {
-    if (!targetId || sourceId === targetId) return
-    const refs = countSkillReferences(data, sourceId)
-    const sourceName = resolve(data.skills.find((s) => s.id === sourceId)?.name, primaryLocale)
-    const targetName = resolve(data.skills.find((s) => s.id === targetId)?.name, primaryLocale)
-    if (!confirm(`Merge "${sourceName}" into "${targetName}"? This will rewrite ${refs} reference${refs === 1 ? '' : 's'} and delete "${sourceName}".`)) return
-    loadStore(mergeSkills(data, sourceId, targetId))
+    if (!confirmMerge('skill', sourceId, targetId, data.skills, primaryLocale, countSkillReferences(data, sourceId))) return
+    // replaceData (not loadStore) so the merge enters the undo stack and is
+    // picked up by the auto-save effect.
+    replaceData(mergeSkills(data, sourceId, targetId))
   }
 
   const add = () => {
@@ -46,8 +45,9 @@ export function SkillsEditor() {
         <EditorCard key={s.id} section="skills" id={s.id}
           title={resolve(s.name, primaryLocale)}
           subtitle={s.skill_type}
-          meta={`${usage.get(s.id) || 0} projects`}
-          canStar={false} canDisable={false}>
+          meta={`${usage.get(s.id) || 0} ref${(usage.get(s.id) ?? 0) === 1 ? '' : 's'}`}
+          canStar={false} canDisable={false}
+          sortable={false}>
           <DualField label="Skill name" value={s.name} onChange={(v) => updateItem('skills', s.id, { name: v })} />
           <FieldRow>
             <div className="pf-wrap">
@@ -89,10 +89,9 @@ export function SkillsEditor() {
 // ── Role registry ────────────────────────────────────────────────────────────
 
 export function RolesEditor() {
-  const { data, primaryLocale, addItem, updateItem, loadStore } = useStore()
+  const { data, primaryLocale, addItem, updateItem, replaceData } = useStore()
   const items = [...data.roles].sort((a, b) => a.sort_order - b.sort_order)
-  const usage = new Map<string, number>()
-  data.projects.forEach((p) => p.roles.forEach((r) => usage.set(r.role_id, (usage.get(r.role_id) || 0) + 1)))
+  const usage = new Map(items.map((r) => [r.id, countRoleReferences(data, r.id)]))
 
   const add = () => {
     const r: Role = {
@@ -103,12 +102,8 @@ export function RolesEditor() {
   }
 
   const onMerge = (sourceId: string, targetId: string) => {
-    if (!targetId || sourceId === targetId) return
-    const refs = countRoleReferences(data, sourceId)
-    const sourceName = resolve(data.roles.find((r) => r.id === sourceId)?.name, primaryLocale)
-    const targetName = resolve(data.roles.find((r) => r.id === targetId)?.name, primaryLocale)
-    if (!confirm(`Merge "${sourceName}" into "${targetName}"? This will rewrite ${refs} reference${refs === 1 ? '' : 's'} and delete "${sourceName}".`)) return
-    loadStore(mergeRoles(data, sourceId, targetId))
+    if (!confirmMerge('role', sourceId, targetId, data.roles, primaryLocale, countRoleReferences(data, sourceId))) return
+    replaceData(mergeRoles(data, sourceId, targetId))
   }
   return (
     <div className="section-pane">
@@ -141,6 +136,30 @@ export function RolesEditor() {
 }
 
 // ── Reusable merge UI ───────────────────────────────────────────────────────
+
+/**
+ * Show the per-merge confirmation dialog. Returns true if the user accepted
+ * AND the merge has a valid (different, both-present) source/target pair.
+ */
+function confirmMerge(
+  kind: 'skill' | 'role',
+  sourceId: string,
+  targetId: string,
+  registry: ReadonlyArray<{ id: string; name: LocalizedString }>,
+  locale: string,
+  refs: number,
+): boolean {
+  if (!targetId || sourceId === targetId) return false
+  const source = registry.find((x) => x.id === sourceId)
+  const target = registry.find((x) => x.id === targetId)
+  if (!source || !target) return false
+  const sName = resolve(source.name, locale) || `(unnamed ${kind})`
+  const tName = resolve(target.name, locale) || `(unnamed ${kind})`
+  const plural = refs === 1 ? '' : 's'
+  return confirm(
+    `Merge "${sName}" into "${tName}"? This will rewrite ${refs} reference${plural} and delete "${sName}".`,
+  )
+}
 
 interface MergeOption { id: string; label: string }
 
@@ -210,7 +229,8 @@ export function ReferencesEditor() {
       {items.map((ref) => (
         <EditorCard key={ref.id} section="references" id={ref.id}
           title={ref.name || 'New reference'} subtitle={[ref.title, ref.company].filter(Boolean).join(', ')}
-          canStar={false} canDisable={false}>
+          canStar={false} canDisable={false}
+          sortable={false}>
           <FieldRow>
             <TextField label="Name" value={ref.name} onChange={(v) => updateItem('references', ref.id, { name: v })} />
             <TextField label="Title" value={ref.title || ''} onChange={(v) => updateItem('references', ref.id, { title: v })} />
@@ -229,7 +249,7 @@ export function ReferencesEditor() {
       ))}
       <AddButton label="Add reference" onClick={add} />
       <RegistryStyles />
-      <style>{`.check-row { display:flex; align-items:center; gap:9px; font-size:14px; color:var(--ink-soft); cursor:pointer; margin-top:6px; } .check-row input { width:16px; height:16px; accent-color: var(--accent); }`}</style>
+      {/* .check-row styling lives in src/index.css */}
     </div>
   )
 }
@@ -304,8 +324,7 @@ function RegistryStyles() {
         padding: 11px 15px; border-radius: var(--r-md); margin-bottom: 16px;
         border-left: 3px solid var(--accent);
       }
-      .check-row { display: flex; align-items: center; gap: 9px; font-size: 14px; color: var(--ink-soft); cursor: pointer; margin-top: 6px; }
-      .check-row input { width: 16px; height: 16px; accent-color: var(--accent); }
+      /* .check-row lives in src/index.css */
       .sub-block { margin: 16px 0 0; padding: 14px; background: var(--paper-sunken); border-radius: var(--r-md); }
       .sub-head { font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--ink-soft); margin-bottom: 10px; }
       .skill-chips { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 10px; }

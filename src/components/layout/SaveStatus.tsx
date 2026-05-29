@@ -1,4 +1,4 @@
-import { Check, CloudOff, Loader2, RefreshCw, HardDrive } from 'lucide-react'
+import { Check, CloudOff, Loader2, RefreshCw, HardDrive, type LucideIcon } from 'lucide-react'
 
 export type SaveState =
   | 'idle'        // nothing to report
@@ -15,45 +15,38 @@ interface Props {
   onRetry?: () => void
 }
 
+interface Variant {
+  icon: LucideIcon
+  label: string
+  className: string
+  spin?: boolean
+  tooltip: (cacheNote: string) => string
+}
+
+const VARIANTS: Record<Exclude<SaveState, 'idle'>, Variant> = {
+  saving:  { icon: Loader2,    label: 'Saving…',     className: 'ss-saving', spin: true,
+             tooltip: () => 'Saving to server…' },
+  saved:   { icon: Check,      label: 'Saved',       className: 'ss-ok',
+             tooltip: () => 'Saved to server' },
+  offline: { icon: HardDrive,  label: 'Local only',  className: 'ss-warn',
+             tooltip: (n) => `Server unreachable. ${n}` },
+  error:   { icon: CloudOff,   label: 'Save failed', className: 'ss-err',
+             tooltip: (n) => `Server save failed. ${n}` },
+}
+
 export function SaveStatus({ state, cacheSavedAt, onRetry }: Props) {
   if (state === 'idle') return null
-
+  const v = VARIANTS[state]
+  const Icon = v.icon
   const cacheNote = cacheSavedAt
     ? `Local backup saved ${new Date(cacheSavedAt).toLocaleTimeString()}.`
     : 'Local backup is up to date.'
 
-  if (state === 'saving') {
-    return (
-      <span className="ss ss-saving" title="Saving to server…">
-        <Loader2 size={13} className="ss-spin" /> Saving…
-        <Style />
-      </span>
-    )
-  }
-
-  if (state === 'saved') {
-    return (
-      <span className="ss ss-ok" title="Saved to server">
-        <Check size={13} /> Saved
-        <Style />
-      </span>
-    )
-  }
-
-  if (state === 'offline') {
-    return (
-      <span className="ss ss-warn" title={`Server unreachable. ${cacheNote}`}>
-        <HardDrive size={13} /> Local only
-        <Style />
-      </span>
-    )
-  }
-
-  // error
   return (
-    <span className="ss ss-err" title={`Server save failed. ${cacheNote}`}>
-      <CloudOff size={13} /> Save failed
-      {onRetry && (
+    <span className={`ss ${v.className}`} title={v.tooltip(cacheNote)}>
+      <Icon size={13} className={v.spin ? 'ss-spin' : undefined} />
+      {v.label}
+      {state === 'error' && onRetry && (
         <button className="ss-retry" onClick={onRetry} title="Retry save">
           <RefreshCw size={12} /> Retry
         </button>

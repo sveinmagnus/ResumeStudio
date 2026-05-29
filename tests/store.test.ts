@@ -26,6 +26,7 @@ const reset = () => {
     secondaryLocale: null,
     expandedItemId: null,
     hasData: true,
+    mutationCount: 0,
   }))
 }
 
@@ -284,10 +285,83 @@ describe('detectAndSetLocales()', () => {
   })
 })
 
+// ─── replaceData / mutationCount semantics ────────────────────────────────
+
+describe('replaceData()', () => {
+  it('replaces data and bumps mutationCount (unlike loadStore)', () => {
+    useStore.getState().addItem('projects', makeProject({ id: 'p1' }))
+    const before = useStore.getState().mutationCount
+    const replacement = {
+      ...useStore.getState().data,
+      projects: [makeProject({ id: 'p99' })],
+    }
+    useStore.getState().replaceData(replacement)
+    expect(useStore.getState().data.projects[0].id).toBe('p99')
+    expect(useStore.getState().mutationCount).toBe(before + 1)
+  })
+
+  it('produces a different observable effect than loadStore for the same data', () => {
+    const someStore = useStore.getState().data
+    // loadStore resets mutationCount to 0 (I/O semantics)
+    useStore.getState().loadStore(someStore)
+    expect(useStore.getState().mutationCount).toBe(0)
+    // replaceData bumps mutationCount (user-mutation semantics)
+    useStore.getState().replaceData(someStore)
+    expect(useStore.getState().mutationCount).toBe(1)
+  })
+})
+
+describe('mutationCount semantics', () => {
+  it('every observable mutating action bumps the counter exactly once', () => {
+    // Need 2 items so moveItem is a real move (not the from===to no-op).
+    useStore.getState().addItem('projects', makeProject({ id: 'p1', sort_order: 0 }))
+    useStore.getState().addItem('projects', makeProject({ id: 'p2', sort_order: 1 }))
+    const after2Adds = useStore.getState().mutationCount
+    useStore.getState().updateItem('projects', 'p1', { team_size: 5 })
+    useStore.getState().moveItem('projects', 'p1', 1)
+    useStore.getState().removeItem('projects', 'p1')
+    expect(useStore.getState().mutationCount).toBe(after2Adds + 3)
+  })
+
+  it('updates/removes for a missing id do NOT bump the counter', () => {
+    useStore.getState().addItem('projects', makeProject({ id: 'p1' }))
+    const before = useStore.getState().mutationCount
+    useStore.getState().updateItem('projects', 'missing', { team_size: 7 })
+    useStore.getState().removeItem('projects', 'missing')
+    expect(useStore.getState().mutationCount).toBe(before)
+  })
+
+  it('moveItem to the same position does NOT bump the counter', () => {
+    useStore.getState().addItem('projects', makeProject({ id: 'a', sort_order: 0 }))
+    useStore.getState().addItem('projects', makeProject({ id: 'b', sort_order: 1 }))
+    const before = useStore.getState().mutationCount
+    useStore.getState().moveItem('projects', 'a', 0) // already at 0
+    expect(useStore.getState().mutationCount).toBe(before)
+  })
+
+  it('detectAndSetLocales does NOT bump when the locale set is unchanged', () => {
+    // Resume already has supported_locales = ['en'] and no content uses
+    // anything else, so detection adds nothing.
+    const before = useStore.getState().mutationCount
+    useStore.getState().detectAndSetLocales()
+    expect(useStore.getState().mutationCount).toBe(before)
+  })
+
+  it('updateResume on a null resume is a no-op (does not bump counter)', () => {
+    useStore.setState((st) => ({ ...st, data: { ...st.data, resume: null } }))
+    const before = useStore.getState().mutationCount
+    useStore.getState().updateResume({ full_name: 'X' })
+    expect(useStore.getState().mutationCount).toBe(before)
+  })
+})
+
 // ─── loadStore / startFresh ────────────────────────────────────────────────
 
 describe('loadStore() & startFresh()', () => {
-  it('loadStore replaces the in-memory store and marks hasData', () => {
+  it('loadStore replaces the in-memory store, marks hasData, and resets mutationCount', () => {
+    // Push the counter forward first so we can verify the reset.
+    useStore.getState().addItem('projects', makeProject({ id: 'temp' }))
+    expect(useStore.getState().mutationCount).toBeGreaterThan(0)
     useStore.setState((st) => ({ ...st, hasData: false }))
     const replacement = {
       resume: null,
@@ -300,6 +374,7 @@ describe('loadStore() & startFresh()', () => {
     useStore.getState().loadStore(replacement)
     expect(useStore.getState().hasData).toBe(true)
     expect(useStore.getState().data.skills).toHaveLength(1)
+    expect(useStore.getState().mutationCount).toBe(0)
   })
 
   it('startFresh seeds an empty resume and switches to the Personal Details section', () => {

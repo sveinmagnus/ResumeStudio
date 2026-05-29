@@ -32,9 +32,10 @@ describe('saveCache / loadCache round-trip', () => {
     expect(loadCache()).toBeNull()
   })
 
-  it('uses a default saved_at when only the data entry is present', () => {
-    saveCache(emptyStore())
-    localStorage.removeItem('resumestudio:store-cache:meta:v1')
+  it('returns a sane saved_at when the stored record lacks one', () => {
+    // Hand-craft a record missing the timestamp — proves we tolerate older
+    // shapes without crashing.
+    localStorage.setItem('resumestudio:store-cache:v1', JSON.stringify({ data: emptyStore() }))
     const out = loadCache()
     expect(out).not.toBeNull()
     expect(out!.saved_at).toBe(new Date(0).toISOString())

@@ -95,7 +95,6 @@ export function EducationEditor() {
       ))}
       </SortableList>
       <AddButton label="Add education" onClick={add} />
-      <CheckStyles />
     </div>
   )
 }
@@ -406,11 +405,4 @@ export function ProfileEditor() {
   )
 }
 
-function CheckStyles() {
-  return (
-    <style>{`
-      .check-row { display: flex; align-items: center; gap: 9px; font-size: 14px; color: var(--ink-soft); cursor: pointer; margin-top: 6px; }
-      .check-row input { width: 16px; height: 16px; accent-color: var(--accent); }
-    `}</style>
-  )
-}
+// (.check-row styling now lives in src/index.css)

@@ -1,17 +1,18 @@
 /**
  * Undo/redo on top of the resume store.
  *
- * Strategy: subscribe to the store's mutationCount. Each increment is a user
- * mutation — debounce 500ms and push a snapshot of `data` to the past stack.
- * The debounce groups bursts of activity (rapid typing) into single undo
- * steps. Undo pops the past, snaps current to future, and replays via
- * `loadStore`. Redo is symmetric.
+ * We subscribe to the store's mutationCount. Each increment is a user
+ * mutation — we debounce 500 ms (so bursts of typing collapse into one undo
+ * step), then push the PRE-mutation `data` to a past stack.
  *
- * History is stored in module scope rather than React state because:
- *   - It's append-mostly, so re-rendering on every push wastes work
- *   - The keyboard handler only needs the latest snapshot, not deps tracking
+ * Undo / redo apply a snapshot via the store's `replaceData` action, which
+ * itself bumps `mutationCount` (so auto-save persists the undone state).
+ * Because our own subscriber would otherwise treat that as a brand-new
+ * mutation and re-push it, we set a one-shot `suppressNext` flag — flipped
+ * synchronously inside undo/redo and cleared by the next subscription tick.
  *
- * A small React state slot (canUndo/canRedo) drives UI affordances.
+ * History lives in module-scope refs rather than React state because it's
+ * append-mostly and the keyboard handler only reads the latest entry.
  */
 import { useEffect, useRef, useState } from 'react'
 import { useStore } from './useStore'
@@ -29,14 +30,15 @@ export function useUndoRedo(): {
   const past   = useRef<ResumeStore[]>([])
   const future = useRef<ResumeStore[]>([])
 
-  // When we restore a snapshot via loadStore the subscription would otherwise
-  // record THAT as a fresh mutation and re-push it. This ref tells the
-  // subscriber to skip the next change.
+  // When undo/redo apply a snapshot via replaceData, the subscriber would
+  // otherwise treat that as a new mutation and push it. This ref tells it
+  // to skip exactly one increment.
   const suppressNext = useRef(false)
 
-  // The snapshot we'll push if no further mutation arrives within DEBOUNCE_MS.
-  const pendingSnapshot = useRef<ResumeStore | null>(null)
-  const pendingTimer    = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // The next snapshot we'll commit if no further mutation arrives within
+  // DEBOUNCE_MS. Captured in the setTimeout closure.
+  const pendingTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const flushPending = useRef<(() => void) | null>(null)
 
   const [canUndo, setCanUndo] = useState(false)
   const [canRedo, setCanRedo] = useState(false)
@@ -48,25 +50,26 @@ export function useUndoRedo(): {
 
     const unsub = useStore.subscribe((st) => {
       const advanced = st.mutationCount > prevMutation
-      const dataToPush = prevData
+      const snapshot = prevData
       prevMutation = st.mutationCount
       prevData     = st.data
 
       if (!advanced) return
       if (suppressNext.current) { suppressNext.current = false; return }
 
-      // Push a snapshot of the PRE-MUTATION data so that undo returns to it.
-      pendingSnapshot.current = dataToPush
+      // Debounce: replace any prior pending commit with one targeting the
+      // newest pre-mutation snapshot.
       if (pendingTimer.current) clearTimeout(pendingTimer.current)
-      pendingTimer.current = setTimeout(() => {
-        if (!pendingSnapshot.current) return
-        past.current.push(pendingSnapshot.current)
+      const commit = () => {
+        past.current.push(snapshot)
         if (past.current.length > MAX_HISTORY) past.current.shift()
         future.current = []
-        pendingSnapshot.current = null
-        setCanUndo(past.current.length > 0)
+        flushPending.current = null
+        setCanUndo(true)
         setCanRedo(false)
-      }, DEBOUNCE_MS)
+      }
+      flushPending.current = commit
+      pendingTimer.current = setTimeout(commit, DEBOUNCE_MS)
     })
     return () => {
       unsub()
@@ -74,43 +77,41 @@ export function useUndoRedo(): {
     }
   }, [])
 
-  const undo = () => {
-    // Flush any pending debounce so this undo step has a coherent target.
+  // Flush any debounced commit synchronously, so undo/redo targets reflect
+  // every keystroke up to "now" rather than the last paused state.
+  const flush = () => {
     if (pendingTimer.current) { clearTimeout(pendingTimer.current); pendingTimer.current = null }
-    if (pendingSnapshot.current) {
-      past.current.push(pendingSnapshot.current)
-      pendingSnapshot.current = null
-    }
+    if (flushPending.current) { flushPending.current(); flushPending.current = null }
+  }
+
+  const undo = () => {
+    flush()
     const snapshot = past.current.pop()
     if (!snapshot) return
     future.current.push(useStore.getState().data)
     suppressNext.current = true
-    useStore.getState().loadStore(snapshot)
+    useStore.getState().replaceData(snapshot)
     setCanUndo(past.current.length > 0)
     setCanRedo(future.current.length > 0)
   }
 
   const redo = () => {
-    if (pendingTimer.current) { clearTimeout(pendingTimer.current); pendingTimer.current = null }
+    flush()
     const snapshot = future.current.pop()
     if (!snapshot) return
     past.current.push(useStore.getState().data)
     suppressNext.current = true
-    useStore.getState().loadStore(snapshot)
+    useStore.getState().replaceData(snapshot)
     setCanUndo(past.current.length > 0)
     setCanRedo(future.current.length > 0)
   }
 
-  // Cmd/Ctrl+Z and Shift+Cmd/Ctrl+Z keyboard shortcuts.
+  // Ctrl/Cmd+Z and Ctrl/Cmd+Shift+Z (or Ctrl/Cmd+Y) keyboard shortcuts.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const mod = e.ctrlKey || e.metaKey
       if (!mod) return
       if (e.key === 'z' || e.key === 'Z') {
-        // Skip if focus is in an input/textarea AND it's not the resume editor —
-        // actually, in this app every interaction IS an editor, so we always
-        // own undo. The native input undo gets superseded, which is the
-        // intended UX (undo the resume, not the textarea).
         e.preventDefault()
         if (e.shiftKey) redo()
         else undo()

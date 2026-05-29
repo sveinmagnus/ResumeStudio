@@ -19,47 +19,55 @@ interface EditorCardProps {
   disabled?: boolean
   canStar?: boolean
   canDisable?: boolean
+  /**
+   * Whether to render the drag handle and wire up dnd-kit's sortable for
+   * this card. Default true. Pass `false` from editors that intentionally
+   * don't reorder (e.g. alphabetically-sorted Skills, References without a
+   * sort_order field) so the grip doesn't lie about being draggable.
+   */
+  sortable?: boolean
   children: ReactNode
 }
 
 export function EditorCard({
   section, id, title, subtitle, meta, starred, disabled,
-  canStar = true, canDisable = true, children,
+  canStar = true, canDisable = true, sortable = true, children,
 }: EditorCardProps) {
   const { expandedItemId, setExpandedItem, updateItem, removeItem, reorderItem } = useStore()
   const open = expandedItemId === id
 
-  // useSortable works when an ancestor wrapped us in <SortableContext>;
-  // outside of one it's a no-op (transform/transition are empty), so the
-  // card still renders fine if a section isn't wrapped yet.
+  // useSortable is called unconditionally because hooks may not be
+  // conditional. When `sortable` is false we still pay the (tiny) hook
+  // cost, but we don't render the grip and we ignore the transform so the
+  // card looks identical to its old static self.
   const {
     attributes, listeners, setNodeRef, transform, transition, isDragging,
   } = useSortable({ id })
 
-  const style: React.CSSProperties = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.5 : 1,
-  }
+  const style: React.CSSProperties = sortable
+    ? { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 }
+    : {}
 
   return (
     <div
-      ref={setNodeRef}
+      ref={sortable ? setNodeRef : undefined}
       style={style}
       data-card-id={id}
       className={`ec ${open ? 'open' : ''} ${disabled ? 'is-disabled' : ''} ${isDragging ? 'is-dragging' : ''}`}
     >
       <div className="ec-head" onClick={() => setExpandedItem(id)}>
-        <button
-          className="ec-grip"
-          {...attributes}
-          {...listeners}
-          onClick={(e) => e.stopPropagation()}
-          title="Drag to reorder"
-          aria-label="Drag handle"
-        >
-          <GripVertical size={15} />
-        </button>
+        {sortable && (
+          <button
+            className="ec-grip"
+            {...attributes}
+            {...listeners}
+            onClick={(e) => e.stopPropagation()}
+            title="Drag to reorder"
+            aria-label="Drag handle"
+          >
+            <GripVertical size={15} />
+          </button>
+        )}
         <button className="ec-chev"><ChevronDown size={17} /></button>
         <div className="ec-titles">
           <div className="ec-title">
@@ -82,8 +90,12 @@ export function EditorCard({
               {disabled ? <EyeOff size={15} /> : <Eye size={15} />}
             </button>
           )}
-          <button className="ec-act" title="Move up" onClick={() => reorderItem(section, id, 'up')}><ArrowUp size={15} /></button>
-          <button className="ec-act" title="Move down" onClick={() => reorderItem(section, id, 'down')}><ArrowDown size={15} /></button>
+          {sortable && (
+            <>
+              <button className="ec-act" title="Move up" onClick={() => reorderItem(section, id, 'up')}><ArrowUp size={15} /></button>
+              <button className="ec-act" title="Move down" onClick={() => reorderItem(section, id, 'down')}><ArrowDown size={15} /></button>
+            </>
+          )}
           <button className="ec-act ec-del" title="Delete"
             onClick={() => { if (confirm('Delete this item?')) removeItem(section, id) }}>
             <Trash2 size={15} />

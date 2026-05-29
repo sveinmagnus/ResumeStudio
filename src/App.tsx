@@ -40,21 +40,25 @@ export default function App() {
   const [authError, setAuthError]   = useState('')
 
   // ── Auto-save plumbing ────────────────────────────────────────────────────
-  // mutationCount captures "has the user changed anything since the last
-  // successful server save?" Loads reset it to 0 in the store.
+  // mutationCount is "have we changed anything since the last successful
+  // server save?" Loads reset it to 0 in the store. Both `data` and
+  // `mutationCount` change together on a mutation, so we depend on
+  // `mutationCount` only and read `data` via `useStore.getState()` — keeps
+  // `flushToServer` from being rebuilt on every keystroke (which would
+  // otherwise churn the save-effect teardown/setup cycle).
   const lastSavedMutation = useRef(0)
-  const saveTimer         = useRef<ReturnType<typeof setTimeout> | null>(null)
   const saveAbort         = useRef<AbortController | null>(null)
 
-  // Push the current data to the server. Reuses the effect's logic so the
-  // user's "Retry" button hits the same code path as the auto-save.
+  // Push current data to the server. The Retry button reuses this entry.
   const flushToServer = useCallback(async () => {
+    const snapshot = useStore.getState().data
+    const counterAtSend = useStore.getState().mutationCount
     saveAbort.current?.abort()
     saveAbort.current = new AbortController()
     setSaveState('saving')
     try {
-      await api.save(data, saveAbort.current.signal)
-      lastSavedMutation.current = mutationCount
+      await api.save(snapshot, saveAbort.current.signal)
+      lastSavedMutation.current = counterAtSend
       setSaveState('saved')
       // Clear the local cache once it matches the server — keeps things tidy
       // and avoids stale data lingering after a successful sync.
@@ -67,7 +71,7 @@ export default function App() {
       console.error('Auto-save failed:', err)
       setSaveState('error')
     }
-  }, [data, mutationCount])
+  }, [])
 
   // ── Initial load: prefer server, fall back to local cache ─────────────────
   useEffect(() => {
@@ -104,22 +108,25 @@ export default function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // ── Local-cache write: every mutation, no debounce. Cheap and synchronous. ──
+  // ── Local-cache write: short debounce so we don't stringify the whole
+  //    store on every keystroke. Still much tighter than the server save
+  //    (1 s) so a browser crash loses at most ~quarter-second of work.
   useEffect(() => {
-    if (!hasData) return
-    if (mutationCount === 0) return
-    saveCache(data)
-    setCacheSavedAt(new Date().toISOString())
-  }, [data, mutationCount, hasData])
+    if (!hasData || mutationCount === 0) return
+    const t = setTimeout(() => {
+      saveCache(useStore.getState().data)
+      setCacheSavedAt(new Date().toISOString())
+    }, 250)
+    return () => clearTimeout(t)
+  }, [mutationCount, hasData])
 
   // ── Server save: 1s debounce after the latest user mutation ───────────────
   useEffect(() => {
     if (!hasData) return
     if (mutationCount === lastSavedMutation.current) return
-    if (saveTimer.current) clearTimeout(saveTimer.current)
-    saveTimer.current = setTimeout(() => { void flushToServer() }, 1000)
-    return () => { if (saveTimer.current) clearTimeout(saveTimer.current) }
-  }, [data, mutationCount, hasData, flushToServer])
+    const t = setTimeout(() => { void flushToServer() }, 1000)
+    return () => clearTimeout(t)
+  }, [mutationCount, hasData, flushToServer])
 
   // ── Auth modal submit ──────────────────────────────────────────────────────
   const handleTokenSubmit = async () => {
