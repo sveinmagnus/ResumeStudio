@@ -260,8 +260,15 @@ export function importFromCVPartner(raw: Record<string, unknown>): ResumeStore {
     })
   }
 
+  // ── Work-experience id map — built up-front so projects can resolve
+  //    related_work_experience_id while we iterate them below.
+  const workIdMap = new Map<string, string>()
+  const rawWork = (raw.work_experiences as Array<Record<string, unknown>>) || []
+  for (const w of rawWork) {
+    workIdMap.set(w._id as string, uuidv4())
+  }
+
   // ── Projects ──────────────────────────────────────────────────────────────
-  const workIdMap = new Map<string, string>() // built during work_experiences
   const projects: Project[] = []
 
   for (const p of rawProjects) {
@@ -323,11 +330,10 @@ export function importFromCVPartner(raw: Record<string, unknown>): ResumeStore {
   }
 
   // ── Work experiences ──────────────────────────────────────────────────────
+  // (rawWork and workIdMap were populated above so projects could reference them)
   const work_experiences: WorkExperience[] = []
-  const rawWork = (raw.work_experiences as Array<Record<string, unknown>>) || []
   for (const w of rawWork) {
-    const ourId = uuidv4()
-    workIdMap.set(w._id as string, ourId)
+    const ourId = workIdMap.get(w._id as string)!
     work_experiences.push({
       id: ourId,
       resume_id: resumeId,

@@ -4,9 +4,10 @@ import {
   LayoutDashboard, User, FileText, Briefcase, Building2, Users,
   GraduationCap, BookOpen, Award, Layers, Languages, Presentation,
   Newspaper, Trophy, Contact, Tags, SquareUser, LayoutList, Circle,
+  type LucideIcon,
 } from 'lucide-react'
 
-const ICON_MAP: Record<string, React.FC<{ size?: number }>> = {
+const ICON_MAP: Record<string, LucideIcon> = {
   LayoutDashboard, User, FileText, Briefcase, Building2, Users,
   GraduationCap, BookOpen, Award, Layers, Languages, Presentation,
   Newspaper, Trophy, Contact, Tags, SquareUser, LayoutList,

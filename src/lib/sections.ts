@@ -5,7 +5,7 @@ export interface SectionDef {
   label: string
   storeKey?: Exclude<keyof ResumeStore, 'resume'>
   icon: string  // lucide icon name
-  group: 'profile' | 'experience' | 'credentials' | 'extras' | 'registry'
+  group: 'profile' | 'experience' | 'credentials' | 'extras' | 'registry' | 'export'
 }
 
 export const SECTIONS: SectionDef[] = [
