@@ -4,12 +4,18 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "concurrently -n client,server -c cyan,yellow \"npm run dev:client\" \"npm run dev:server\"",
+    "dev:client": "vite",
+    "dev:server": "tsx watch server/index.ts",
     "build": "vite build",
-    "preview": "vite preview"
+    "start": "NODE_ENV=production tsx server/index.ts",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.server.json --noEmit"
   },
   "dependencies": {
+    "better-sqlite3": "^12.10.0",
     "docx": "^9.7.1",
+    "express": "^5.2.1",
     "lucide-react": "^0.383.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -17,10 +23,15 @@
     "zustand": "^4.5.2"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/express": "^5.0.6",
+    "@types/node": "^25.9.1",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "@types/uuid": "^9.0.8",
     "@vitejs/plugin-react": "^4.3.1",
+    "concurrently": "^10.0.0",
+    "tsx": "^4.22.3",
     "typescript": "^5.4.5",
     "vite": "^5.3.1"
   }

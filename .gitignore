@@ -1,0 +1,9 @@
+node_modules/
+dist/
+
+# Runtime data — database lives here, never commit it
+data/
+
+# Environment — contains the API secret token
+.env
+.env.local

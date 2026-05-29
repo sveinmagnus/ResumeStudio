@@ -1,10 +1,11 @@
 import { useRef, useState } from 'react'
 import { useStore } from '../store/useStore'
 import { Upload, FileJson, Sparkles } from 'lucide-react'
+import { isBackupFormat, importFromBackup } from '../lib/backup'
 
 export function ImportScreen() {
-  const loadFromCVPartner = useStore((s) => s.loadFromCVPartner)
-  const [error, setError] = useState<string | null>(null)
+  const { loadFromCVPartner, loadStore } = useStore()
+  const [error, setError]     = useState<string | null>(null)
   const [dragging, setDragging] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -12,8 +13,15 @@ export function ImportScreen() {
     setError(null)
     try {
       const text = await file.text()
-      const json = JSON.parse(text)
-      loadFromCVPartner(json)
+      const json = JSON.parse(text) as unknown
+
+      if (isBackupFormat(json)) {
+        // Resume Studio backup file — load directly
+        loadStore(importFromBackup(json))
+      } else {
+        // Assume CVpartner export format
+        loadFromCVPartner(json as Record<string, unknown>)
+      }
     } catch (e) {
       setError(`Could not parse file: ${(e as Error).message}`)
     }
@@ -26,7 +34,7 @@ export function ImportScreen() {
         <h1 className="is-title">Resume Studio</h1>
         <p className="is-lede">
           Maintain one master consultant resume across multiple languages, then extract
-          targeted CVs for any skill area. Begin by importing a CVpartner export.
+          targeted CVs for any skill area. Begin by importing a file below.
         </p>
 
         <div
@@ -36,21 +44,28 @@ export function ImportScreen() {
           onDrop={(e) => {
             e.preventDefault(); setDragging(false)
             const f = e.dataTransfer.files[0]
-            if (f) handleFile(f)
+            if (f) void handleFile(f)
           }}
-          onClick={() => inputRef.current?.click()}>
+          onClick={() => inputRef.current?.click()}
+        >
           <div className="is-drop-icon"><Upload size={28} /></div>
-          <div className="is-drop-title">Drop your CVpartner JSON here</div>
-          <div className="is-drop-sub">or click to browse</div>
-          <input ref={inputRef} type="file" accept=".json,application/json" hidden
-            onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f) }} />
+          <div className="is-drop-title">Drop your resume file here</div>
+          <div className="is-drop-sub">or click to browse — accepts Resume Studio backups and CVpartner exports</div>
+          <input
+            ref={inputRef}
+            type="file"
+            accept=".json,application/json"
+            hidden
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleFile(f) }}
+          />
         </div>
 
         {error && <div className="is-error">{error}</div>}
 
         <div className="is-features">
-          <div className="is-feat"><FileJson size={16} /> Imports projects, employment, education, courses, skills &amp; more</div>
-          <div className="is-feat"><Sparkles size={16} /> Side-by-side dual-language editing</div>
+          <div className="is-feat"><FileJson size={16} /> Resume Studio backup (.json) — restore a previous session</div>
+          <div className="is-feat"><FileJson size={16} /> CVpartner export (.json) — import projects, employment, education, skills &amp; more</div>
+          <div className="is-feat"><Sparkles size={16} /> Side-by-side dual-language editing in any two locales</div>
         </div>
       </div>
 
