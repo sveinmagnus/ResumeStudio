@@ -42,7 +42,7 @@ What's intentionally simple:
 - Styling is **inline `<style>` blocks per component** + CSS custom properties
   in `src/index.css`. No Tailwind, no CSS-in-JS lib.
 
-What's still on the wishlist: see section 9.
+What's still on the wishlist: see section 12.
 
 ---
 
@@ -86,14 +86,15 @@ src/
 ├── types/index.ts              ← single source of truth for the data model
 ├── store/
 │   ├── useStore.ts             ← Zustand store + generic CRUD actions
-│   └── useUndoRedo.ts          ← Undo/redo hook (Ctrl/Cmd+Z), subscribes to mutationCount
+│   ├── useUndoRedo.ts          ← Undo/redo hook (Ctrl/Cmd+Z), subscribes to mutationCount
+│   └── useResumePersistence.ts ← Boot load + auto-save orchestration (effects + refs), submitToken, loadFile
 ├── lib/
 │   ├── api.ts                  ← Server client (load, save with AbortSignal, token auth)
 │   ├── backup.ts               ← Portable JSON backup format + migrateBackup() scaffold
-│   ├── completeness.ts         ← PURE: translation completeness % per locale
+│   ├── completeness.ts         ← PURE: translation completeness % + missing field paths per locale
 │   ├── exporter.ts             ← LAZY-LOADED .docx generation (Cartavio brand, A4)
 │   ├── importer.ts             ← CVpartner JSON → ResumeStore
-│   ├── localCache.ts           ← localStorage fallback (debounced via App.tsx)
+│   ├── localCache.ts           ← localStorage fallback (debounced via useResumePersistence)
 │   ├── locales.ts              ← LOCALE_LABELS, resolve(), fmt*(), detectLocalesInData(), sortLocales()
 │   ├── merge.ts                ← mergeSkills / mergeRoles + reference counts
 │   ├── sections.ts             ← Sidebar section definitions and groups
@@ -101,6 +102,8 @@ src/
 ├── components/
 │   ├── ErrorBoundary.tsx       ← Wraps the editor; resets on activeSection change
 │   ├── ImportScreen.tsx        ← Landing screen (drop CVpartner JSON / backup, or Start Fresh)
+│   ├── AuthGate.tsx            ← Token-entry modal shown on 401 (onSubmit → persistence hook)
+│   ├── AppHeader.tsx           ← Editor top bar: SaveStatus, undo/redo (owns useUndoRedo), LanguageSwitcher, load/save-file
 │   ├── layout/
 │   │   ├── Sidebar.tsx         ← Section navigation
 │   │   ├── LanguageSwitcher.tsx ← Primary/secondary locale + "re-detect" button
@@ -117,7 +120,7 @@ src/
 │       ├── SimpleEditors.tsx   ← Work/Education/Courses/Certs/Positions/Presentations/Publications/Awards/Languages/Profile
 │       ├── RegistryEditors.tsx ← Skill/Role/Reference/TechCat editors + Merge UI
 │       └── ResumeViewsEditor.tsx ← View list + view editor (sections, items, options, Export PDF / Export DOCX)
-├── App.tsx                     ← Routes activeSection; owns load orchestration + auto-save effects
+├── App.tsx                     ← Routing only: picks load splash / AuthGate / ImportScreen / editor shell
 ├── main.tsx                    ← React entry
 └── index.css                   ← Design tokens + body/scrollbar/animations + .check-row utility
 
@@ -127,11 +130,14 @@ server/                         ← Express API + SQLite persistence
 ├── db.ts                       ← better-sqlite3, single-row resume_store table
 └── routes/resume.ts            ← GET / PUT /api/resume
 
-tests/                          ← Vitest specs (179 tests at last count)
+tests/                          ← Vitest specs (214 tests at last count)
 ├── fixtures.ts                 ← Shared makeProject() / makeRole() / ... factories
+├── setup-rtl.ts                ← jest-dom matchers + afterEach(cleanup) for component tests
+├── helpers/store-reset.ts      ← resetStore() — restores the singleton store between component tests
 ├── backup.test.ts, completeness.test.ts, exporter.test.ts,
 ├── importer.test.ts, localCache.test.ts, locales.test.ts,
 ├── merge.test.ts, store.test.ts, viewFilter.test.ts
+└── components/                 ← RTL smoke tests: DualField, Overview, CoursesEditor (.test.tsx, jsdom)
 ```
 
 ### Layered design — these layers must stay clean
@@ -273,7 +279,7 @@ than calling `set()` directly. Return `null` from the updater for a no-op
 - `setExpandedItem(id)` to toggle an `EditorCard` open/closed.
 
 ### Undo / redo
-- `useUndoRedo()` (in `src/store/useUndoRedo.ts`) is a hook that App.tsx uses.
+- `useUndoRedo()` (in `src/store/useUndoRedo.ts`) is a hook consumed by `AppHeader` (which renders the undo/redo buttons and owns the keyboard shortcuts).
 - Subscribes to `mutationCount` changes, debounces 500 ms, pushes the
   pre-mutation snapshot to a past stack capped at 100.
 - Undo/redo apply snapshots via `replaceData` and use a one-shot `suppressNext`
@@ -300,13 +306,13 @@ than calling `set()` directly. Return `null` from the updater for a no-op
 - **Cache**: localStorage (`lib/localCache.ts`, key `resumestudio:store-cache:v1`, single `{data, saved_at}` record).
 - **In-memory**: the Zustand store.
 
-### Boot sequence (App.tsx initial effect)
+### Boot sequence (`useResumePersistence` initial effect)
 1. `api.load()` — try the server. If a resume comes back, load it AND clear the local cache (server is canonical).
 2. If the server returned 404 (no resume yet) AND there's a cache, restore from cache silently (offline edits the server hasn't seen yet).
 3. If the server is unreachable, restore from cache AND set save state to `offline` (visible to the user).
 4. If the server returns 401, show the auth modal.
 
-### Save sequence (per mutation)
+### Save sequence (per mutation, in `useResumePersistence`)
 1. Cache write debounced 250 ms (cheap, but still not per-keystroke).
 2. Server `PUT /api/resume` debounced 1 s, with an AbortController so a newer mutation supersedes an in-flight save.
 3. On success: clear the local cache (now matches the server), flash "Saved" for 2 s.
@@ -436,9 +442,6 @@ RTL is set up (`tests/setup-rtl.ts`, `tests/helpers/store-reset.ts`) and there a
 
 ### 12.8 Multi-resume support
 The DB schema enforces single-tenant via `CHECK (id = 1)`. Multi-resume would mean: drop the constraint, add a `current_resume_id` setting, wire a resume-switcher into the sidebar. The Zustand store wouldn't need to change shape, only what gets loaded into it.
-
-### 12.9 React component splits in App.tsx
-App.tsx orchestrates load + save + auth + file load + header. Extracting `useResumePersistence()` + `<AuthGate>` + `<AppHeader>` would each be ~30-line files and would make App.tsx purely routing. Worth doing the next time you need to add cross-cutting concerns (telemetry, "unsaved changes" prompt, etc.) so they don't compound the existing density.
 
 ---
 
