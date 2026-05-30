@@ -31,10 +31,11 @@ export function ImportScreen() {
     <div className="import-screen">
       <div className="is-inner">
 
-        {/* Cartavio logo — full colour on white background */}
-        <img src="/cartavio-logo.png" alt="Cartavio" className="is-logo" />
-
-        <h1 className="is-title">Resume Studio</h1>
+        {/* Brand mark + app name */}
+        <div className="is-brand">
+          <img src="/cartavio-symbol.png" alt="Cartavio" className="is-symbol" />
+          <h1 className="is-title">Cartavio Resume Studio</h1>
+        </div>
         <p className="is-lede">
           Maintain one master consultant resume across multiple languages, then extract
           targeted CVs for any skill area.
@@ -96,13 +97,15 @@ export function ImportScreen() {
         }
         .is-inner { max-width: 540px; width: 100%; text-align: center; animation: fadeUp .5s ease; }
 
-        /* Logo */
-        .is-logo { width: 200px; height: auto; margin: 0 auto 18px; display: block; }
-
-        /* Title */
+        /* Brand block */
+        .is-brand {
+          display: flex; align-items: center; justify-content: center;
+          gap: 16px; margin-bottom: 14px;
+        }
+        .is-symbol { width: 52px; height: 52px; object-fit: contain; flex-shrink: 0; }
         .is-title {
-          font-size: 38px; letter-spacing: -.01em; margin-bottom: 12px;
-          color: var(--accent);
+          font-size: 44px; letter-spacing: -.01em;
+          color: var(--accent); text-align: left;
         }
         .is-lede { color: var(--ink-soft); font-size: 15px; line-height: 1.6; margin-bottom: 32px; }
 

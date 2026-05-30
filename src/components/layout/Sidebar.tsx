@@ -28,11 +28,13 @@ export function Sidebar() {
 
       {/* ── Brand header ────────────────────────────────────────────── */}
       <div className="sb-brand">
-        <div className="sb-logo-wrap">
-          <img src="/cartavio-logo.png" alt="Cartavio" className="sb-logo" />
+        <div className="sb-mark">
+          <img src="/cartavio-symbol.png" alt="" className="sb-mark-img" />
         </div>
-        <div className="sb-app-name">Resume Studio</div>
-        <div className="sb-sub">{data.resume?.full_name || 'New resume'}</div>
+        <div className="sb-brand-text">
+          <div className="sb-title">Cartavio Resume Studio</div>
+          <div className="sb-sub">{data.resume?.full_name || 'New resume'}</div>
+        </div>
       </div>
 
       {/* ── Section navigation ───────────────────────────────────────── */}
@@ -82,21 +84,22 @@ export function Sidebar() {
 
         /* ── Brand ── */
         .sb-brand {
+          display: flex; align-items: center; gap: 12px;
           padding: 20px 18px 16px;
           border-bottom: 1px solid rgba(244,241,234,0.1);
         }
-        .sb-logo-wrap {
-          display: inline-block;
-          background: #fff; border-radius: var(--r-sm);
-          padding: 6px 10px; margin-bottom: 11px;
-          line-height: 0;
+        .sb-mark {
+          width: 38px; height: 38px; border-radius: 8px; flex-shrink: 0;
+          background: #fff; display: grid; place-items: center; padding: 4px;
         }
-        .sb-logo { display: block; width: 128px; height: auto; }
-        .sb-app-name {
-          font-family: var(--serif); font-size: 15px;
-          color: rgba(244,241,234,0.9); letter-spacing: .01em;
+        .sb-mark-img { width: 100%; height: 100%; object-fit: contain; }
+        .sb-brand-text { min-width: 0; }
+        .sb-title {
+          font-family: var(--serif); font-size: 15px; line-height: 1.15;
+          color: rgba(244,241,234,0.95); white-space: nowrap;
         }
-        .sb-sub { font-size: 11.5px; color: var(--ink-faint); margin-top: 2px; }
+        .sb-sub { font-size: 11.5px; color: var(--ink-faint); margin-top: 2px;
+          white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
         /* ── Nav ── */
         .sb-nav { flex: 1; padding: 14px 12px 20px; }
