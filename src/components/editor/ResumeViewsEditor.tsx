@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useStore, newId } from '../../store/useStore'
 import { DualField } from '../ui/DualField'
 import { SECTIONS } from '../../lib/sections'
@@ -142,6 +142,44 @@ function ViewEditor({ view, onBack, onDelete, onUpdate }: {
     data.resume?.supported_locales?.[0] ?? primaryLocale
   )
 
+  // ── Live preview: rebuild HTML on view/data/locale changes, debounced ──
+  const [previewHtml, setPreviewHtml] = useState(() =>
+    buildViewHtml(data, view, exportLocale)
+  )
+  const [pageCount, setPageCount] = useState<number | null>(null)
+  const iframeRef = useRef<HTMLIFrameElement>(null)
+
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      setPreviewHtml(buildViewHtml(data, view, exportLocale))
+    }, 250)
+    return () => window.clearTimeout(t)
+  }, [data, view, exportLocale])
+
+  useEffect(() => {
+    const iframe = iframeRef.current
+    if (!iframe) return
+    let refine: number | undefined
+    const A4_PX = 1123 // A4 height at 96 dpi — rough; web fonts shift things slightly
+    const measure = () => {
+      const body = iframe.contentDocument?.body
+      if (!body) return
+      setPageCount(Math.max(1, Math.ceil(body.scrollHeight / A4_PX)))
+    }
+    const onLoad = () => {
+      measure()
+      refine = window.setTimeout(measure, 400) // re-measure once webfonts settle
+    }
+    iframe.addEventListener('load', onLoad)
+    return () => {
+      iframe.removeEventListener('load', onLoad)
+      if (refine !== undefined) window.clearTimeout(refine)
+    }
+  }, [previewHtml])
+
+  const overLimit =
+    view.page_limit != null && pageCount != null && pageCount > view.page_limit
+
   const sections = [...view.sections].sort((a, b) => a.sort_order - b.sort_order)
 
   const toggleSection = (key: string) => {
@@ -213,6 +251,9 @@ function ViewEditor({ view, onBack, onDelete, onUpdate }: {
           <Trash2 size={14} /> Delete view
         </button>
       </div>
+
+      <div className="rv-editor-grid">
+        <div className="rv-editor-controls">
 
       {/* ── Name ── */}
       <div className="rv-section-block">
@@ -379,6 +420,27 @@ function ViewEditor({ view, onBack, onDelete, onUpdate }: {
             Last exported {new Date(view.last_exported_at).toLocaleDateString()}
           </div>
         )}
+      </div>
+
+        </div>
+
+        <aside className="rv-preview-pane">
+          <div className="rv-preview-header">
+            <span className="rv-preview-label">Preview</span>
+            {pageCount != null && (
+              <span className={`rv-preview-pages${overLimit ? ' rv-preview-over' : ''}`}>
+                ≈ {pageCount} page{pageCount !== 1 ? 's' : ''}
+                {view.page_limit != null ? ` / ${view.page_limit}` : ''}
+              </span>
+            )}
+          </div>
+          <iframe
+            ref={iframeRef}
+            className="rv-preview-frame"
+            srcDoc={previewHtml}
+            title="Resume View preview"
+          />
+        </aside>
       </div>
 
       <Styles />
@@ -566,6 +628,49 @@ function Styles() {
       }
       .rv-export-docx:hover:not(:disabled) { background: var(--accent-wash); color: var(--accent); }
       .rv-last-export { margin-top: 10px; font-size: 12px; color: var(--ink-faint); }
+
+      /* ── Live preview pane ── */
+      .rv-editor-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 28px;
+        align-items: start;
+      }
+      .rv-editor-controls { min-width: 0; }
+      .rv-preview-pane {
+        position: sticky;
+        top: 16px;
+        display: flex;
+        flex-direction: column;
+        height: calc(100vh - 32px);
+        background: var(--paper-sunken);
+        border: 1px solid var(--line);
+        border-radius: var(--r-md);
+        overflow: hidden;
+      }
+      .rv-preview-header {
+        display: flex; align-items: center; gap: 10px;
+        padding: 8px 14px;
+        background: var(--paper-raised);
+        border-bottom: 1px solid var(--line);
+      }
+      .rv-preview-label {
+        font-size: 11px; font-weight: 700; letter-spacing: .1em;
+        text-transform: uppercase; color: var(--ink-faint);
+      }
+      .rv-preview-pages {
+        margin-left: auto;
+        font-size: 12px; color: var(--ink-soft);
+        font-variant-numeric: tabular-nums;
+      }
+      .rv-preview-over { color: #b91c1c; font-weight: 600; }
+      .rv-preview-frame {
+        flex: 1; border: none; background: #fff; width: 100%;
+      }
+      @media (max-width: 1200px) {
+        .rv-editor-grid { grid-template-columns: 1fr; }
+        .rv-preview-pane { display: none; }
+      }
     `}</style>
   )
 }
