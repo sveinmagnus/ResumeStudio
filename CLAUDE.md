@@ -411,22 +411,33 @@ After any significant change:
 
 Ordered loosely by recommended priority. Each is a self-contained chunk.
 
-### 12.1 Translation completeness drill-down
-The Overview shows a translation % per locale via `lib/completeness.ts`. Make it interactive: click a percentage → show the specific fields that are missing in that locale, each linking to the right editor and item. The data needed is one tweak to `computeCompleteness` to return the missing field paths, not just counts.
+### 12.1 Live preview pane in the Resume View editor
+The view editor lets you toggle sections, exclude items, and rewrite the introduction — but the only way to see the result today is to click Export PDF, which opens a new window via `window.print()` (`ResumeViewsEditor.tsx → handleExport`). That's a slow loop for the app's core workflow. `buildViewHtml()` in `lib/viewFilter.ts` is already pure and produces print-ready HTML; render it into an `<iframe srcDoc={...}>` next to the editor and refresh on each view-config change. Bonus once it's there: surface a "your view spans N pages" indicator using the iframe's measured height vs. `view.page_limit`. Cheapest user-visible win available.
 
-### 12.2 Generic mergeRegistry
+### 12.2 Export templates
+`ResumeView.template_id` is already on the type (see `types/index.ts`) and called out as "reserved" in `lib/exporter.ts`, but nothing reads it. Two or three named templates (compact technical / formal management / minimal one-pager) would make views visually differentiated — currently a Board CV and a Technical CV produce the same-looking document. Touches both `buildViewHtml` (HTML/CSS path) and `exporter.ts` (DOCX path); each template is a styling delta, not a fork of the render logic. Pairs naturally with 12.1 — the preview pane is what makes template choice tunable.
+
+### 12.3 Field-level translation assist
+The Overview's translation drill-down (`Overview.tsx`) tells you which fields are missing per locale, but the next click is still "type the translation by hand". Two tiers worth considering:
+- Cheap, no network: a "copy primary → here" button on `DualField`'s secondary input, so the user has a starting point to revise.
+- Real feature: a "draft translation" button that calls an external API and pre-fills. Scope question — the rest of the app is self-hosted single-instance with no outbound calls; adding one means wiring an API key into `.env` and being explicit that drafts are review-required.
+
+### 12.4 Server-side snapshot history
+Undo is in-memory only (`useUndoRedo.ts`, stack capped at 100). A destructive edit + close-browser loses unbounded work — the app's "never lose work" promise really only spans the current session. Snapshot the single resume row on each save (e.g. keep last 50, indexed by `saved_at`) and add a "Restore from…" picker. Schema change is additive (a `resume_snapshots` table); the Zustand store doesn't need to know. Defensive, not glamorous — but closes the one real durability gap.
+
+### 12.5 Generic mergeRegistry
 `mergeSkills` and `mergeRoles` are near-identical. If a third registry kind ever appears (e.g. mergeable industries), refactor to a descriptor-table `mergeRegistry(store, kind, source, target)`. Not worth doing for two kinds today.
 
-### 12.3 Section catalog refactor
+### 12.6 Section catalog refactor
 Three switches enumerate the 13 content sections: `viewFilter.getItemTitle/getItemSubtitle`, `viewFilter.renderItem`, `exporter.renderSection`. A section-descriptor registry (one place per section declaring `{titleField, subtitleField, dateField, render}`) would collapse them. The CLAUDE.md "Adding a new section" step would shrink from 7 items to 3. Don't do this if new sections are rare — the duplication is bounded.
 
-### 12.4 React Testing Library for component coverage
+### 12.7 Extend React Testing Library coverage
 RTL is set up (`tests/setup-rtl.ts`, `tests/helpers/store-reset.ts`) and there are smoke tests for `DualField`, `Overview` drill-down, and `CoursesEditor` as templates. Extend by adding `tests/components/<Name>.test.tsx` for the remaining editors — they're all the same shape (render → click → assert against `useStore.getState()`).
 
-### 12.5 Multi-resume support
+### 12.8 Multi-resume support
 The DB schema enforces single-tenant via `CHECK (id = 1)`. Multi-resume would mean: drop the constraint, add a `current_resume_id` setting, wire a resume-switcher into the sidebar. The Zustand store wouldn't need to change shape, only what gets loaded into it.
 
-### 12.6 React component splits in App.tsx
+### 12.9 React component splits in App.tsx
 App.tsx orchestrates load + save + auth + file load + header. Extracting `useResumePersistence()` + `<AuthGate>` + `<AppHeader>` would each be ~30-line files and would make App.tsx purely routing. Worth doing the next time you need to add cross-cutting concerns (telemetry, "unsaved changes" prompt, etc.) so they don't compound the existing density.
 
 ---
