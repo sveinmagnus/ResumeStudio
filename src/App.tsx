@@ -1,4 +1,3 @@
-import { Server } from 'lucide-react'
 import { useStore } from './store/useStore'
 import { useResumePersistence } from './store/useResumePersistence'
 import { ImportScreen } from './components/ImportScreen'
@@ -27,16 +26,16 @@ export default function App() {
   if (loadState === 'loading') {
     return (
       <div className="app-loading">
-        <Server size={32} className="app-loading-icon" />
-        <p>Connecting to server…</p>
+        <img src="/cartavio-logo.png" alt="Cartavio" className="app-loading-logo" />
+        <p className="app-loading-text">Resume Studio — Connecting…</p>
         <style>{`
           .app-loading {
             min-height: 100vh; display: flex; flex-direction: column;
-            align-items: center; justify-content: center; gap: 16px;
-            color: var(--ink-soft); font-size: 14px;
+            align-items: center; justify-content: center; gap: 20px;
           }
-          .app-loading-icon { color: var(--accent); animation: pulse 1.5s ease-in-out infinite; }
-          @keyframes pulse { 0%,100% { opacity:.4 } 50% { opacity:1 } }
+          .app-loading-logo { width: 180px; height: auto; animation: pulse 2s ease-in-out infinite; }
+          .app-loading-text { font-size: 13px; color: var(--ink-faint); letter-spacing: .02em; }
+          @keyframes pulse { 0%,100% { opacity:.5 } 50% { opacity:1 } }
         `}</style>
       </div>
     )

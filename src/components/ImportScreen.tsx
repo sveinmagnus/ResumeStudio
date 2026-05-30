@@ -3,9 +3,11 @@ import { useStore } from '../store/useStore'
 import { Upload, FileJson, Sparkles, FilePlus } from 'lucide-react'
 import { isBackupFormat, importFromBackup } from '../lib/backup'
 
+const YEAR = new Date().getFullYear()
+
 export function ImportScreen() {
   const { loadFromCVPartner, loadStore, startFresh } = useStore()
-  const [error, setError]     = useState<string | null>(null)
+  const [error, setError]       = useState<string | null>(null)
   const [dragging, setDragging] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -16,10 +18,8 @@ export function ImportScreen() {
       const json = JSON.parse(text) as unknown
 
       if (isBackupFormat(json)) {
-        // Resume Studio backup file — load directly
         loadStore(importFromBackup(json))
       } else {
-        // Assume CVpartner export format
         loadFromCVPartner(json as Record<string, unknown>)
       }
     } catch (e) {
@@ -30,11 +30,14 @@ export function ImportScreen() {
   return (
     <div className="import-screen">
       <div className="is-inner">
-        <div className="is-badge"><Sparkles size={13} /> Multi-language resume manager</div>
+
+        {/* Cartavio logo — full colour on white background */}
+        <img src="/cartavio-logo.png" alt="Cartavio" className="is-logo" />
+
         <h1 className="is-title">Resume Studio</h1>
         <p className="is-lede">
           Maintain one master consultant resume across multiple languages, then extract
-          targeted CVs for any skill area. Begin by importing a file below.
+          targeted CVs for any skill area.
         </p>
 
         <div
@@ -76,61 +79,99 @@ export function ImportScreen() {
         </button>
       </div>
 
+      {/* Page footer */}
+      <footer className="is-page-footer">
+        <span>© {YEAR} Cartavio AS</span>
+        <span className="is-footer-dot">·</span>
+        <a href="https://cartavio.no" target="_blank" rel="noopener noreferrer">
+          cartavio.no
+        </a>
+      </footer>
+
       <style>{`
         .import-screen {
-          min-height: 100vh; display: grid; place-items: center; padding: 40px;
-          position: relative; z-index: 1;
+          min-height: 100vh; display: flex; flex-direction: column;
+          align-items: center; justify-content: center;
+          padding: 60px 40px 80px; position: relative; z-index: 1;
         }
-        .is-inner { max-width: 540px; text-align: center; animation: fadeUp .5s ease; }
-        .is-badge {
-          display: inline-flex; align-items: center; gap: 6px; padding: 5px 13px;
-          background: var(--accent-wash); color: var(--accent); border-radius: 20px;
-          font-size: 12px; font-weight: 600; margin-bottom: 22px;
+        .is-inner { max-width: 540px; width: 100%; text-align: center; animation: fadeUp .5s ease; }
+
+        /* Logo */
+        .is-logo { width: 200px; height: auto; margin: 0 auto 18px; display: block; }
+
+        /* Title */
+        .is-title {
+          font-size: 38px; letter-spacing: -.01em; margin-bottom: 12px;
+          color: var(--accent);
         }
-        .is-title { font-size: 56px; letter-spacing: -.01em; margin-bottom: 14px; }
-        .is-lede { color: var(--ink-soft); font-size: 16px; line-height: 1.6; margin-bottom: 34px; }
+        .is-lede { color: var(--ink-soft); font-size: 15px; line-height: 1.6; margin-bottom: 32px; }
+
+        /* Drop zone */
         .is-drop {
           border: 2px dashed var(--line-strong); border-radius: var(--r-lg);
-          padding: 44px 30px; cursor: pointer; transition: all .2s; background: var(--paper-raised);
+          padding: 40px 30px; cursor: pointer; transition: all .2s; background: var(--paper-raised);
         }
         .is-drop:hover, .is-drop.drag {
           border-color: var(--accent); background: var(--accent-wash);
           transform: translateY(-2px); box-shadow: var(--shadow-md);
         }
         .is-drop-icon {
-          width: 60px; height: 60px; margin: 0 auto 16px; border-radius: 50%;
+          width: 56px; height: 56px; margin: 0 auto 14px; border-radius: 50%;
           background: var(--paper-sunken); color: var(--accent); display: grid; place-items: center;
         }
         .is-drop.drag .is-drop-icon { background: var(--accent); color: #fff; }
-        .is-drop-title { font-size: 17px; font-weight: 600; margin-bottom: 4px; }
+        .is-drop-title { font-size: 16px; font-weight: 600; margin-bottom: 4px; }
         .is-drop-sub { color: var(--ink-faint); font-size: 13px; }
+
+        /* Error */
         .is-error {
-          margin-top: 16px; padding: 11px 15px; background: var(--accent-wash);
+          margin-top: 14px; padding: 10px 14px; background: var(--accent-wash);
           color: var(--accent); border-radius: var(--r-sm); font-size: 13px; text-align: left;
         }
+
+        /* Feature list */
         .is-features {
-          margin-top: 34px; display: flex; flex-direction: column; gap: 12px;
+          margin-top: 28px; display: flex; flex-direction: column; gap: 10px;
           align-items: flex-start; text-align: left;
         }
-        .is-feat { display: flex; align-items: center; gap: 10px; color: var(--ink-soft); font-size: 14px; }
+        .is-feat { display: flex; align-items: center; gap: 10px; color: var(--ink-soft); font-size: 13.5px; }
         .is-feat svg { color: var(--accent); flex-shrink: 0; }
+
+        /* Or divider */
         .is-divider {
-          display: flex; align-items: center; gap: 12px; margin: 28px 0 20px;
-          color: var(--ink-faint); font-size: 12px; font-weight: 600; letter-spacing: .05em;
-          text-transform: uppercase;
+          display: flex; align-items: center; gap: 12px; margin: 24px 0 18px;
+          color: var(--ink-faint); font-size: 11px; font-weight: 600;
+          letter-spacing: .08em; text-transform: uppercase;
         }
         .is-divider::before, .is-divider::after {
           content: ''; flex: 1; height: 1px; background: var(--line);
         }
+
+        /* Start fresh button */
         .is-fresh {
-          display: inline-flex; align-items: center; gap: 8px;
-          padding: 11px 22px; border-radius: var(--r-md);
+          display: inline-flex; align-items: center; gap: 8px; width: 100%;
+          justify-content: center; padding: 11px 22px; border-radius: var(--r-md);
           border: 1.5px solid var(--line-strong);
           font-size: 14px; font-weight: 600; color: var(--ink-soft);
-          transition: all .15s; width: 100%; justify-content: center;
+          transition: all .15s;
         }
         .is-fresh:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-wash); }
         .is-fresh svg { flex-shrink: 0; }
+
+        /* Page footer */
+        .is-page-footer {
+          position: fixed; bottom: 0; left: 0; right: 0;
+          display: flex; align-items: center; justify-content: center; gap: 8px;
+          padding: 12px 24px; font-size: 11px; color: var(--ink-faint);
+          background: linear-gradient(to top, var(--paper) 70%, transparent);
+          pointer-events: none;
+        }
+        .is-page-footer a {
+          color: var(--ink-faint); text-decoration: none; pointer-events: all;
+          transition: color .15s;
+        }
+        .is-page-footer a:hover { color: var(--accent); }
+        .is-footer-dot { opacity: .5; }
       `}</style>
     </div>
   )

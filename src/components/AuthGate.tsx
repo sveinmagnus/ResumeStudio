@@ -1,6 +1,7 @@
 import { useState } from 'react'
-import { Server } from 'lucide-react'
 import { UnauthorizedError, getStoredToken, clearStoredToken } from '../lib/api'
+
+const YEAR = new Date().getFullYear()
 
 interface AuthGateProps {
   /**
@@ -18,7 +19,7 @@ interface AuthGateProps {
  */
 export function AuthGate({ onSubmit }: AuthGateProps) {
   const [tokenInput, setTokenInput] = useState('')
-  const [authError, setAuthError] = useState('')
+  const [authError, setAuthError]   = useState('')
 
   const handleSubmit = async () => {
     setAuthError('')
@@ -36,11 +37,14 @@ export function AuthGate({ onSubmit }: AuthGateProps) {
   return (
     <div className="auth-overlay">
       <div className="auth-card">
-        <div className="auth-icon"><Server size={28} /></div>
-        <h2 className="auth-title">API Token Required</h2>
+
+        {/* Cartavio branding */}
+        <img src="/cartavio-logo.png" alt="Cartavio" className="auth-logo" />
+        <h2 className="auth-title">Resume Studio</h2>
         <p className="auth-desc">
-          This Resume Studio server is protected. Enter your API token to continue.
+          This instance is protected. Enter your API token to continue.
         </p>
+
         <input
           className="auth-input"
           type="password"
@@ -63,39 +67,62 @@ export function AuthGate({ onSubmit }: AuthGateProps) {
             Clear saved token
           </button>
         )}
+
+        <div className="auth-footer">
+          © {YEAR} Cartavio AS ·{' '}
+          <a href="https://cartavio.no" target="_blank" rel="noopener noreferrer">
+            cartavio.no
+          </a>
+        </div>
       </div>
 
       <style>{`
         .auth-overlay { min-height: 100vh; display: grid; place-items: center; padding: 40px; }
         .auth-card {
-          max-width: 420px; width: 100%; text-align: center;
+          max-width: 400px; width: 100%; text-align: center;
           background: var(--paper-raised); border: 1px solid var(--line);
-          border-radius: var(--r-lg); padding: 40px 36px; box-shadow: var(--shadow-lg);
+          border-radius: var(--r-lg); padding: 36px 32px 28px; box-shadow: var(--shadow-lg);
         }
-        .auth-icon {
-          width: 60px; height: 60px; margin: 0 auto 20px; border-radius: 50%;
-          background: var(--accent-wash); color: var(--accent); display: grid; place-items: center;
-        }
-        .auth-title { font-size: 22px; margin-bottom: 10px; }
-        .auth-desc  { color: var(--ink-soft); font-size: 14px; line-height: 1.6; margin-bottom: 24px; }
+
+        /* Logo */
+        .auth-logo { width: 160px; height: auto; margin: 0 auto 16px; display: block; }
+
+        /* Headings */
+        .auth-title { font-size: 20px; margin-bottom: 8px; color: var(--accent); }
+        .auth-desc  { color: var(--ink-soft); font-size: 13.5px; line-height: 1.6; margin-bottom: 22px; }
+
+        /* Input */
         .auth-input {
           width: 100%; padding: 10px 14px; border: 1.5px solid var(--line-strong);
           border-radius: var(--r-md); font-size: 14px; margin-bottom: 10px;
           background: var(--paper-sunken); color: var(--ink);
         }
         .auth-input:focus { outline: none; border-color: var(--accent); }
+
+        /* Error */
         .auth-error {
           font-size: 13px; color: #c0392b; background: #fdf0ef;
           padding: 8px 12px; border-radius: var(--r-sm); margin-bottom: 10px;
         }
+
+        /* Buttons */
         .auth-submit {
           width: 100%; padding: 11px; background: var(--accent); color: #fff;
           border-radius: var(--r-md); font-weight: 600; font-size: 15px;
-          transition: opacity .15s; margin-bottom: 10px;
+          transition: opacity .15s; margin-bottom: 8px;
         }
         .auth-submit:disabled { opacity: .4; cursor: not-allowed; }
         .auth-submit:not(:disabled):hover { opacity: .88; }
         .auth-clear { font-size: 12px; color: var(--ink-faint); text-decoration: underline; }
+
+        /* Card footer */
+        .auth-footer {
+          margin-top: 20px; padding-top: 16px;
+          border-top: 1px solid var(--line);
+          font-size: 11px; color: var(--ink-faint);
+        }
+        .auth-footer a { color: var(--ink-faint); text-decoration: none; }
+        .auth-footer a:hover { color: var(--accent); }
       `}</style>
     </div>
   )
