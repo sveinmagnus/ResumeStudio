@@ -346,15 +346,22 @@ npm run test:coverage     # v8 coverage in coverage/
 ### What's covered
 - **`lib/`** — every pure-logic library has a `.test.ts`: `locales`, `completeness`, `viewFilter`, `backup`, `importer`, `merge`, `exporter` (smoke test with jsdom for DOM bits), `localCache` (jsdom).
 - **`store/useStore.ts`** — generic CRUD, `moveItem`/`reorderItem`, `mutationCount` semantics (every mutator bumps once, no-ops don't bump, `loadStore` resets, `replaceData` bumps).
+- **React components** — smoke tests in `tests/components/*.test.tsx` via React Testing Library (see "Component tests" below).
 - **Test fixtures** — `tests/fixtures.ts` exports `emptyStore()` + `makeProject()`, `makeWork()`, etc. Use these instead of constructing entities inline so future shape changes are one-place fixes.
 
 ### What's NOT covered
-- React components — no React Testing Library setup yet. The store is the seam we test through.
 - The Express server — only manually verified end-to-end with curl during the session it was written.
+
+### Component tests (RTL)
+- Default test env is `node`; component tests opt in with `// @vitest-environment jsdom` at the top.
+- `tests/setup-rtl.ts` registers `@testing-library/jest-dom` matchers and wires `afterEach(cleanup)` (vitest doesn't expose `afterEach` as a global, so RTL's auto-cleanup wouldn't fire on its own).
+- The Zustand store is a module-level singleton — call `resetStore()` from `tests/helpers/store-reset.ts` in `beforeEach` so state doesn't leak between tests. To seed test data, follow with `useStore.setState({ data: {...}, hasData: true, ... })`.
+- `userEvent.type` works without `userEvent.setup()` but the v14 setup-based API is also fine.
 
 ### Adding a test
 - Pure-logic addition → add a case to the appropriate `tests/*.test.ts`.
 - Store action addition → add a case to `tests/store.test.ts`, including a no-op assertion (`mutationCount` should not bump for unobservable changes).
+- Component addition → add a `tests/components/<Name>.test.tsx` modeled on the existing ones (jsdom pragma, `resetStore()` in `beforeEach`, render → assert through the store).
 
 ---
 
@@ -414,7 +421,7 @@ The Overview shows a translation % per locale via `lib/completeness.ts`. Make it
 Three switches enumerate the 13 content sections: `viewFilter.getItemTitle/getItemSubtitle`, `viewFilter.renderItem`, `exporter.renderSection`. A section-descriptor registry (one place per section declaring `{titleField, subtitleField, dateField, render}`) would collapse them. The CLAUDE.md "Adding a new section" step would shrink from 7 items to 3. Don't do this if new sections are rare — the duplication is bounded.
 
 ### 12.4 React Testing Library for component coverage
-No component tests today. The Zustand store is the natural seam: most component logic is "read from store, render fields, call action on change". Once RTL is set up, every editor would be a thin smoke test.
+RTL is set up (`tests/setup-rtl.ts`, `tests/helpers/store-reset.ts`) and there are smoke tests for `DualField`, `Overview` drill-down, and `CoursesEditor` as templates. Extend by adding `tests/components/<Name>.test.tsx` for the remaining editors — they're all the same shape (render → click → assert against `useStore.getState()`).
 
 ### 12.5 Multi-resume support
 The DB schema enforces single-tenant via `CHECK (id = 1)`. Multi-resume would mean: drop the constraint, add a `current_resume_id` setting, wire a resume-switcher into the sidebar. The Zustand store wouldn't need to change shape, only what gets loaded into it.
