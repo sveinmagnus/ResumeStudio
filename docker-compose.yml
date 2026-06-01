@@ -21,8 +21,12 @@ services:
       # No public-facing web UI is needed — the app talks to the API directly.
       LT_DISABLE_WEB_UI: "true"
     # Persist downloaded Argos models so they aren't re-fetched on every restart.
+    # Mount the user's whole ~/.local (not the deeper argos-translate dir): a
+    # fresh named volume inherits ownership from the image's existing directory,
+    # so the non-root libretranslate user can still write model packages. The
+    # deeper path is created root-owned and crashes startup with EACCES.
     volumes:
-      - libretranslate_models:/home/libretranslate/.local/share/argos-translate
+      - libretranslate_models:/home/libretranslate/.local
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:5000/languages').getcode()==200 else 1)\""]
       interval: 30s
