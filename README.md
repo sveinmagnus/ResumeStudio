@@ -104,7 +104,7 @@ src/
 └── App.tsx      routes the active section to the right editor
 
 server/          Express API + SQLite persistence (resume CRUD, snapshots, translate proxy)
-tests/           Vitest specs (238 tests, all green)
+tests/           Vitest specs (280 tests, all green) — incl. server suites (db, auth, translate, supertest routes)
 ```
 
 ---

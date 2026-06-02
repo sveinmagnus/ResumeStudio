@@ -1,8 +1,13 @@
 import type { Request, Response, NextFunction } from 'express'
 import { timingSafeEqual } from 'crypto'
 
-const TOKEN = process.env.RESUME_API_TOKEN?.trim() || null
-const TOKEN_BYTES = TOKEN ? Buffer.from(TOKEN, 'utf8') : null
+// Read lazily (per request) rather than at import time so tests can vary the
+// token with vi.stubEnv. Env doesn't change after boot, so runtime behaviour
+// is unchanged.
+function configuredToken(): Buffer | null {
+  const tok = process.env.RESUME_API_TOKEN?.trim()
+  return tok ? Buffer.from(tok, 'utf8') : null
+}
 
 /**
  * Constant-time string comparison. Returns false fast when the lengths differ
@@ -25,7 +30,8 @@ function safeCompare(a: string, b: Buffer): boolean {
  * vs "wrong token" used to leak information about what the parser saw.
  */
 export function authMiddleware(req: Request, res: Response, next: NextFunction): void {
-  if (!TOKEN || !TOKEN_BYTES) {
+  const tokenBytes = configuredToken()
+  if (!tokenBytes) {
     next()
     return
   }
@@ -37,7 +43,7 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction):
   }
 
   const provided = header.slice(7).trim()
-  if (!safeCompare(provided, TOKEN_BYTES)) {
+  if (!safeCompare(provided, tokenBytes)) {
     res.status(401).json({ error: 'Unauthorized' })
     return
   }

@@ -137,22 +137,24 @@ src/
 └── index.css                   ← Design tokens + body/scrollbar/animations + .check-row utility
 
 server/                         ← Express API + SQLite persistence
-├── index.ts                    ← Express bootstrap, security headers, /api/health, /api/resume + /api/translate routers
-├── auth.ts                     ← Bearer-token middleware (env: RESUME_API_TOKEN), constant-time compare
-├── db.ts                       ← better-sqlite3; single-row resume_store + resume_snapshots (last 50, deduped)
-├── translate.ts               ← LibreTranslate proxy: locale map, fetch w/ timeout (env: LIBRETRANSLATE_URL/_API_KEY)
+├── index.ts                    ← Bootstrap: createApp() + app.listen()
+├── app.ts                      ← createApp(): security headers, json, routers (no listen — tests use this)
+├── auth.ts                     ← Bearer-token middleware (env: RESUME_API_TOKEN, read lazily), constant-time compare
+├── db.ts                       ← createResumeDb(path) factory + lazy singleton (env: RESUME_DB_PATH); resume_store + resume_snapshots (last 50, deduped)
+├── translate.ts               ← LibreTranslate proxy: locale map, fetch w/ timeout (env: LIBRETRANSLATE_URL/_API_KEY, read lazily)
 └── routes/
     ├── resume.ts               ← GET / PUT /api/resume; GET /api/resume/snapshots(/:id)
     └── translate.ts            ← GET /api/translate/status, POST /api/translate
 
-tests/                          ← Vitest specs (238 tests at last count)
+tests/                          ← Vitest specs (280 tests at last count)
 ├── fixtures.ts                 ← Shared makeProject() / makeRole() / ... factories
 ├── setup-rtl.ts                ← jest-dom matchers + afterEach(cleanup) for component tests
 ├── helpers/store-reset.ts      ← resetStore() — restores the singleton store between component tests
 ├── backup.test.ts, completeness.test.ts, exporter.test.ts,
 ├── importer.test.ts, localCache.test.ts, locales.test.ts,
 ├── merge.test.ts, store.test.ts, translateClient.test.ts, viewFilter.test.ts
-└── components/                 ← RTL smoke tests: DualField, Overview, CoursesEditor, SnapshotHistory (.test.tsx, jsdom)
+├── components/                 ← RTL smoke tests: DualField, Overview, CoursesEditor, SnapshotHistory (.test.tsx, jsdom)
+└── server/                     ← db, translate, auth (direct) + routes (supertest over createApp()), node env
 ```
 
 ### Layered design — these layers must stay clean
@@ -403,13 +405,20 @@ npm run test:coverage     # v8 coverage in coverage/
 - **`lib/`** — every pure-logic library has a `.test.ts`: `locales`, `completeness`, `viewFilter`, `backup`, `importer`, `merge`, `exporter` (smoke test with jsdom for DOM bits), `localCache` (jsdom).
 - **`store/useStore.ts`** — generic CRUD, `moveItem`/`reorderItem`, `mutationCount` semantics (every mutator bumps once, no-ops don't bump, `loadStore` resets, `replaceData` bumps).
 - **React components** — smoke tests in `tests/components/*.test.tsx` via React Testing Library (see "Component tests" below).
+- **The Express server** — `tests/server/*.test.ts` (node env): `db` (CRUD +
+  snapshot dedup/prune via `createResumeDb(':memory:')`), `translate` (locale
+  map + `translate()` error matrix with a mocked `fetch`), `auth` (token
+  matrix on the middleware), and `routes` (HTTP status/validation via
+  **supertest** against `createApp()`, with `RESUME_DB_PATH=':memory:'`).
 - **Test fixtures** — `tests/fixtures.ts` exports `emptyStore()` + `makeProject()`, `makeWork()`, etc. Use these instead of constructing entities inline so future shape changes are one-place fixes.
 
 ### What's NOT covered
-- The Express server — only manually verified end-to-end with curl (incl. the
-  snapshot save/dedup/list/get lifecycle and the translate status/validation
-  paths). See §12.5 for the gap. The pure client-side translate helpers
-  (`translateClient`) and the `SnapshotHistory` component *are* unit-tested.
+- The **live LibreTranslate round-trip** — the proxy's validation/error paths
+  are unit-tested with a mocked `fetch`, but an actual translation against a
+  running LibreTranslate instance is only verified manually (no model in CI).
+- Server modules read their env (`RESUME_API_TOKEN`, `LIBRETRANSLATE_URL`,
+  `RESUME_DB_PATH`) **lazily** inside functions, so tests vary config with
+  `vi.stubEnv` and `createApp()` has no import-time side effects.
 
 ### Component tests (RTL)
 - Default test env is `node`; component tests opt in with `// @vitest-environment jsdom` at the top.
@@ -421,6 +430,7 @@ npm run test:coverage     # v8 coverage in coverage/
 - Pure-logic addition → add a case to the appropriate `tests/*.test.ts`.
 - Store action addition → add a case to `tests/store.test.ts`, including a no-op assertion (`mutationCount` should not bump for unobservable changes).
 - Component addition → add a `tests/components/<Name>.test.tsx` modeled on the existing ones (jsdom pragma, `resetStore()` in `beforeEach`, render → assert through the store).
+- Server addition → add to `tests/server/`. Test db logic via `createResumeDb(':memory:')`; vary env with `vi.stubEnv` (server modules read env lazily); for routes, `await import('../../server/app')` in `beforeAll` with `RESUME_DB_PATH=':memory:'` and drive `createApp()` with supertest.
 
 ---
 
@@ -495,10 +505,7 @@ Three switches enumerate the 13 content sections: `viewFilter.getItemTitle/getIt
 ### 12.4 Extend React Testing Library coverage
 RTL is set up (`tests/setup-rtl.ts`, `tests/helpers/store-reset.ts`) and there are smoke tests for `DualField`, `Overview` drill-down, `CoursesEditor`, and `SnapshotHistory` as templates. Extend by adding `tests/components/<Name>.test.tsx` for the remaining editors — they're all the same shape (render → click → assert against `useStore.getState()`).
 
-### 12.5 Server-side tests for the API
-The Express server (auth, resume CRUD, snapshots, translate proxy) is only curl-verified today. A supertest (or fetch-against-an-ephemeral-listen) suite over `server/routes/*` would lock in the snapshot dedup/prune logic and the translate input-validation, which currently have no automated coverage.
-
-### 12.6 Multi-resume support
+### 12.5 Multi-resume support
 The DB schema enforces single-tenant via `CHECK (id = 1)`. Multi-resume would mean: drop the constraint, add a `current_resume_id` setting, wire a resume-switcher into the sidebar. The Zustand store wouldn't need to change shape, only what gets loaded into it.
 
 ---

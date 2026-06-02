@@ -13,8 +13,15 @@
  * Nordic languages is serviceable, not publication-grade.
  */
 
-const RAW_URL = process.env.LIBRETRANSLATE_URL?.trim().replace(/\/+$/, '') || null
-const API_KEY = process.env.LIBRETRANSLATE_API_KEY?.trim() || ''
+// Env is read lazily (per call) rather than at import time so tests can vary
+// the config with vi.stubEnv, and so importing this module has no side effects.
+// Runtime behaviour is unchanged — the env doesn't change after boot.
+function libreUrl(): string | null {
+  return process.env.LIBRETRANSLATE_URL?.trim().replace(/\/+$/, '') || null
+}
+function apiKey(): string {
+  return process.env.LIBRETRANSLATE_API_KEY?.trim() || ''
+}
 
 /** Hard cap on a single translation request (chars). Generous for a CV field. */
 export const MAX_TRANSLATE_CHARS = 5000
@@ -48,7 +55,7 @@ export function toServiceLocale(appCode: string): string {
 
 /** True when a LibreTranslate URL has been configured. */
 export function isTranslationConfigured(): boolean {
-  return RAW_URL !== null
+  return libreUrl() !== null
 }
 
 /** Raised for any upstream/translation failure; carries a safe HTTP status. */
@@ -70,21 +77,23 @@ interface LibreTranslateResponse {
  * without leaking upstream internals.
  */
 export async function translate(text: string, source: string, target: string): Promise<string> {
-  if (!RAW_URL) {
+  const url = libreUrl()
+  if (!url) {
     throw new TranslateError(503, 'Translation is not configured on this server')
   }
 
+  const key = apiKey()
   const body = {
     q: text,
     source: toServiceLocale(source),
     target: toServiceLocale(target),
     format: 'text',
-    ...(API_KEY ? { api_key: API_KEY } : {}),
+    ...(key ? { api_key: key } : {}),
   }
 
   let res: Response
   try {
-    res = await fetch(`${RAW_URL}/translate`, {
+    res = await fetch(`${url}/translate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
