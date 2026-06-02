@@ -1,27 +1,33 @@
 /**
- * Resume persistence orchestration — boot load + auto-save, extracted from
- * App.tsx so the component is purely routing.
+ * Resume persistence orchestration — boot load + auto-save for one resume.
  *
- * Owns the three timing-sensitive effects and the refs they share:
- *   1. Boot load — prefer the server, fall back to the local cache.
- *   2. Local-cache write — 250 ms debounce after a mutation (cheap fallback).
+ * The hook is parameterised by `resumeId` (read from the URL by the caller).
+ * Mounting a new id loads it; navigating away unmounts and ejects the store.
+ *
+ * Owns the timing-sensitive effects and refs:
+ *   1. Boot load — prefer the server, fall back to the per-id local cache.
+ *   2. Local-cache write — 250 ms debounce after a mutation.
  *   3. Server save — 1 s debounce, AbortController so a newer mutation
- *      supersedes an in-flight save.
+ *      supersedes an in-flight save. Sends data + current locales together
+ *      (per plan decision 10).
  *
- * See CLAUDE.md §8 for the full boot/save sequence this implements. The hook
- * intentionally lives beside `useUndoRedo` — both are app-wiring hooks that
- * bridge the store to a cross-cutting concern. The only non-store/lib import
- * is the `SaveState` *type* from the SaveStatus component (erased at compile,
- * so no runtime layering violation).
+ * See CLAUDE.md §8 for the full boot/save sequence this implements.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useStore } from './useStore'
-import { api, UnauthorizedError, isAbortError, setStoredToken, clearStoredToken } from '../lib/api'
+import {
+  api,
+  UnauthorizedError,
+  NotFoundError,
+  isAbortError,
+  setStoredToken,
+  clearStoredToken,
+} from '../lib/api'
 import { type SaveState } from '../components/layout/SaveStatus'
-import { isBackupFormat, importFromBackup, UnsupportedBackupVersionError } from '../lib/backup'
 import { loadCache, saveCache, clearCache } from '../lib/localCache'
+import { navigate } from '../lib/router'
 
-export type AppLoad = 'loading' | 'auth' | 'ready'
+export type AppLoad = 'loading' | 'auth' | 'ready' | 'not-found'
 
 export interface ResumePersistence {
   loadState: AppLoad
@@ -35,15 +41,14 @@ export interface ResumePersistence {
    * can map it to a user-facing message. Clears the bad token on 401.
    */
   submitToken: (token: string) => Promise<void>
-  /** Load a backup or CVpartner JSON file chosen from the header. */
-  loadFile: (file: File) => Promise<void>
 }
 
-export function useResumePersistence(): ResumePersistence {
+export function useResumePersistence(resumeId: string): ResumePersistence {
   // Actions are stable references (created once in the store), so selecting
   // them here doesn't subscribe this hook to re-renders.
   const loadStore = useStore((s) => s.loadStore)
-  const loadFromCVPartner = useStore((s) => s.loadFromCVPartner)
+  const unloadStore = useStore((s) => s.unloadStore)
+  const setCurrentResumeId = useStore((s) => s.setCurrentResumeId)
   const hasData = useStore((s) => s.hasData)
   const mutationCount = useStore((s) => s.mutationCount)
 
@@ -51,83 +56,101 @@ export function useResumePersistence(): ResumePersistence {
   const [saveState, setSaveState] = useState<SaveState>('idle')
   const [cacheSavedAt, setCacheSavedAt] = useState<string | null>(null)
 
-  // mutationCount is "have we changed anything since the last successful
-  // server save?" Both `data` and `mutationCount` change together on a
-  // mutation, so the save effect depends on `mutationCount` only and reads
-  // `data` via getState() — keeps `flushToServer` from being rebuilt on every
-  // keystroke (which would churn the save-effect teardown/setup cycle).
+  // "have we changed anything since the last successful save?" — both `data`
+  // and `mutationCount` change together on a mutation, so the save effect
+  // depends on `mutationCount` only and reads `data` via getState().
   const lastSavedMutation = useRef(0)
   const saveAbort = useRef<AbortController | null>(null)
 
   const flushToServer = useCallback(async () => {
-    const snapshot = useStore.getState().data
-    const counterAtSend = useStore.getState().mutationCount
+    const st = useStore.getState()
+    const snapshot = st.data
+    const counterAtSend = st.mutationCount
+    const locales = {
+      primary_locale: st.primaryLocale,
+      secondary_locale: st.secondaryLocale,
+    }
     saveAbort.current?.abort()
     saveAbort.current = new AbortController()
     setSaveState('saving')
     try {
-      await api.save(snapshot, saveAbort.current.signal)
+      await api.saveResume(resumeId, snapshot, locales, saveAbort.current.signal)
       lastSavedMutation.current = counterAtSend
       setSaveState('saved')
-      // Clear the local cache once it matches the server — keeps things tidy
-      // and avoids stale data lingering after a successful sync.
-      clearCache()
+      // Clear the local cache once it matches the server — keeps things tidy.
+      clearCache(resumeId)
       setCacheSavedAt(null)
       setTimeout(() => setSaveState((s) => (s === 'saved' ? 'idle' : s)), 2000)
     } catch (err) {
       if (isAbortError(err)) return
       if (err instanceof UnauthorizedError) { setLoadState('auth'); return }
+      if (err instanceof NotFoundError) {
+        // Resume was deleted server-side under us — send the user home.
+        navigate('/', { replace: true })
+        return
+      }
       console.error('Auto-save failed:', err)
       setSaveState('error')
     }
-  }, [])
+  }, [resumeId])
 
-  // ── Initial load: prefer server, fall back to local cache ─────────────────
+  // ── Initial load: prefer server, fall back to per-id local cache ──────────
   useEffect(() => {
-    api.load()
-      .then((store) => {
-        if (store) {
-          loadStore(store)
-          // Server is the source of truth — drop any local cache.
-          clearCache()
+    setLoadState('loading')
+    setCurrentResumeId(resumeId)
+    lastSavedMutation.current = 0
+
+    api.loadResume(resumeId)
+      .then((res) => {
+        if (res) {
+          loadStore(res.data, {
+            primary: res.meta.primary_locale,
+            secondary: res.meta.secondary_locale,
+          })
+          // Server is the source of truth — drop any stale local cache.
+          clearCache(resumeId)
           setCacheSavedAt(null)
+          setLoadState('ready')
         } else {
-          // Server is up but has no resume yet. If we have local work,
-          // restore it silently so the user doesn't lose anything.
-          const cached = loadCache()
-          if (cached) {
-            loadStore(cached.data)
-            setCacheSavedAt(cached.saved_at)
-          }
+          // Server reachable but no such resume id. Don't fall back to cache —
+          // that would resurrect ghost data. Send the user back to the picker.
+          setLoadState('not-found')
         }
-        setLoadState('ready')
       })
       .catch((err: unknown) => {
         if (err instanceof UnauthorizedError) { setLoadState('auth'); return }
-        // Server unreachable — try the local cache so the user can keep working.
+        // Server unreachable — try the per-id local cache so the user can keep
+        // working with the last known good state of this resume.
         console.warn('Could not reach server:', err)
-        const cached = loadCache()
+        const cached = loadCache(resumeId)
         if (cached) {
           loadStore(cached.data)
           setCacheSavedAt(cached.saved_at)
           setSaveState('offline')
+          setLoadState('ready')
+        } else {
+          setLoadState('not-found')
         }
-        setLoadState('ready')
       })
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
 
-  // ── Local-cache write: short debounce so we don't stringify the whole
-  //    store on every keystroke. Still much tighter than the server save
-  //    (1 s) so a browser crash loses at most ~quarter-second of work.
+    return () => {
+      // Cancel any in-flight save and eject the resume so a quick switch
+      // doesn't briefly show the old data under the new id.
+      saveAbort.current?.abort()
+      unloadStore()
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resumeId])
+
+  // ── Local-cache write: short debounce so we don't stringify per keystroke.
   useEffect(() => {
     if (!hasData || mutationCount === 0) return
     const t = setTimeout(() => {
-      saveCache(useStore.getState().data)
+      saveCache(resumeId, useStore.getState().data)
       setCacheSavedAt(new Date().toISOString())
     }, 250)
     return () => clearTimeout(t)
-  }, [mutationCount, hasData])
+  }, [mutationCount, hasData, resumeId])
 
   // ── Server save: 1s debounce after the latest user mutation ───────────────
   useEffect(() => {
@@ -140,36 +163,21 @@ export function useResumePersistence(): ResumePersistence {
   const submitToken = useCallback(async (token: string) => {
     setStoredToken(token)
     try {
-      const store = await api.load()
-      if (store) loadStore(store)
-      setLoadState('ready')
+      const res = await api.loadResume(resumeId)
+      if (res) {
+        loadStore(res.data, {
+          primary: res.meta.primary_locale,
+          secondary: res.meta.secondary_locale,
+        })
+        setLoadState('ready')
+      } else {
+        setLoadState('not-found')
+      }
     } catch (err) {
       if (err instanceof UnauthorizedError) clearStoredToken()
       throw err
     }
-  }, [loadStore])
+  }, [loadStore, resumeId])
 
-  const loadFile = useCallback(async (file: File) => {
-    try {
-      const text = await file.text()
-      const json = JSON.parse(text) as unknown
-
-      if (isBackupFormat(json)) {
-        // Routes through migrateBackup → throws UnsupportedBackupVersionError
-        // if the file was saved by a newer build.
-        loadStore(importFromBackup(json))
-      } else {
-        // Anything else we assume is a CVpartner export — the importer is
-        // defensive enough to handle most malformed inputs.
-        loadFromCVPartner(json as Record<string, unknown>)
-      }
-    } catch (e) {
-      const msg = e instanceof UnsupportedBackupVersionError
-        ? e.message
-        : `Could not load file: ${(e as Error).message}`
-      alert(msg)
-    }
-  }, [loadStore, loadFromCVPartner])
-
-  return { loadState, saveState, cacheSavedAt, retry: flushToServer, submitToken, loadFile }
+  return { loadState, saveState, cacheSavedAt, retry: flushToServer, submitToken }
 }

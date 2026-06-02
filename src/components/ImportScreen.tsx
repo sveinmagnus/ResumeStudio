@@ -1,12 +1,26 @@
 import { useRef, useState } from 'react'
-import { useStore } from '../store/useStore'
 import { Upload, FileJson, Sparkles, FilePlus } from 'lucide-react'
-import { isBackupFormat, importFromBackup } from '../lib/backup'
+import { isBackupFormat, importFromBackup, UnsupportedBackupVersionError } from '../lib/backup'
+import { importFromCVPartner } from '../lib/importer'
+import type { ResumeStore } from '../types'
 
 const YEAR = new Date().getFullYear()
 
-export function ImportScreen() {
-  const { loadFromCVPartner, loadStore, startFresh } = useStore()
+export interface ImportScreenProps {
+  /** Render in compact mode (inside the picker panel — no brand block, no footer). */
+  compact?: boolean
+  /** Called when the user starts with an empty resume. */
+  onStartFresh: () => void | Promise<void>
+  /** Called with the parsed store + a suggested name derived from the file. */
+  onImported: (store: ResumeStore, suggestedName: string) => void | Promise<void>
+}
+
+function deriveName(store: ResumeStore, fallback: string): string {
+  const full = store.resume?.full_name?.trim()
+  return full ? `${full} — CV` : fallback
+}
+
+export function ImportScreen({ compact = false, onStartFresh, onImported }: ImportScreenProps) {
   const [error, setError]       = useState<string | null>(null)
   const [dragging, setDragging] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -18,28 +32,38 @@ export function ImportScreen() {
       const json = JSON.parse(text) as unknown
 
       if (isBackupFormat(json)) {
-        loadStore(importFromBackup(json))
+        const store = importFromBackup(json)
+        await onImported(store, deriveName(store, 'Imported resume'))
       } else {
-        loadFromCVPartner(json as Record<string, unknown>)
+        const store = importFromCVPartner(json as Record<string, unknown>)
+        await onImported(store, deriveName(store, 'Imported CV'))
       }
     } catch (e) {
-      setError(`Could not parse file: ${(e as Error).message}`)
+      const msg = e instanceof UnsupportedBackupVersionError
+        ? e.message
+        : `Could not parse file: ${(e as Error).message}`
+      setError(msg)
     }
   }
 
-  return (
-    <div className="import-screen">
-      <div className="is-inner">
+  const innerClass = compact ? 'is-inner is-inner-compact' : 'is-inner'
 
-        {/* Brand mark + app name */}
-        <div className="is-brand">
-          <img src="/cartavio-symbol.png" alt="Cartavio" className="is-symbol" />
-          <h1 className="is-title">Cartavio Resume Studio</h1>
-        </div>
-        <p className="is-lede">
-          Maintain one master consultant resume across multiple languages, then extract
-          targeted CVs for any skill area.
-        </p>
+  return (
+    <div className={compact ? 'import-screen is-compact' : 'import-screen'}>
+      <div className={innerClass}>
+
+        {!compact && (
+          <>
+            <div className="is-brand">
+              <img src="/cartavio-symbol.png" alt="Cartavio" className="is-symbol" />
+              <h1 className="is-title">Cartavio Resume Studio</h1>
+            </div>
+            <p className="is-lede">
+              Maintain one master consultant resume across multiple languages, then extract
+              targeted CVs for any skill area.
+            </p>
+          </>
+        )}
 
         <div
           className={`is-drop ${dragging ? 'drag' : ''}`}
@@ -66,28 +90,31 @@ export function ImportScreen() {
 
         {error && <div className="is-error">{error}</div>}
 
-        <div className="is-features">
-          <div className="is-feat"><FileJson size={16} /> Resume Studio backup (.json) — restore a previous session</div>
-          <div className="is-feat"><FileJson size={16} /> CVpartner export (.json) — import projects, employment, education, skills &amp; more</div>
-          <div className="is-feat"><Sparkles size={16} /> Side-by-side dual-language editing in any two locales</div>
-        </div>
+        {!compact && (
+          <div className="is-features">
+            <div className="is-feat"><FileJson size={16} /> Resume Studio backup (.json) — restore a previous session</div>
+            <div className="is-feat"><FileJson size={16} /> CVpartner export (.json) — import projects, employment, education, skills &amp; more</div>
+            <div className="is-feat"><Sparkles size={16} /> Side-by-side dual-language editing in any two locales</div>
+          </div>
+        )}
 
         <div className="is-divider"><span>or</span></div>
 
-        <button className="is-fresh" onClick={startFresh}>
+        <button className="is-fresh" onClick={() => void onStartFresh()}>
           <FilePlus size={16} />
           Start with an empty resume
         </button>
       </div>
 
-      {/* Page footer */}
-      <footer className="is-page-footer">
-        <span>© {YEAR} Cartavio AS</span>
-        <span className="is-footer-dot">·</span>
-        <a href="https://cartavio.no" target="_blank" rel="noopener noreferrer">
-          cartavio.no
-        </a>
-      </footer>
+      {!compact && (
+        <footer className="is-page-footer">
+          <span>© {YEAR} Cartavio AS</span>
+          <span className="is-footer-dot">·</span>
+          <a href="https://cartavio.no" target="_blank" rel="noopener noreferrer">
+            cartavio.no
+          </a>
+        </footer>
+      )}
 
       <style>{`
         .import-screen {
@@ -95,7 +122,9 @@ export function ImportScreen() {
           align-items: center; justify-content: center;
           padding: 60px 40px 80px; position: relative; z-index: 1;
         }
+        .import-screen.is-compact { min-height: 0; padding: 0; }
         .is-inner { max-width: 540px; width: 100%; text-align: center; animation: fadeUp .5s ease; }
+        .is-inner-compact { animation: none; }
 
         /* Brand block */
         .is-brand {

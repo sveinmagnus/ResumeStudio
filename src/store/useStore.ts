@@ -4,9 +4,12 @@ import type { ResumeStore, Resume, LocalizedString } from '../types'
 import { importFromCVPartner } from '../lib/importer'
 import { detectLocalesInData, sortLocales } from '../lib/locales'
 import { foldRoleDescriptions } from '../lib/migrate'
+import { emptyStore as makeEmpty, freshStore as makeFresh } from '../lib/freshStore'
 
 interface AppState {
   data: ResumeStore
+  /** Server id of the currently loaded resume. null when the editor isn't on a resume. */
+  currentResumeId: string | null
   // UI
   activeSection: string
   primaryLocale: string
@@ -30,10 +33,18 @@ interface AppState {
   // ── Load actions (do NOT bump mutationCount) ──────────────────────────────
   /** Import raw CVpartner JSON. Resets mutationCount. */
   loadFromCVPartner: (raw: Record<string, unknown>) => void
-  /** Replace data with a server/backup payload. Resets mutationCount. */
-  loadStore: (store: ResumeStore) => void
+  /**
+   * Replace data with a server/backup payload. Resets mutationCount.
+   * Optional `locales` seeds primary/secondary from the resume row; if omitted
+   * the previous derive-from-data behaviour applies.
+   */
+  loadStore: (store: ResumeStore, locales?: { primary: string; secondary: string | null }) => void
   /** Begin with an empty resume scaffold. Resets mutationCount. */
   startFresh: () => void
+  /** Eject the in-memory resume — used when navigating away from /r/:id. */
+  unloadStore: () => void
+  /** Track which resume is loaded (navigation/UX, not a data mutation). */
+  setCurrentResumeId: (id: string | null) => void
 
   // ── Data rewrite actions (DO bump mutationCount, so undo/save pick them up) ─
   /**
@@ -72,14 +83,10 @@ interface AppState {
 type ArraySectionKey = Exclude<keyof ResumeStore, 'resume'>
 type ArrayItem<K extends ArraySectionKey> = ResumeStore[K] extends Array<infer T> ? T : never
 
-const emptyStore: ResumeStore = {
-  resume: null,
-  skills: [], roles: [], key_qualifications: [], projects: [],
-  work_experiences: [], educations: [], courses: [], certifications: [],
-  spoken_languages: [], technology_categories: [], positions: [],
-  presentations: [], honor_awards: [], publications: [], references: [],
-  views: [],
-}
+// Wrap the helper so existing in-file `emptyStore` references read the same
+// constant reference between calls (cheap-but-fresh-on-read semantics —
+// suitable for "reset to nothing" cases like `unloadStore`).
+const emptyStore: ResumeStore = makeEmpty()
 
 export const useStore = create<AppState>((set, get) => {
   /**
@@ -106,6 +113,7 @@ export const useStore = create<AppState>((set, get) => {
 
   return {
     data: emptyStore,
+    currentResumeId: null,
     activeSection: 'overview',
     primaryLocale: 'en',
     secondaryLocale: 'no',
@@ -125,34 +133,33 @@ export const useStore = create<AppState>((set, get) => {
       })
     },
 
-    loadStore: (store) => {
+    loadStore: (store, localesArg) => {
       // Bring older persisted data up to the current shape before it enters
       // the store (e.g. fold legacy per-role descriptions into the project).
       const migrated = foldRoleDescriptions(store)
-      const locales = migrated.resume?.supported_locales ?? ['en']
+      const supported = migrated.resume?.supported_locales ?? ['en']
+      // Prefer caller-supplied locales (server-persisted per-resume choice).
+      // Fall back to first/second of supported_locales otherwise.
+      const primary = localesArg?.primary ?? supported[0] ?? 'en'
+      const secondary = localesArg
+        ? localesArg.secondary
+        : (supported[1] ?? null)
       set({
         data: migrated, hasData: true, mutationCount: 0,
-        primaryLocale: locales[0] ?? 'en',
-        secondaryLocale: locales[1] ?? null,
+        primaryLocale: primary, secondaryLocale: secondary,
       })
     },
 
+    unloadStore: () => set({
+      data: emptyStore, hasData: false, mutationCount: 0,
+      currentResumeId: null, expandedItemId: null,
+    }),
+
+    setCurrentResumeId: (id) => set({ currentResumeId: id }),
+
     startFresh: () => {
-      const now = new Date().toISOString()
-      const freshStore: ResumeStore = {
-        ...emptyStore,
-        resume: {
-          id: uuidv4(),
-          full_name: '', email: '', phone: null,
-          title: {}, nationality: {}, place_of_residence: {},
-          date_of_birth: null, twitter: null, linkedin_url: null,
-          website_url: null, profile_image_url: null,
-          default_locale: 'en', supported_locales: ['en'],
-          created_at: now, updated_at: now,
-        },
-      }
       set({
-        data: freshStore, hasData: true, mutationCount: 0,
+        data: makeFresh(), hasData: true, mutationCount: 0,
         activeSection: 'header', expandedItemId: null,
         primaryLocale: 'en', secondaryLocale: null,
       })
@@ -165,8 +172,11 @@ export const useStore = create<AppState>((set, get) => {
     // ── UI ─────────────────────────────────────────────────────────────────
 
     setActiveSection: (s) => set({ activeSection: s, expandedItemId: null }),
-    setPrimaryLocale:   (l) => set({ primaryLocale: l }),
-    setSecondaryLocale: (l) => set({ secondaryLocale: l }),
+    // Locale changes are persisted server-side per resume (decision 10) — they
+    // ride along on the next PUT, so they go through `mutate()` like any other
+    // user-visible change. No-op if the value didn't actually change.
+    setPrimaryLocale:   (l) => mutate((st) => st.primaryLocale === l ? null : { primaryLocale: l }),
+    setSecondaryLocale: (l) => mutate((st) => st.secondaryLocale === l ? null : { secondaryLocale: l }),
     setExpandedItem:    (id) => set((st) => ({ expandedItemId: st.expandedItemId === id ? null : id })),
 
     // ── Resume / locale ────────────────────────────────────────────────────

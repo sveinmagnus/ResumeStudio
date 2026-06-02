@@ -32,6 +32,13 @@ export class ServerError extends Error {
   }
 }
 
+export class NotFoundError extends Error {
+  constructor(message = 'Resource not found') {
+    super(message)
+    this.name = 'NotFoundError'
+  }
+}
+
 // ─── HTTP base ────────────────────────────────────────────────────────────────
 
 async function request(
@@ -66,6 +73,35 @@ export function isAbortError(err: unknown): boolean {
   return err instanceof DOMException && err.name === 'AbortError'
 }
 
+// ─── Shared types ─────────────────────────────────────────────────────────────
+
+export interface ResumeMeta {
+  id: string
+  name: string
+  primary_locale: string
+  secondary_locale: string | null
+  saved_at: string
+  created_at: string
+}
+
+export interface SnapshotMeta {
+  id: number
+  saved_at: string
+  size: number
+}
+
+export interface CreateResumeInput {
+  name: string
+  data?: ResumeStore
+  primary_locale?: string
+  secondary_locale?: string | null
+}
+
+export interface LocaleUpdate {
+  primary_locale: string
+  secondary_locale: string | null
+}
+
 // ─── API surface ──────────────────────────────────────────────────────────────
 
 export const api = {
@@ -82,49 +118,91 @@ export const api = {
     }
   },
 
-  /**
-   * Load the stored resume from the server.
-   * Returns null if no resume has been saved yet (server returns 404).
-   * Throws UnauthorizedError if the token is missing/wrong.
-   */
-  async load(): Promise<ResumeStore | null> {
-    const res = await request('GET', '/api/resume')
-    if (res.status === 404) return null
-    if (!res.ok) throw new ServerError(res.status, `Load failed: ${res.statusText}`)
-    const json = await res.json() as { data: ResumeStore }
-    return json.data
+  // ── Resume collection ────────────────────────────────────────────────────
+
+  /** List every resume's metadata, newest-saved first. */
+  async listResumes(): Promise<ResumeMeta[]> {
+    const res = await request('GET', '/api/resumes')
+    if (!res.ok) throw new ServerError(res.status, `Could not list resumes: ${res.statusText}`)
+    const json = await res.json() as { resumes: ResumeMeta[] }
+    return json.resumes
+  },
+
+  /** Create a new resume. Returns its metadata (incl. server-generated id). */
+  async createResume(input: CreateResumeInput): Promise<ResumeMeta> {
+    const res = await request('POST', '/api/resumes', input)
+    if (!res.ok) throw new ServerError(res.status, `Could not create resume: ${res.statusText}`)
+    const json = await res.json() as { resume: ResumeMeta }
+    return json.resume
   },
 
   /**
-   * Persist the current store to the server.
+   * Load one resume's full data + metadata. Returns null if the id doesn't
+   * exist (server 404). Throws UnauthorizedError if the token is missing/wrong.
+   */
+  async loadResume(id: string): Promise<{ data: ResumeStore; meta: ResumeMeta } | null> {
+    const res = await request('GET', `/api/resumes/${encodeURIComponent(id)}`)
+    if (res.status === 404) return null
+    if (!res.ok) throw new ServerError(res.status, `Load failed: ${res.statusText}`)
+    const json = await res.json() as { data: ResumeStore; meta: ResumeMeta }
+    return json
+  },
+
+  /**
+   * Persist resume data (and optionally locales) to a specific resume id.
    *
    * Pass an `AbortSignal` to cancel an in-flight save when a newer one fires —
-   * the resulting AbortError can be detected with `isAbortError()` and is
-   * typically not user-visible.
+   * the resulting AbortError can be detected with `isAbortError()`.
    *
-   * Throws UnauthorizedError or ServerError on failure.
+   * Throws NotFoundError if the id is unknown, UnauthorizedError on 401,
+   * ServerError otherwise.
    */
-  async save(data: ResumeStore, signal?: AbortSignal): Promise<void> {
-    const res = await request('PUT', '/api/resume', data, signal)
+  async saveResume(
+    id: string,
+    data: ResumeStore,
+    locales?: LocaleUpdate,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const body: Record<string, unknown> = { data }
+    if (locales) {
+      body.primary_locale = locales.primary_locale
+      body.secondary_locale = locales.secondary_locale
+    }
+    const res = await request('PUT', `/api/resumes/${encodeURIComponent(id)}`, body, signal)
+    if (res.status === 404) throw new NotFoundError('Resume not found')
     if (!res.ok) throw new ServerError(res.status, `Save failed: ${res.statusText}`)
   },
 
-  // ── Snapshot history ────────────────────────────────────────────────────
+  /** Rename a resume. Throws NotFoundError if the id is unknown. */
+  async patchResume(id: string, patch: { name: string }): Promise<void> {
+    const res = await request('PATCH', `/api/resumes/${encodeURIComponent(id)}`, patch)
+    if (res.status === 404) throw new NotFoundError('Resume not found')
+    if (!res.ok) throw new ServerError(res.status, `Rename failed: ${res.statusText}`)
+  },
 
-  /**
-   * List saved snapshots (newest first), metadata only — no resume payloads.
-   * Throws UnauthorizedError on 401, ServerError otherwise.
-   */
-  async listSnapshots(): Promise<SnapshotMeta[]> {
-    const res = await request('GET', '/api/resume/snapshots')
+  /** Hard-delete a resume. Snapshots cascade. */
+  async deleteResume(id: string): Promise<void> {
+    const res = await request('DELETE', `/api/resumes/${encodeURIComponent(id)}`)
+    if (res.status === 404) throw new NotFoundError('Resume not found')
+    if (!res.ok) throw new ServerError(res.status, `Delete failed: ${res.statusText}`)
+  },
+
+  // ── Snapshot history (per resume) ────────────────────────────────────────
+
+  /** List saved snapshots for a resume (newest first, metadata only). */
+  async listSnapshots(resumeId: string): Promise<SnapshotMeta[]> {
+    const res = await request('GET', `/api/resumes/${encodeURIComponent(resumeId)}/snapshots`)
     if (!res.ok) throw new ServerError(res.status, `Could not list snapshots: ${res.statusText}`)
     const json = await res.json() as { snapshots: SnapshotMeta[] }
     return json.snapshots
   },
 
-  /** Fetch one snapshot's full resume data by id. */
-  async getSnapshot(id: number): Promise<ResumeStore> {
-    const res = await request('GET', `/api/resume/snapshots/${id}`)
+  /** Fetch one snapshot's full resume data. */
+  async getSnapshot(resumeId: string, snapshotId: number): Promise<ResumeStore> {
+    const res = await request(
+      'GET',
+      `/api/resumes/${encodeURIComponent(resumeId)}/snapshots/${snapshotId}`,
+    )
     if (!res.ok) throw new ServerError(res.status, `Could not load snapshot: ${res.statusText}`)
     const json = await res.json() as { data: ResumeStore }
     return json.data
@@ -164,10 +242,4 @@ export const api = {
     const json = await res.json() as { translation: string }
     return json.translation
   },
-}
-
-export interface SnapshotMeta {
-  id: number
-  saved_at: string
-  size: number
 }

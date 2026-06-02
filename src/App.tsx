@@ -1,6 +1,7 @@
+import { useEffect, useState, useCallback } from 'react'
 import { useStore } from './store/useStore'
 import { useResumePersistence } from './store/useResumePersistence'
-import { ImportScreen } from './components/ImportScreen'
+import { ResumeList } from './components/ResumeList'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { AuthGate } from './components/AuthGate'
 import { AppHeader } from './components/AppHeader'
@@ -16,14 +17,70 @@ import {
 } from './components/editor/SimpleEditors'
 import { SkillsEditor, RolesEditor, ReferencesEditor, TechCategoriesEditor } from './components/editor/RegistryEditors'
 import { ResumeViewsEditor } from './components/editor/ResumeViewsEditor'
+import { useRoute, navigate, Link } from './lib/router'
+import { dropLegacyCache } from './lib/localCache'
+import { api, setStoredToken, UnauthorizedError, clearStoredToken } from './lib/api'
+
+// One-shot legacy-cache cleanup on first module load. The pre-multi-resume
+// localStorage key holds data that can't safely be attributed to any one
+// resume id now — drop it.
+dropLegacyCache()
 
 export default function App() {
-  const hasData = useStore((s) => s.hasData)
-  const activeSection = useStore((s) => s.activeSection)
-  const { loadState, saveState, cacheSavedAt, retry, submitToken, loadFile } = useResumePersistence()
+  const route = useRoute()
+  const [authNeeded, setAuthNeeded] = useState(false)
+  // Bumped on a successful auth submission to remount the active route so it
+  // re-fetches with the new token.
+  const [authEpoch, setAuthEpoch] = useState(0)
 
-  // ── Loading splash ─────────────────────────────────────────────────────────
-  if (loadState === 'loading') {
+  const onUnauthorized = useCallback(() => setAuthNeeded(true), [])
+
+  const handleAuthSubmit = useCallback(async (token: string) => {
+    setStoredToken(token)
+    try {
+      // Cheap probe — listResumes is the smallest auth-gated call we have.
+      await api.listResumes()
+      setAuthNeeded(false)
+      setAuthEpoch((n) => n + 1)
+    } catch (err) {
+      if (err instanceof UnauthorizedError) clearStoredToken()
+      throw err
+    }
+  }, [])
+
+  if (authNeeded) {
+    return <AuthGate onSubmit={handleAuthSubmit} />
+  }
+
+  if (route.name === 'editor') {
+    return <EditorRoute key={`${route.id}:${authEpoch}`} resumeId={route.id} onUnauthorized={onUnauthorized} />
+  }
+
+  if (route.name === 'not-found') {
+    return <NotFoundRoute path={route.path} />
+  }
+
+  return <ResumeList key={`picker:${authEpoch}`} onUnauthorized={onUnauthorized} />
+}
+
+// ── Editor route ─────────────────────────────────────────────────────────────
+
+function EditorRoute({ resumeId, onUnauthorized }: { resumeId: string; onUnauthorized: () => void }) {
+  const activeSection = useStore((s) => s.activeSection)
+  const hasData = useStore((s) => s.hasData)
+  const { loadState, saveState, cacheSavedAt, retry } = useResumePersistence(resumeId)
+
+  // Bubble up auth state — the parent shows the modal.
+  useEffect(() => {
+    if (loadState === 'auth') onUnauthorized()
+  }, [loadState, onUnauthorized])
+
+  // No such resume → bounce to the picker.
+  useEffect(() => {
+    if (loadState === 'not-found') navigate('/', { replace: true })
+  }, [loadState])
+
+  if (loadState === 'loading' || loadState === 'not-found' || !hasData) {
     return (
       <div className="app-loading">
         <img src="/cartavio-logo.png" alt="Cartavio" className="app-loading-logo" />
@@ -41,13 +98,7 @@ export default function App() {
     )
   }
 
-  // ── Auth modal ─────────────────────────────────────────────────────────────
-  if (loadState === 'auth') return <AuthGate onSubmit={submitToken} />
-
-  // ── No data yet — show import screen ──────────────────────────────────────
-  if (!hasData) return <ImportScreen />
-
-  // ── Main editor shell ──────────────────────────────────────────────────────
+  // ── Main editor shell ────────────────────────────────────────────────────
   const section = SECTIONS.find((s) => s.key === activeSection)
 
   return (
@@ -55,11 +106,12 @@ export default function App() {
       <Sidebar />
       <main className="app-main">
         <AppHeader
+          resumeId={resumeId}
           section={section}
           saveState={saveState}
           cacheSavedAt={cacheSavedAt}
           onRetry={retry}
-          onLoadFile={loadFile}
+          onUnauthorized={onUnauthorized}
         />
 
         <div className="app-content">
@@ -91,6 +143,30 @@ export default function App() {
         .app-shell { display: flex; min-height: 100vh; position: relative; z-index: 1; }
         .app-main  { flex: 1; min-width: 0; display: flex; flex-direction: column; }
         .app-content { padding: 28px 36px 80px; max-width: 1000px; width: 100%; }
+      `}</style>
+    </div>
+  )
+}
+
+// ── 404 route ────────────────────────────────────────────────────────────────
+
+function NotFoundRoute({ path }: { path: string }) {
+  return (
+    <div className="nf-screen">
+      <h1>Page not found</h1>
+      <p><code>{path}</code></p>
+      <Link to="/" className="nf-back">← Back to your resumes</Link>
+      <style>{`
+        .nf-screen {
+          min-height: 100vh; display: flex; flex-direction: column;
+          align-items: center; justify-content: center; gap: 12px;
+          color: var(--ink-soft); padding: 20px;
+        }
+        .nf-screen h1 { color: var(--accent); }
+        .nf-back {
+          margin-top: 8px; color: var(--accent); text-decoration: none; font-weight: 600;
+        }
+        .nf-back:hover { text-decoration: underline; }
       `}</style>
     </div>
   )

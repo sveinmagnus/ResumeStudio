@@ -21,7 +21,7 @@ describe('<SnapshotHistory>', () => {
 
   it('lists snapshots newest-first with a "latest" badge', async () => {
     vi.spyOn(api, 'listSnapshots').mockResolvedValue(SNAPSHOTS)
-    render(<SnapshotHistory onClose={() => {}} />)
+    render(<SnapshotHistory resumeId="r1" onClose={() => {}} />)
     await waitFor(() => expect(screen.getAllByRole('button', { name: /restore/i })).toHaveLength(2))
     expect(screen.getByText('latest')).toBeInTheDocument()
   })
@@ -33,12 +33,12 @@ describe('<SnapshotHistory>', () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true)
     const onClose = vi.fn()
 
-    render(<SnapshotHistory onClose={onClose} />)
+    render(<SnapshotHistory resumeId="r1" onClose={onClose} />)
     const [firstRestore] = await screen.findAllByRole('button', { name: /restore/i })
     await userEvent.click(firstRestore)
 
     await waitFor(() => expect(onClose).toHaveBeenCalled())
-    expect(api.getSnapshot).toHaveBeenCalledWith(2)
+    expect(api.getSnapshot).toHaveBeenCalledWith('r1', 2)
     // replaceData stored the restored payload and treated it as a mutation.
     expect(useStore.getState().data.resume?.full_name).toBe('Restored Person')
     expect(useStore.getState().mutationCount).toBeGreaterThan(0)
@@ -50,7 +50,7 @@ describe('<SnapshotHistory>', () => {
     vi.spyOn(window, 'confirm').mockReturnValue(false)
     const onClose = vi.fn()
 
-    render(<SnapshotHistory onClose={onClose} />)
+    render(<SnapshotHistory resumeId="r1" onClose={onClose} />)
     const [firstRestore] = await screen.findAllByRole('button', { name: /restore/i })
     await userEvent.click(firstRestore)
 
@@ -60,7 +60,7 @@ describe('<SnapshotHistory>', () => {
 
   it('shows an error message when the list cannot be loaded', async () => {
     vi.spyOn(api, 'listSnapshots').mockRejectedValue(new Error('boom'))
-    render(<SnapshotHistory onClose={() => {}} />)
+    render(<SnapshotHistory resumeId="r1" onClose={() => {}} />)
     expect(await screen.findByText(/could not load history/i)).toBeInTheDocument()
   })
 })
