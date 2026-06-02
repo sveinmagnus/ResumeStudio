@@ -146,14 +146,16 @@ server/                         ← Express API + SQLite persistence
     ├── resume.ts               ← GET / PUT /api/resume; GET /api/resume/snapshots(/:id)
     └── translate.ts            ← GET /api/translate/status, POST /api/translate
 
-tests/                          ← Vitest specs (280 tests at last count)
+tests/                          ← Vitest specs (349 tests at last count)
 ├── fixtures.ts                 ← Shared makeProject() / makeRole() / ... factories
 ├── setup-rtl.ts                ← jest-dom matchers + afterEach(cleanup) for component tests
 ├── helpers/store-reset.ts      ← resetStore() — restores the singleton store between component tests
 ├── backup.test.ts, completeness.test.ts, exporter.test.ts,
 ├── importer.test.ts, localCache.test.ts, locales.test.ts,
 ├── merge.test.ts, store.test.ts, translateClient.test.ts, viewFilter.test.ts
-├── components/                 ← RTL smoke tests: DualField, Overview, CoursesEditor, SnapshotHistory (.test.tsx, jsdom)
+├── components/                 ← RTL tests (.test.tsx, jsdom) for every editor (Header/Projects/Registry/Simple/
+│                                  ResumeViews/Overview), shell (AppHeader/Sidebar/AuthGate/ImportScreen/
+│                                  LanguageSwitcher/SaveStatus/ErrorBoundary/SnapshotHistory) + ui (DualField/Fields/EditorCard/SortableList)
 └── server/                     ← db, translate, auth (direct) + routes (supertest over createApp()), node env
 ```
 
@@ -404,7 +406,7 @@ npm run test:coverage     # v8 coverage in coverage/
 ### What's covered
 - **`lib/`** — every pure-logic library has a `.test.ts`: `locales`, `completeness`, `viewFilter`, `backup`, `importer`, `merge`, `exporter` (smoke test with jsdom for DOM bits), `localCache` (jsdom).
 - **`store/useStore.ts`** — generic CRUD, `moveItem`/`reorderItem`, `mutationCount` semantics (every mutator bumps once, no-ops don't bump, `loadStore` resets, `replaceData` bumps).
-- **React components** — smoke tests in `tests/components/*.test.tsx` via React Testing Library (see "Component tests" below).
+- **React components** — `tests/components/*.test.tsx` via React Testing Library cover every editor, the shell components, and the ui primitives (render → interact → assert through the store). See "Component tests" below.
 - **The Express server** — `tests/server/*.test.ts` (node env): `db` (CRUD +
   snapshot dedup/prune via `createResumeDb(':memory:')`), `translate` (locale
   map + `translate()` error matrix with a mocked `fetch`), `auth` (token
@@ -502,11 +504,8 @@ Ordered loosely by recommended priority. Each is a self-contained chunk.
 ### 12.3 Section catalog refactor
 Three switches enumerate the 13 content sections: `viewFilter.getItemTitle/getItemSubtitle`, `viewFilter.renderItem`, `exporter.renderSection`. A section-descriptor registry (one place per section declaring `{titleField, subtitleField, dateField, render}`) would collapse them. The CLAUDE.md "Adding a new section" step would shrink from 7 items to 3. Don't do this if new sections are rare — the duplication is bounded.
 
-### 12.4 Extend React Testing Library coverage
-RTL is set up (`tests/setup-rtl.ts`, `tests/helpers/store-reset.ts`) and there are smoke tests for `DualField`, `Overview` drill-down, `CoursesEditor`, and `SnapshotHistory` as templates. Extend by adding `tests/components/<Name>.test.tsx` for the remaining editors — they're all the same shape (render → click → assert against `useStore.getState()`).
-
-### 12.5 Multi-resume support
-The DB schema enforces single-tenant via `CHECK (id = 1)`. Multi-resume would mean: drop the constraint, add a `current_resume_id` setting, wire a resume-switcher into the sidebar. The Zustand store wouldn't need to change shape, only what gets loaded into it.
+### 12.4 Multi-resume support
+The DB schema enforces single-tenant via `CHECK (id = 1)`. Multi-resume would mean: drop the constraint, move `resume_store` to a multi-row table, scope `resume_snapshots` per resume, add a `current_resume_id` setting + collection API, and wire a resume-switcher into the sidebar. The Zustand store wouldn't need to change shape, only what gets loaded into it. Note: Resume Views already cover "different audiences from one master CV" — this is only worth it for genuinely separate CVs.
 
 ---
 
