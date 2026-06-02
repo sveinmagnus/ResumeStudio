@@ -32,7 +32,17 @@ export type Route =
 export function parseRoute(pathname: string): Route {
   if (pathname === '/' || pathname === '') return { name: 'picker' }
   const m = /^\/r\/([^/]+)\/?$/.exec(pathname)
-  if (m) return { name: 'editor', id: decodeURIComponent(m[1]) }
+  if (m) {
+    // decodeURIComponent throws URIError on malformed escapes (e.g. "/r/%").
+    // parseRoute runs in useRoute()'s render path, which is NOT inside the
+    // editor's ErrorBoundary — an unhandled throw here white-screens the whole
+    // app. Treat an undecodable id as "no such route" rather than crashing.
+    try {
+      return { name: 'editor', id: decodeURIComponent(m[1]) }
+    } catch {
+      return { name: 'not-found', path: pathname }
+    }
+  }
   return { name: 'not-found', path: pathname }
 }
 

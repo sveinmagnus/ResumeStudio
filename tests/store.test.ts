@@ -26,6 +26,7 @@ const reset = () => {
     secondaryLocale: null,
     expandedItemId: null,
     hasData: true,
+    currentResumeId: null,
     mutationCount: 0,
   }))
 }
@@ -257,6 +258,78 @@ describe('UI state actions', () => {
     expect(useStore.getState().secondaryLocale).toBe('se')
     useStore.getState().setSecondaryLocale(null)
     expect(useStore.getState().secondaryLocale).toBeNull()
+  })
+
+  // Decision 10: per-resume locales are server-persisted, so a locale change
+  // must register as a mutation (otherwise auto-save never fires and the
+  // choice silently fails to persist across reloads).
+  it('changing a locale to a NEW value bumps mutationCount (so it auto-saves)', () => {
+    const before = useStore.getState().mutationCount
+    useStore.getState().setPrimaryLocale('no')
+    expect(useStore.getState().mutationCount).toBe(before + 1)
+    useStore.getState().setSecondaryLocale('se')
+    expect(useStore.getState().mutationCount).toBe(before + 2)
+  })
+
+  it('setting a locale to its CURRENT value is a no-op (no bump)', () => {
+    useStore.getState().setPrimaryLocale('no')        // en → no (bumps)
+    const after = useStore.getState().mutationCount
+    useStore.getState().setPrimaryLocale('no')        // no → no (no-op)
+    expect(useStore.getState().mutationCount).toBe(after)
+    // secondary starts null in the reset — setting null again is also a no-op
+    useStore.getState().setSecondaryLocale(null)
+    expect(useStore.getState().mutationCount).toBe(after)
+  })
+})
+
+// ─── Multi-resume state (currentResumeId / unloadStore / loadStore locales) ──
+
+describe('multi-resume store actions', () => {
+  it('setCurrentResumeId tracks the active resume', () => {
+    useStore.getState().setCurrentResumeId('abc-123')
+    expect(useStore.getState().currentResumeId).toBe('abc-123')
+  })
+
+  it('unloadStore ejects to empty and resets bookkeeping', () => {
+    useStore.getState().setCurrentResumeId('abc-123')
+    useStore.getState().addItem('projects', makeProject({ id: 'p1' }))
+    expect(useStore.getState().mutationCount).toBeGreaterThan(0)
+
+    useStore.getState().unloadStore()
+    const st = useStore.getState()
+    expect(st.hasData).toBe(false)
+    expect(st.mutationCount).toBe(0)
+    expect(st.currentResumeId).toBeNull()
+    expect(st.data.resume).toBeNull()
+    expect(st.data.projects).toEqual([])
+  })
+
+  it('loadStore seeds primary/secondary from the supplied locales (server row)', () => {
+    const store = {
+      ...useStore.getState().data,
+      resume: {
+        ...useStore.getState().data.resume!,
+        supported_locales: ['no', 'en', 'se'],
+      },
+    }
+    // Supplied locales win over supported_locales[0/1].
+    useStore.getState().loadStore(store, { primary: 'se', secondary: 'dk' })
+    expect(useStore.getState().primaryLocale).toBe('se')
+    expect(useStore.getState().secondaryLocale).toBe('dk')
+    expect(useStore.getState().mutationCount).toBe(0) // load is I/O, not a mutation
+  })
+
+  it('loadStore without locales falls back to supported_locales[0/1]', () => {
+    const store = {
+      ...useStore.getState().data,
+      resume: {
+        ...useStore.getState().data.resume!,
+        supported_locales: ['no', 'en'],
+      },
+    }
+    useStore.getState().loadStore(store)
+    expect(useStore.getState().primaryLocale).toBe('no')
+    expect(useStore.getState().secondaryLocale).toBe('en')
   })
 })
 
