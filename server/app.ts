@@ -41,7 +41,7 @@ export function createApp(): Express {
   })
 
   // ── Resume API (auth-gated) ──────────────────────────────────────────────
-  app.use('/api/resume', authMiddleware, resumeRouter)
+  app.use('/api/resumes', authMiddleware, resumeRouter)
 
   // ── Translation proxy (auth-gated) — drafts via self-hosted LibreTranslate ─
   app.use('/api/translate', authMiddleware, translateRouter)

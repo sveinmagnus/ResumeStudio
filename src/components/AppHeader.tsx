@@ -1,40 +1,55 @@
-import { useRef, useState } from 'react'
-import { Download, Upload, Undo2, Redo2, History } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { Download, Undo2, Redo2, History, ChevronDown, FileText } from 'lucide-react'
 import { useStore } from '../store/useStore'
 import { useUndoRedo } from '../store/useUndoRedo'
 import { SaveStatus, type SaveState } from './layout/SaveStatus'
 import { LanguageSwitcher } from './layout/LanguageSwitcher'
 import { SnapshotHistory } from './SnapshotHistory'
 import { downloadBackup } from '../lib/backup'
+import { api, type ResumeMeta, UnauthorizedError } from '../lib/api'
+import { Link, navigate } from '../lib/router'
 import type { SectionDef } from '../lib/sections'
 
 interface AppHeaderProps {
+  resumeId: string
   section: SectionDef | undefined
   saveState: SaveState
   cacheSavedAt: string | null
   onRetry: () => void
-  onLoadFile: (file: File) => void
+  onUnauthorized: () => void
 }
 
 /**
- * The editor's top bar: breadcrumb + title, save status, undo/redo, language
- * switcher, and the load/save-file buttons. Owns the undo/redo hook (it's the
- * sole consumer and the keyboard shortcuts only matter once data is loaded)
- * and the hidden file input. Reads `data` lazily at click time for the backup
- * download so the header doesn't re-render on every keystroke.
+ * The editor's top bar: resume switcher, breadcrumb/title, save status,
+ * undo/redo, language switcher, history, backup-export. The load-file
+ * affordance moved to the picker (decision 6 — backup load is always
+ * "create a new resume").
  */
-export function AppHeader({ section, saveState, cacheSavedAt, onRetry, onLoadFile }: AppHeaderProps) {
+export function AppHeader({
+  resumeId, section, saveState, cacheSavedAt, onRetry, onUnauthorized,
+}: AppHeaderProps) {
   const { undo, redo, canUndo, canRedo } = useUndoRedo()
-  const fileInputRef = useRef<HTMLInputElement>(null)
   const [showHistory, setShowHistory] = useState(false)
 
   return (
     <header className="app-header">
-      {showHistory && <SnapshotHistory onClose={() => setShowHistory(false)} />}
+      {showHistory && (
+        <SnapshotHistory
+          resumeId={resumeId}
+          onClose={() => setShowHistory(false)}
+          onUnauthorized={onUnauthorized}
+        />
+      )}
+
       <div className="ah-titles">
+        <ResumeSwitcher
+          resumeId={resumeId}
+          onUnauthorized={onUnauthorized}
+        />
         <div className="ah-crumb">{section?.group}</div>
         <h1 className="ah-title">{section?.label}</h1>
       </div>
+
       <div className="ah-controls">
         <SaveStatus state={saveState} cacheSavedAt={cacheSavedAt} onRetry={onRetry} />
         <div className="ah-history">
@@ -59,7 +74,6 @@ export function AppHeader({ section, saveState, cacheSavedAt, onRetry, onLoadFil
         </div>
         <LanguageSwitcher />
 
-        {/* Version history — server-side snapshots with restore */}
         <button
           className="ah-btn-secondary"
           onClick={() => setShowHistory(true)}
@@ -68,32 +82,10 @@ export function AppHeader({ section, saveState, cacheSavedAt, onRetry, onLoadFil
           <History size={15} /> History
         </button>
 
-        {/* Load file — accepts backup JSON or CVpartner JSON */}
-        <button
-          className="ah-btn-secondary"
-          onClick={() => fileInputRef.current?.click()}
-          title="Load a backup file or CVpartner export"
-        >
-          <Upload size={15} /> Load file
-        </button>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".json,application/json"
-          hidden
-          onChange={(e) => {
-            const f = e.target.files?.[0]
-            if (f) onLoadFile(f)
-            // Reset so the same file can be reloaded
-            e.target.value = ''
-          }}
-        />
-
-        {/* Save to file — downloads backup JSON */}
         <button
           className="ah-export"
           onClick={() => downloadBackup(useStore.getState().data)}
-          title="Download a portable backup of your resume"
+          title="Download a portable backup of this resume"
         >
           <Download size={16} /> Save to file
         </button>
@@ -105,7 +97,8 @@ export function AppHeader({ section, saveState, cacheSavedAt, onRetry, onLoadFil
           padding: 22px 36px 18px; border-bottom: 1px solid var(--line);
           position: sticky; top: 0; background: var(--paper); z-index: 10; flex-wrap: wrap;
         }
-        .ah-crumb { font-size: 11px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--accent); }
+        .ah-titles { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+        .ah-crumb { font-size: 11px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--accent); margin-top: 6px; }
         .ah-title { font-size: 30px; margin-top: 2px; }
         .ah-controls { display: flex; align-items: center; gap: 10px; }
         .ah-history {
@@ -133,5 +126,134 @@ export function AppHeader({ section, saveState, cacheSavedAt, onRetry, onLoadFil
         .ah-export:hover { background: var(--accent); }
       `}</style>
     </header>
+  )
+}
+
+// ── Resume switcher ──────────────────────────────────────────────────────────
+
+interface ResumeSwitcherProps {
+  resumeId: string
+  onUnauthorized: () => void
+}
+
+function ResumeSwitcher({ resumeId, onUnauthorized }: ResumeSwitcherProps) {
+  const [open, setOpen] = useState(false)
+  const [items, setItems] = useState<ResumeMeta[] | null>(null)
+  const ref = useRef<HTMLDivElement>(null)
+
+  // Close on outside click.
+  useEffect(() => {
+    if (!open) return
+    const onClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onClick)
+    return () => document.removeEventListener('mousedown', onClick)
+  }, [open])
+
+  // Lazy-load the list the first time the dropdown opens.
+  useEffect(() => {
+    if (!open || items !== null) return
+    api.listResumes()
+      .then(setItems)
+      .catch((err: unknown) => {
+        if (err instanceof UnauthorizedError) { onUnauthorized(); return }
+        setItems([])
+      })
+  }, [open, items, onUnauthorized])
+
+  const current = items?.find((r) => r.id === resumeId)
+  const others = items?.filter((r) => r.id !== resumeId) ?? []
+
+  return (
+    <div className="rsw" ref={ref}>
+      <button
+        className="rsw-trigger"
+        onClick={() => setOpen((v) => !v)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+      >
+        <FileText size={13} />
+        <span className="rsw-current">{current?.name ?? '…'}</span>
+        <ChevronDown size={13} className={open ? 'rsw-chev open' : 'rsw-chev'} />
+      </button>
+
+      {open && (
+        <div className="rsw-menu" role="menu">
+          {items === null && <div className="rsw-state">Loading…</div>}
+          {items !== null && others.length === 0 && (
+            <div className="rsw-state">No other resumes yet.</div>
+          )}
+          {others.map((r) => (
+            <button
+              key={r.id}
+              className="rsw-item"
+              onClick={() => {
+                setOpen(false)
+                navigate({ name: 'editor', id: r.id })
+              }}
+              role="menuitem"
+            >
+              <FileText size={13} />
+              <span className="rsw-name">{r.name}</span>
+            </button>
+          ))}
+          <Link to="/" className="rsw-all" onClick={() => setOpen(false)}>
+            All resumes…
+          </Link>
+        </div>
+      )}
+
+      <style>{`
+        .rsw { position: relative; display: inline-block; }
+        .rsw-trigger {
+          display: inline-flex; align-items: center; gap: 6px;
+          padding: 4px 10px; border-radius: var(--r-sm);
+          color: var(--ink-soft); font-size: 12px; font-weight: 600;
+          background: var(--paper-raised); border: 1px solid var(--line);
+          transition: all .13s; max-width: 240px;
+        }
+        .rsw-trigger:hover { border-color: var(--accent); color: var(--accent); }
+        .rsw-current {
+          white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+          max-width: 180px;
+        }
+        .rsw-chev { transition: transform .15s; flex-shrink: 0; }
+        .rsw-chev.open { transform: rotate(180deg); }
+
+        .rsw-menu {
+          position: absolute; top: 100%; left: 0; margin-top: 4px;
+          background: var(--paper); border: 1px solid var(--line);
+          border-radius: var(--r-md); box-shadow: var(--shadow-md);
+          padding: 4px; z-index: 50; min-width: 240px;
+          display: flex; flex-direction: column; gap: 1px;
+          animation: rsw-fade .12s ease;
+        }
+        @keyframes rsw-fade { from { opacity: 0; transform: translateY(-2px); } to { opacity: 1; transform: none; } }
+
+        .rsw-state {
+          padding: 10px 12px; font-size: 12px; color: var(--ink-faint);
+          text-align: center;
+        }
+        .rsw-item {
+          display: flex; align-items: center; gap: 8px;
+          padding: 7px 10px; border-radius: var(--r-sm);
+          font-size: 13px; color: var(--ink); text-align: left;
+          transition: background .12s;
+        }
+        .rsw-item:hover { background: var(--accent-wash); color: var(--accent); }
+        .rsw-name {
+          flex: 1; min-width: 0;
+          white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .rsw-all {
+          display: block; padding: 7px 10px; margin-top: 4px;
+          border-top: 1px solid var(--line);
+          font-size: 12px; font-weight: 600; color: var(--accent);
+          text-decoration: none; text-align: center;
+        }
+        .rsw-all:hover { background: var(--accent-wash); }
+      `}</style>
+    </div>
   )
 }

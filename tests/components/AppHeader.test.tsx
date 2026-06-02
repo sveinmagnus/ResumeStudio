@@ -24,11 +24,12 @@ function seed() {
 function renderHeader() {
   return render(
     <AppHeader
+      resumeId="r1"
       section={projectsSection}
       saveState="idle"
       cacheSavedAt={null}
       onRetry={() => {}}
-      onLoadFile={() => {}}
+      onUnauthorized={() => {}}
     />,
   )
 }

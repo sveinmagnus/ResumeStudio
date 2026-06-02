@@ -18,8 +18,13 @@ or `.pdf` files via a Resume View — a curated subset of the master CV.
 ### State of the codebase
 
 What works today:
-- **Auto-save** to an Express + SQLite backend (debounced ~1s), with a
-  **localStorage fallback** so a server outage never costs work.
+- **Multi-resume** — one instance can hold N distinct master CVs. Picker
+  route at `/`; each resume lives at `/r/:uuid`; header dropdown switches
+  between them; hard-delete with confirm (snapshots cascade). Each resume
+  carries its own per-resume primary/secondary locales server-side. See §8.
+- **Auto-save** to an Express + SQLite backend (debounced ~1s) — sends the
+  resume payload + locales in a single PUT per mutation. **Per-id
+  localStorage fallback** so a server outage never costs work.
 - **Auth-gated server** (token-based, see `.env.example`); falls back to a
   local-only mode if the server is unreachable.
 - **Targeted exports via Resume Views** — pick sections, exclude items,
@@ -27,15 +32,17 @@ What works today:
   or DOCX (lazy-loaded docx lib). A **live preview pane** in the view editor
   re-renders the document as you tune it (iframe + page-count estimate).
 - **CVpartner JSON import** and **portable JSON backup** (export + load) with
-  a versioned format and a migration scaffold.
+  a versioned format and a migration scaffold. Loading either kind of file
+  from the picker creates a new resume (the in-editor "load file" button is
+  gone — backup load is picker-only).
 - **Translation assist** on every `DualField` secondary input: "Copy from
   primary" (no network) plus an optional "Draft translation" that proxies
   through the server to a self-hosted LibreTranslate instance (drafts are
   review-required). The Draft button only appears when the server reports a
   backend is configured (`LIBRETRANSLATE_URL`). See §8.
-- **Server-side snapshot history** — every save appends a snapshot
-  (deduped, last 50 kept); the header's **History** button restores any of
-  them. See §8.
+- **Server-side snapshot history**, **per resume** — every save appends a
+  snapshot (deduped, last 50 kept *per resume*); the header's **History**
+  button restores any of them. See §8.
 - **Undo / redo** (Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z) with debounced history.
 - **Drag-and-drop reordering** (`@dnd-kit`) on every section that owns a
   `sort_order`; up/down arrow buttons kept for keyboard / accessibility.
@@ -45,9 +52,9 @@ What works today:
   user.
 
 What's intentionally simple:
-- The server stores **exactly one resume** (single-row table with a CHECK
-  constraint). This is by design — the deployment model is one instance per
-  consultant.
+- The **router** is a hand-rolled ~120-line History API hook
+  (`src/lib/router.ts`) — no dep. Two routes (`/` picker, `/r/:id` editor)
+  plus a 404. Express prod has a catch-all so bookmarked URLs work.
 - Styling is **inline `<style>` blocks per component** + CSS custom properties
   in `src/index.css`. No Tailwind, no CSS-in-JS lib.
 
@@ -62,7 +69,8 @@ What's still on the wishlist: see section 12.
 | Build | Vite 5 | `npm run dev` / `npm run build` / `npm run preview` |
 | Framework | React 18 + TypeScript | Strict mode on |
 | State | Zustand (single store) | See `src/store/useStore.ts` |
-| Persistence | Express + better-sqlite3 (single-row table) | See `server/`. localStorage fallback in `lib/localCache.ts` |
+| Persistence | Express + better-sqlite3 (multi-row `resumes` + scoped `resume_snapshots`) | See `server/`. Per-id localStorage fallback in `lib/localCache.ts` |
+| Routing | Hand-rolled History API hook | `src/lib/router.ts` — `useRoute()`, `navigate()`, `<Link>`. No dep. |
 | Tests | Vitest (+ jsdom for browser-tied tests) | `npm test`, `npm run test:watch`, `npm run test:coverage` |
 | Icons | lucide-react | **Tree-shaken**: import each icon by name, never `import * as` |
 | DOCX export | `docx` npm package | **Lazy-loaded** (~352 kB chunk) — only fetched when the user clicks Export DOCX |
@@ -94,28 +102,31 @@ What's still on the wishlist: see section 12.
 src/
 ├── types/index.ts              ← single source of truth for the data model
 ├── store/
-│   ├── useStore.ts             ← Zustand store + generic CRUD actions
+│   ├── useStore.ts             ← Zustand store + generic CRUD actions; currentResumeId; unloadStore()
 │   ├── useUndoRedo.ts          ← Undo/redo hook (Ctrl/Cmd+Z), subscribes to mutationCount
-│   ├── useResumePersistence.ts ← Boot load + auto-save orchestration (effects + refs), submitToken, loadFile
+│   ├── useResumePersistence.ts ← Per-id boot load + auto-save orchestration; takes resumeId
 │   └── useTranslation.ts       ← useTranslationAvailable() — memoized "is translate configured?" probe
 ├── lib/
-│   ├── api.ts                  ← Server client (load/save, snapshots, translate; AbortSignal, token auth)
+│   ├── api.ts                  ← Server client (listResumes/createResume/loadResume(id)/saveResume(id,data,locales)/patchResume/deleteResume + snapshots + translate)
 │   ├── backup.ts               ← Portable JSON backup format + migrateBackup() scaffold
 │   ├── completeness.ts         ← PURE: translation completeness % + missing field paths per locale
 │   ├── exporter.ts             ← LAZY-LOADED .docx generation (Cartavio brand, A4)
+│   ├── freshStore.ts           ← emptyStore() / freshStore() factories (used by Zustand startFresh + the picker create flow)
 │   ├── importer.ts             ← CVpartner JSON → ResumeStore
-│   ├── localCache.ts           ← localStorage fallback (debounced via useResumePersistence)
+│   ├── localCache.ts           ← Per-id localStorage fallback (saveCache(id, data) etc.); clearAllCaches(); dropLegacyCache()
 │   ├── locales.ts              ← LOCALE_LABELS, resolve(), fmt*(), fmtRelativeTime(), detectLocalesInData(), sortLocales()
 │   ├── merge.ts                ← mergeSkills / mergeRoles + reference counts
+│   ├── router.ts               ← Hand-rolled History API router: useRoute(), navigate(), <Link>, parseRoute()
 │   ├── sections.ts             ← Sidebar section definitions and groups
 │   ├── translateClient.ts      ← PURE: app→service locale map, canDraftBetween(), memoized availability probe
 │   └── viewFilter.ts           ← Apply a ResumeView (sections, exclusions, starred); buildViewHtml() for PDF
 ├── components/
 │   ├── ErrorBoundary.tsx       ← Wraps the editor; resets on activeSection change
-│   ├── ImportScreen.tsx        ← Landing screen (drop CVpartner JSON / backup, or Start Fresh)
-│   ├── AuthGate.tsx            ← Token-entry modal shown on 401 (onSubmit → persistence hook)
-│   ├── SnapshotHistory.tsx     ← Version-history modal: list snapshots, restore via replaceData
-│   ├── AppHeader.tsx           ← Editor top bar: SaveStatus, undo/redo, LanguageSwitcher, History, load/save-file
+│   ├── ResumeList.tsx          ← Picker route (/): card list + "Add resume" panel + delete confirm
+│   ├── ImportScreen.tsx        ← Callback-driven import UI: onStartFresh / onImported(store, suggestedName) + compact mode
+│   ├── AuthGate.tsx            ← Token-entry modal shown on 401 (onSubmit → App-level handler)
+│   ├── SnapshotHistory.tsx     ← Per-resume version-history modal: takes resumeId; restore via replaceData
+│   ├── AppHeader.tsx           ← Editor top bar: ResumeSwitcher + SaveStatus + undo/redo + LanguageSwitcher + History + backup-export
 │   ├── layout/
 │   │   ├── Sidebar.tsx         ← Section navigation
 │   │   ├── LanguageSwitcher.tsx ← Primary/secondary locale + "re-detect" button
@@ -132,21 +143,21 @@ src/
 │       ├── SimpleEditors.tsx   ← Work/Education/Courses/Certs/Positions/Presentations/Publications/Awards/Languages/Profile
 │       ├── RegistryEditors.tsx ← Skill/Role/Reference/TechCat editors + Merge UI
 │       └── ResumeViewsEditor.tsx ← View list + view editor (sections, items, options, Export PDF / Export DOCX)
-├── App.tsx                     ← Routing only: picks load splash / AuthGate / ImportScreen / editor shell
+├── App.tsx                     ← Route table: AuthGate / ResumeList (/) / EditorRoute (/r/:id) / NotFound
 ├── main.tsx                    ← React entry
 └── index.css                   ← Design tokens + body/scrollbar/animations + .check-row utility
 
 server/                         ← Express API + SQLite persistence
 ├── index.ts                    ← Bootstrap: createApp() + app.listen()
-├── app.ts                      ← createApp(): security headers, json, routers (no listen — tests use this)
+├── app.ts                      ← createApp(): security headers, json, routers, SPA catch-all in prod
 ├── auth.ts                     ← Bearer-token middleware (env: RESUME_API_TOKEN, read lazily), constant-time compare
-├── db.ts                       ← createResumeDb(path) factory + lazy singleton (env: RESUME_DB_PATH); resume_store + resume_snapshots (last 50, deduped)
+├── db.ts                       ← createResumeDb(path) factory + lazy singleton; multi-row `resumes` + scoped `resume_snapshots` (last 50/resume, deduped, ON DELETE CASCADE); drops old single-row table on boot
 ├── translate.ts               ← LibreTranslate proxy: locale map, fetch w/ timeout (env: LIBRETRANSLATE_URL/_API_KEY, read lazily)
 └── routes/
-    ├── resume.ts               ← GET / PUT /api/resume; GET /api/resume/snapshots(/:id)
+    ├── resume.ts               ← /api/resumes collection: list/create/load/save/rename/delete + per-resume /snapshots(/:sid)
     └── translate.ts            ← GET /api/translate/status, POST /api/translate
 
-tests/                          ← Vitest specs (349 tests at last count)
+tests/                          ← Vitest specs (382 tests at last count)
 ├── fixtures.ts                 ← Shared makeProject() / makeRole() / ... factories
 ├── setup-rtl.ts                ← jest-dom matchers + afterEach(cleanup) for component tests
 ├── helpers/store-reset.ts      ← resetStore() — restores the singleton store between component tests
@@ -254,6 +265,12 @@ When adding a component, copy the inline `<style>` pattern from an existing one 
 
 ## 7. The store — patterns to follow
 
+> Before changing `src/store/**`, `lib/localCache.ts`, or the auto-save / boot /
+> undo flow, read the **store & persistence skill**
+> (`.claude/skills/store-and-persistence.md`) — it spells out the
+> `loadStore`-vs-`replaceData` split and the `mutationCount`/`mutate()` contract
+> whose silent breakage has caused real bugs.
+
 ### Reading
 ```ts
 const data = useStore(s => s.data)
@@ -277,13 +294,18 @@ The generic functions are typed: `updateItem('projects', id, { customer: ... })`
 
 This distinction is critical — choose the right one:
 
-- **`loadStore(store)`** — I/O semantics. Use for **loading** data from the
-  server or a file. Resets `mutationCount` to 0 (so no spurious auto-save fires
-  and undo history starts fresh).
+- **`loadStore(store, locales?)`** — I/O semantics. Use for **loading** data
+  from the server or a file. Resets `mutationCount` to 0 (so no spurious
+  auto-save fires and undo history starts fresh). The optional `locales`
+  arg seeds primary/secondary from the resume row when the persistence hook
+  has them; otherwise locales fall back to `supported_locales[0/1]`.
 - **`replaceData(store)`** — in-app rewrite semantics. Use when you've
   **computed** a new store and want it treated as a user mutation. Bumps
   `mutationCount`, which means: auto-save will sync it, undo/redo will see it.
   Currently used by `useUndoRedo` and by the registry merge handlers.
+- **`unloadStore()`** — eject the in-memory resume back to empty. The
+  persistence hook calls this on unmount so a quick switch doesn't show
+  stale data under the new id.
 
 If you call `loadStore` for an in-app rewrite, the change will silently never
 enter the undo stack and may not be saved.
@@ -291,7 +313,7 @@ enter the undo stack and may not be saved.
 ### `mutationCount` and the `mutate()` helper
 
 The store maintains a `mutationCount: number` that increments on every USER
-mutation and resets on `loadStore`/`loadFromCVPartner`/`startFresh`. Auto-save
+mutation and resets on `loadStore`/`loadFromCVPartner`/`startFresh`/`unloadStore`. Auto-save
 compares it to a "last saved" ref to decide whether to fire.
 
 Every mutating action funnels through a private `mutate()` helper inside the
@@ -312,15 +334,17 @@ than calling `set()` directly. Return `null` from the updater for a no-op
 
 ### Adding a new section
 1. Add the array to `ResumeStore` in `types/index.ts`.
-2. Add the empty array to `emptyStore` in `useStore.ts`.
+2. Add the empty array to both `emptyStore()` and `freshStore()` in `lib/freshStore.ts`.
 3. Add an entry to `SECTIONS` in `lib/sections.ts`.
 4. Add the icon import to `Sidebar.tsx`'s `ICON_MAP`.
-5. Create the editor component and wire it into `App.tsx`'s router.
+5. Create the editor component and wire it into `App.tsx`'s `EditorRoute` switch.
 6. If the section has `sort_order`, wrap its `<EditorCard>`s in a `<SortableList section="…" ids={items.map(x=>x.id)}>`. If it doesn't, pass `sortable={false}` to each `<EditorCard>` so the drag handle isn't shown.
 7. If it should appear in Resume View exports: add a `case` to both
    `lib/viewFilter.ts → renderItem` (HTML/PDF path) and `lib/exporter.ts →
    renderSection` (DOCX path). Also extend `getItemTitle`/`getItemSubtitle`
-   in `viewFilter.ts` for the View-editor item list.
+   in `viewFilter.ts` for the View-editor item list. The **export-pipeline
+   skill** (`.claude/skills/export-pipeline.md`) covers keeping the two render
+   paths in sync, the docx lazy-load discipline, and the escaping cross-check.
 
 ---
 
@@ -328,39 +352,65 @@ than calling `set()` directly. Return `null` from the updater for a no-op
 
 ### Architecture
 - **Source of truth**: SQLite via the Express server (`server/db.ts`).
-- **Cache**: localStorage (`lib/localCache.ts`, key `resumestudio:store-cache:v1`, single `{data, saved_at}` record).
-- **In-memory**: the Zustand store.
+  Two tables: `resumes` (one row per CV — id, name, data, primary_locale,
+  secondary_locale, saved_at, created_at) and `resume_snapshots` (FK
+  `resume_id` with `ON DELETE CASCADE`, indexed by `(resume_id, id DESC)`).
+- **Cache**: localStorage (`lib/localCache.ts`), keyed
+  `resumestudio:store-cache:v1:<resume_id>` — one slot per resume so the
+  fallback doesn't blur boundaries when the user switches.
+- **In-memory**: the Zustand store holds one resume at a time;
+  `currentResumeId` tracks which one.
 
-### Boot sequence (`useResumePersistence` initial effect)
-1. `api.load()` — try the server. If a resume comes back, load it AND clear the local cache (server is canonical).
-2. If the server returned 404 (no resume yet) AND there's a cache, restore from cache silently (offline edits the server hasn't seen yet).
-3. If the server is unreachable, restore from cache AND set save state to `offline` (visible to the user).
-4. If the server returns 401, show the auth modal.
+### Routes (all auth-gated, under `/api/resumes`)
+| Method | Path | Notes |
+|---|---|---|
+| `GET` | `/api/resumes` | Metadata list, newest `saved_at` first. Returns `{resumes: []}` (never 404) — empty list is the "fresh install" signal. |
+| `POST` | `/api/resumes` | Body `{name, data?, primary_locale?, secondary_locale?}` → 201 with `{resume: ResumeMeta}`. |
+| `GET` | `/api/resumes/:id` | `{data, meta}` or 404. |
+| `PUT` | `/api/resumes/:id` | Body `{data, primary_locale?, secondary_locale?}` — locales are optional but **must come in pairs** (400 if only one). 404 if id unknown. |
+| `PATCH` | `/api/resumes/:id` | Rename only (`{name}`) — avoids re-sending the CV blob. |
+| `DELETE` | `/api/resumes/:id` | Hard delete; snapshots cascade. 404 if already gone. |
+| `GET` | `/api/resumes/:id/snapshots` | Metadata list (newest first). 404 if resume unknown. |
+| `GET` | `/api/resumes/:id/snapshots/:sid` | One snapshot's full data. |
 
-### Save sequence (per mutation, in `useResumePersistence`)
-1. Cache write debounced 250 ms (cheap, but still not per-keystroke).
-2. Server `PUT /api/resume` debounced 1 s, with an AbortController so a newer mutation supersedes an in-flight save.
-3. On success: clear the local cache (now matches the server), flash "Saved" for 2 s.
-4. On failure: show "Save failed" + Retry. Cache still holds the work.
-5. On 401: kick the user back to the auth modal.
+### Boot sequence — per active resume (`useResumePersistence(resumeId)`)
+1. `api.loadResume(id)` — try the server. On hit, load it and seed
+   primary/secondary locale from the row.
+2. On 404 with server reachable, set `loadState='not-found'` — the editor
+   redirects to `/`. **No cache fallback** for unknown ids; that would
+   resurrect ghost data.
+3. On server unreachable, restore from `loadCache(id)`. If a cache exists,
+   `saveState='offline'` and the user keeps editing.
+4. On 401, set `loadState='auth'`; App shows the modal.
+
+### Save sequence — per mutation (1s debounce)
+1. Cache write debounced 250 ms (cheap, per-id) via `saveCache(id, data)`.
+2. Server `PUT /api/resumes/:id` debounced 1 s, body carries `{data,
+   primary_locale, secondary_locale}` together (decision 10 in
+   `plans/multi-resume.md`). Locale-only changes ride along on the same
+   PUT because the locale setters in the store go through `mutate()`.
+3. AbortController so a newer mutation supersedes an in-flight save.
+4. On 404 mid-save (the resume was deleted server-side), redirect to `/`.
+5. On 401, surface the auth modal.
 
 ### Backup format
-- `lib/backup.ts` defines `BackupV1` and `migrateBackup()`. The detector (`isBackupFormat`) is intentionally lenient — it accepts any envelope shape that smells like a backup, then `migrateBackup` decides if this build can read it (throws `UnsupportedBackupVersionError` with a user-meaningful message otherwise).
-- When you bump the format, add a `BackupV2` interface, extend `AnyBackup`, write a `migrateV1toV2(v1)` step, and chain it into `migrateBackup`. The existing scaffold + tests at `tests/backup.test.ts` show the shape.
+- `lib/backup.ts` defines `BackupV1` and `migrateBackup()`. The detector
+  (`isBackupFormat`) is intentionally lenient — it accepts any envelope shape
+  that smells like a backup, then `migrateBackup` decides if this build can
+  read it (throws `UnsupportedBackupVersionError` otherwise).
+- Backup is **per-resume** (decision 3): `downloadBackup` writes the active
+  resume; loading a backup file from the picker creates a **new** resume
+  rather than replacing one. The in-editor "load file" affordance is gone.
 
-### Snapshot history (server-side)
-- `saveResume()` in `server/db.ts` runs in a transaction: it upserts the
-  single `resume_store` row **and** appends a row to `resume_snapshots`
-  (schema is additive — `CREATE TABLE IF NOT EXISTS`, no migration needed).
-- A snapshot identical to the most recent one is skipped (de-dup), and the log
-  is pruned to the newest **50** entries on every save.
-- Read endpoints (auth-gated, under `/api/resume`):
-  `GET /snapshots` → metadata only (`{id, saved_at, size}`, newest first);
-  `GET /snapshots/:id` → that snapshot's full resume data.
-- The **History** modal (`SnapshotHistory.tsx`, opened from `AppHeader`)
-  restores via **`replaceData`** (not `loadStore`) so a restore is itself a
-  user mutation: it lands in the undo stack and is re-saved. This is why
-  "restore" is reversible.
+### Snapshot history (server-side, per resume)
+- `saveResume(id, data, locales?)` in `server/db.ts` runs in a transaction:
+  it updates the `resumes` row **and** appends to `resume_snapshots` scoped
+  by `resume_id`.
+- Identical-to-last-snapshot saves are deduped per resume. Pruning keeps the
+  newest **50** per resume — not global.
+- The **History** modal (`SnapshotHistory.tsx`, takes `resumeId`) restores
+  via **`replaceData`** (not `loadStore`) so a restore is itself a user
+  mutation: it lands in the undo stack and is re-saved. Reversible.
 
 ### Translation assist (server-side proxy)
 - The client never calls the translation backend directly. `POST /api/translate`
@@ -381,6 +431,11 @@ than calling `set()` directly. Return `null` from the updater for a no-op
 
 ## 9. Importer notes (CVpartner format)
 
+> Full detail in the **CVpartner import skill**
+> (`.claude/skills/cvpartner-import.md`) — format quirks, importer invariants,
+> and the table-test discipline. Read it before touching `importer.ts` /
+> `migrate.ts`.
+
 `src/lib/importer.ts` maps the CVpartner JSON export to our `ResumeStore`. Key behaviors:
 
 - Localized values can be objects (`{ no: "...", int: "..." }`) or interleaved arrays (`['no', '...', 'int', '...']`). The `localized()` helper handles both. The `int` locale code is renamed to `en` on import.
@@ -396,6 +451,11 @@ than calling `set()` directly. Return `null` from the updater for a no-op
 
 ## 10. Testing
 
+**Before writing tests or doing QA, read the testing skill:
+`.claude/skills/software-testing.md`** — it captures how to write tests that
+actually find bugs, the typecheck/test/build gate, regression-test discipline,
+and how to verify live without fooling yourself.
+
 ### Running
 ```
 npm test                  # one-shot, headless
@@ -407,11 +467,13 @@ npm run test:coverage     # v8 coverage in coverage/
 - **`lib/`** — every pure-logic library has a `.test.ts`: `locales`, `completeness`, `viewFilter`, `backup`, `importer`, `merge`, `exporter` (smoke test with jsdom for DOM bits), `localCache` (jsdom).
 - **`store/useStore.ts`** — generic CRUD, `moveItem`/`reorderItem`, `mutationCount` semantics (every mutator bumps once, no-ops don't bump, `loadStore` resets, `replaceData` bumps).
 - **React components** — `tests/components/*.test.tsx` via React Testing Library cover every editor, the shell components, and the ui primitives (render → interact → assert through the store). See "Component tests" below.
-- **The Express server** — `tests/server/*.test.ts` (node env): `db` (CRUD +
-  snapshot dedup/prune via `createResumeDb(':memory:')`), `translate` (locale
-  map + `translate()` error matrix with a mocked `fetch`), `auth` (token
-  matrix on the middleware), and `routes` (HTTP status/validation via
-  **supertest** against `createApp()`, with `RESUME_DB_PATH=':memory:'`).
+- **The Express server** — `tests/server/*.test.ts` (node env): `db` (multi-
+  resume CRUD, snapshot dedup/prune *scoped per resume*, CASCADE on delete,
+  via `createResumeDb(':memory:')`), `translate` (locale map + `translate()`
+  error matrix with a mocked `fetch`), `auth` (token matrix on the
+  middleware), and `routes` (HTTP status/validation for the full
+  `/api/resumes/...` grammar via **supertest** against `createApp()`, with
+  `RESUME_DB_PATH=':memory:'`).
 - **Test fixtures** — `tests/fixtures.ts` exports `emptyStore()` + `makeProject()`, `makeWork()`, etc. Use these instead of constructing entities inline so future shape changes are one-place fixes.
 
 ### What's NOT covered
@@ -458,11 +520,21 @@ After any significant change:
 3. `npm run build` — must be clean (catches things tsc misses).
 4. For UI changes, open the dev server and click through the affected flow. CI runs all three.
 
+For QA depth and live-verification discipline, see the testing skill
+(`.claude/skills/software-testing.md`). Before committing anything that touches
+HTML/string templating, the server, auth, persistence, imports, or exports,
+also run through the security skill (`.claude/skills/security-review.md`).
+
 ### Server / env
 - Copy `.env.example` to `.env` and set `RESUME_API_TOKEN` for a deployed instance. Leaving it empty disables auth — fine for local dev.
-- `data/resume.db` is the SQLite file; it's gitignored. WAL mode is on. The
-  `resume_snapshots` table lives in the same file (additive, no migration).
-- The single-row constraint (`CHECK (id = 1)`) is intentional: this is a single-resume-per-instance product. (The snapshot table is *not* single-row — it's the history log.)
+- `data/resume.db` is the SQLite file; it's gitignored. WAL mode is on.
+  Foreign keys are on (required for snapshot CASCADE — SQLite default is OFF).
+- The schema is **multi-resume** — `resumes` (one row per CV) +
+  `resume_snapshots` (FK with `ON DELETE CASCADE`). On boot, `createResumeDb`
+  defensively `DROP TABLE IF EXISTS resume_store` to clean up the
+  pre-multi-resume single-row table if a stale dev DB is around.
+- API surface: `/api/resumes` (collection) and `/api/resumes/:id/...` —
+  full grammar in §8.
 - **Translation is optional.** A bundled `docker-compose.yml` runs a
   LibreTranslate service (locales limited to `en,nb,sv,da`, models persisted in
   a named volume). Bring it up with **`npm run dev:translate`**
@@ -493,7 +565,9 @@ Ordered loosely by recommended priority. Each is a self-contained chunk.
 
 > **Recently shipped** (don't re-propose): live preview pane in the Resume View
 > editor, field-level translation assist (Copy + LibreTranslate-proxied Draft),
-> and server-side snapshot history. See §1 and §8.
+> server-side snapshot history, and **multi-resume support** (picker route +
+> per-id routing + per-resume snapshots/locales + delete-with-confirm). See §1
+> and §8.
 
 ### 12.1 Export templates
 `ResumeView.template_id` is already on the type (see `types/index.ts`) and called out as "reserved" in `lib/exporter.ts`, but nothing reads it. Two or three named templates (compact technical / formal management / minimal one-pager) would make views visually differentiated — currently a Board CV and a Technical CV produce the same-looking document. Touches both `buildViewHtml` (HTML/CSS path) and `exporter.ts` (DOCX path); each template is a styling delta, not a fork of the render logic. Pairs naturally with the (now shipped) live preview pane — that's what makes template choice tunable without an export round-trip.
@@ -504,8 +578,8 @@ Ordered loosely by recommended priority. Each is a self-contained chunk.
 ### 12.3 Section catalog refactor
 Three switches enumerate the 13 content sections: `viewFilter.getItemTitle/getItemSubtitle`, `viewFilter.renderItem`, `exporter.renderSection`. A section-descriptor registry (one place per section declaring `{titleField, subtitleField, dateField, render}`) would collapse them. The CLAUDE.md "Adding a new section" step would shrink from 7 items to 3. Don't do this if new sections are rare — the duplication is bounded.
 
-### 12.4 Multi-resume support
-The DB schema enforces single-tenant via `CHECK (id = 1)`. Multi-resume would mean: drop the constraint, move `resume_store` to a multi-row table, scope `resume_snapshots` per resume, add a `current_resume_id` setting + collection API, and wire a resume-switcher into the sidebar. The Zustand store wouldn't need to change shape, only what gets loaded into it. Note: Resume Views already cover "different audiences from one master CV" — this is only worth it for genuinely separate CVs.
+### 12.4 Rename UI for resumes
+The API exposes `PATCH /api/resumes/:id` (rename), but there's no UI for it yet. Add a small "rename" affordance — either an inline edit on the picker card, or a "Rename this resume…" option in the header switcher dropdown. Trivial work; only deferred because the default auto-name ("My resume", "Astrid Solberg — CV") covers most cases.
 
 ---
 

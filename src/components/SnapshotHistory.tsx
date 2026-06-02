@@ -5,6 +5,7 @@ import { api, type SnapshotMeta, UnauthorizedError } from '../lib/api'
 import { fmtRelativeTime } from '../lib/locales'
 
 interface SnapshotHistoryProps {
+  resumeId: string
   onClose: () => void
   /** Surfaced when a restore hits a 401 so the shell can show the auth modal. */
   onUnauthorized?: () => void
@@ -17,7 +18,7 @@ interface SnapshotHistoryProps {
  * state is treated as a user mutation: it lands in the undo stack and is
  * re-saved to the server. That makes "restore" itself reversible.
  */
-export function SnapshotHistory({ onClose, onUnauthorized }: SnapshotHistoryProps) {
+export function SnapshotHistory({ resumeId, onClose, onUnauthorized }: SnapshotHistoryProps) {
   const replaceData = useStore((s) => s.replaceData)
   const [snapshots, setSnapshots] = useState<SnapshotMeta[] | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -25,7 +26,7 @@ export function SnapshotHistory({ onClose, onUnauthorized }: SnapshotHistoryProp
 
   useEffect(() => {
     let active = true
-    api.listSnapshots()
+    api.listSnapshots(resumeId)
       .then((list) => { if (active) setSnapshots(list) })
       .catch((e: unknown) => {
         if (!active) return
@@ -34,7 +35,7 @@ export function SnapshotHistory({ onClose, onUnauthorized }: SnapshotHistoryProp
         setSnapshots([])
       })
     return () => { active = false }
-  }, [onClose, onUnauthorized])
+  }, [resumeId, onClose, onUnauthorized])
 
   const restore = async (snap: SnapshotMeta) => {
     const when = fmtRelativeTime(snap.saved_at)
@@ -44,7 +45,7 @@ export function SnapshotHistory({ onClose, onUnauthorized }: SnapshotHistoryProp
     setRestoringId(snap.id)
     setError(null)
     try {
-      const data = await api.getSnapshot(snap.id)
+      const data = await api.getSnapshot(resumeId, snap.id)
       replaceData(data)
       onClose()
     } catch (e) {
