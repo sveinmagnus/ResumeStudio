@@ -11,12 +11,17 @@ beforeAll(async () => {
   process.env.RESUME_DB_PATH = ':memory:'
   delete process.env.RESUME_API_TOKEN
   delete process.env.LIBRETRANSLATE_URL
+  // This file exercises many deliberate failures (400/404/409/401), which the
+  // failure-focused rate limiter would otherwise count. Raise the ceiling so
+  // the limiter never trips here — it has its own dedicated test (rateLimit.test.ts).
+  process.env.RESUME_RATE_LIMIT_MAX = '1000000'
   const { createApp } = await import('../../server/app')
   app = createApp()
 })
 
 afterAll(() => {
   delete process.env.RESUME_DB_PATH
+  delete process.env.RESUME_RATE_LIMIT_MAX
 })
 
 // Convenience: create a resume and return its id for follow-up tests.
@@ -138,6 +143,44 @@ describe('single resume', () => {
 
     const get = await request(app).get(`/api/resumes/${id}`)
     expect(get.body.data).toEqual(payload.data)
+  })
+
+  it('GET and PUT expose the version + ETag', async () => {
+    const get1 = await request(app).get(`/api/resumes/${id}`)
+    expect(get1.body.meta.version).toBe(1)
+    expect(get1.headers['etag']).toBe('"1"')
+
+    const put = await request(app).put(`/api/resumes/${id}`).send({ data: { v: 1 } })
+    expect(put.body.version).toBe(2)
+    expect(put.headers['etag']).toBe('"2"')
+  })
+
+  it('PUT with a matching base_version succeeds; a stale one → 409 with current', async () => {
+    // Bring it to version 2.
+    await request(app).put(`/api/resumes/${id}`).send({ data: { round: 1 } })
+    // A correct base (2) writes and advances to 3.
+    const ok = await request(app).put(`/api/resumes/${id}`).send({ data: { round: 2 }, base_version: 2 })
+    expect(ok.status).toBe(200)
+    expect(ok.body.version).toBe(3)
+
+    // A stale base (2 again) is now refused with the live state for diffing.
+    const conflict = await request(app)
+      .put(`/api/resumes/${id}`)
+      .send({ data: { round: 3 }, base_version: 2 })
+    expect(conflict.status).toBe(409)
+    expect(conflict.body.current.meta.version).toBe(3)
+    expect(conflict.body.current.data).toEqual({ round: 2 })
+
+    // The losing write did not land.
+    const get = await request(app).get(`/api/resumes/${id}`)
+    expect(get.body.data).toEqual({ round: 2 })
+  })
+
+  it('PUT → 400 for a non-integer / negative base_version', async () => {
+    const bad = await request(app).put(`/api/resumes/${id}`).send({ data: {}, base_version: 'x' })
+    expect(bad.status).toBe(400)
+    const neg = await request(app).put(`/api/resumes/${id}`).send({ data: {}, base_version: -1 })
+    expect(neg.status).toBe(400)
   })
 
   it('PUT /api/resumes/:id → updates locales when supplied alongside data', async () => {

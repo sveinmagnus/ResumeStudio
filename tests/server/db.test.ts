@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
+import Database from 'better-sqlite3'
 import { createResumeDb, MAX_SNAPSHOTS } from '../../server/db'
 
 // Each test gets its own isolated in-memory database.
@@ -87,9 +88,9 @@ describe('createResumeDb — resume CRUD', () => {
     expect(list[1].id).toBe(a.id)
   })
 
-  it('saveResume returns null for an unknown id (no row created)', () => {
+  it('saveResume reports not-found for an unknown id (no row created)', () => {
     const db = freshDb()
-    expect(db.saveResume('bogus', { v: 1 })).toBeNull()
+    expect(db.saveResume('bogus', { v: 1 })).toEqual({ status: 'not-found' })
     expect(db.listResumes()).toEqual([])
   })
 
@@ -98,11 +99,13 @@ describe('createResumeDb — resume CRUD', () => {
     const meta = db.createResume({ name: 'Mine' })
     // Sleep a millisecond so ISO timestamps differ.
     await new Promise((r) => setTimeout(r, 5))
-    const newSavedAt = db.saveResume(meta.id, { v: 2 })
-    expect(newSavedAt).not.toBe(meta.saved_at)
+    const result = db.saveResume(meta.id, { v: 2 })
+    expect(result.status).toBe('saved')
+    const savedAt = result.status === 'saved' ? result.saved_at : null
+    expect(savedAt).not.toBe(meta.saved_at)
     const full = db.getResume(meta.id)
     expect(full?.data).toEqual({ v: 2 })
-    expect(full?.meta.saved_at).toBe(newSavedAt)
+    expect(full?.meta.saved_at).toBe(savedAt)
     // created_at is not touched.
     expect(full?.meta.created_at).toBe(meta.created_at)
   })
@@ -141,6 +144,107 @@ describe('createResumeDb — resume CRUD', () => {
     expect(db.deleteResume(meta.id)).toBe(true)
     expect(db.getResume(meta.id)).toBeNull()
     expect(db.deleteResume(meta.id)).toBe(false)
+  })
+})
+
+describe('createResumeDb — versioning & optimistic concurrency', () => {
+  it('starts at version 1 and exposes it on create/get/list', () => {
+    const db = freshDb()
+    const meta = db.createResume({ name: 'CV' })
+    expect(meta.version).toBe(1)
+    expect(db.getResume(meta.id)?.meta.version).toBe(1)
+    expect(db.listResumes()[0].version).toBe(1)
+  })
+
+  it('bumps the version by 1 on every successful save', () => {
+    const db = freshDb()
+    const { id } = db.createResume({ name: 'CV' })
+    const r1 = db.saveResume(id, { v: 1 })
+    const r2 = db.saveResume(id, { v: 2 })
+    expect(r1).toEqual(expect.objectContaining({ status: 'saved', version: 2 }))
+    expect(r2).toEqual(expect.objectContaining({ status: 'saved', version: 3 }))
+    expect(db.getResume(id)?.meta.version).toBe(3)
+  })
+
+  it('accepts a save whose expectedVersion matches the current version', () => {
+    const db = freshDb()
+    const { id } = db.createResume({ name: 'CV' }) // version 1
+    const r = db.saveResume(id, { v: 1 }, undefined, 1)
+    expect(r.status).toBe('saved')
+    expect(db.getResume(id)?.meta.version).toBe(2)
+  })
+
+  it('rejects a save with a stale expectedVersion and writes nothing', () => {
+    const db = freshDb()
+    const { id } = db.createResume({ name: 'CV', data: { original: true } })
+    db.saveResume(id, { v: 2 }) // version → 2
+    // A second writer still thinks the base is 1.
+    const r = db.saveResume(id, { iLose: true }, undefined, 1)
+    expect(r.status).toBe('conflict')
+    if (r.status === 'conflict') {
+      // The conflict carries the live server state for diffing…
+      expect(r.current.meta.version).toBe(2)
+      expect(r.current.data).toEqual({ v: 2 })
+    }
+    // …and nothing was written: data + version unchanged.
+    expect(db.getResume(id)?.data).toEqual({ v: 2 })
+    expect(db.getResume(id)?.meta.version).toBe(2)
+  })
+
+  it('a conflict does NOT append a snapshot', () => {
+    const db = freshDb()
+    const { id } = db.createResume({ name: 'CV' })
+    db.saveResume(id, { v: 2 })              // version 2, 1 snapshot
+    const before = db.listSnapshots(id).length
+    db.saveResume(id, { stale: true }, undefined, 1) // conflict
+    expect(db.listSnapshots(id).length).toBe(before)
+  })
+
+  it('omitting expectedVersion force-writes regardless of the current version', () => {
+    const db = freshDb()
+    const { id } = db.createResume({ name: 'CV' })
+    db.saveResume(id, { v: 2 })            // version → 2
+    const r = db.saveResume(id, { forced: true }) // no expectedVersion
+    expect(r).toEqual(expect.objectContaining({ status: 'saved', version: 3 }))
+    expect(db.getResume(id)?.data).toEqual({ forced: true })
+  })
+})
+
+describe('createResumeDb — additive version migration', () => {
+  const rmQuiet = (dir: string) => {
+    try { fs.rmSync(dir, { recursive: true, force: true }) } catch { /* ignore */ }
+  }
+
+  it('adds the version column to a pre-existing versionless resumes table', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rs-mig-'))
+    const file = path.join(dir, 'old.db')
+
+    // Hand-build the pre-offline-editing schema (no `version` column) + a row.
+    const raw = new Database(file)
+    raw.exec(`
+      CREATE TABLE resumes (
+        id TEXT PRIMARY KEY, name TEXT NOT NULL, data TEXT NOT NULL,
+        primary_locale TEXT NOT NULL DEFAULT 'en', secondary_locale TEXT,
+        saved_at TEXT NOT NULL, created_at TEXT NOT NULL
+      );
+    `)
+    raw.prepare(
+      `INSERT INTO resumes (id, name, data, primary_locale, secondary_locale, saved_at, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ).run('old-1', 'Legacy', '{"hello":"world"}', 'en', null, '2026-01-01', '2026-01-01')
+    raw.close()
+
+    // Opening through the factory runs the migration.
+    const db = createResumeDb(file)
+    const full = db.getResume('old-1')
+    expect(full?.meta.version).toBe(1)          // back-filled default
+    expect(full?.data).toEqual({ hello: 'world' }) // data preserved, not dropped
+
+    // And concurrency works from there: base 1 saves, base 1 then conflicts.
+    expect(db.saveResume('old-1', { hello: 'again' }, undefined, 1).status).toBe('saved')
+    expect(db.saveResume('old-1', { stale: true }, undefined, 1).status).toBe('conflict')
+
+    rmQuiet(dir)
   })
 })
 

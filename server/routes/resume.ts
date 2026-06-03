@@ -81,12 +81,20 @@ router.get('/:id', (req: Request<IdParams>, res: Response): void => {
     res.status(404).json({ error: 'Resume not found' })
     return
   }
+  // ETag mirrors meta.version — the optimistic-concurrency token the client
+  // echoes back as base_version on the next save.
+  res.setHeader('ETag', `"${full.meta.version}"`)
   res.json({ data: full.data, meta: full.meta })
 })
 
 /**
  * PUT /api/resumes/:id — replace data (and optionally locales).
- * Body: { data, primary_locale?, secondary_locale? }.
+ * Body: { data, primary_locale?, secondary_locale?, base_version? }.
+ *
+ * When `base_version` is supplied it is an optimistic-concurrency check: if the
+ * stored version has moved on (another tab/device saved in between) the write
+ * is refused with 409 and the live server state, so the client can diff and
+ * resolve. Omit it to force-write (e.g. after the user picks "keep mine").
  */
 router.put('/:id', (req: Request<IdParams>, res: Response): void => {
   const body = req.body as Record<string, unknown> | undefined
@@ -121,12 +129,31 @@ router.put('/:id', (req: Request<IdParams>, res: Response): void => {
     }
   }
 
-  const saved_at = saveResume(req.params.id, data, locales)
-  if (!saved_at) {
+  // Optional concurrency token. Must be a non-negative integer if present.
+  let expectedVersion: number | undefined
+  if ('base_version' in body && body.base_version !== undefined) {
+    const v = body.base_version
+    if (typeof v !== 'number' || !Number.isInteger(v) || v < 0) {
+      res.status(400).json({ error: 'base_version must be a non-negative integer' })
+      return
+    }
+    expectedVersion = v
+  }
+
+  const result = saveResume(req.params.id, data, locales, expectedVersion)
+  if (result.status === 'not-found') {
     res.status(404).json({ error: 'Resume not found' })
     return
   }
-  res.json({ ok: true, saved_at })
+  if (result.status === 'conflict') {
+    res.status(409).json({
+      error: 'Resume changed elsewhere',
+      current: { data: result.current.data, meta: result.current.meta },
+    })
+    return
+  }
+  res.setHeader('ETag', `"${result.version}"`)
+  res.json({ ok: true, saved_at: result.saved_at, version: result.version })
 })
 
 /**

@@ -17,12 +17,25 @@ export interface ResumeMeta {
   secondary_locale: string | null
   saved_at: string
   created_at: string
+  /** Optimistic-concurrency token. Starts at 1, bumps by 1 on every save. */
+  version: number
 }
 
 export interface ResumeFull {
   meta: ResumeMeta
   data: Record<string, unknown>
 }
+
+/**
+ * Outcome of a save attempt. `not-found` → the id is unknown; `conflict` →
+ * the caller's `expectedVersion` was stale (someone else wrote in between) and
+ * nothing was written — `current` is the live server state for diffing; `saved`
+ * → written, with the new version.
+ */
+export type SaveResult =
+  | { status: 'saved'; saved_at: string; version: number }
+  | { status: 'conflict'; current: ResumeFull }
+  | { status: 'not-found' }
 
 export interface SnapshotMeta {
   id: number
@@ -47,11 +60,19 @@ export interface ResumeDb {
   createResume(input: CreateResumeInput): ResumeMeta
   getResume(id: string): ResumeFull | null
   /**
-   * Replace `data` (and optionally locales) on an existing resume. Returns the
-   * new `saved_at`, or null if no resume with that id exists. Appends a
-   * snapshot in the same transaction (deduped, pruned per resume).
+   * Replace `data` (and optionally locales) on an existing resume, bumping its
+   * version. Appends a snapshot in the same transaction (deduped, pruned per
+   * resume). If `expectedVersion` is supplied and no longer matches, nothing is
+   * written and a `conflict` result is returned with the live server state.
+   * Omit `expectedVersion` to force-write (used after the user resolves a
+   * conflict "keep mine").
    */
-  saveResume(id: string, data: unknown, locales?: LocaleUpdate): string | null
+  saveResume(
+    id: string,
+    data: unknown,
+    locales?: LocaleUpdate,
+    expectedVersion?: number,
+  ): SaveResult
   deleteResume(id: string): boolean
   renameResume(id: string, name: string): boolean
   listSnapshots(resumeId: string): SnapshotMeta[]
@@ -98,7 +119,8 @@ export function createResumeDb(dbPath: string): ResumeDb {
       primary_locale   TEXT NOT NULL DEFAULT 'en',
       secondary_locale TEXT,
       saved_at         TEXT NOT NULL,
-      created_at       TEXT NOT NULL
+      created_at       TEXT NOT NULL,
+      version          INTEGER NOT NULL DEFAULT 1
     );
     CREATE TABLE IF NOT EXISTS resume_snapshots (
       id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -110,30 +132,37 @@ export function createResumeDb(dbPath: string): ResumeDb {
       ON resume_snapshots(resume_id, id DESC);
   `)
 
+  // Additive migration: a `resumes` table created before the offline-editing
+  // work lacks the `version` column. `CREATE TABLE IF NOT EXISTS` won't add it
+  // to an existing table, so patch it here. Unlike the multi-resume cleanup,
+  // this must NOT drop data — real resumes may already live here. Existing rows
+  // default to version 1 (any in-flight client sees a clean first save).
+  const columns = db.prepare('PRAGMA table_info(resumes)').all() as { name: string }[]
+  if (!columns.some((c) => c.name === 'version')) {
+    db.exec('ALTER TABLE resumes ADD COLUMN version INTEGER NOT NULL DEFAULT 1')
+  }
+
   // ─── Prepared statements ───────────────────────────────────────────────────
   const selectResumes = db.prepare(`
-    SELECT id, name, primary_locale, secondary_locale, saved_at, created_at
+    SELECT id, name, primary_locale, secondary_locale, saved_at, created_at, version
     FROM resumes
     ORDER BY saved_at DESC
   `)
-  const selectResumeMeta = db.prepare(`
-    SELECT id, name, primary_locale, secondary_locale, saved_at, created_at
-    FROM resumes WHERE id = ?
-  `)
+  const selectResumeVersion = db.prepare('SELECT version FROM resumes WHERE id = ?')
   const selectResumeFull = db.prepare(`
-    SELECT id, name, data, primary_locale, secondary_locale, saved_at, created_at
+    SELECT id, name, data, primary_locale, secondary_locale, saved_at, created_at, version
     FROM resumes WHERE id = ?
   `)
   const insertResume = db.prepare(`
-    INSERT INTO resumes (id, name, data, primary_locale, secondary_locale, saved_at, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO resumes (id, name, data, primary_locale, secondary_locale, saved_at, created_at, version)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 1)
   `)
   const updateResumeData = db.prepare(`
-    UPDATE resumes SET data = ?, saved_at = ? WHERE id = ?
+    UPDATE resumes SET data = ?, saved_at = ?, version = version + 1 WHERE id = ?
   `)
   const updateResumeDataAndLocales = db.prepare(`
     UPDATE resumes
-    SET data = ?, primary_locale = ?, secondary_locale = ?, saved_at = ?
+    SET data = ?, primary_locale = ?, secondary_locale = ?, saved_at = ?, version = version + 1
     WHERE id = ?
   `)
   const renameResumeStmt = db.prepare(`
@@ -176,6 +205,7 @@ export function createResumeDb(dbPath: string): ResumeDb {
     secondary_locale: string | null
     saved_at: string
     created_at: string
+    version: number
   }
   interface FullRow extends MetaRow { data: string }
 
@@ -196,6 +226,7 @@ export function createResumeDb(dbPath: string): ResumeDb {
       secondary_locale: secondary,
       saved_at: now,
       created_at: now,
+      version: 1,
     }
   }
 
@@ -210,24 +241,33 @@ export function createResumeDb(dbPath: string): ResumeDb {
         secondary_locale: row.secondary_locale,
         saved_at: row.saved_at,
         created_at: row.created_at,
+        version: row.version,
       },
       data: JSON.parse(row.data) as Record<string, unknown>,
     }
   }
 
   /**
-   * Persist resume JSON + optionally locales, append a snapshot (deduped),
-   * and prune to MAX_SNAPSHOTS — all in one transaction. Returns null if the
-   * resume id doesn't exist (caller maps to 404).
+   * Persist resume JSON + optionally locales, bump the version, append a
+   * snapshot (deduped), and prune to MAX_SNAPSHOTS — all in one transaction.
+   * See the `ResumeDb.saveResume` doc for the conflict / not-found semantics.
    */
   const saveResume = (
     id: string,
     data: unknown,
     locales?: LocaleUpdate,
-  ): string | null => {
-    if (!selectResumeMeta.get(id)) return null
+    expectedVersion?: number,
+  ): SaveResult => {
+    const row = selectResumeVersion.get(id) as { version: number } | undefined
+    if (!row) return { status: 'not-found' }
+    // Optimistic concurrency: a stale base version means someone wrote in
+    // between. Write nothing; hand back the live state so the caller can diff.
+    if (expectedVersion !== undefined && expectedVersion !== row.version) {
+      return { status: 'conflict', current: getResume(id)! }
+    }
     const saved_at = new Date().toISOString()
     const json = JSON.stringify(data)
+    const newVersion = row.version + 1 // single synchronous connection → exact
     const tx = db.transaction(() => {
       if (locales) {
         updateResumeDataAndLocales.run(
@@ -243,7 +283,7 @@ export function createResumeDb(dbPath: string): ResumeDb {
       }
     })
     tx()
-    return saved_at
+    return { status: 'saved', saved_at, version: newVersion }
   }
 
   const renameResume = (id: string, name: string): boolean => {
@@ -308,8 +348,8 @@ export const listResumes = (): ResumeMeta[] => defaultDb().listResumes()
 export const createResume = (input: CreateResumeInput): ResumeMeta => defaultDb().createResume(input)
 export const getResume = (id: string): ResumeFull | null => defaultDb().getResume(id)
 export const saveResume = (
-  id: string, data: unknown, locales?: LocaleUpdate,
-): string | null => defaultDb().saveResume(id, data, locales)
+  id: string, data: unknown, locales?: LocaleUpdate, expectedVersion?: number,
+): SaveResult => defaultDb().saveResume(id, data, locales, expectedVersion)
 export const deleteResume = (id: string): boolean => defaultDb().deleteResume(id)
 export const renameResume = (id: string, name: string): boolean => defaultDb().renameResume(id, name)
 export const listSnapshots = (resumeId: string): SnapshotMeta[] => defaultDb().listSnapshots(resumeId)
