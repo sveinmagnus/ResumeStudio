@@ -399,21 +399,28 @@ than calling `set()` directly. Return `null` from the updater for a no-op
 4. On success → `clearPending(id)` (synced), advance the base `version`.
 5. On 404 mid-save → redirect to `/`. On 401 → auth modal. On **409** → keep
    the local edits, pause auto-save, raise the `conflict` state. On a network
-   failure (not a 5xx) → `saveState='offline'`, the edit stays queued.
+   failure (not a 5xx) → `saveState` = `offline` (connectivity down) or
+   `queued` (still nominally online); the edit stays in the dirty queue.
 
 ### Offline editing & conflict safety
+- **Sync decisions** are pure functions in `lib/syncEngine.ts` (`decideBoot`,
+  `selectDrainTargets`) — the hook is thin glue, so the boot/drain matrix is
+  unit-tested without timers or the DOM.
 - **Connectivity** (`lib/connectivity.ts`): `navigator.onLine` + `online`/
   `offline` events, but recovery is confirmed by polling `api.health()` (the
   NIC being up ≠ the server answering). `subscribeOnline()` drives the drain.
-- **Reconnect drain**: on a real offline→online transition the hook re-flushes
-  the active resume's dirty record. Other dirty resumes drain on next open
-  (decision: non-blocking; no background fan-out).
+- **Reconnect drain**: on a real offline→online transition (and on an online
+  boot) the active resume re-flushes via `flushToServer` while **every other
+  dirty resume** drains via `backgroundFlush` (a 409 there is left dirty so the
+  conflict surfaces when that resume is next opened).
+- **Unsynced visibility**: the header `SaveStatus` shows `offline`/`queued`
+  with a multi-resume count; the picker marks dirty cards and notes the backlog.
 - **Conflict** = a 409 from a stale `base_version`. The hook holds the server's
   `current` state as `conflict`; `ConflictModal` shows a `lib/diffResume.ts`
-  summary (section add/remove/change counts + profile field diffs) and offers
-  **keep mine** (re-PUT at the server's version) or **discard mine** (take
-  server). Non-blocking: the editor stays usable, the `conflict` SaveStatus
-  badge re-opens the modal.
+  summary (section counts **plus the labelled items that differ** + profile
+  field diffs) and offers **keep mine** (re-PUT at the server's version) or
+  **discard mine** (take server). Non-blocking: the editor stays usable, the
+  `conflict` SaveStatus badge re-opens the modal.
 - **Guards / security**: a `beforeunload` guard fires while `listDirty()` is
   non-empty; the logout button confirms before wiping unsynced work; a
   mid-session 401 clears the plaintext caches **only when nothing is unsynced**
@@ -618,10 +625,7 @@ Ordered loosely by recommended priority. Each is a self-contained chunk.
 ### 12.3 Section catalog refactor
 Three switches enumerate the 13 content sections: `viewFilter.getItemTitle/getItemSubtitle`, `viewFilter.renderItem`, `exporter.renderSection`. A section-descriptor registry (one place per section declaring `{titleField, subtitleField, dateField, render}`) would collapse them. The CLAUDE.md "Adding a new section" step would shrink from 7 items to 3. Don't do this if new sections are rare — the duplication is bounded.
 
-### 12.4 Rename UI for resumes
-The API exposes `PATCH /api/resumes/:id` (rename), but there's no UI for it yet. Add a small "rename" affordance — either an inline edit on the picker card, or a "Rename this resume…" option in the header switcher dropdown. Trivial work; only deferred because the default auto-name ("My resume", "Astrid Solberg — CV") covers most cases.
-
-### 12.5 Offline-load (PWA / service worker) — *deferred Tier 3*
+### 12.4 Offline-load (PWA / service worker) — *deferred Tier 3*
 Offline *editing* shipped (durable queue + reconnect drain + conflict safety —
 see §8). What's still not possible is *loading* the app with no network: there's
 no service worker caching the shell + assets, so a cold start offline fails. A
@@ -631,7 +635,7 @@ only worth it if "open and edit with zero connectivity" becomes a real need.
 See `plans/offline-editing.md` (Tier 3, explicitly out of scope for the shipped
 work) for the analysis.
 
-### 12.6 Cross-tab coordination
+### 12.5 Cross-tab coordination
 Two tabs of the same browser editing one resume share a single `localStorage`
 pending slot and can interleave writes. The server `version` check prevents
 *server* clobber (the second tab's flush 409s into the conflict modal), but a
