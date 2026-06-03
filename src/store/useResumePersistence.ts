@@ -29,9 +29,34 @@ import type { ResumeStore } from '../types'
 import { type SaveState } from '../components/layout/SaveStatus'
 import { loadPending, savePending, clearPending, listDirty, clearAllCaches } from '../lib/localCache'
 import { subscribeOnline, recheckConnectivity, type Connectivity } from '../lib/connectivity'
+import { decideBoot, selectDrainTargets, type BootAction } from '../lib/syncEngine'
 import { navigate } from '../lib/router'
 
 export type AppLoad = 'loading' | 'auth' | 'ready' | 'not-found'
+
+/**
+ * Flush one resume's queued edits **without** loading it into the editor — used
+ * to drain *non-active* dirty resumes (on reconnect, or on an online boot). A
+ * 409 is left dirty on purpose: the conflict surfaces with the diff modal when
+ * the user next opens that resume. Other failures keep it queued for the next
+ * attempt. Never throws.
+ */
+export async function backgroundFlush(id: string): Promise<void> {
+  const pending = loadPending(id)
+  if (!pending?.dirty) return
+  try {
+    await api.saveResume(
+      id,
+      pending.data,
+      { primary_locale: pending.locales.primary, secondary_locale: pending.locales.secondary },
+      pending.base_version,
+    )
+    clearPending(id)
+  } catch (err) {
+    if (err instanceof ConflictError) return // resolve on next open
+    // network/server error → leave queued for the next drain
+  }
+}
 
 /** The other side of a conflict — the live server state, for diff + resolve. */
 export interface ConflictState {
@@ -163,56 +188,62 @@ export function useResumePersistence(resumeId: string): ResumePersistence {
     conflictPaused.current = false
     setConflict(null)
 
-    api.loadResume(resumeId)
-      .then((res) => {
-        if (!res) {
-          // Server reachable but no such resume id. Don't fall back to cache —
-          // that would resurrect ghost data. Send the user back to the picker.
+    // Apply a boot decision (the *what* comes from the pure `decideBoot`; this
+    // does the I/O). `res` is present for a server hit; `pending` for the
+    // local-record branches.
+    const applyBoot = (
+      action: BootAction,
+      res: { data: ResumeStore; meta: { version: number; primary_locale: string; secondary_locale: string | null } } | null,
+      pending: ReturnType<typeof loadPending>,
+    ) => {
+      switch (action.kind) {
+        case 'not-found':
+          // Unknown id, or unreachable with nothing cached — back to the picker.
           setLoadState('not-found')
           return
-        }
-
-        const pending = loadPending(resumeId)
-        if (pending?.dirty) {
-          // There are unsynced offline edits. Trust THEM, not the server copy:
-          // load the local data and try to push it (with the base version it
-          // was derived from). A clean push syncs; a stale base raises a
-          // non-blocking conflict (server `res` is the other side). Either way
-          // the user lands on their own work, not a silent server overwrite.
-          loadStore(pending.data, pending.locales)
-          baseVersion.current = pending.base_version
-          setCacheSavedAt(pending.saved_at)
-          setLoadState('ready')
-          void flushToServer()
-        } else {
-          loadStore(res.data, {
-            primary: res.meta.primary_locale,
-            secondary: res.meta.secondary_locale,
-          })
-          baseVersion.current = res.meta.version
-          // Server is the source of truth — drop any clean local snapshot.
-          clearPending(resumeId)
+        case 'load-server':
+          loadStore(res!.data, { primary: res!.meta.primary_locale, secondary: res!.meta.secondary_locale })
+          baseVersion.current = res!.meta.version
+          clearPending(resumeId) // drop any clean local snapshot
           setCacheSavedAt(null)
           setLoadState('ready')
+          return
+        case 'flush-local':
+          // Unsynced offline edits win over the server copy: load them and push
+          // with their base version (clean → syncs; stale → non-blocking conflict).
+          loadStore(pending!.data, pending!.locales)
+          baseVersion.current = pending!.base_version
+          setCacheSavedAt(pending!.saved_at)
+          setLoadState('ready')
+          void flushToServer()
+          return
+        case 'offline-local':
+          loadStore(pending!.data, pending!.locales)
+          baseVersion.current = pending!.base_version
+          setCacheSavedAt(pending!.saved_at)
+          setSaveState('offline')
+          setLoadState('ready')
+          recheckConnectivity()
+          return
+      }
+    }
+
+    api.loadResume(resumeId)
+      .then((res) => {
+        const pending = res ? loadPending(resumeId) : null
+        applyBoot(decideBoot({ server: res ? 'hit' : 'not-found', pending }), res, pending)
+        if (res) {
+          // Server reachable on boot — drain any OTHER resumes' queued edits
+          // (e.g. left from a previous offline session). The active resume is
+          // handled by applyBoot above.
+          for (const { id } of listDirty()) if (id !== resumeId) void backgroundFlush(id)
         }
       })
       .catch((err: unknown) => {
         if (err instanceof UnauthorizedError) { setLoadState('auth'); return }
-        // Server unreachable — fall back to the per-id pending record so the
-        // user keeps their last local state. If it's dirty, the reconnect
-        // drain will push it once the server is back.
         console.warn('Could not reach server:', err)
         const pending = loadPending(resumeId)
-        if (pending) {
-          loadStore(pending.data, pending.locales)
-          baseVersion.current = pending.base_version
-          setCacheSavedAt(pending.saved_at)
-          setSaveState('offline')
-          setLoadState('ready')
-          recheckConnectivity()
-        } else {
-          setLoadState('not-found')
-        }
+        applyBoot(decideBoot({ server: 'unreachable', pending }), null, pending)
       })
 
     return () => {
@@ -264,8 +295,14 @@ export function useResumePersistence(resumeId: string): ResumePersistence {
     const unsub = subscribeOnline((conn) => {
       const recovered = prev === 'offline' && conn === 'online'
       prev = conn
-      if (!recovered || conflictPaused.current) return
-      if (loadPending(resumeId)?.dirty) void flushToServer()
+      if (!recovered) return
+      const { active, background } = selectDrainTargets(
+        listDirty().map((d) => d.id), resumeId,
+      )
+      // Active resume resolves through the editor (can raise a conflict modal),
+      // unless a conflict is already pending. Others push in the background.
+      if (active && !conflictPaused.current) void flushToServer()
+      for (const id of background) void backgroundFlush(id)
     })
     return unsub
   }, [resumeId, flushToServer])
