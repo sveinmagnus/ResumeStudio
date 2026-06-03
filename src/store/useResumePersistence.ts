@@ -28,7 +28,7 @@ import {
 import type { ResumeStore } from '../types'
 import { type SaveState } from '../components/layout/SaveStatus'
 import { loadPending, savePending, clearPending, listDirty, clearAllCaches } from '../lib/localCache'
-import { subscribeOnline, recheckConnectivity, type Connectivity } from '../lib/connectivity'
+import { subscribeOnline, recheckConnectivity, isOnline, type Connectivity } from '../lib/connectivity'
 import { decideBoot, selectDrainTargets, type BootAction } from '../lib/syncEngine'
 import { navigate } from '../lib/router'
 
@@ -68,6 +68,8 @@ export interface ResumePersistence {
   loadState: AppLoad
   saveState: SaveState
   cacheSavedAt: string | null
+  /** Number of resumes with unsynced (dirty) edits — for the unsynced badge. */
+  unsyncedCount: number
   /**
    * Non-null when the last save was refused because the server copy changed
    * elsewhere. Holds the server's current state so the editor can show a
@@ -105,6 +107,7 @@ export function useResumePersistence(resumeId: string): ResumePersistence {
   const [saveState, setSaveState] = useState<SaveState>('idle')
   const [cacheSavedAt, setCacheSavedAt] = useState<string | null>(null)
   const [conflict, setConflict] = useState<ConflictState | null>(null)
+  const [unsyncedCount, setUnsyncedCount] = useState(0)
 
   // "have we changed anything since the last successful save?" — both `data`
   // and `mutationCount` change together on a mutation, so the save effect
@@ -172,8 +175,11 @@ export function useResumePersistence(resumeId: string): ResumePersistence {
         console.error('Auto-save failed:', err)
         setSaveState('error')
       } else {
-        console.warn('Save failed (likely offline); edit is queued locally:', err)
-        setSaveState('offline')
+        // Distinguish a confirmed outage ('offline') from a transient blip
+        // while we still believe we're online ('queued'). Either way the edit
+        // is safe in the dirty pending record; recheck to drive the drain.
+        console.warn('Save failed; edit is queued locally:', err)
+        setSaveState(isOnline() ? 'queued' : 'offline')
         recheckConnectivity()
       }
     }
@@ -307,6 +313,10 @@ export function useResumePersistence(resumeId: string): ResumePersistence {
     return unsub
   }, [resumeId, flushToServer])
 
+  // ── Keep the unsynced-resume count fresh. The queue changes on every local
+  //    write (cacheSavedAt) and on every sync (saveState), so recompute then.
+  useEffect(() => { setUnsyncedCount(listDirty().length) }, [saveState, cacheSavedAt])
+
   // ── Unsaved-work guard: warn before a tab close while edits are unsynced.
   //    Reads listDirty() at event time so it reflects the live queue.
   useEffect(() => {
@@ -368,5 +378,5 @@ export function useResumePersistence(resumeId: string): ResumePersistence {
     }
   }, [loadStore, resumeId])
 
-  return { loadState, saveState, cacheSavedAt, conflict, resolveConflict, retry: flushToServer, submitToken }
+  return { loadState, saveState, cacheSavedAt, unsyncedCount, conflict, resolveConflict, retry: flushToServer, submitToken }
 }

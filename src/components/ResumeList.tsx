@@ -3,6 +3,7 @@ import { FileText, Plus, Trash2, Loader2 } from 'lucide-react'
 import { api, type ResumeMeta, UnauthorizedError, ServerError } from '../lib/api'
 import { fmtRelativeTime, detectLocalesInData } from '../lib/locales'
 import { freshStore } from '../lib/freshStore'
+import { listDirty } from '../lib/localCache'
 import { navigate, Link } from '../lib/router'
 import { ImportScreen } from './ImportScreen'
 import type { ResumeStore } from '../types'
@@ -23,6 +24,9 @@ export function ResumeList({ onUnauthorized }: ResumeListProps) {
   const [error, setError] = useState<string | null>(null)
   const [showAdd, setShowAdd] = useState(false)
   const [deleting, setDeleting] = useState<string | null>(null)
+  // Ids with unsynced local edits — read once on mount (the queue only changes
+  // from the editor, which isn't mounted while the picker is shown).
+  const [dirtyIds] = useState<Set<string>>(() => new Set(listDirty().map((d) => d.id)))
 
   const reload = useCallback(() => {
     setError(null)
@@ -126,6 +130,13 @@ export function ResumeList({ onUnauthorized }: ResumeListProps) {
 
         {error && <div className="rl-error">{error}</div>}
 
+        {dirtyIds.size > 0 && (
+          <div className="rl-unsynced-note">
+            {dirtyIds.size} resume{dirtyIds.size > 1 ? 's have' : ' has'} unsynced changes —
+            they'll sync next time you open {dirtyIds.size > 1 ? 'them' : 'it'} online.
+          </div>
+        )}
+
         {showAdd && (
           <div className="rl-add-panel">
             <ImportScreen compact onStartFresh={onStartFresh} onImported={onImported} />
@@ -138,9 +149,16 @@ export function ResumeList({ onUnauthorized }: ResumeListProps) {
               <Link to={{ name: 'editor', id: r.id }} className="rl-link">
                 <div className="rl-icon"><FileText size={18} /></div>
                 <div className="rl-info">
-                  <div className="rl-name">{r.name}</div>
+                  <div className="rl-name">
+                    {r.name}
+                    {dirtyIds.has(r.id) && (
+                      <span className="rl-unsynced-dot" title="Has unsynced local changes" aria-label="unsynced" />
+                    )}
+                  </div>
                   <div className="rl-meta">
-                    Last saved {fmtRelativeTime(r.saved_at)}
+                    {dirtyIds.has(r.id)
+                      ? 'Unsynced changes'
+                      : `Last saved ${fmtRelativeTime(r.saved_at)}`}
                     {' · '}
                     {r.primary_locale.toUpperCase()}
                     {r.secondary_locale && ` / ${r.secondary_locale.toUpperCase()}`}
@@ -224,8 +242,17 @@ export function ResumeList({ onUnauthorized }: ResumeListProps) {
         }
         .rl-info { min-width: 0; flex: 1; }
         .rl-name { font-size: 15px; font-weight: 600; color: var(--ink);
-          white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+          white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+          display: flex; align-items: center; }
+        .rl-unsynced-dot {
+          display: inline-block; width: 8px; height: 8px; margin-left: 8px;
+          border-radius: 50%; background: #b87900; flex-shrink: 0;
+        }
         .rl-meta { font-size: 12px; color: var(--ink-faint); margin-top: 2px; }
+        .rl-unsynced-note {
+          margin-bottom: 16px; padding: 9px 14px; font-size: 12.5px;
+          background: #fff7e6; color: #b87900; border-radius: var(--r-sm);
+        }
         .rl-del {
           display: grid; place-items: center; width: 44px;
           color: var(--ink-faint); border-left: 1px solid var(--line);

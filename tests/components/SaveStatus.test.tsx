@@ -17,6 +17,7 @@ describe('<SaveStatus>', () => {
       ['saving', 'Saving…'],
       ['saved', 'Saved'],
       ['offline', 'Offline — saved locally'],
+      ['queued', 'Unsynced changes'],
       ['error', 'Save failed'],
       ['conflict', 'Changed elsewhere'],
     ] as const
@@ -37,5 +38,16 @@ describe('<SaveStatus>', () => {
   it('does not show Retry when saved', () => {
     render(<SaveStatus state="saved" onRetry={() => {}} />)
     expect(screen.queryByRole('button', { name: /retry/i })).not.toBeInTheDocument()
+  })
+
+  it('notes the multi-resume backlog on offline/queued when unsyncedCount > 1', () => {
+    const { rerender } = render(<SaveStatus state="offline" unsyncedCount={3} />)
+    expect(screen.getByText(/3 resumes/i)).toBeInTheDocument()
+    // Not shown for a single unsynced resume…
+    rerender(<SaveStatus state="offline" unsyncedCount={1} />)
+    expect(screen.queryByText(/resumes/i)).not.toBeInTheDocument()
+    // …nor on healthy states.
+    rerender(<SaveStatus state="saved" unsyncedCount={3} />)
+    expect(screen.queryByText(/3 resumes/i)).not.toBeInTheDocument()
   })
 })

@@ -1,17 +1,23 @@
-import { Check, CloudOff, Loader2, RefreshCw, HardDrive, GitMerge, type LucideIcon } from 'lucide-react'
+import { Check, CloudOff, Loader2, RefreshCw, HardDrive, GitMerge, CloudUpload, type LucideIcon } from 'lucide-react'
 
 export type SaveState =
   | 'idle'        // nothing to report
   | 'saving'      // server save in flight
   | 'saved'       // last server save succeeded
   | 'error'       // last server save failed; local cache holds the work
-  | 'offline'     // initial server load failed; cache is the source of truth
+  | 'offline'     // server confirmed unreachable; cache is the source of truth
+  | 'queued'      // online but a save didn't land; edits held locally, will retry
   | 'conflict'    // server copy changed elsewhere; local edits held, awaiting resolve
 
 interface Props {
   state: SaveState
   /** ISO timestamp of the last successful local cache write, for the tooltip. */
   cacheSavedAt?: string | null
+  /**
+   * Count of resumes with unsynced edits (from `listDirty()`). When > 1, an
+   * offline/queued badge notes the others so a multi-resume backlog is visible.
+   */
+  unsyncedCount?: number
   /** Retry the pending save (only shown when state === 'error'). */
   onRetry?: () => void
   /** Open the conflict resolver (only shown when state === 'conflict'). */
@@ -33,24 +39,30 @@ const VARIANTS: Record<Exclude<SaveState, 'idle'>, Variant> = {
              tooltip: () => 'Saved to server' },
   offline: { icon: HardDrive,  label: 'Offline — saved locally',  className: 'ss-warn',
              tooltip: (n) => `Server unreachable — your changes are queued and will sync when it's back. ${n}` },
+  queued:  { icon: CloudUpload, label: 'Unsynced changes', className: 'ss-warn',
+             tooltip: (n) => `Couldn't reach the server just now — your changes are saved locally and will sync automatically. ${n}` },
   error:   { icon: CloudOff,   label: 'Save failed', className: 'ss-err',
              tooltip: (n) => `Server save failed. ${n}` },
   conflict:{ icon: GitMerge,   label: 'Changed elsewhere', className: 'ss-warn',
              tooltip: (n) => `This resume was changed elsewhere. Your local edits are kept. ${n}` },
 }
 
-export function SaveStatus({ state, cacheSavedAt, onRetry, onResolve }: Props) {
+export function SaveStatus({ state, cacheSavedAt, unsyncedCount = 0, onRetry, onResolve }: Props) {
   if (state === 'idle') return null
   const v = VARIANTS[state]
   const Icon = v.icon
   const cacheNote = cacheSavedAt
     ? `Local backup saved ${new Date(cacheSavedAt).toLocaleTimeString()}.`
     : 'Local backup is up to date.'
+  // Surface a multi-resume backlog on the unsynced states.
+  const others = (state === 'offline' || state === 'queued') && unsyncedCount > 1
+    ? ` (${unsyncedCount} resumes)`
+    : ''
 
   return (
     <span className={`ss ${v.className}`} title={v.tooltip(cacheNote)}>
       <Icon size={13} className={v.spin ? 'ss-spin' : undefined} />
-      {v.label}
+      {v.label}{others}
       {state === 'error' && onRetry && (
         <button className="ss-retry" onClick={onRetry} title="Retry save">
           <RefreshCw size={12} /> Retry

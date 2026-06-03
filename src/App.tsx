@@ -70,7 +70,7 @@ function EditorRoute({ resumeId, onUnauthorized }: { resumeId: string; onUnautho
   const activeSection = useStore((s) => s.activeSection)
   const hasData = useStore((s) => s.hasData)
   const data = useStore((s) => s.data)
-  const { loadState, saveState, cacheSavedAt, conflict, resolveConflict, retry } = useResumePersistence(resumeId)
+  const { loadState, saveState, cacheSavedAt, unsyncedCount, conflict, resolveConflict, retry } = useResumePersistence(resumeId)
 
   // The conflict modal can be dismissed (keep editing); the SaveStatus badge
   // re-opens it. A fresh conflict re-opens automatically.
@@ -121,6 +121,7 @@ function EditorRoute({ resumeId, onUnauthorized }: { resumeId: string; onUnautho
           section={section}
           saveState={saveState}
           cacheSavedAt={cacheSavedAt}
+          unsyncedCount={unsyncedCount}
           onRetry={retry}
           onUnauthorized={onUnauthorized}
           onResolveConflict={() => setConflictDismissed(false)}

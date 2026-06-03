@@ -6,7 +6,9 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ResumeList } from '../../src/components/ResumeList'
 import { api, type ResumeMeta } from '../../src/lib/api'
+import { savePending } from '../../src/lib/localCache'
 import { resetStore } from '../helpers/store-reset'
+import { emptyStore } from '../fixtures'
 
 const META = (over: Partial<ResumeMeta> = {}): ResumeMeta => ({
   id: 'r1', name: 'My CV', primary_locale: 'en', secondary_locale: null,
@@ -14,8 +16,8 @@ const META = (over: Partial<ResumeMeta> = {}): ResumeMeta => ({
 })
 
 describe('<ResumeList>', () => {
-  beforeEach(() => resetStore())
-  afterEach(() => vi.restoreAllMocks())
+  beforeEach(() => { resetStore(); localStorage.clear() })
+  afterEach(() => { vi.restoreAllMocks(); localStorage.clear() })
 
   it('renders a card per resume from the server', async () => {
     vi.spyOn(api, 'listResumes').mockResolvedValue([
@@ -25,6 +27,23 @@ describe('<ResumeList>', () => {
     render(<ResumeList onUnauthorized={() => {}} />)
     expect(await screen.findByText('Board CV')).toBeInTheDocument()
     expect(screen.getByText('Technical CV')).toBeInTheDocument()
+  })
+
+  it('marks resumes with unsynced local edits and shows a backlog note', async () => {
+    savePending('b', {
+      data: emptyStore(), locales: { primary: 'en', secondary: null },
+      base_version: 1, dirty: true,
+    })
+    vi.spyOn(api, 'listResumes').mockResolvedValue([
+      META({ id: 'a', name: 'Clean CV' }),
+      META({ id: 'b', name: 'Dirty CV' }),
+    ])
+    render(<ResumeList onUnauthorized={() => {}} />)
+    await screen.findByText('Dirty CV')
+    // Exactly one card carries the unsynced dot…
+    expect(screen.getAllByLabelText('unsynced')).toHaveLength(1)
+    // …and the backlog note appears.
+    expect(screen.getByText(/resume has unsynced changes/i)).toBeInTheDocument()
   })
 
   it('falls back to the import screen when there are no resumes', async () => {
