@@ -1,8 +1,40 @@
 import { describe, it, expect } from 'vitest'
+import fs from 'fs'
+import os from 'os'
+import path from 'path'
 import { createResumeDb, MAX_SNAPSHOTS } from '../../server/db'
 
 // Each test gets its own isolated in-memory database.
 const freshDb = () => createResumeDb(':memory:')
+
+describe('createResumeDb — file permissions', () => {
+  // Best-effort: better-sqlite3 keeps the file handle open, so Windows can't
+  // unlink it mid-test. The assertions are what matter; tmp hygiene is not.
+  const rmQuiet = (dir: string) => {
+    try { fs.rmSync(dir, { recursive: true, force: true }) } catch { /* ignore */ }
+  }
+
+  it('does not throw and produces a usable DB for a real file path', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rs-db-'))
+    const file = path.join(dir, 'resume.db')
+    const db = createResumeDb(file)
+    expect(db.listResumes()).toEqual([])
+    expect(fs.existsSync(file)).toBe(true)
+    rmQuiet(dir)
+  })
+
+  // POSIX only: chmod can't enforce group/other bits on Windows (it only
+  // toggles the read-only attribute), so asserting 0600 there would be
+  // environment noise, not a real signal. CI runs on Linux, where it holds.
+  it.skipIf(process.platform === 'win32')('locks a file-backed DB to owner-only (0600)', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rs-db-'))
+    const file = path.join(dir, 'resume.db')
+    createResumeDb(file)
+    const mode = fs.statSync(file).mode & 0o777
+    expect(mode & 0o077).toBe(0) // no group/other permission bits
+    rmQuiet(dir)
+  })
+})
 
 describe('createResumeDb — resume CRUD', () => {
   it('lists no resumes on a fresh DB', () => {

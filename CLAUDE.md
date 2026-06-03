@@ -535,6 +535,17 @@ also run through the security skill (`.claude/skills/security-review.md`).
   pre-multi-resume single-row table if a stale dev DB is around.
 - API surface: `/api/resumes` (collection) and `/api/resumes/:id/...` —
   full grammar in §8.
+- **Hardening (`server/app.ts`):** a `Content-Security-Policy` plus the
+  existing `X-Content-Type-Options`/`X-Frame-Options`/`Referrer-Policy`/
+  `Permissions-Policy` headers ride on every response (the CSP is inert on
+  JSON, active on the prod-served shell — allows `'self'` scripts, inline
+  styles, and Google Fonts; see the comment in `app.ts`). The auth-gated API
+  is rate-limited with a **failure-focused** limiter (`skipSuccessfulRequests`
+  — only ≥400 responses count, so brute-force/floods get 429'd but auto-save
+  doesn't), tunable via `RESUME_RATE_LIMIT_MAX` / `RESUME_RATE_LIMIT_WINDOW_MS`.
+- **DB file ACLs:** `createResumeDb` chmods a file-backed DB to `0600` and
+  `defaultDb` tightens `data/` to `0700` (covers the WAL/SHM sidecars).
+  Best-effort — a no-op on Windows, never fatal.
 - **Translation is optional.** A bundled `docker-compose.yml` runs a
   LibreTranslate service (locales limited to `en,nb,sv,da`, models persisted in
   a named volume). Bring it up with **`npm run dev:translate`**
@@ -580,6 +591,14 @@ Three switches enumerate the 13 content sections: `viewFilter.getItemTitle/getIt
 
 ### 12.4 Rename UI for resumes
 The API exposes `PATCH /api/resumes/:id` (rename), but there's no UI for it yet. Add a small "rename" affordance — either an inline edit on the picker card, or a "Rename this resume…" option in the header switcher dropdown. Trivial work; only deferred because the default auto-name ("My resume", "Astrid Solberg — CV") covers most cases.
+
+### 12.5 First-class offline editing (sync queue)
+Today the offline story is a best-effort safety net: `lib/localCache.ts` keeps a per-id plaintext copy in `localStorage`, restored only when the server is unreachable, and overwritten by the server on the next successful load (last-write-wins, no merge). It works, but two rough edges remain:
+
+1. **Security trade-off (see security-review skill §4).** On a transient 401 (token rotated/expired mid-session) we clear the *token* but deliberately **keep** the cache, because nuking it could discard edits the server hasn't seen yet. So a resume's plaintext can linger in `localStorage` until the next successful sync. The explicit "Clear saved token" logout *does* wipe all caches (`clearAllCaches()`), but the auto-path can't safely do so without risking unsynced work.
+2. **No conflict handling.** Two tabs (or a laptop that was offline) can silently clobber each other on reconnect.
+
+A proper offline mode would close both: a **per-resume outbound mutation queue** (dirty flag + queued PUTs, drained on reconnect), a **conflict signal** (compare `saved_at`/an etag on save → surface "this resume changed elsewhere" instead of overwriting), and an explicit **"you have N unsynced changes" indicator**. Once edits are provably durable in the queue, the transient-401 path can safely call `clearAllCaches()` too — closing the security residual without the data-loss risk. Scope: touches `useResumePersistence`, `localCache` (queue, not just a snapshot), `api.ts` (etag/If-Match), and the server `PUT` (optimistic-concurrency check). Multi-day; only worth it if offline/multi-device editing becomes a real use case — for a single consultant on one machine, the current net is usually enough.
 
 ---
 

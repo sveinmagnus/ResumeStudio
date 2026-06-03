@@ -34,6 +34,28 @@ describe('health (no auth)', () => {
   })
 })
 
+describe('security headers', () => {
+  it('sets a Content-Security-Policy that allows the bundle, inline styles and Google Fonts', async () => {
+    const res = await request(app).get('/api/health')
+    const csp = res.headers['content-security-policy']
+    expect(csp).toBeDefined()
+    expect(csp).toContain("default-src 'self'")
+    expect(csp).toContain("script-src 'self'")
+    // Inline <style> blocks are the project's styling convention — must be allowed.
+    expect(csp).toContain("'unsafe-inline'")
+    expect(csp).toContain('https://fonts.googleapis.com')
+    expect(csp).toContain('https://fonts.gstatic.com')
+    expect(csp).toContain("object-src 'none'")
+  })
+
+  it('keeps the existing hardening headers', async () => {
+    const res = await request(app).get('/api/health')
+    expect(res.headers['x-content-type-options']).toBe('nosniff')
+    expect(res.headers['x-frame-options']).toBe('DENY')
+    expect(res.headers['referrer-policy']).toBe('no-referrer')
+  })
+})
+
 describe('resume collection', () => {
   it('GET /api/resumes → 200 with empty list on a fresh DB', async () => {
     const res = await request(app).get('/api/resumes')

@@ -70,6 +70,20 @@ export function createResumeDb(dbPath: string): ResumeDb {
   // CASCADE on resume delete depends on this — SQLite default is OFF.
   db.pragma('foreign_keys = ON')
 
+  // Lock the DB file to owner-only (0600). The file holds every resume in
+  // plaintext; on a shared host a world-readable file leaks the lot. Best-
+  // effort: skip ':memory:' (no file), and never let a chmod failure (e.g.
+  // Windows, where it only toggles the read-only bit) stop the server. The
+  // WAL/SHM sidecars inherit the *directory* mode — see defaultDb() below,
+  // which tightens DATA_DIR to 0700.
+  if (dbPath !== ':memory:') {
+    try {
+      fs.chmodSync(dbPath, 0o600)
+    } catch (err) {
+      console.warn(`[db] could not chmod ${dbPath} to 0600:`, err)
+    }
+  }
+
   // Defensive: nuke the pre-multi-resume schema so a stale dev DB can't
   // shadow the new tables. No production data exists yet; this is one-way.
   db.exec(`
@@ -273,6 +287,16 @@ function defaultDb(): ResumeDb {
       dbPath = envPath
     } else {
       if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true })
+      // Owner-only directory (0700). This is what actually protects the
+      // WAL/SHM sidecar files SQLite creates lazily — they inherit the dir
+      // mode, not the main file's. Best-effort; chmod is a near-no-op on
+      // Windows but harmless. Applied every boot so a pre-existing loose dir
+      // gets tightened, not just a freshly-created one.
+      try {
+        fs.chmodSync(DATA_DIR, 0o700)
+      } catch (err) {
+        console.warn(`[db] could not chmod ${DATA_DIR} to 0700:`, err)
+      }
       dbPath = path.join(DATA_DIR, 'resume.db')
     }
     _default = createResumeDb(dbPath)

@@ -1,6 +1,7 @@
 import express, { type Express } from 'express'
 import path from 'path'
 import { fileURLToPath } from 'url'
+import rateLimit from 'express-rate-limit'
 import { authMiddleware } from './auth.js'
 import resumeRouter from './routes/resume.js'
 import translateRouter from './routes/translate.js'
@@ -20,10 +21,45 @@ export function createApp(): Express {
   // Trim default Express fingerprinting header.
   app.disable('x-powered-by')
 
+  // Content-Security-Policy for the SPA shell — the second line of defence
+  // behind the escape-at-render discipline in viewFilter/exporter. Tuned to
+  // the app's real resource usage:
+  //   - script-src 'self'          → only the bundled Vite chunks (no inline JS
+  //                                   in the built index.html).
+  //   - style-src 'unsafe-inline'  → REQUIRED: every component ships an inline
+  //                                   <style> block (the project's styling
+  //                                   convention) + JSX style={{…}} attrs.
+  //   - *.googleapis / *.gstatic   → the Google Fonts stylesheet + font files
+  //                                   the prod index.html links.
+  //   - img-src 'self' data:       → brand assets + any data: URIs.
+  //   - connect-src 'self'         → /api/* only (LibreTranslate is proxied
+  //                                   server-side, so the browser never leaves
+  //                                   this origin).
+  //   - object/base/frame-ancestors locked down.
+  // The live-preview <iframe srcdoc> inherits this policy; it stays renderable
+  // because the intersection with buildViewHtml's own meta-CSP still permits
+  // inline styles, data: images, and the same font origins.
+  // Applied globally: inert on JSON API responses, active on the served shell.
+  // (Dev's Vite-served shell isn't covered here — Vite needs a looser policy
+  // for HMR — but dev isn't the hardening target; prod, served by Express, is.)
+  const csp = [
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' https://fonts.gstatic.com",
+    "img-src 'self' data:",
+    "connect-src 'self'",
+    "object-src 'none'",
+    "base-uri 'none'",
+    "frame-ancestors 'none'",
+    "form-action 'self'",
+  ].join('; ')
+
   // Conservative default security headers. We don't pull in helmet to keep the
   // dep tree small — these cover the realistic threats for a single-tenant
   // API + SPA.
   app.use((_req, res, next) => {
+    res.setHeader('Content-Security-Policy', csp)
     res.setHeader('X-Content-Type-Options', 'nosniff')
     res.setHeader('X-Frame-Options', 'DENY')
     res.setHeader('Referrer-Policy', 'no-referrer')
@@ -35,16 +71,34 @@ export function createApp(): Express {
   // The previous 50 MB ceiling made unauthenticated body parsing a DoS amplifier.
   app.use(express.json({ limit: '2mb' }))
 
-  // ── Health check (no auth — used by frontend to detect server) ───────────
+  // ── Rate limiting (auth-gated API only) ───────────────────────────────────
+  // `skipSuccessfulRequests` means only responses with status >= 400 count
+  // against the window. That makes this a brute-force / failure-flood brake
+  // (repeated 401s while guessing the bearer token, or hammering bad requests)
+  // WITHOUT throttling a consultant's legitimate auto-save traffic, which is a
+  // steady stream of 2xx PUTs (~1/s while editing) that never accumulates.
+  // Runs BEFORE authMiddleware so 401s are counted. Env-tunable for ops/tests.
+  const limitMax = Number(process.env.RESUME_RATE_LIMIT_MAX) || 50
+  const limitWindowMs = Number(process.env.RESUME_RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000
+  const apiLimiter = rateLimit({
+    windowMs: limitWindowMs,
+    limit: limitMax,
+    skipSuccessfulRequests: true,
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler: (_req, res) => { res.status(429).json({ error: 'Too many requests' }) },
+  })
+
+  // ── Health check (no auth, no rate limit — frontend reachability probe) ────
   app.get('/api/health', (_req, res) => {
     res.json({ ok: true })
   })
 
   // ── Resume API (auth-gated) ──────────────────────────────────────────────
-  app.use('/api/resumes', authMiddleware, resumeRouter)
+  app.use('/api/resumes', apiLimiter, authMiddleware, resumeRouter)
 
   // ── Translation proxy (auth-gated) — drafts via self-hosted LibreTranslate ─
-  app.use('/api/translate', authMiddleware, translateRouter)
+  app.use('/api/translate', apiLimiter, authMiddleware, translateRouter)
 
   // ── In production: serve the built frontend ──────────────────────────────
   if (isProd) {
