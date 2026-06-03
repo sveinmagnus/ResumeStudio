@@ -39,6 +39,18 @@ export class NotFoundError extends Error {
   }
 }
 
+/**
+ * Thrown by `saveResume` on a 409: the resume's server version moved on since
+ * the base version we sent (another tab/device wrote in between). Carries the
+ * live server state so the caller can diff and offer keep/discard.
+ */
+export class ConflictError extends Error {
+  constructor(public current: { data: ResumeStore; meta: ResumeMeta }) {
+    super('Resume changed elsewhere')
+    this.name = 'ConflictError'
+  }
+}
+
 // ─── HTTP base ────────────────────────────────────────────────────────────────
 
 async function request(
@@ -82,6 +94,8 @@ export interface ResumeMeta {
   secondary_locale: string | null
   saved_at: string
   created_at: string
+  /** Optimistic-concurrency token; echo it back as `baseVersion` on save. */
+  version: number
 }
 
 export interface SnapshotMeta {
@@ -150,27 +164,42 @@ export const api = {
 
   /**
    * Persist resume data (and optionally locales) to a specific resume id.
+   * Returns the new server `version` (and `saved_at`).
+   *
+   * Pass `baseVersion` to enable optimistic concurrency: if the server's
+   * version has moved on, the save is refused and this throws `ConflictError`
+   * with the live server state. Omit it to force-write (e.g. after the user
+   * resolves a conflict "keep mine").
    *
    * Pass an `AbortSignal` to cancel an in-flight save when a newer one fires —
    * the resulting AbortError can be detected with `isAbortError()`.
    *
-   * Throws NotFoundError if the id is unknown, UnauthorizedError on 401,
-   * ServerError otherwise.
+   * Throws NotFoundError (404), ConflictError (409), UnauthorizedError (401),
+   * or ServerError otherwise.
    */
   async saveResume(
     id: string,
     data: ResumeStore,
     locales?: LocaleUpdate,
+    baseVersion?: number,
     signal?: AbortSignal,
-  ): Promise<void> {
+  ): Promise<{ saved_at: string; version: number }> {
     const body: Record<string, unknown> = { data }
     if (locales) {
       body.primary_locale = locales.primary_locale
       body.secondary_locale = locales.secondary_locale
     }
+    if (baseVersion !== undefined) body.base_version = baseVersion
+
     const res = await request('PUT', `/api/resumes/${encodeURIComponent(id)}`, body, signal)
     if (res.status === 404) throw new NotFoundError('Resume not found')
+    if (res.status === 409) {
+      const json = await res.json() as { current: { data: ResumeStore; meta: ResumeMeta } }
+      throw new ConflictError(json.current)
+    }
     if (!res.ok) throw new ServerError(res.status, `Save failed: ${res.statusText}`)
+    const json = await res.json() as { saved_at: string; version: number }
+    return { saved_at: json.saved_at, version: json.version }
   },
 
   /** Rename a resume. Throws NotFoundError if the id is unknown. */

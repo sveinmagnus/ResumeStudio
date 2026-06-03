@@ -19,20 +19,35 @@ import {
   api,
   UnauthorizedError,
   NotFoundError,
+  ConflictError,
   isAbortError,
   setStoredToken,
   clearStoredToken,
 } from '../lib/api'
+import type { ResumeStore } from '../types'
 import { type SaveState } from '../components/layout/SaveStatus'
 import { loadCache, saveCache, clearCache } from '../lib/localCache'
 import { navigate } from '../lib/router'
 
 export type AppLoad = 'loading' | 'auth' | 'ready' | 'not-found'
 
+/** The other side of a conflict — the live server state, for diff + resolve. */
+export interface ConflictState {
+  data: ResumeStore
+  meta: { version: number; primary_locale: string; secondary_locale: string | null }
+}
+
 export interface ResumePersistence {
   loadState: AppLoad
   saveState: SaveState
   cacheSavedAt: string | null
+  /**
+   * Non-null when the last save was refused because the server copy changed
+   * elsewhere. Holds the server's current state so the editor can show a
+   * keep/discard + diff resolution (Phase 4). Until resolved, auto-save is
+   * paused and the local edits are kept (not discarded).
+   */
+  conflict: ConflictState | null
   /** Re-run the pending server save (Retry button in SaveStatus). */
   retry: () => void
   /**
@@ -55,12 +70,19 @@ export function useResumePersistence(resumeId: string): ResumePersistence {
   const [loadState, setLoadState] = useState<AppLoad>('loading')
   const [saveState, setSaveState] = useState<SaveState>('idle')
   const [cacheSavedAt, setCacheSavedAt] = useState<string | null>(null)
+  const [conflict, setConflict] = useState<ConflictState | null>(null)
 
   // "have we changed anything since the last successful save?" — both `data`
   // and `mutationCount` change together on a mutation, so the save effect
   // depends on `mutationCount` only and reads `data` via getState().
   const lastSavedMutation = useRef(0)
   const saveAbort = useRef<AbortController | null>(null)
+  // The server version this client last saw — sent as the optimistic-
+  // concurrency base on each save, advanced on every successful save.
+  const baseVersion = useRef<number | undefined>(undefined)
+  // While a conflict is unresolved we pause auto-save (read inside the effect
+  // via the ref so each mutation re-check sees the current value).
+  const conflictPaused = useRef(false)
 
   const flushToServer = useCallback(async () => {
     const st = useStore.getState()
@@ -74,7 +96,10 @@ export function useResumePersistence(resumeId: string): ResumePersistence {
     saveAbort.current = new AbortController()
     setSaveState('saving')
     try {
-      await api.saveResume(resumeId, snapshot, locales, saveAbort.current.signal)
+      const res = await api.saveResume(
+        resumeId, snapshot, locales, baseVersion.current, saveAbort.current.signal,
+      )
+      baseVersion.current = res.version
       lastSavedMutation.current = counterAtSend
       setSaveState('saved')
       // Clear the local cache once it matches the server — keeps things tidy.
@@ -89,6 +114,22 @@ export function useResumePersistence(resumeId: string): ResumePersistence {
         navigate('/', { replace: true })
         return
       }
+      if (err instanceof ConflictError) {
+        // The server copy moved on (another tab/device). Keep the local edits
+        // (don't clear the cache) and pause auto-save until the user resolves.
+        // Phase 4 renders a keep/discard + diff modal off `conflict`.
+        conflictPaused.current = true
+        setConflict({
+          data: err.current.data,
+          meta: {
+            version: err.current.meta.version,
+            primary_locale: err.current.meta.primary_locale,
+            secondary_locale: err.current.meta.secondary_locale,
+          },
+        })
+        setSaveState('conflict')
+        return
+      }
       console.error('Auto-save failed:', err)
       setSaveState('error')
     }
@@ -99,6 +140,9 @@ export function useResumePersistence(resumeId: string): ResumePersistence {
     setLoadState('loading')
     setCurrentResumeId(resumeId)
     lastSavedMutation.current = 0
+    baseVersion.current = undefined
+    conflictPaused.current = false
+    setConflict(null)
 
     api.loadResume(resumeId)
       .then((res) => {
@@ -107,6 +151,7 @@ export function useResumePersistence(resumeId: string): ResumePersistence {
             primary: res.meta.primary_locale,
             secondary: res.meta.secondary_locale,
           })
+          baseVersion.current = res.meta.version
           // Server is the source of truth — drop any stale local cache.
           clearCache(resumeId)
           setCacheSavedAt(null)
@@ -155,6 +200,11 @@ export function useResumePersistence(resumeId: string): ResumePersistence {
   // ── Server save: 1s debounce after the latest user mutation ───────────────
   useEffect(() => {
     if (!hasData) return
+    // Paused while a conflict is unresolved — local edits keep flowing into the
+    // cache (above), but we don't re-PUT (it would just 409 again) until the
+    // user resolves. `conflictPaused` is a ref so this re-check sees its
+    // current value on every mutation without re-creating the effect.
+    if (conflictPaused.current) return
     if (mutationCount === lastSavedMutation.current) return
     const t = setTimeout(() => { void flushToServer() }, 1000)
     return () => clearTimeout(t)
@@ -169,6 +219,7 @@ export function useResumePersistence(resumeId: string): ResumePersistence {
           primary: res.meta.primary_locale,
           secondary: res.meta.secondary_locale,
         })
+        baseVersion.current = res.meta.version
         setLoadState('ready')
       } else {
         setLoadState('not-found')
@@ -179,5 +230,5 @@ export function useResumePersistence(resumeId: string): ResumePersistence {
     }
   }, [loadStore, resumeId])
 
-  return { loadState, saveState, cacheSavedAt, retry: flushToServer, submitToken }
+  return { loadState, saveState, cacheSavedAt, conflict, retry: flushToServer, submitToken }
 }

@@ -1,4 +1,4 @@
-import { Check, CloudOff, Loader2, RefreshCw, HardDrive, type LucideIcon } from 'lucide-react'
+import { Check, CloudOff, Loader2, RefreshCw, HardDrive, GitMerge, type LucideIcon } from 'lucide-react'
 
 export type SaveState =
   | 'idle'        // nothing to report
@@ -6,6 +6,7 @@ export type SaveState =
   | 'saved'       // last server save succeeded
   | 'error'       // last server save failed; local cache holds the work
   | 'offline'     // initial server load failed; cache is the source of truth
+  | 'conflict'    // server copy changed elsewhere; local edits held, awaiting resolve
 
 interface Props {
   state: SaveState
@@ -32,6 +33,8 @@ const VARIANTS: Record<Exclude<SaveState, 'idle'>, Variant> = {
              tooltip: (n) => `Server unreachable. ${n}` },
   error:   { icon: CloudOff,   label: 'Save failed', className: 'ss-err',
              tooltip: (n) => `Server save failed. ${n}` },
+  conflict:{ icon: GitMerge,   label: 'Changed elsewhere', className: 'ss-warn',
+             tooltip: (n) => `This resume was changed elsewhere. Your local edits are kept. ${n}` },
 }
 
 export function SaveStatus({ state, cacheSavedAt, onRetry }: Props) {

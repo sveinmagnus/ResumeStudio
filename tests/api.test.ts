@@ -3,7 +3,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
-  api, UnauthorizedError, NotFoundError, ServerError,
+  api, UnauthorizedError, NotFoundError, ServerError, ConflictError,
   isAbortError, setStoredToken, clearStoredToken,
 } from '../src/lib/api'
 import { emptyStore, makeResume } from './fixtures'
@@ -35,7 +35,7 @@ afterEach(() => {
 
 const META: ResumeMeta = {
   id: 'r1', name: 'CV', primary_locale: 'en', secondary_locale: null,
-  saved_at: '2026-06-01T00:00:00Z', created_at: '2026-06-01T00:00:00Z',
+  saved_at: '2026-06-01T00:00:00Z', created_at: '2026-06-01T00:00:00Z', version: 1,
 }
 
 // Pull the [url, init] of the Nth fetch call.
@@ -100,23 +100,46 @@ describe('loadResume', () => {
 })
 
 describe('saveResume', () => {
-  it('PUTs {data} only when no locales given', async () => {
-    fetchMock.mockResolvedValue(mockRes({ body: { ok: true } }))
-    await api.saveResume('r1', emptyStore())
+  const okBody = { ok: true, saved_at: '2026-06-02T00:00:00Z', version: 2 }
+
+  it('PUTs {data} only when no locales/baseVersion given; returns saved_at + version', async () => {
+    fetchMock.mockResolvedValue(mockRes({ body: okBody }))
+    const out = await api.saveResume('r1', emptyStore())
+    expect(out).toEqual({ saved_at: okBody.saved_at, version: 2 })
     const [url, init] = callArgs()
     expect(url).toBe('/api/resumes/r1')
     expect(init.method).toBe('PUT')
     const body = JSON.parse(init.body as string)
     expect(body).toHaveProperty('data')
     expect(body).not.toHaveProperty('primary_locale')
+    expect(body).not.toHaveProperty('base_version')
   })
 
   it('folds locales into the body when provided', async () => {
-    fetchMock.mockResolvedValue(mockRes({ body: { ok: true } }))
+    fetchMock.mockResolvedValue(mockRes({ body: okBody }))
     await api.saveResume('r1', emptyStore(), { primary_locale: 'no', secondary_locale: 'en' })
     const body = JSON.parse(callArgs()[1].body as string)
     expect(body.primary_locale).toBe('no')
     expect(body.secondary_locale).toBe('en')
+  })
+
+  it('sends base_version only when provided', async () => {
+    fetchMock.mockResolvedValue(mockRes({ body: okBody }))
+    await api.saveResume('r1', emptyStore(), undefined, 5)
+    expect(JSON.parse(callArgs()[1].body as string).base_version).toBe(5)
+  })
+
+  it('throws ConflictError on 409, carrying the server current state', async () => {
+    const current = { data: { ...emptyStore(), resume: makeResume({ full_name: 'Theirs' }) }, meta: { ...META, version: 9 } }
+    fetchMock.mockResolvedValue(mockRes({ status: 409, body: { error: 'changed', current } }))
+    try {
+      await api.saveResume('r1', emptyStore(), undefined, 4)
+      throw new Error('expected throw')
+    } catch (err) {
+      expect(err).toBeInstanceOf(ConflictError)
+      expect((err as ConflictError).current.meta.version).toBe(9)
+      expect((err as ConflictError).current.data.resume?.full_name).toBe('Theirs')
+    }
   })
 
   it('throws NotFoundError on 404 (resume deleted under us)', async () => {
@@ -129,10 +152,10 @@ describe('saveResume', () => {
     await expect(api.saveResume('r1', emptyStore())).rejects.toBeInstanceOf(ServerError)
   })
 
-  it('forwards the AbortSignal', async () => {
-    fetchMock.mockResolvedValue(mockRes({ body: { ok: true } }))
+  it('forwards the AbortSignal (now the 5th arg)', async () => {
+    fetchMock.mockResolvedValue(mockRes({ body: okBody }))
     const ctrl = new AbortController()
-    await api.saveResume('r1', emptyStore(), undefined, ctrl.signal)
+    await api.saveResume('r1', emptyStore(), undefined, undefined, ctrl.signal)
     expect(callArgs()[1].signal).toBe(ctrl.signal)
   })
 })
