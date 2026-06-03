@@ -6,8 +6,11 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { AuthGate } from '../../src/components/AuthGate'
 import { UnauthorizedError, setStoredToken, getStoredToken } from '../../src/lib/api'
-import { saveCache, loadCache } from '../../src/lib/localCache'
+import { savePending, loadPending } from '../../src/lib/localCache'
 import { emptyStore } from '../fixtures'
+
+const pending = (id: string) =>
+  savePending(id, { data: emptyStore(), locales: { primary: 'en', secondary: null }, base_version: 1, dirty: true })
 
 describe('<AuthGate>', () => {
   afterEach(() => { sessionStorage.clear(); localStorage.clear() })
@@ -44,15 +47,15 @@ describe('<AuthGate>', () => {
   // caches, not just the token, so a shared machine doesn't retain the CV.
   it('"Clear saved token" drops the token AND all local resume caches', async () => {
     setStoredToken('a-token')
-    saveCache('r1', emptyStore())
-    saveCache('r2', emptyStore())
-    expect(loadCache('r1')).not.toBeNull()
+    pending('r1')
+    pending('r2')
+    expect(loadPending('r1')).not.toBeNull()
 
     render(<AuthGate onSubmit={vi.fn()} />)
     await userEvent.click(screen.getByRole('button', { name: /clear saved token/i }))
 
     expect(getStoredToken()).toBeNull()
-    expect(loadCache('r1')).toBeNull()
-    expect(loadCache('r2')).toBeNull()
+    expect(loadPending('r1')).toBeNull()
+    expect(loadPending('r2')).toBeNull()
   })
 })

@@ -20,13 +20,15 @@ import {
   UnauthorizedError,
   NotFoundError,
   ConflictError,
+  ServerError,
   isAbortError,
   setStoredToken,
   clearStoredToken,
 } from '../lib/api'
 import type { ResumeStore } from '../types'
 import { type SaveState } from '../components/layout/SaveStatus'
-import { loadCache, saveCache, clearCache } from '../lib/localCache'
+import { loadPending, savePending, clearPending } from '../lib/localCache'
+import { subscribeOnline, recheckConnectivity, type Connectivity } from '../lib/connectivity'
 import { navigate } from '../lib/router'
 
 export type AppLoad = 'loading' | 'auth' | 'ready' | 'not-found'
@@ -102,8 +104,8 @@ export function useResumePersistence(resumeId: string): ResumePersistence {
       baseVersion.current = res.version
       lastSavedMutation.current = counterAtSend
       setSaveState('saved')
-      // Clear the local cache once it matches the server — keeps things tidy.
-      clearCache(resumeId)
+      // Synced — drop the queued pending record so it's no longer "dirty".
+      clearPending(resumeId)
       setCacheSavedAt(null)
       setTimeout(() => setSaveState((s) => (s === 'saved' ? 'idle' : s)), 2000)
     } catch (err) {
@@ -130,8 +132,18 @@ export function useResumePersistence(resumeId: string): ResumePersistence {
         setSaveState('conflict')
         return
       }
-      console.error('Auto-save failed:', err)
-      setSaveState('error')
+      // ServerError = the server answered but failed (5xx) → a real error the
+      // user can retry. Anything else (a fetch TypeError) is almost certainly
+      // a network drop: the edit is safe in the dirty pending record, so show
+      // "offline" and let the connectivity probe drive the reconnect drain.
+      if (err instanceof ServerError) {
+        console.error('Auto-save failed:', err)
+        setSaveState('error')
+      } else {
+        console.warn('Save failed (likely offline); edit is queued locally:', err)
+        setSaveState('offline')
+        recheckConnectivity()
+      }
     }
   }, [resumeId])
 
@@ -146,33 +158,51 @@ export function useResumePersistence(resumeId: string): ResumePersistence {
 
     api.loadResume(resumeId)
       .then((res) => {
-        if (res) {
+        if (!res) {
+          // Server reachable but no such resume id. Don't fall back to cache —
+          // that would resurrect ghost data. Send the user back to the picker.
+          setLoadState('not-found')
+          return
+        }
+
+        const pending = loadPending(resumeId)
+        if (pending?.dirty) {
+          // There are unsynced offline edits. Trust THEM, not the server copy:
+          // load the local data and try to push it (with the base version it
+          // was derived from). A clean push syncs; a stale base raises a
+          // non-blocking conflict (server `res` is the other side). Either way
+          // the user lands on their own work, not a silent server overwrite.
+          loadStore(pending.data, pending.locales)
+          baseVersion.current = pending.base_version
+          setCacheSavedAt(pending.saved_at)
+          setLoadState('ready')
+          void flushToServer()
+        } else {
           loadStore(res.data, {
             primary: res.meta.primary_locale,
             secondary: res.meta.secondary_locale,
           })
           baseVersion.current = res.meta.version
-          // Server is the source of truth — drop any stale local cache.
-          clearCache(resumeId)
+          // Server is the source of truth — drop any clean local snapshot.
+          clearPending(resumeId)
           setCacheSavedAt(null)
           setLoadState('ready')
-        } else {
-          // Server reachable but no such resume id. Don't fall back to cache —
-          // that would resurrect ghost data. Send the user back to the picker.
-          setLoadState('not-found')
         }
       })
       .catch((err: unknown) => {
         if (err instanceof UnauthorizedError) { setLoadState('auth'); return }
-        // Server unreachable — try the per-id local cache so the user can keep
-        // working with the last known good state of this resume.
+        // Server unreachable — fall back to the per-id pending record so the
+        // user keeps their last local state. If it's dirty, the reconnect
+        // drain will push it once the server is back.
         console.warn('Could not reach server:', err)
-        const cached = loadCache(resumeId)
-        if (cached) {
-          loadStore(cached.data)
-          setCacheSavedAt(cached.saved_at)
+        const pending = loadPending(resumeId)
+        if (pending) {
+          loadStore(pending.data, pending.locales)
+          baseVersion.current = pending.base_version
+          setCacheSavedAt(pending.saved_at)
           setSaveState('offline')
           setLoadState('ready')
+          recheckConnectivity()
         } else {
           setLoadState('not-found')
         }
@@ -187,11 +217,19 @@ export function useResumePersistence(resumeId: string): ResumePersistence {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resumeId])
 
-  // ── Local-cache write: short debounce so we don't stringify per keystroke.
+  // ── Queue write: short debounce so we don't stringify per keystroke. Marks
+  //    the record dirty (unsynced) with the base version it was derived from,
+  //    so a crash/outage leaves a durable, drainable copy.
   useEffect(() => {
     if (!hasData || mutationCount === 0) return
     const t = setTimeout(() => {
-      saveCache(resumeId, useStore.getState().data)
+      const st = useStore.getState()
+      savePending(resumeId, {
+        data: st.data,
+        locales: { primary: st.primaryLocale, secondary: st.secondaryLocale },
+        base_version: baseVersion.current ?? 0,
+        dirty: true,
+      })
       setCacheSavedAt(new Date().toISOString())
     }, 250)
     return () => clearTimeout(t)
@@ -209,6 +247,21 @@ export function useResumePersistence(resumeId: string): ResumePersistence {
     const t = setTimeout(() => { void flushToServer() }, 1000)
     return () => clearTimeout(t)
   }, [mutationCount, hasData, flushToServer])
+
+  // ── Reconnect drain: when connectivity returns, push the active resume's
+  //    queued edits. Only fires on a real offline→online transition (not the
+  //    initial subscribe — boot handles the first flush), and not while a
+  //    conflict is unresolved.
+  useEffect(() => {
+    let prev: Connectivity = 'online'
+    const unsub = subscribeOnline((conn) => {
+      const recovered = prev === 'offline' && conn === 'online'
+      prev = conn
+      if (!recovered || conflictPaused.current) return
+      if (loadPending(resumeId)?.dirty) void flushToServer()
+    })
+    return unsub
+  }, [resumeId, flushToServer])
 
   const submitToken = useCallback(async (token: string) => {
     setStoredToken(token)

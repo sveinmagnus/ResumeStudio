@@ -16,8 +16,9 @@ describe('<SaveStatus>', () => {
     const labels = [
       ['saving', 'Saving…'],
       ['saved', 'Saved'],
-      ['offline', 'Local only'],
+      ['offline', 'Offline — saved locally'],
       ['error', 'Save failed'],
+      ['conflict', 'Changed elsewhere'],
     ] as const
     for (const [state, label] of labels) {
       const { unmount } = render(<SaveStatus state={state} />)
