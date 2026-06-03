@@ -46,6 +46,34 @@ describe('<ResumeList>', () => {
     expect(screen.getByText(/resume has unsynced changes/i)).toBeInTheDocument()
   })
 
+  it('renames a resume inline via PATCH and shows the new name', async () => {
+    vi.spyOn(api, 'listResumes').mockResolvedValue([META({ id: 'a', name: 'Old Name' })])
+    const patch = vi.spyOn(api, 'patchResume').mockResolvedValue(undefined)
+
+    render(<ResumeList onUnauthorized={() => {}} />)
+    await screen.findByText('Old Name')
+
+    await userEvent.click(screen.getByRole('button', { name: /rename old name/i }))
+    const input = screen.getByRole('textbox', { name: /resume name/i })
+    await userEvent.clear(input)
+    await userEvent.type(input, 'New Name{Enter}')
+
+    await waitFor(() => expect(patch).toHaveBeenCalledWith('a', { name: 'New Name' }))
+    expect(screen.getByText('New Name')).toBeInTheDocument()
+  })
+
+  it('does not PATCH when the name is unchanged or blank', async () => {
+    vi.spyOn(api, 'listResumes').mockResolvedValue([META({ id: 'a', name: 'Same' })])
+    const patch = vi.spyOn(api, 'patchResume').mockResolvedValue(undefined)
+
+    render(<ResumeList onUnauthorized={() => {}} />)
+    await screen.findByText('Same')
+    await userEvent.click(screen.getByRole('button', { name: /rename same/i }))
+    // Commit without changing → no-op.
+    await userEvent.type(screen.getByRole('textbox', { name: /resume name/i }), '{Enter}')
+    expect(patch).not.toHaveBeenCalled()
+  })
+
   it('falls back to the import screen when there are no resumes', async () => {
     vi.spyOn(api, 'listResumes').mockResolvedValue([])
     render(<ResumeList onUnauthorized={() => {}} />)

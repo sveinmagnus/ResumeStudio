@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { FileText, Plus, Trash2, Loader2 } from 'lucide-react'
+import { FileText, Plus, Trash2, Loader2, Pencil, Check, X } from 'lucide-react'
 import { api, type ResumeMeta, UnauthorizedError, ServerError } from '../lib/api'
 import { fmtRelativeTime, detectLocalesInData } from '../lib/locales'
 import { freshStore } from '../lib/freshStore'
@@ -24,6 +24,8 @@ export function ResumeList({ onUnauthorized }: ResumeListProps) {
   const [error, setError] = useState<string | null>(null)
   const [showAdd, setShowAdd] = useState(false)
   const [deleting, setDeleting] = useState<string | null>(null)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [draftName, setDraftName] = useState('')
   // Ids with unsynced local edits — read once on mount (the queue only changes
   // from the editor, which isn't mounted while the picker is shown).
   const [dirtyIds] = useState<Set<string>>(() => new Set(listDirty().map((d) => d.id)))
@@ -90,6 +92,28 @@ export function ResumeList({ onUnauthorized }: ResumeListProps) {
     }
   }, [onUnauthorized])
 
+  // ── Rename flow: inline edit → PATCH (optimistic, revert on failure) ─────
+  const startRename = useCallback((r: ResumeMeta) => {
+    setError(null)
+    setEditingId(r.id)
+    setDraftName(r.name)
+  }, [])
+
+  const commitRename = useCallback(async (id: string) => {
+    const name = draftName.trim()
+    const prev = items?.find((r) => r.id === id)?.name
+    setEditingId(null)
+    if (!name || name === prev) return // empty or unchanged → no-op
+    setItems((curr) => curr?.map((r) => (r.id === id ? { ...r, name } : r)) ?? [])
+    try {
+      await api.patchResume(id, { name })
+    } catch (err) {
+      if (err instanceof UnauthorizedError) { onUnauthorized(); return }
+      setError(`Could not rename: ${(err as Error).message}`)
+      reload() // revert to the server's truth
+    }
+  }, [draftName, items, onUnauthorized, reload])
+
   // ── Render states ──────────────────────────────────────────────────────
 
   if (items === null) {
@@ -146,36 +170,74 @@ export function ResumeList({ onUnauthorized }: ResumeListProps) {
         <ul className="rl-list">
           {items.map((r) => (
             <li key={r.id} className="rl-row">
-              <Link to={{ name: 'editor', id: r.id }} className="rl-link">
-                <div className="rl-icon"><FileText size={18} /></div>
-                <div className="rl-info">
-                  <div className="rl-name">
-                    {r.name}
-                    {dirtyIds.has(r.id) && (
-                      <span className="rl-unsynced-dot" title="Has unsynced local changes" aria-label="unsynced" />
-                    )}
-                  </div>
-                  <div className="rl-meta">
-                    {dirtyIds.has(r.id)
-                      ? 'Unsynced changes'
-                      : `Last saved ${fmtRelativeTime(r.saved_at)}`}
-                    {' · '}
-                    {r.primary_locale.toUpperCase()}
-                    {r.secondary_locale && ` / ${r.secondary_locale.toUpperCase()}`}
-                  </div>
+              {editingId === r.id ? (
+                <div className="rl-link rl-editing">
+                  <div className="rl-icon"><FileText size={18} /></div>
+                  <input
+                    className="rl-rename-input"
+                    value={draftName}
+                    autoFocus
+                    aria-label="Resume name"
+                    onChange={(e) => setDraftName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') void commitRename(r.id)
+                      if (e.key === 'Escape') setEditingId(null)
+                    }}
+                    onBlur={() => void commitRename(r.id)}
+                  />
+                  <button className="rl-icon-btn" onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => void commitRename(r.id)} title="Save name" aria-label="Save name">
+                    <Check size={15} />
+                  </button>
+                  <button className="rl-icon-btn" onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => setEditingId(null)} title="Cancel" aria-label="Cancel rename">
+                    <X size={15} />
+                  </button>
                 </div>
-              </Link>
-              <button
-                className="rl-del"
-                onClick={() => void onDelete(r.id, r.name)}
-                disabled={deleting !== null}
-                title="Delete this resume"
-                aria-label={`Delete ${r.name}`}
-              >
-                {deleting === r.id
-                  ? <Loader2 size={14} className="rl-spin" />
-                  : <Trash2 size={14} />}
-              </button>
+              ) : (
+                <Link to={{ name: 'editor', id: r.id }} className="rl-link">
+                  <div className="rl-icon"><FileText size={18} /></div>
+                  <div className="rl-info">
+                    <div className="rl-name">
+                      {r.name}
+                      {dirtyIds.has(r.id) && (
+                        <span className="rl-unsynced-dot" title="Has unsynced local changes" aria-label="unsynced" />
+                      )}
+                    </div>
+                    <div className="rl-meta">
+                      {dirtyIds.has(r.id)
+                        ? 'Unsynced changes'
+                        : `Last saved ${fmtRelativeTime(r.saved_at)}`}
+                      {' · '}
+                      {r.primary_locale.toUpperCase()}
+                      {r.secondary_locale && ` / ${r.secondary_locale.toUpperCase()}`}
+                    </div>
+                  </div>
+                </Link>
+              )}
+              {editingId !== r.id && (
+                <div className="rl-actions">
+                  <button
+                    className="rl-icon-btn"
+                    onClick={() => startRename(r)}
+                    title="Rename this resume"
+                    aria-label={`Rename ${r.name}`}
+                  >
+                    <Pencil size={14} />
+                  </button>
+                  <button
+                    className="rl-del"
+                    onClick={() => void onDelete(r.id, r.name)}
+                    disabled={deleting !== null}
+                    title="Delete this resume"
+                    aria-label={`Delete ${r.name}`}
+                  >
+                    {deleting === r.id
+                      ? <Loader2 size={14} className="rl-spin" />
+                      : <Trash2 size={14} />}
+                  </button>
+                </div>
+              )}
             </li>
           ))}
         </ul>
@@ -252,6 +314,18 @@ export function ResumeList({ onUnauthorized }: ResumeListProps) {
         .rl-unsynced-note {
           margin-bottom: 16px; padding: 9px 14px; font-size: 12.5px;
           background: #fff7e6; color: #b87900; border-radius: var(--r-sm);
+        }
+        .rl-actions { display: flex; align-items: stretch; }
+        .rl-icon-btn {
+          display: grid; place-items: center; width: 40px;
+          color: var(--ink-faint); transition: color .12s, background .12s;
+        }
+        .rl-icon-btn:hover { color: var(--accent); background: var(--accent-wash); }
+        .rl-editing { gap: 10px; }
+        .rl-rename-input {
+          flex: 1; min-width: 0; font-size: 15px; font-weight: 600;
+          padding: 6px 10px; border: 1.5px solid var(--accent);
+          border-radius: var(--r-sm); background: var(--paper); color: var(--ink);
         }
         .rl-del {
           display: grid; place-items: center; width: 44px;
