@@ -10,7 +10,7 @@ import { emptyStore, makeResume, makeProject } from '../fixtures'
 const mine = () => ({ ...emptyStore(), resume: makeResume({ title: { en: 'Architect' } }) })
 const theirs = () => {
   const s = { ...emptyStore(), resume: makeResume({ title: { en: 'Engineer' } }) }
-  s.projects.push(makeProject({ id: 'srv-only' }))
+  s.projects.push(makeProject({ id: 'srv-only', customer: { en: 'Initech' } }))
   return s
 }
 
@@ -22,6 +22,8 @@ describe('<ConflictModal>', () => {
     expect(screen.getByText('Engineer')).toBeInTheDocument()
     expect(screen.getByText('Projects')).toBeInTheDocument()
     expect(screen.getByText(/only theirs/i)).toBeInTheDocument()
+    // Item-level detail: the specific server-only project is named.
+    expect(screen.getByText('Initech')).toBeInTheDocument()
   })
 
   it('calls onResolve("keep") from "Keep my version"', async () => {

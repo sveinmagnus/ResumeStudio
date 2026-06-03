@@ -66,12 +66,31 @@ export function ConflictModal({ mine, theirs, onResolve, onClose }: ConflictModa
                   <ul className="cm-sections">
                     {diff.sections.map((s) => (
                       <li key={s.section} className="cm-section">
-                        <span className="cm-section-name">{s.section}</span>
-                        <span className="cm-counts">
-                          {s.added > 0 && <span className="cm-add">+{s.added} only yours</span>}
-                          {s.removed > 0 && <span className="cm-rem">−{s.removed} only theirs</span>}
-                          {s.changed > 0 && <span className="cm-chg">{s.changed} differ</span>}
-                        </span>
+                        <div className="cm-section-head">
+                          <span className="cm-section-name">{s.section}</span>
+                          <span className="cm-counts">
+                            {s.added > 0 && <span className="cm-add">+{s.added} only yours</span>}
+                            {s.removed > 0 && <span className="cm-rem">−{s.removed} only theirs</span>}
+                            {s.changed > 0 && <span className="cm-chg">{s.changed} differ</span>}
+                          </span>
+                        </div>
+                        {s.items.length > 0 && (
+                          <ul className="cm-items">
+                            {s.items.map((it, i) => (
+                              <li key={`${it.label}-${i}`} className={`cm-item cm-item-${it.change}`}>
+                                <span className="cm-item-mark">
+                                  {it.change === 'added' ? '+' : it.change === 'removed' ? '−' : '~'}
+                                </span>
+                                {it.label}
+                              </li>
+                            ))}
+                            {(s.added + s.removed + s.changed) > s.items.length && (
+                              <li className="cm-item cm-item-more">
+                                +{(s.added + s.removed + s.changed) - s.items.length} more…
+                              </li>
+                            )}
+                          </ul>
+                        )}
                       </li>
                     ))}
                   </ul>
@@ -119,10 +138,26 @@ export function ConflictModal({ mine, theirs, onResolve, onClose }: ConflictModa
           color: var(--accent); margin-bottom: 8px;
         }
         .cm-fields, .cm-sections { list-style: none; display: flex; flex-direction: column; gap: 6px; }
-        .cm-field, .cm-section {
+        .cm-field {
           display: flex; align-items: center; justify-content: space-between; gap: 12px;
           padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r-sm); font-size: 13px;
         }
+        .cm-section {
+          padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r-sm); font-size: 13px;
+        }
+        .cm-section-head {
+          display: flex; align-items: center; justify-content: space-between; gap: 12px;
+        }
+        .cm-items { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+        .cm-item {
+          font-size: 12px; color: var(--ink-soft); display: flex; align-items: center; gap: 6px;
+          white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .cm-item-mark { font-weight: 700; width: 10px; text-align: center; flex-shrink: 0; }
+        .cm-item-added .cm-item-mark { color: #27ae60; }
+        .cm-item-removed .cm-item-mark { color: #c0392b; }
+        .cm-item-changed .cm-item-mark { color: #b87900; }
+        .cm-item-more { color: var(--ink-faint); font-style: italic; }
         .cm-field-name, .cm-section-name { font-weight: 600; flex-shrink: 0; }
         .cm-field-vals { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
         .cm-mine, .cm-theirs { max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -18,7 +18,7 @@ describe('diffStores', () => {
     const theirs = emptyStore()
     const d = diffStores(mine, theirs)
     expect(d.identical).toBe(false)
-    expect(d.sections).toContainEqual({ section: 'Projects', added: 1, removed: 0, changed: 0 })
+    expect(d.sections).toContainEqual(expect.objectContaining({ section: 'Projects', added: 1, removed: 0, changed: 0 }))
   })
 
   it('counts an item present only on the server as "removed"', () => {
@@ -26,7 +26,7 @@ describe('diffStores', () => {
     const theirs = emptyStore()
     theirs.skills.push(makeSkill({ id: 's1' }))
     const d = diffStores(mine, theirs)
-    expect(d.sections).toContainEqual({ section: 'Skills', added: 0, removed: 1, changed: 0 })
+    expect(d.sections).toContainEqual(expect.objectContaining({ section: 'Skills', added: 0, removed: 1, changed: 0 }))
   })
 
   it('counts a same-id item with different content as "changed"', () => {
@@ -35,7 +35,31 @@ describe('diffStores', () => {
     const theirs = emptyStore()
     theirs.projects.push(makeProject({ id: 'p1', customer: { en: 'Theirs Inc' } }))
     const d = diffStores(mine, theirs)
-    expect(d.sections).toContainEqual({ section: 'Projects', added: 0, removed: 0, changed: 1 })
+    expect(d.sections).toContainEqual(expect.objectContaining({ section: 'Projects', added: 0, removed: 0, changed: 1 }))
+  })
+
+  it('labels which items differ (changed first, then added, then removed)', () => {
+    const mine = emptyStore()
+    mine.projects.push(makeProject({ id: 'p1', customer: { en: 'Acme' } }))         // added (yours)
+    mine.projects.push(makeProject({ id: 'p2', customer: { en: 'Globex v2' } }))    // changed
+    const theirs = emptyStore()
+    theirs.projects.push(makeProject({ id: 'p2', customer: { en: 'Globex v1' } }))  // changed counterpart
+    theirs.projects.push(makeProject({ id: 'p3', customer: { en: 'Initech' } }))    // removed (theirs)
+
+    const proj = diffStores(mine, theirs).sections.find((s) => s.section === 'Projects')!
+    expect(proj.items).toEqual([
+      { label: 'Globex v2', change: 'changed' },
+      { label: 'Acme', change: 'added' },
+      { label: 'Initech', change: 'removed' },
+    ])
+  })
+
+  it('caps the per-section item list at 6', () => {
+    const mine = emptyStore()
+    for (let i = 0; i < 10; i++) mine.skills.push(makeSkill({ id: `s${i}`, name: { en: `Skill ${i}` } }))
+    const proj = diffStores(mine, emptyStore()).sections.find((s) => s.section === 'Skills')!
+    expect(proj.added).toBe(10)
+    expect(proj.items).toHaveLength(6)
   })
 
   it('does not flag an identical same-id item', () => {

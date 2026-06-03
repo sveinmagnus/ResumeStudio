@@ -12,12 +12,24 @@
 
 import type { ResumeStore, LocalizedString } from '../types'
 
+/** A single differing item within a section. `added` = only in the local
+ *  copy, `removed` = only on the server, `changed` = present in both, differs. */
+export interface ItemChange {
+  label: string
+  change: 'added' | 'removed' | 'changed'
+}
+
 export interface SectionDiff {
   section: string
   added: number
   removed: number
   changed: number
+  /** Up to MAX_ITEMS labelled changes for the panel (changed, then added, then removed). */
+  items: ItemChange[]
 }
+
+/** Cap the per-section item list so the conflict panel stays readable. */
+const MAX_ITEMS = 6
 
 export interface FieldDiff {
   field: string
@@ -77,19 +89,51 @@ function display(value: unknown): string {
 
 interface Identified { id: string }
 
+// Best-effort title fields, tried in order, across the heterogeneous sections.
+const TITLE_FIELDS = [
+  'name', 'customer', 'title', 'role', 'school', 'institution',
+  'employer', 'degree', 'issuer', 'organisation', 'language',
+]
+
+/** A readable label for an item, for the conflict panel. */
+function labelOf(item: unknown): string {
+  if (!item || typeof item !== 'object') return '(untitled)'
+  const rec = item as Record<string, unknown>
+  for (const f of TITLE_FIELDS) {
+    if (f in rec) {
+      const s = display(rec[f])
+      if (s) return s
+    }
+  }
+  return '(untitled)'
+}
+
 function diffSection(mine: Identified[], theirs: Identified[]): Omit<SectionDiff, 'section'> {
   const mineById = new Map(mine.map((x) => [x.id, x]))
   const theirsById = new Map(theirs.map((x) => [x.id, x]))
   let added = 0, removed = 0, changed = 0
+  const changedItems: ItemChange[] = []
+  const addedItems: ItemChange[] = []
   for (const [id, item] of mineById) {
     const other = theirsById.get(id)
-    if (!other) added++
-    else if (JSON.stringify(item) !== JSON.stringify(other)) changed++
+    if (!other) {
+      added++
+      addedItems.push({ label: labelOf(item), change: 'added' })
+    } else if (JSON.stringify(item) !== JSON.stringify(other)) {
+      changed++
+      changedItems.push({ label: labelOf(item), change: 'changed' })
+    }
   }
-  for (const id of theirsById.keys()) {
-    if (!mineById.has(id)) removed++
+  const removedItems: ItemChange[] = []
+  for (const [id, item] of theirsById) {
+    if (!mineById.has(id)) {
+      removed++
+      removedItems.push({ label: labelOf(item), change: 'removed' })
+    }
   }
-  return { added, removed, changed }
+  // changed first (most meaningful), then added, then removed; capped.
+  const items = [...changedItems, ...addedItems, ...removedItems].slice(0, MAX_ITEMS)
+  return { added, removed, changed, items }
 }
 
 /**
