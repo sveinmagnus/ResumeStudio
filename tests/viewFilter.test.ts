@@ -5,6 +5,7 @@ import {
   normalizeViewSections, defaultViewDetail, promotedProjectItems,
 } from '../src/lib/viewFilter'
 import { SECTIONS } from '../src/lib/sections'
+import { DEFAULT_VIEW_STYLE } from '../src/lib/viewStyle'
 import { withHeaderDefaults, withFooterDefaults } from '../src/lib/viewHeader'
 import {
   emptyStore, makeProject, makeWork, makeEducation, makeKQ,
@@ -382,6 +383,61 @@ describe('buildViewHtml()', () => {
       const html = buildViewHtml(store, makeView({ sections: buildViewSections() }), 'en')
       expect(html).toMatch(/<meta http-equiv="Content-Security-Policy"/)
       expect(html).toContain("default-src 'none'")
+    })
+
+    // ── CSS-injection / <style> breakout via view style+header config ──
+    // These fields come from the view, which can originate from an untrusted
+    // backup / snapshot import (the editor UI validates, the import path does
+    // not). They flow into the document's <style> block / inline style=/class
+    // attributes, so a crafted value must not break out.
+
+    it('neutralises a CSS-injection payload in accent_color', () => {
+      const store = emptyStore()
+      const view = makeView({
+        sections: buildViewSections(),
+        // Attempt to close the <style> element and inject active markup.
+        style: { ...DEFAULT_VIEW_STYLE, accent_color: '</style><img src=x onerror=alert(1)>' },
+      })
+      const html = buildViewHtml(store, view, 'en')
+      expect(html).not.toMatch(/<\/style><img/i)
+      expect(html).not.toMatch(/<img\s+src=x\s+onerror=/i)
+      // The accent falls back to the Cartavio navy default.
+      expect(html).toContain('#002E6E')
+    })
+
+    it('neutralises a breakout payload in name_style.size_pt (inline style)', () => {
+      const store = emptyStore()
+      const header = withHeaderDefaults(undefined)
+      // size_pt is typed number|null but a crafted import can smuggle a string.
+      ;(header.name_style as { size_pt: unknown }).size_pt = '0pt"><img src=x onerror=alert(1)><span x="'
+      const html = buildViewHtml(store, makeView({ sections: buildViewSections(), header }), 'en')
+      expect(html).not.toMatch(/<img\s+src=x\s+onerror=/i)
+    })
+
+    it('neutralises a breakout payload in photo_placement (class attribute)', () => {
+      const store = emptyStore()
+      store.resume!.profile_photo = PNG_1x1
+      const header = withHeaderDefaults(undefined)
+      ;(header as { photo_placement: unknown }).photo_placement = 'left"><img src=x onerror=alert(1)><div class="'
+      const html = buildViewHtml(store, makeView({ sections: buildViewSections(), header }), 'en')
+      expect(html).not.toMatch(/<img\s+src=x\s+onerror=/i)
+    })
+
+    it('neutralises a breakout payload in footer.separator (class attribute)', () => {
+      const store = emptyStore()
+      const footer = withFooterDefaults(undefined)
+      ;(footer as { separator: unknown }).separator = 'line"><img src=x onerror=alert(1)><footer class="'
+      const html = buildViewHtml(store, makeView({ sections: buildViewSections(), footer }), 'en')
+      expect(html).not.toMatch(/<img\s+src=x\s+onerror=/i)
+    })
+
+    it('does not throw on out-of-enum style values from a crafted import', () => {
+      const store = emptyStore()
+      const view = makeView({
+        sections: buildViewSections(),
+        style: { ...DEFAULT_VIEW_STYLE, density: 'evil', body_size: 'evil', heading_font: 'evil', page_margin: 'evil' } as never,
+      })
+      expect(() => buildViewHtml(store, view, 'en')).not.toThrow()
     })
   })
 

@@ -51,6 +51,49 @@ describe('withFooterDefaults()', () => {
   })
 })
 
+// ─── Boundary validation (untrusted import hardening) ───────────────────────────
+// View config can arrive from a crafted backup/snapshot, not just the editor.
+// These fields flow into HTML class names / inline styles, so out-of-enum or
+// wrong-typed values must be coerced at the withHeaderDefaults/withFooterDefaults
+// boundary. See the end-to-end breakout tests in viewFilter.test.ts.
+
+describe('withHeaderDefaults() — boundary validation', () => {
+  it('coerces an out-of-enum photo_placement to none', () => {
+    const h = withHeaderDefaults({ photo_placement: 'x"><img>' } as never)
+    expect(h.photo_placement).toBe('none')
+  })
+  it('coerces an out-of-enum logo_placement to none', () => {
+    const h = withHeaderDefaults({ logo_placement: 'evil' } as never)
+    expect(h.logo_placement).toBe('none')
+  })
+  it('coerces an unknown text font back to the default', () => {
+    const h = withHeaderDefaults({ name_style: { size_pt: null, font: 'comic-sans' } } as never)
+    expect(h.name_style.font).toBe(DEFAULT_VIEW_HEADER.name_style.font)
+  })
+  it('drops a non-numeric size_pt to null', () => {
+    const h = withHeaderDefaults({ name_style: { size_pt: '99"><img>', font: 'serif' } } as never)
+    expect(h.name_style.size_pt).toBeNull()
+    expect(h.name_style.font).toBe('serif')
+  })
+  it('clamps an absurd numeric size_pt into range', () => {
+    expect(withHeaderDefaults({ name_style: { size_pt: 99999, font: 'body' } }).name_style.size_pt).toBeLessThanOrEqual(200)
+    expect(withHeaderDefaults({ name_style: { size_pt: -5, font: 'body' } }).name_style.size_pt).toBeGreaterThanOrEqual(4)
+  })
+  it('falls back to the default separator when given a non-string', () => {
+    const h = withHeaderDefaults({ separator: 123 } as never)
+    expect(h.separator).toBe(DEFAULT_VIEW_HEADER.separator)
+  })
+})
+
+describe('withFooterDefaults() — boundary validation', () => {
+  it('coerces an out-of-enum separator to none', () => {
+    expect(withFooterDefaults({ separator: 'line"><img>' } as never).separator).toBe('none')
+  })
+  it('coerces an out-of-enum copyright holder to none', () => {
+    expect(withFooterDefaults({ copyright: 'evil' } as never).copyright).toBe('none')
+  })
+})
+
 // ─── Languages summary ──────────────────────────────────────────────────────
 
 describe('buildLanguageSummary()', () => {

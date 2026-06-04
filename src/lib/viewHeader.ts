@@ -12,8 +12,44 @@
 import type {
   ResumeStore, Resume, LocalizedString,
   ViewHeaderConfig, ViewFooterConfig, HeaderField, HeaderFieldKey,
+  HeaderTextStyle, PhotoPlacement, LogoPlacement, FooterSeparator, CopyrightHolder,
 } from '../types'
 import { resolve } from './locales'
+
+// ─── Boundary validators ──────────────────────────────────────────────────────
+// View config can arrive from an untrusted backup / snapshot import, not just
+// the editor UI. These values are interpolated into HTML (class names, inline
+// `style=` attributes) by the renderers, so out-of-enum / wrong-typed values
+// must be coerced here at the boundary — otherwise a crafted import could break
+// out of an attribute, and a non-numeric size_pt would inject into a style.
+
+const PHOTO_PLACEMENTS = new Set<PhotoPlacement>(['none', 'left', 'right', 'above', 'below'])
+const LOGO_PLACEMENTS = new Set<LogoPlacement>(['none', 'left', 'center', 'right'])
+const TEXT_FONTS = new Set<HeaderTextStyle['font']>(['condensed', 'sans', 'serif', 'body'])
+
+function safePhotoPlacement(v: unknown): PhotoPlacement {
+  return PHOTO_PLACEMENTS.has(v as PhotoPlacement) ? (v as PhotoPlacement) : 'none'
+}
+function safeLogoPlacement(v: unknown): LogoPlacement {
+  return LOGO_PLACEMENTS.has(v as LogoPlacement) ? (v as LogoPlacement) : 'none'
+}
+function safeTextStyle(v: Partial<HeaderTextStyle> | undefined, fallback: HeaderTextStyle): HeaderTextStyle {
+  const font = v && TEXT_FONTS.has(v.font as HeaderTextStyle['font']) ? (v.font as HeaderTextStyle['font']) : fallback.font
+  const size = v && typeof v.size_pt === 'number' && Number.isFinite(v.size_pt)
+    ? Math.min(200, Math.max(4, v.size_pt))
+    : null
+  return { size_pt: size, font }
+}
+
+const FOOTER_SEPARATORS = new Set<FooterSeparator>(['none', 'line', 'double', 'dotted', 'dashed', 'thick'])
+const COPYRIGHT_HOLDERS = new Set<CopyrightHolder>(['none', 'person', 'company', 'custom'])
+
+function safeFooterSeparator(v: unknown): FooterSeparator {
+  return FOOTER_SEPARATORS.has(v as FooterSeparator) ? (v as FooterSeparator) : 'none'
+}
+function safeCopyrightHolder(v: unknown): CopyrightHolder {
+  return COPYRIGHT_HOLDERS.has(v as CopyrightHolder) ? (v as CopyrightHolder) : 'none'
+}
 
 // ─── Defaults ───────────────────────────────────────────────────────────────
 
@@ -83,12 +119,12 @@ export function withHeaderDefaults(header: Partial<ViewHeaderConfig> | undefined
   if (!header) return { ...DEFAULT_VIEW_HEADER, fields: defaultHeaderFields() }
   return {
     fields: header.fields && header.fields.length ? header.fields : defaultHeaderFields(),
-    separator: header.separator ?? DEFAULT_VIEW_HEADER.separator,
-    name_style: { ...DEFAULT_VIEW_HEADER.name_style, ...(header.name_style ?? {}) },
-    title_style: { ...DEFAULT_VIEW_HEADER.title_style, ...(header.title_style ?? {}) },
-    photo_placement: header.photo_placement ?? DEFAULT_VIEW_HEADER.photo_placement,
+    separator: typeof header.separator === 'string' ? header.separator : DEFAULT_VIEW_HEADER.separator,
+    name_style: safeTextStyle(header.name_style, DEFAULT_VIEW_HEADER.name_style),
+    title_style: safeTextStyle(header.title_style, DEFAULT_VIEW_HEADER.title_style),
+    photo_placement: safePhotoPlacement(header.photo_placement),
     photo_override: header.photo_override ?? null,
-    logo_placement: header.logo_placement ?? DEFAULT_VIEW_HEADER.logo_placement,
+    logo_placement: safeLogoPlacement(header.logo_placement),
     logo_override: header.logo_override ?? null,
   }
 }
@@ -96,8 +132,8 @@ export function withHeaderDefaults(header: Partial<ViewHeaderConfig> | undefined
 export function withFooterDefaults(footer: Partial<ViewFooterConfig> | undefined): ViewFooterConfig {
   if (!footer) return { ...DEFAULT_VIEW_FOOTER, copyright_custom: {}, note: {} }
   return {
-    separator: footer.separator ?? DEFAULT_VIEW_FOOTER.separator,
-    copyright: footer.copyright ?? DEFAULT_VIEW_FOOTER.copyright,
+    separator: safeFooterSeparator(footer.separator),
+    copyright: safeCopyrightHolder(footer.copyright),
     copyright_custom: footer.copyright_custom ?? {},
     note: footer.note ?? {},
   }
