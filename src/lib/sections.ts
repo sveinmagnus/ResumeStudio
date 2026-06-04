@@ -13,6 +13,13 @@ export interface SectionDef {
    * Details Profile sub-tab.
    */
   hidden?: boolean
+  /**
+   * A view-only synthetic section that does NOT own its own store array — it
+   * derives its items from another section's `storeKey` (e.g. promoted_projects
+   * renders the starred subset of `projects`). Skipped by applyView and
+   * completeness; the renderers special-case it.
+   */
+  virtual?: boolean
 }
 
 export const SECTIONS: SectionDef[] = [
@@ -20,8 +27,12 @@ export const SECTIONS: SectionDef[] = [
   { key: 'header', label: 'Personal Details', icon: 'User', group: 'profile' },
   // Kept here (hidden) so views/exports/coverage still discover it.
   { key: 'key_qualifications', label: 'Profile & Summary', storeKey: 'key_qualifications', icon: 'FileText', group: 'profile', hidden: true },
+  // Edited under the Personal Details → Key Competencies tab; hidden from the sidebar.
+  { key: 'key_competencies', label: 'Key Competencies', storeKey: 'key_competencies', icon: 'ListChecks', group: 'profile', hidden: true },
 
   { key: 'projects', label: 'Projects', storeKey: 'projects', icon: 'Briefcase', group: 'experience' },
+  // View-only: renders the starred subset of `projects` as a "Promoted Projects" section.
+  { key: 'promoted_projects', label: 'Promoted Projects', storeKey: 'projects', icon: 'Star', group: 'experience', hidden: true, virtual: true },
   { key: 'work_experiences', label: 'Employment', storeKey: 'work_experiences', icon: 'Building2', group: 'experience' },
   { key: 'positions', label: 'Other roles', storeKey: 'positions', icon: 'Users', group: 'experience' },
 
@@ -34,6 +45,7 @@ export const SECTIONS: SectionDef[] = [
   { key: 'presentations', label: 'Presentations', storeKey: 'presentations', icon: 'Presentation', group: 'extras' },
   { key: 'publications', label: 'Publications', storeKey: 'publications', icon: 'Newspaper', group: 'extras' },
   { key: 'honor_awards', label: 'Awards', storeKey: 'honor_awards', icon: 'Trophy', group: 'extras' },
+  { key: 'recommendations', label: 'Recommendations', storeKey: 'recommendations', icon: 'Quote', group: 'extras' },
   { key: 'references', label: 'References', storeKey: 'references', icon: 'Contact', group: 'extras' },
 
   { key: 'skills', label: 'Skill Registry', storeKey: 'skills', icon: 'Tags', group: 'registry' },

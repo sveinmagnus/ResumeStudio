@@ -2,12 +2,14 @@ import { describe, it, expect } from 'vitest'
 import {
   applyView, buildViewSections, reorderViewSections,
   getItemTitle, getItemSubtitle, buildViewHtml, isDataImage,
+  normalizeViewSections, defaultViewDetail, promotedProjectItems,
 } from '../src/lib/viewFilter'
 import { SECTIONS } from '../src/lib/sections'
 import { withHeaderDefaults, withFooterDefaults } from '../src/lib/viewHeader'
 import {
   emptyStore, makeProject, makeWork, makeEducation, makeKQ,
   makeView, makeReference, makeSpokenLanguage, makeResume,
+  makeKeyCompetency, makeRecommendation,
 } from './fixtures'
 
 // A 1x1 transparent PNG data URL (valid for the isDataImage guard + img embedding).
@@ -23,7 +25,11 @@ describe('buildViewSections()', () => {
       (s) => s.storeKey && !['views', 'skills', 'roles'].includes(s.key)
     )
     expect(sections).toHaveLength(exportable.length)
-    expect(sections.every((s) => s.detail === 'full')).toBe(true)
+    // Every content section defaults to 'full' except the synthetic
+    // promoted_projects, which defaults to 'off' so views are unchanged
+    // until the user opts in.
+    expect(sections.filter((s) => s.key !== 'promoted_projects').every((s) => s.detail === 'full')).toBe(true)
+    expect(sections.find((s) => s.key === 'promoted_projects')?.detail).toBe('off')
   })
 
   it('does not include the "views" section', () => {
@@ -669,5 +675,92 @@ describe('isDataImage()', () => {
     expect(isDataImage('')).toBe(false)
     expect(isDataImage(null)).toBe(false)
     expect(isDataImage(undefined)).toBe(false)
+  })
+})
+
+// ─── New sections + promoted projects (follow-up features) ────────────────────
+
+describe('key_competencies & recommendations rendering', () => {
+  it('renders key_competencies (title + description) as a section', () => {
+    const store = emptyStore()
+    store.key_competencies.push(makeKeyCompetency({
+      title: { en: 'Architecture' }, description: { en: 'Designs scalable systems' },
+    }))
+    const html = buildViewHtml(store, makeView({ sections: buildViewSections() }), 'en')
+    expect(html).toContain('Architecture')
+    expect(html).toContain('Designs scalable systems')
+  })
+
+  it('renders recommendations with the quote and recommender name', () => {
+    const store = emptyStore()
+    store.recommendations.push(makeRecommendation({
+      recommender_name: 'Jane Boss', text: { en: 'Excellent to work with' },
+    }))
+    const html = buildViewHtml(store, makeView({ sections: buildViewSections() }), 'en')
+    expect(html).toContain('Excellent to work with')
+    expect(html).toContain('Jane Boss')
+  })
+
+  it('getItemTitle resolves the new sections', () => {
+    expect(getItemTitle('key_competencies', makeKeyCompetency({ title: { en: 'X' } }), 'en')).toBe('X')
+    expect(getItemTitle('recommendations', makeRecommendation({ recommender_name: 'Y' }), 'en')).toBe('Y')
+  })
+})
+
+describe('promoted projects', () => {
+  it('omits the Promoted Projects section by default', () => {
+    const store = emptyStore()
+    store.projects.push(makeProject({ customer: { en: 'StarCorp' }, starred: true }))
+    const html = buildViewHtml(store, makeView({ sections: buildViewSections() }), 'en')
+    expect(html).not.toContain('Promoted Projects')
+  })
+
+  it('renders only starred projects in the Promoted Projects section when enabled', () => {
+    const store = emptyStore()
+    store.projects.push(makeProject({ id: 'p1', customer: { en: 'StarCorp' }, starred: true }))
+    store.projects.push(makeProject({ id: 'p2', customer: { en: 'PlainCo' }, starred: false }))
+    const sections = buildViewSections().map((s) =>
+      s.key === 'promoted_projects' ? { ...s, detail: 'full' as const } : s
+    )
+    const html = buildViewHtml(store, makeView({ sections }), 'en')
+    expect(html).toContain('Promoted Projects')
+    expect(html).toContain('StarCorp')
+  })
+
+  it('promotedProjectItems returns starred, enabled, non-excluded projects', () => {
+    const store = emptyStore()
+    store.projects.push(makeProject({ id: 'p1', starred: true }))
+    store.projects.push(makeProject({ id: 'p2', starred: false }))
+    store.projects.push(makeProject({ id: 'p3', starred: true, disabled: true }))
+    store.projects.push(makeProject({ id: 'p4', starred: true }))
+    const view = makeView({ sections: buildViewSections(), excluded_item_ids: ['p4'] })
+    const ids = (promotedProjectItems(store, view) as Array<{ id: string }>).map((p) => p.id)
+    expect(ids).toEqual(['p1'])
+  })
+})
+
+describe('normalizeViewSections()', () => {
+  it('fills in sections missing from an older view', () => {
+    const partial = [{ key: 'projects', detail: 'summary' as const, sort_order: 0 }]
+    const norm = normalizeViewSections(partial)
+    expect(norm.find((s) => s.key === 'recommendations')).toBeTruthy()
+    expect(norm.find((s) => s.key === 'key_competencies')).toBeTruthy()
+    expect(norm.find((s) => s.key === 'promoted_projects')?.detail).toBe('off')
+    // preserves the existing entry's detail
+    expect(norm.find((s) => s.key === 'projects')?.detail).toBe('summary')
+  })
+
+  it('is a no-op (same coverage) for a freshly built section list', () => {
+    const built = buildViewSections()
+    const norm = normalizeViewSections(built)
+    expect(norm.map((s) => s.key).sort()).toEqual(built.map((s) => s.key).sort())
+  })
+})
+
+describe('defaultViewDetail()', () => {
+  it('is off for promoted_projects, full otherwise', () => {
+    expect(defaultViewDetail('promoted_projects')).toBe('off')
+    expect(defaultViewDetail('projects')).toBe('full')
+    expect(defaultViewDetail('recommendations')).toBe('full')
   })
 })

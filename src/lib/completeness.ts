@@ -169,6 +169,9 @@ export function computeSectionCoverage(
   const out: SectionCoverage[] = []
   for (const def of SECTIONS) {
     if (!def.storeKey) continue
+    // Synthetic view-only sections (promoted_projects) reuse another section's
+    // storeKey — measuring them would double-count. Skip.
+    if (def.virtual) continue
     // Registries (Skill, Role) and the export views section have content
     // worth measuring too, but the consultant doesn't think of them as
     // "language content" — skip to match the user mental model.
@@ -218,6 +221,8 @@ function itemHasContentInLocale(
   }
   switch (storeKey) {
     case 'key_qualifications':    return has('summary') || has('tag_line') || has('label')
+    case 'key_competencies':      return has('title') || has('description')
+    case 'recommendations':       return has('text') || has('relationship')
     case 'projects':              return has('customer') || has('description') || has('long_description')
     case 'work_experiences':      return has('employer') || has('role_title') || has('long_description')
     case 'educations':            return has('school') || has('degree') || has('description')

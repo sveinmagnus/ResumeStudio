@@ -15,7 +15,8 @@ const reset = () => {
         default_locale: 'en', supported_locales: ['en'],
         created_at: '2024-01-01', updated_at: '2024-01-01',
       },
-      skills: [], roles: [], key_qualifications: [], projects: [],
+      skills: [], roles: [], key_qualifications: [], key_competencies: [],
+      recommendations: [], projects: [],
       work_experiences: [], educations: [], courses: [], certifications: [],
       spoken_languages: [], technology_categories: [], positions: [],
       presentations: [], honor_awards: [], publications: [], references: [],
@@ -486,7 +487,8 @@ describe('loadStore() & startFresh()', () => {
     const replacement = {
       resume: null,
       skills: [makeRole()] as never, // shape unimportant for this test
-      roles: [], key_qualifications: [], projects: [], work_experiences: [],
+      roles: [], key_qualifications: [], key_competencies: [], recommendations: [],
+      projects: [], work_experiences: [],
       educations: [], courses: [], certifications: [], spoken_languages: [],
       technology_categories: [], positions: [], presentations: [],
       honor_awards: [], publications: [], references: [], views: [],
@@ -534,5 +536,48 @@ describe('immutability', () => {
     useStore.getState().addItem('work_experiences', makeWork({ id: 'w1' }))
     useStore.getState().updateItem('work_experiences', 'w1', { company_size: '500' })
     expect(useStore.getState().data.work_experiences[0].company_size).toBe('500')
+  })
+})
+
+describe('setActiveView()', () => {
+  it('opens a view id and switches to the Views section', () => {
+    useStore.getState().setActiveSection('projects')
+    useStore.getState().setActiveView('v123')
+    expect(useStore.getState().activeViewId).toBe('v123')
+    expect(useStore.getState().activeSection).toBe('views')
+  })
+
+  it('null returns to the view list', () => {
+    useStore.getState().setActiveView('v1')
+    useStore.getState().setActiveView(null)
+    expect(useStore.getState().activeViewId).toBeNull()
+    expect(useStore.getState().activeSection).toBe('views')
+  })
+
+  it('does not bump mutationCount (UI-only navigation)', () => {
+    const before = useStore.getState().mutationCount
+    useStore.getState().setActiveView('v1')
+    expect(useStore.getState().mutationCount).toBe(before)
+  })
+})
+
+describe('addSupportedLocale()', () => {
+  it('appends a new locale to supported_locales (sorted)', () => {
+    useStore.getState().addSupportedLocale('de')
+    expect(useStore.getState().data.resume!.supported_locales).toContain('de')
+  })
+
+  it('is a no-op for a locale already present', () => {
+    const before = useStore.getState().mutationCount
+    const existing = useStore.getState().data.resume!.supported_locales[0]
+    useStore.getState().addSupportedLocale(existing)
+    expect(useStore.getState().mutationCount).toBe(before)
+  })
+
+  it('lower-cases and trims the code, and bumps mutationCount on a real add', () => {
+    const before = useStore.getState().mutationCount
+    useStore.getState().addSupportedLocale('  FR  ')
+    expect(useStore.getState().data.resume!.supported_locales).toContain('fr')
+    expect(useStore.getState().mutationCount).toBe(before + 1)
   })
 })

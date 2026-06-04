@@ -108,6 +108,48 @@ export interface KeyQualification {
   internal_notes: string | null
 }
 
+/**
+ * A single key-competency entry — a short title plus a longer description,
+ * summarising one facet of the consultant's skillset. Lives in its own
+ * top-level collection, edited under the Personal Details → Key Competencies
+ * tab, and rendered as a section in views (by default just below the profile).
+ */
+export interface KeyCompetency {
+  id: string
+  resume_id: string
+  title: LocalizedString
+  description: LocalizedString
+  sort_order: number
+  starred: boolean
+  disabled: boolean
+}
+
+/**
+ * A testimonial / recommendation received from a colleague or customer.
+ * Recommender identity fields are plain strings (names are rarely localized);
+ * the relationship and the quote itself are localized.
+ */
+export interface Recommendation {
+  id: string
+  resume_id: string
+  recommender_name: string
+  recommender_title: string | null
+  recommender_company: string | null
+  /** How the recommender knows the consultant (localized). */
+  relationship: LocalizedString
+  /** The testimonial text (localized). */
+  text: LocalizedString
+  /** When the recommendation was given. */
+  date: YearMonth | null
+  /** Where it came from, e.g. "LinkedIn". */
+  source: string | null
+  /** Link to the recommender / source profile. */
+  contact_url: string | null
+  sort_order: number
+  starred: boolean
+  disabled: boolean
+}
+
 export interface Project {
   id: string
   resume_id: string
@@ -452,6 +494,8 @@ export interface ResumeStore {
   skills: Skill[]
   roles: Role[]
   key_qualifications: KeyQualification[]
+  key_competencies: KeyCompetency[]
+  recommendations: Recommendation[]
   projects: Project[]
   work_experiences: WorkExperience[]
   educations: Education[]

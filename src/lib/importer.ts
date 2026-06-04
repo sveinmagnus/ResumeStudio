@@ -531,6 +531,8 @@ export function importFromCVPartner(raw: Record<string, unknown>): ResumeStore {
     skills,
     roles,
     key_qualifications,
+    key_competencies: [],
+    recommendations: [],
     projects,
     work_experiences,
     educations,

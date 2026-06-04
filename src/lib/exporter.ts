@@ -28,7 +28,7 @@ import type {
 } from '../types'
 import { SECTIONS } from './sections'
 import { resolve, fmtRange, fmtDate } from './locales'
-import { applyView, isExportableSection } from './viewFilter'
+import { applyView, isExportableSection, defaultViewDetail, promotedProjectItems } from './viewFilter'
 import { parseRichBlocks, type RichRun } from './richText'
 import { deriveTokens, resolveSectionStyle, withDefaults, resolveFontDocx, type ResolvedSectionStyle, type StyleTokens } from './viewStyle'
 import { withHeaderDefaults, withFooterDefaults, buildHeaderLines, buildCopyrightLine } from './viewHeader'
@@ -330,7 +330,7 @@ export async function exportDocx(store: ResumeStore, view: ResumeView, locale: s
       return {
         ...s,
         sort_order: vs?.sort_order ?? 999,
-        detail: vs?.detail ?? 'full' as SectionDetail,
+        detail: vs?.detail ?? defaultViewDetail(s.key),
         sectionStyle: vs?.style as SectionStyle | undefined,
       }
     })
@@ -339,7 +339,12 @@ export async function exportDocx(store: ResumeStore, view: ResumeView, locale: s
 
   for (const def of enabledSections) {
     if (!def.storeKey) continue
-    const items = filtered[def.storeKey] as unknown[]
+    // Virtual promoted_projects derives from the starred projects; everything
+    // else reads its filtered store array. The label stays "Promoted Projects"
+    // but it renders through the project renderer.
+    const items = def.key === 'promoted_projects'
+      ? promotedProjectItems(store, view)
+      : (filtered[def.storeKey] as unknown[])
     if (!items.length) continue
     const resolved = resolveSectionStyle(viewStyle, def.sectionStyle)
     const ctx: ExportCtx = {
@@ -348,7 +353,8 @@ export async function exportDocx(store: ResumeStore, view: ResumeView, locale: s
       resolved,
       tokens: deriveTokens(resolved),
     }
-    const block = renderSection(def.key, def.label, items, ctx)
+    const renderKey = def.key === 'promoted_projects' ? 'projects' : def.key
+    const block = renderSection(renderKey, def.label, items, ctx)
     if (block.length) children.push(...block)
   }
 
@@ -414,6 +420,8 @@ export async function exportDocx(store: ResumeStore, view: ResumeView, locale: s
 function renderSection(key: string, label: string, items: unknown[], ctx: ExportCtx): Paragraph[] {
   switch (key) {
     case 'key_qualifications':    return wrap(label, renderKQs(items, ctx), ctx)
+    case 'key_competencies':      return wrap(label, renderKeyCompetencies(items, ctx), ctx)
+    case 'recommendations':       return wrap(label, renderRecommendations(items, ctx), ctx)
     case 'projects':              return wrap(label, renderProjects(items, ctx), ctx)
     case 'work_experiences':      return wrap(label, renderWork(items, ctx), ctx)
     case 'educations':            return wrap(label, renderEducations(items, ctx), ctx)
@@ -479,6 +487,52 @@ function renderKQs(items: unknown[], ctx: ExportCtx): Paragraph[] {
           ...(name && desc ? [new TextRun({ text: ' — ', font: ctx.tokens.bodyFontDocx, size: sz })] : []),
           ...(desc ? [new TextRun({ text: desc, font: ctx.tokens.bodyFontDocx, size: sz })] : []),
         ],
+      }))
+    }
+  }
+  return out
+}
+
+function renderKeyCompetencies(items: unknown[], ctx: ExportCtx): Paragraph[] {
+  const out: Paragraph[] = []
+  for (const k of items as AnyItem[]) {
+    const title = ls(k, 'title', ctx.locale)
+    const desc  = ls(k, 'description', ctx.locale)
+    if (!title && !desc) continue
+    if (ctx.detail === 'summary') {
+      out.push(summaryLine(title || 'Competency', '', ctx))
+      continue
+    }
+    const sz = ctx.tokens.bodyFontSizePt * 2
+    out.push(new Paragraph({
+      spacing: { before: 60, after: desc ? 40 : 60 },
+      children: [new TextRun({ text: title, bold: true, font: ctx.tokens.bodyFontDocx, size: sz })],
+    }))
+    if (desc) out.push(...richParagraphs(desc, ctx, { after: 100 }))
+  }
+  return out
+}
+
+function renderRecommendations(items: unknown[], ctx: ExportCtx): Paragraph[] {
+  const out: Paragraph[] = []
+  const sz = ctx.tokens.bodyFontSizePt * 2
+  for (const rec of items as AnyItem[]) {
+    const name = String(rec.recommender_name ?? '')
+    const attrib = [rec.recommender_title as string, rec.recommender_company as string].filter(Boolean).join(', ')
+    const date = dateAt(rec, 'date', ctx)
+    if (ctx.detail === 'summary') {
+      out.push(summaryLine(name || 'Recommendation', metaJoin([attrib, date]), ctx))
+      continue
+    }
+    const quote = ls(rec, 'text', ctx.locale)
+    if (quote) out.push(...richParagraphs(quote, ctx, { italic: true, after: 40 }))
+    const rel = ls(rec, 'relationship', ctx.locale)
+    const attribLine = [name, attrib].filter(Boolean).join(', ')
+    const tail = [attribLine, rel ? `(${rel})` : '', date].filter(Boolean).join(' · ')
+    if (tail) {
+      out.push(new Paragraph({
+        spacing: { after: 120 },
+        children: [new TextRun({ text: `— ${tail}`, color: SUBTLE_HEX, font: ctx.tokens.bodyFontDocx, size: sz })],
       }))
     }
   }

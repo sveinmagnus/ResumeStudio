@@ -8,6 +8,18 @@ export const LOCALE_LABELS: Record<string, { name: string; flag: string }> = {
   de: { name: 'Deutsch', flag: '🇩🇪' },
   fr: { name: 'Français', flag: '🇫🇷' },
   es: { name: 'Español', flag: '🇪🇸' },
+  it: { name: 'Italiano', flag: '🇮🇹' },
+  nl: { name: 'Nederlands', flag: '🇳🇱' },
+  pt: { name: 'Português', flag: '🇵🇹' },
+  pl: { name: 'Polski', flag: '🇵🇱' },
+  fi: { name: 'Suomi', flag: '🇫🇮' },
+  is: { name: 'Íslenska', flag: '🇮🇸' },
+  ru: { name: 'Русский', flag: '🇷🇺' },
+  uk: { name: 'Українська', flag: '🇺🇦' },
+  zh: { name: '中文', flag: '🇨🇳' },
+  ja: { name: '日本語', flag: '🇯🇵' },
+  ar: { name: 'العربية', flag: '🇸🇦' },
+  hi: { name: 'हिन्दी', flag: '🇮🇳' },
 }
 
 /** Resolve a localized string for display with fallback chain. */

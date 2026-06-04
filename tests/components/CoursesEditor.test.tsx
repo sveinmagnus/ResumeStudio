@@ -13,7 +13,8 @@ function seedEmptyResume() {
   useStore.setState({
     data: {
       resume: makeResume({ supported_locales: ['en'] }),
-      skills: [], roles: [], key_qualifications: [], projects: [],
+      skills: [], roles: [], key_qualifications: [], key_competencies: [],
+      recommendations: [], projects: [],
       work_experiences: [], educations: [], courses: [], certifications: [],
       spoken_languages: [], technology_categories: [], positions: [],
       presentations: [], honor_awards: [], publications: [], references: [],

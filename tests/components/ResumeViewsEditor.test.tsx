@@ -51,18 +51,16 @@ describe('<ResumeViewsEditor>', () => {
     render(<ResumeViewsEditor />)
     await userEvent.click(screen.getByRole('button', { name: /new view/i }))
 
-    const total = useStore.getState().data.views[0].sections.length
-    const fullBefore = useStore.getState().data.views[0].sections.filter((s) => s.detail === 'full').length
-    expect(fullBefore).toBe(total) // all 'full' by default
+    // promoted_projects defaults to 'off', so a fresh view already has one
+    // 'off' section. The first section row (Profile & Summary) is 'full'.
+    const offBefore = useStore.getState().data.views[0].sections.filter((s) => s.detail === 'off').length
 
     // Click the first section's "off" radio button.
     const offBtns = screen.getAllByRole('radio', { name: /^off$/i })
     await userEvent.click(offBtns[0])
 
-    const fullAfter = useStore.getState().data.views[0].sections.filter((s) => s.detail === 'full').length
-    const offAfter  = useStore.getState().data.views[0].sections.filter((s) => s.detail === 'off').length
-    expect(fullAfter).toBe(total - 1)
-    expect(offAfter).toBe(1)
+    const offAfter = useStore.getState().data.views[0].sections.filter((s) => s.detail === 'off').length
+    expect(offAfter).toBe(offBefore + 1)
   })
 
   it('switches a section to summary via the detail toggle', async () => {

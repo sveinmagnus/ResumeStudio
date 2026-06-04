@@ -21,11 +21,54 @@ export function isExportableSection(s: { key: string; storeKey?: unknown }): boo
   return !!s.storeKey && !NON_EXPORT_KEYS.has(s.key)
 }
 
-/** Build default ViewSection[] for a new view — all exportable sections at 'full' in master order. */
+/**
+ * Default detail for a section when a view doesn't explicitly list it. Most
+ * sections default to 'full'; the synthetic `promoted_projects` defaults to
+ * 'off' so existing and new views aren't changed until the user enables it.
+ */
+export function defaultViewDetail(key: string): SectionDetail {
+  return key === 'promoted_projects' ? 'off' : 'full'
+}
+
+/** The renderer/title key a section uses — promoted_projects reuses the project renderer. */
+function renderKeyFor(key: string): string {
+  return key === 'promoted_projects' ? 'projects' : key
+}
+
+/**
+ * Source items for the synthetic "Promoted Projects" view section: the starred,
+ * enabled, non-excluded projects. Independent of the regular Projects section's
+ * detail, so a view can show Projects='off' + Promoted='full' for a clean,
+ * promoted-only CV. Shared by both render paths and the view editor's item list.
+ */
+export function promotedProjectItems(store: ResumeStore, view: ResumeView): unknown[] {
+  const excluded = new Set(view.excluded_item_ids)
+  return store.projects.filter(
+    (p) => !p.disabled && !excluded.has(p.id) && p.starred,
+  )
+}
+
+/** Build default ViewSection[] for a new view — exportable sections in master order. */
 export function buildViewSections(): ViewSection[] {
   return SECTIONS
     .filter(isExportableSection)
-    .map((s, i) => ({ key: s.key, detail: 'full' as const, sort_order: i }))
+    .map((s, i) => ({ key: s.key, detail: defaultViewDetail(s.key), sort_order: i }))
+}
+
+/**
+ * Ensure a view's section list covers every exportable section. Views created
+ * before a section existed won't list it; this fills the gaps (preserving the
+ * user's existing order, appending new sections at the end with their default
+ * detail) so the view editor can configure them. Pure — returns a new array.
+ */
+export function normalizeViewSections(stored: ViewSection[]): ViewSection[] {
+  const present = new Set(stored.map((s) => s.key))
+  const ordered = [...stored].sort((a, b) => a.sort_order - b.sort_order)
+  const missing = SECTIONS
+    .filter(isExportableSection)
+    .filter((s) => !present.has(s.key))
+    .map((s) => ({ key: s.key, detail: defaultViewDetail(s.key), sort_order: 0 }))
+  return [...ordered, ...missing].map((s, i) => ({ ...s, sort_order: i }))
 }
 
 /** Reorder sections within a view, swapping the target up or down. */
@@ -55,8 +98,11 @@ function range(item: AnyItem): string {
 export function getItemTitle(sectionKey: string, item: unknown, locale: string): string {
   const it = item as AnyItem
   switch (sectionKey) {
+    case 'promoted_projects':
     case 'projects':           return ls(it, 'customer', locale) || ls(it, 'description', locale) || 'Untitled project'
     case 'key_qualifications': return ls(it, 'label', locale) || 'Untitled profile'
+    case 'key_competencies':   return ls(it, 'title', locale) || 'Untitled competency'
+    case 'recommendations':    return (it.recommender_name as string) || 'Recommendation'
     case 'work_experiences':   return ls(it, 'employer', locale) || 'Untitled employer'
     case 'educations':         return ls(it, 'school', locale) || 'Untitled school'
     case 'courses':            return ls(it, 'name', locale) || 'Untitled'
@@ -77,7 +123,9 @@ export function getItemTitle(sectionKey: string, item: unknown, locale: string):
 export function getItemSubtitle(sectionKey: string, item: unknown, locale: string): string {
   const it = item as AnyItem
   switch (sectionKey) {
+    case 'promoted_projects':
     case 'projects':         return range(it)
+    case 'recommendations':  return [it.recommender_title, it.recommender_company].filter(Boolean).join(', ')
     case 'work_experiences': return `${ls(it, 'role_title', locale)}${range(it) ? ' · ' + range(it) : ''}`
     case 'educations':       return `${ls(it, 'degree', locale)}${range(it) ? ' · ' + range(it) : ''}`
     case 'positions':        return `${ls(it, 'organisation', locale)}${range(it) ? ' · ' + range(it) : ''}`
@@ -109,6 +157,10 @@ export function applyView(store: ResumeStore, view: ResumeView): ResumeStore {
 
   for (const sec of SECTIONS) {
     if (!sec.storeKey || sec.key === 'views') continue
+    // Virtual sections (promoted_projects) don't own a store array — they're
+    // derived at render time, so skip them here to avoid clobbering the real
+    // section that shares their storeKey.
+    if (sec.virtual) continue
     const detail = sectionDetail(view, sec.key)
     const items = store[sec.storeKey] as Array<{ id: string; disabled?: boolean; starred?: boolean }>
 
@@ -316,6 +368,31 @@ function renderItem(sectionKey: string, item: unknown, ctx: RenderCtx): string {
         <div class="ve-meta">${metaLine([l('publisher'), date('date')])}</div>
         <div class="ve-desc">${rich('abstract')}</div>
       </div>`
+    case 'key_competencies':
+      if (isSummary) {
+        return `<div class="ve-item ve-item-line"><strong>${l('title')}</strong></div>`
+      }
+      return `<div class="ve-item">
+        <h3>${l('title')}</h3>
+        <div class="ve-desc">${rich('description')}</div>
+      </div>`
+    case 'recommendations': {
+      const name = escapeHtml(it.recommender_name as string)
+      const attribBits = [
+        escapeHtml(it.recommender_title as string),
+        escapeHtml(it.recommender_company as string),
+      ].filter(Boolean).join(', ')
+      const d = date('date')
+      if (isSummary) {
+        return `<div class="ve-item ve-item-line"><strong>${name}</strong>${attribBits || d ? ` <span class="ve-meta-inline">— ${[attribBits, d].filter(Boolean).join(' · ')}</span>` : ''}</div>`
+      }
+      const attribLine = [name, attribBits].filter(Boolean).join(', ')
+      const rel = l('relationship')
+      return `<div class="ve-item ve-rec">
+        <div class="ve-rec-quote">${rich('text')}</div>
+        <div class="ve-rec-attrib">— ${attribLine}${rel ? ` <span class="ve-meta-inline">(${rel})</span>` : ''}${d ? ` <span class="ve-meta-inline">· ${d}</span>` : ''}</div>
+      </div>`
+    }
     case 'references':
       if (!it.include_in_exports) return ''
       if (isSummary) {
@@ -369,7 +446,7 @@ export function buildViewHtml(store: ResumeStore, view: ResumeView, locale: stri
       return {
         ...s,
         sort_order: vs?.sort_order ?? 999,
-        detail: vs?.detail ?? 'full',
+        detail: vs?.detail ?? defaultViewDetail(s.key),
         sectionStyle: vs?.style,
       }
     })
@@ -380,12 +457,17 @@ export function buildViewHtml(store: ResumeStore, view: ResumeView, locale: stri
   const sectionsHtml = enabledSections
     .map((s) => {
       if (!s.storeKey) return ''
-      const items = (filtered[s.storeKey] as unknown[])
+      // Virtual promoted_projects derives its items from the starred projects;
+      // every other section reads its filtered store array.
+      const items = s.key === 'promoted_projects'
+        ? promotedProjectItems(store, view)
+        : (filtered[s.storeKey] as unknown[])
       if (!items.length) return ''
       const resolved = resolveSectionStyle(viewStyle, s.sectionStyle)
       perSectionCss.push(sectionStyleCss(s.key, resolved, tokens))
       const ctx: RenderCtx = { locale, detail: s.detail, style: resolved }
-      const itemsHtml = items.map((item) => renderItem(s.key, item, ctx)).filter(Boolean).join('\n')
+      const renderKey = renderKeyFor(s.key)
+      const itemsHtml = items.map((item) => renderItem(renderKey, item, ctx)).filter(Boolean).join('\n')
       if (!itemsHtml) return ''
       // s.label is a hardcoded constant from SECTIONS, but escape defensively.
       const heading = resolved.hide_heading ? '' : `<h2>${escapeHtml(s.label)}</h2>`
@@ -527,6 +609,9 @@ export function buildViewHtml(store: ResumeStore, view: ResumeView, locale: stri
     .ve-tag { background: ${tokens.accentCss}14; color: ${tokens.accentCss}; font-size: ${tokens.metaFontSizePt}pt;
               padding: 2px 8px; border-radius: 10px; }
     .ve-tags-inline { font-style: italic; color: #6B7280; font-size: ${tokens.metaFontSizePt}pt; margin-top: 6px; }
+    .ve-rec-quote { font-style: italic; color: #374151; font-size: ${tokens.smallFontSizePt}pt;
+                    border-left: 3px solid ${tokens.accentCss}33; padding-left: 12px; }
+    .ve-rec-attrib { font-size: ${tokens.metaFontSizePt}pt; color: #6B7280; margin-top: 5px; padding-left: 12px; }
     ${perSectionCss.join('\n')}
     @media print {
       body { padding: 0; }

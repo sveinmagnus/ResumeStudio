@@ -13,9 +13,9 @@
 
 import type {
   ResumeStore, Resume, Skill, Role,
-  KeyQualification, Project, WorkExperience, Education, Course,
-  Certification, SpokenLanguage, TechnologyCategory, Position,
-  Presentation, HonorAward, Publication, Reference, ResumeView,
+  KeyQualification, KeyCompetency, Recommendation, Project, WorkExperience,
+  Education, Course, Certification, SpokenLanguage, TechnologyCategory,
+  Position, Presentation, HonorAward, Publication, Reference, ResumeView,
 } from '../types'
 
 // ─── Backup format types ──────────────────────────────────────────────────────
@@ -37,6 +37,8 @@ export interface BackupV1 {
   }
   sections: {
     key_qualifications: KeyQualification[]
+    key_competencies: KeyCompetency[]
+    recommendations: Recommendation[]
     projects: Project[]
     work_experiences: WorkExperience[]
     educations: Education[]
@@ -124,6 +126,8 @@ export function exportToBackup(store: ResumeStore): BackupV1 {
     },
     sections: {
       key_qualifications: store.key_qualifications,
+      key_competencies: store.key_competencies,
+      recommendations: store.recommendations,
       projects: store.projects,
       work_experiences: store.work_experiences,
       educations: store.educations,
@@ -156,6 +160,9 @@ export function importFromBackup(backup: AnyBackup): ResumeStore {
     skills:                  v1.registries.skills,
     roles:                   v1.registries.roles,
     key_qualifications:      v1.sections.key_qualifications,
+    // Added after the initial v1 shape — older backups omit these arrays.
+    key_competencies:        v1.sections.key_competencies ?? [],
+    recommendations:         v1.sections.recommendations ?? [],
     projects:                v1.sections.projects,
     work_experiences:        v1.sections.work_experiences,
     educations:              v1.sections.educations,

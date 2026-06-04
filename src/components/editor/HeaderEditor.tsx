@@ -2,17 +2,19 @@ import { useStore } from '../../store/useStore'
 import { DualField } from '../ui/DualField'
 import { TextField } from '../ui/Fields'
 import { ImageField } from '../ui/ImageField'
-import { ProfileEditor } from './SimpleEditors'
-import { User, FileText } from 'lucide-react'
+import { ProfileEditor, KeyCompetenciesEditor } from './SimpleEditors'
+import { User, FileText, ListChecks } from 'lucide-react'
 
 /**
- * Personal Details host. Two sub-tabs:
- *   - Identity: the resume root (name/contact/title/links).
+ * Personal Details host. Three sub-tabs:
+ *   - Identity: the resume root (name/contact/title/links/photo/company).
  *   - Profile: the key_qualifications blocks (label/tag-line/summary/key points).
+ *   - Key competencies: the key_competencies entries (title + description).
  *
  * Which tab is active mirrors the store's `activeSection`:
  *   - 'header'             → Identity
  *   - 'key_qualifications' → Profile
+ *   - 'key_competencies'   → Key competencies
  *
  * The Overview's "missing field" drill-down navigates to
  * activeSection='key_qualifications' for KQ fields; we honour that here so a
@@ -23,7 +25,9 @@ export function HeaderEditor() {
   const r = data.resume
   if (!r) return null
 
-  const tab = activeSection === 'key_qualifications' ? 'profile' : 'identity'
+  const tab = activeSection === 'key_qualifications' ? 'profile'
+    : activeSection === 'key_competencies' ? 'competencies'
+    : 'identity'
 
   return (
     <div className="section-pane">
@@ -44,9 +48,19 @@ export function HeaderEditor() {
         >
           <FileText size={14} /> Profile &amp; summary
         </button>
+        <button
+          role="tab"
+          aria-selected={tab === 'competencies'}
+          className={`hd-tab ${tab === 'competencies' ? 'is-active' : ''}`}
+          onClick={() => setActiveSection('key_competencies')}
+        >
+          <ListChecks size={14} /> Key competencies
+        </button>
       </div>
 
-      {tab === 'identity' ? (
+      {tab === 'competencies' ? (
+        <KeyCompetenciesEditor />
+      ) : tab === 'identity' ? (
         <>
           <div className="editor-block">
             <h3 className="eb-title">Identity</h3>

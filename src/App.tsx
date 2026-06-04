@@ -13,7 +13,7 @@ import { ProjectsEditor } from './components/editor/ProjectsEditor'
 import {
   WorkEditor, EducationEditor, CoursesEditor, CertificationsEditor,
   PositionsEditor, PresentationsEditor, PublicationsEditor, AwardsEditor,
-  SpokenLanguagesEditor,
+  SpokenLanguagesEditor, RecommendationsEditor,
 } from './components/editor/SimpleEditors'
 import { SkillsEditor, RolesEditor, ReferencesEditor, TechCategoriesEditor } from './components/editor/RegistryEditors'
 import { ResumeViewsEditor } from './components/editor/ResumeViewsEditor'
@@ -106,10 +106,14 @@ function EditorRoute({ resumeId, onUnauthorized }: { resumeId: string; onUnautho
   }
 
   // ── Main editor shell ────────────────────────────────────────────────────
-  // 'key_qualifications' folds into Personal Details (Profile sub-tab), so the
-  // breadcrumb/title still reads "Personal Details" while the section key may
-  // still be 'key_qualifications' (Overview's missing-field deep link uses it).
-  const sectionKeyForChrome = activeSection === 'key_qualifications' ? 'header' : activeSection
+  // 'key_qualifications' and 'key_competencies' fold into Personal Details
+  // (sub-tabs), so the breadcrumb/title still reads "Personal Details" while
+  // the section key may be one of those (Overview's missing-field deep link
+  // uses 'key_qualifications').
+  const sectionKeyForChrome =
+    activeSection === 'key_qualifications' || activeSection === 'key_competencies'
+      ? 'header'
+      : activeSection
   const section = SECTIONS.find((s) => s.key === sectionKeyForChrome)
 
   return (
@@ -141,7 +145,8 @@ function EditorRoute({ resumeId, onUnauthorized }: { resumeId: string; onUnautho
           <ErrorBoundary resetKey={activeSection}>
             {activeSection === 'overview'              && <Overview />}
             {(activeSection === 'header' ||
-              activeSection === 'key_qualifications') && <HeaderEditor />}
+              activeSection === 'key_qualifications' ||
+              activeSection === 'key_competencies')    && <HeaderEditor />}
             {activeSection === 'projects'              && <ProjectsEditor />}
             {activeSection === 'work_experiences'      && <WorkEditor />}
             {activeSection === 'positions'             && <PositionsEditor />}
@@ -153,6 +158,7 @@ function EditorRoute({ resumeId, onUnauthorized }: { resumeId: string; onUnautho
             {activeSection === 'presentations'         && <PresentationsEditor />}
             {activeSection === 'publications'          && <PublicationsEditor />}
             {activeSection === 'honor_awards'          && <AwardsEditor />}
+            {activeSection === 'recommendations'       && <RecommendationsEditor />}
             {activeSection === 'references'            && <ReferencesEditor />}
             {activeSection === 'skills'                && <SkillsEditor />}
             {activeSection === 'roles'                 && <RolesEditor />}

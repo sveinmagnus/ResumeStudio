@@ -2,7 +2,7 @@ import type {
   ResumeStore, ResumeView, Project, WorkExperience, Education,
   Course, Certification, Skill, Role, KeyQualification, SpokenLanguage,
   TechnologyCategory, Position, Presentation, Publication, HonorAward,
-  Reference, Resume,
+  Reference, Resume, KeyCompetency, Recommendation,
 } from '../src/types'
 import { DEFAULT_VIEW_STYLE } from '../src/lib/viewStyle'
 import { DEFAULT_VIEW_HEADER, DEFAULT_VIEW_FOOTER, defaultHeaderFields } from '../src/lib/viewHeader'
@@ -10,7 +10,8 @@ import { DEFAULT_VIEW_HEADER, DEFAULT_VIEW_FOOTER, defaultHeaderFields } from '.
 export function emptyStore(): ResumeStore {
   return {
     resume: makeResume(),
-    skills: [], roles: [], key_qualifications: [], projects: [],
+    skills: [], roles: [], key_qualifications: [], key_competencies: [],
+    recommendations: [], projects: [],
     work_experiences: [], educations: [], courses: [], certifications: [],
     spoken_languages: [], technology_categories: [], positions: [],
     presentations: [], honor_awards: [], publications: [], references: [],
@@ -194,6 +195,38 @@ export function makeKQ(over: Partial<KeyQualification> = {}): KeyQualification {
     starred: false,
     disabled: false,
     internal_notes: null,
+    ...over,
+  }
+}
+
+export function makeKeyCompetency(over: Partial<KeyCompetency> = {}): KeyCompetency {
+  return {
+    id: id(),
+    resume_id: 'resume-1',
+    title: { en: 'Solution architecture' },
+    description: { en: 'Designing scalable systems.' },
+    sort_order: 0,
+    starred: false,
+    disabled: false,
+    ...over,
+  }
+}
+
+export function makeRecommendation(over: Partial<Recommendation> = {}): Recommendation {
+  return {
+    id: id(),
+    resume_id: 'resume-1',
+    recommender_name: 'Jane Colleague',
+    recommender_title: 'CTO',
+    recommender_company: 'BigCo',
+    relationship: { en: 'Worked together on the platform' },
+    text: { en: 'A pleasure to work with.' },
+    date: null,
+    source: null,
+    contact_url: null,
+    sort_order: 0,
+    starred: false,
+    disabled: false,
     ...over,
   }
 }

@@ -13,6 +13,8 @@ interface AppState {
   currentResumeId: string | null
   // UI
   activeSection: string
+  /** When in the Resume Views section, the view being edited (null = the list). */
+  activeViewId: string | null
   primaryLocale: string
   secondaryLocale: string | null
   expandedItemId: string | null
@@ -69,6 +71,8 @@ interface AppState {
 
   // ── UI state ──────────────────────────────────────────────────────────────
   setActiveSection: (s: string) => void
+  /** Open a specific Resume View directly (also switches to the Views section). null = the view list. */
+  setActiveView: (id: string | null) => void
   setPrimaryLocale: (l: string) => void
   setSecondaryLocale: (l: string | null) => void
   setExpandedItem: (id: string | null) => void
@@ -79,6 +83,8 @@ interface AppState {
   updateResume: (patch: Partial<Resume>) => void
   /** Rescan all data, merge any new locales into resume.supported_locales. */
   detectAndSetLocales: () => void
+  /** Add a locale code to resume.supported_locales (no-op if already present). */
+  addSupportedLocale: (code: string) => void
 
   // ── Generic array item ops ────────────────────────────────────────────────
   updateItem: <K extends ArraySectionKey>(section: K, id: string, patch: Partial<ArrayItem<K>>) => void
@@ -125,6 +131,7 @@ export const useStore = create<AppState>((set, get) => {
     data: emptyStore,
     currentResumeId: null,
     activeSection: 'overview',
+    activeViewId: null,
     primaryLocale: 'en',
     secondaryLocale: 'no',
     expandedItemId: null,
@@ -139,7 +146,7 @@ export const useStore = create<AppState>((set, get) => {
       const { primary, secondary } = pickLocales(data.resume?.supported_locales ?? ['en'])
       set({
         data, hasData: true, mutationCount: 0,
-        activeSection: 'overview', sectionSort: {},
+        activeSection: 'overview', activeViewId: null, sectionSort: {},
         primaryLocale: primary, secondaryLocale: secondary,
       })
     },
@@ -156,14 +163,14 @@ export const useStore = create<AppState>((set, get) => {
         ? localesArg.secondary
         : (supported[1] ?? null)
       set({
-        data: migrated, hasData: true, mutationCount: 0, sectionSort: {},
+        data: migrated, hasData: true, mutationCount: 0, sectionSort: {}, activeViewId: null,
         primaryLocale: primary, secondaryLocale: secondary,
       })
     },
 
     unloadStore: () => set({
       data: emptyStore, hasData: false, mutationCount: 0,
-      currentResumeId: null, expandedItemId: null, sectionSort: {},
+      currentResumeId: null, expandedItemId: null, activeViewId: null, sectionSort: {},
     }),
 
     setCurrentResumeId: (id) => set({ currentResumeId: id }),
@@ -171,7 +178,7 @@ export const useStore = create<AppState>((set, get) => {
     startFresh: () => {
       set({
         data: makeFresh(), hasData: true, mutationCount: 0,
-        activeSection: 'header', expandedItemId: null, sectionSort: {},
+        activeSection: 'header', expandedItemId: null, activeViewId: null, sectionSort: {},
         primaryLocale: 'en', secondaryLocale: null,
       })
     },
@@ -183,6 +190,9 @@ export const useStore = create<AppState>((set, get) => {
     // ── UI ─────────────────────────────────────────────────────────────────
 
     setActiveSection: (s) => set({ activeSection: s, expandedItemId: null }),
+    // Deep-link a specific view (or the list when null). Always lands on the
+    // Views section. UI-only navigation — no mutationCount bump.
+    setActiveView: (id) => set({ activeSection: 'views', activeViewId: id, expandedItemId: null }),
     // Sort mode is a display preference only — plain set, no mutationCount bump
     // (nothing in `data` changes, so there's nothing to auto-save).
     setSectionSort: (section, mode) => set((st) => ({
@@ -217,6 +227,19 @@ export const useStore = create<AppState>((set, get) => {
         data: {
           ...st.data,
           resume: { ...st.data.resume, supported_locales: merged, updated_at: new Date().toISOString() },
+        },
+      }
+    }),
+
+    addSupportedLocale: (code) => mutate((st) => {
+      const c = code.trim().toLowerCase()
+      if (!c || !st.data.resume) return null
+      if (st.data.resume.supported_locales.includes(c)) return null // no-op: already present
+      const next = sortLocales([...st.data.resume.supported_locales, c])
+      return {
+        data: {
+          ...st.data,
+          resume: { ...st.data.resume, supported_locales: next, updated_at: new Date().toISOString() },
         },
       }
     }),

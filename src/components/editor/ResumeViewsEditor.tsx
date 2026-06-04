@@ -6,7 +6,8 @@ import { SECTIONS } from '../../lib/sections'
 import { LOCALE_LABELS, resolve } from '../../lib/locales'
 import {
   buildViewSections, reorderViewSections, isExportableSection,
-  getItemTitle, getItemSubtitle, buildViewHtml,
+  getItemTitle, getItemSubtitle, buildViewHtml, normalizeViewSections,
+  defaultViewDetail,
 } from '../../lib/viewFilter'
 import { DEFAULT_VIEW_STYLE } from '../../lib/viewStyle'
 import {
@@ -44,8 +45,8 @@ const CONTENT_SECTIONS = SECTIONS.filter(isExportableSection)
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export function ResumeViewsEditor() {
-  const { data, addItem, removeItem, updateItem } = useStore()
-  const [activeViewId, setActiveViewId] = useState<string | null>(null)
+  // activeViewId lives in the store so the sidebar can deep-link a view.
+  const { data, addItem, removeItem, updateItem, activeViewId, setActiveView } = useStore()
 
   const views = data.views
 
@@ -69,28 +70,28 @@ export function ResumeViewsEditor() {
       updated_at: now,
     }
     addItem('views', view)
-    setActiveViewId(view.id)
+    setActiveView(view.id)
   }
 
   const deleteView = (id: string) => {
-    if (activeViewId === id) setActiveViewId(null)
+    if (activeViewId === id) setActiveView(null)
     removeItem('views', id)
   }
 
   if (activeViewId !== null) {
     const view = views.find((v) => v.id === activeViewId)
-    if (!view) { setActiveViewId(null); return null }
+    if (!view) { setActiveView(null); return null }
     return (
       <ViewEditor
         view={view}
-        onBack={() => setActiveViewId(null)}
+        onBack={() => setActiveView(null)}
         onDelete={() => deleteView(view.id)}
         onUpdate={(patch) => updateItem('views', view.id, patch)}
       />
     )
   }
 
-  return <ViewList views={views} onCreate={createView} onEdit={setActiveViewId} onDelete={deleteView} />
+  return <ViewList views={views} onCreate={createView} onEdit={setActiveView} onDelete={deleteView} />
 }
 
 // ─── View list ────────────────────────────────────────────────────────────────
@@ -234,11 +235,14 @@ function ViewEditor({ view, onBack, onDelete, onUpdate }: {
   const overLimit =
     view.page_limit != null && pageCount != null && pageCount > view.page_limit
 
-  const sections = [...view.sections].sort((a, b) => a.sort_order - b.sort_order)
+  // Normalized so sections added after this view was created (e.g. Key
+  // Competencies, Recommendations, Promoted Projects) still appear and are
+  // configurable. Section edits write the full normalized list back.
+  const sections = normalizeViewSections(view.sections)
 
   const setSectionDetail = (key: string, detail: SectionDetail) => {
     onUpdate({
-      sections: view.sections.map((s) =>
+      sections: sections.map((s) =>
         s.key === key ? { ...s, detail } : s
       ),
     })
@@ -246,7 +250,7 @@ function ViewEditor({ view, onBack, onDelete, onUpdate }: {
 
   const setSectionStyle = (key: string, patch: SectionStyle | null) => {
     onUpdate({
-      sections: view.sections.map((s) => {
+      sections: sections.map((s) => {
         if (s.key !== key) return s
         if (patch === null) {
           const { style: _drop, ...rest } = s
@@ -259,7 +263,7 @@ function ViewEditor({ view, onBack, onDelete, onUpdate }: {
   }
 
   const moveSection = (key: string, dir: 'up' | 'down') => {
-    onUpdate({ sections: reorderViewSections(view.sections, key, dir) })
+    onUpdate({ sections: reorderViewSections(sections, key, dir) })
   }
 
   const toggleItem = (itemId: string) => {
@@ -310,9 +314,9 @@ function ViewEditor({ view, onBack, onDelete, onUpdate }: {
 
   const locales = data.resume?.supported_locales ?? [primaryLocale]
   const totalItems = CONTENT_SECTIONS.reduce((acc, s) => {
-    if (!s.storeKey) return acc
+    if (!s.storeKey || s.virtual) return acc // skip the synthetic promoted_projects (shares projects)
     const vs = view.sections.find((v) => v.key === s.key)
-    const detail = vs?.detail ?? 'full'
+    const detail = vs?.detail ?? defaultViewDetail(s.key)
     if (detail === 'off') return acc
     return acc + (data[s.storeKey] as unknown[]).filter(
       (it) => !(it as { disabled?: boolean }).disabled
@@ -416,6 +420,8 @@ function ViewEditor({ view, onBack, onDelete, onUpdate }: {
             if (!def || !def.storeKey) return null
             const storeItems = (data[def.storeKey] as Array<{ id: string; disabled?: boolean; starred?: boolean }>)
               .filter((it) => !it.disabled)
+              // Promoted Projects only lists the starred projects (its source set).
+              .filter((it) => vs.key !== 'promoted_projects' || it.starred)
 
             const off = vs.detail === 'off'
             const hasStyle = !!vs.style && Object.keys(vs.style).length > 0

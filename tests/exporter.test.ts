@@ -11,6 +11,7 @@ import { buildViewSections } from '../src/lib/viewFilter'
 import {
   emptyStore, makeProject, makeWork, makeEducation, makeView,
   makeKQ, makeReference, makeResume, makeSpokenLanguage,
+  makeKeyCompetency, makeRecommendation,
 } from './fixtures'
 import { withHeaderDefaults, withFooterDefaults } from '../src/lib/viewHeader'
 
@@ -299,3 +300,32 @@ describe('exportDocx()', () => {
     })
   })
 })
+
+  // ─── Follow-up sections (key competencies, recommendations, promoted) ───────
+
+  describe('new sections & promoted projects', () => {
+    it('exports key competencies and recommendations without throwing', async () => {
+      const store = emptyStore()
+      store.key_competencies.push(makeKeyCompetency({ title: { en: 'Architecture' }, description: { en: 'Designs systems' } }))
+      store.recommendations.push(makeRecommendation({ recommender_name: 'Jane Boss', text: { en: 'Great work' } }))
+      await exportDocx(store, makeView({ sections: buildViewSections() }), 'en')
+      expect(await isZip(lastBlob!)).toBe(true)
+    })
+
+    it('renders a Promoted Projects section from starred projects when enabled', async () => {
+      const baseStore = emptyStore()
+      baseStore.projects.push(makeProject({ id: 'p1', customer: { en: 'StarCorp' }, starred: true }))
+
+      // Default view: promoted_projects off.
+      await exportDocx(baseStore, makeView({ sections: buildViewSections() }), 'en')
+      const offSize = lastBlob!.size
+
+      // Enable promoted_projects → an extra section heading + item is emitted.
+      const sections = buildViewSections().map((s) =>
+        s.key === 'promoted_projects' ? { ...s, detail: 'full' as const } : s
+      )
+      await exportDocx(baseStore, makeView({ sections }), 'en')
+      expect(await isZip(lastBlob!)).toBe(true)
+      expect(lastBlob!.size).toBeGreaterThan(offSize)
+    })
+  })

@@ -3,8 +3,9 @@ import { LOCALE_LABELS } from '../../lib/locales'
 import { ArrowLeftRight, Eye, EyeOff, RefreshCw } from 'lucide-react'
 
 export function LanguageSwitcher() {
-  const { data, primaryLocale, secondaryLocale, setPrimaryLocale, setSecondaryLocale, detectAndSetLocales } = useStore()
+  const { data, primaryLocale, secondaryLocale, setPrimaryLocale, setSecondaryLocale, detectAndSetLocales, addSupportedLocale } = useStore()
   const locales = data.resume?.supported_locales || ['en']
+  const addable = Object.keys(LOCALE_LABELS).filter((c) => !locales.includes(c))
 
   const swap = () => {
     if (!secondaryLocale) return
@@ -52,6 +53,25 @@ export function LanguageSwitcher() {
         </div>
       </div>
 
+      {addable.length > 0 && (
+        <div className="lang-block">
+          <span className="lang-role lang-role-add">Add</span>
+          <select
+            className="lang-sel lang-add"
+            value=""
+            onChange={(e) => { if (e.target.value) addSupportedLocale(e.target.value) }}
+            title="Add another language to the dropdowns"
+          >
+            <option value="">+ Language…</option>
+            {addable.map((l) => (
+              <option key={l} value={l}>
+                {LOCALE_LABELS[l]?.flag} {LOCALE_LABELS[l]?.name || l}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
       <button
         className="lang-detect"
         onClick={detectAndSetLocales}
@@ -70,6 +90,9 @@ export function LanguageSwitcher() {
         .lang-block { display: flex; flex-direction: column; gap: 4px; }
         .lang-role { font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
         .lang-role-sec { color: var(--secondary-ink); }
+        .lang-role-add { color: var(--ink-faint); }
+        .lang-add { border-style: dashed; color: var(--ink-soft); }
+        .lang-add:hover { border-color: var(--accent); color: var(--accent); }
         .lang-sel {
           padding: 6px 10px; border-radius: var(--r-sm); border: 1px solid var(--line);
           background: var(--paper); font-weight: 500; font-size: 13px; cursor: pointer;
