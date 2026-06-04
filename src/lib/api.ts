@@ -1,20 +1,12 @@
 import type { ResumeStore } from '../types'
 
-// ─── Auth token (session-scoped) ──────────────────────────────────────────────
-
-const TOKEN_KEY = 'resumestudio-api-token'
-
-export function getStoredToken(): string | null {
-  return sessionStorage.getItem(TOKEN_KEY)
-}
-
-export function setStoredToken(token: string): void {
-  sessionStorage.setItem(TOKEN_KEY, token.trim())
-}
-
-export function clearStoredToken(): void {
-  sessionStorage.removeItem(TOKEN_KEY)
-}
+// ─── Auth ──────────────────────────────────────────────────────────────────────
+//
+// The API token is NOT stored in JS-readable storage. The client POSTs it once
+// to /api/auth/login, which sets an HttpOnly + SameSite=Strict session cookie;
+// every subsequent request carries that cookie automatically (same-origin
+// fetch). This means an XSS bug can no longer read or exfiltrate the token.
+// `api.login` / `api.logout` below drive that exchange.
 
 // ─── Error types ──────────────────────────────────────────────────────────────
 
@@ -62,12 +54,12 @@ async function request(
   const headers: Record<string, string> = {}
   if (body !== undefined) headers['Content-Type'] = 'application/json'
 
-  const token = getStoredToken()
-  if (token) headers['Authorization'] = `Bearer ${token}`
-
   const res = await fetch(url, {
     method,
     headers,
+    // Send the HttpOnly session cookie (same-origin). Auth is carried by the
+    // cookie set at /api/auth/login — no token is attached from JS.
+    credentials: 'same-origin',
     body: body !== undefined ? JSON.stringify(body) : undefined,
     signal,
   })
@@ -198,6 +190,28 @@ export const api = {
       return res.ok
     } catch {
       return false
+    }
+  },
+
+  // ── Auth (cookie session) ─────────────────────────────────────────────────
+
+  /**
+   * Exchange the API token for an HttpOnly session cookie. On success the
+   * cookie is set by the server and subsequent requests are authenticated
+   * automatically. Throws UnauthorizedError on a wrong token, ServerError
+   * otherwise.
+   */
+  async login(token: string): Promise<void> {
+    const res = await request('POST', '/api/auth/login', { token })
+    if (!res.ok) throw new ServerError(res.status, `Login failed: ${res.statusText}`)
+  },
+
+  /** Clear the session cookie. Best-effort — never throws. */
+  async logout(): Promise<void> {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' })
+    } catch {
+      /* best-effort */
     }
   },
 

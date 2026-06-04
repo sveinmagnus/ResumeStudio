@@ -63,6 +63,32 @@ describe('authMiddleware', () => {
     expect(state.statusCode).toBe(401)
   })
 
+  it('accepts a valid session cookie', () => {
+    vi.stubEnv('RESUME_API_TOKEN', 's3kret')
+    const { res } = makeRes()
+    const next = vi.fn() as unknown as NextFunction
+    authMiddleware(makeReq({ cookie: 'rs_token=s3kret' }), res, next)
+    expect(next).toHaveBeenCalledOnce()
+  })
+
+  it('accepts a valid session cookie alongside other cookies', () => {
+    vi.stubEnv('RESUME_API_TOKEN', 's3kret')
+    const { res } = makeRes()
+    const next = vi.fn() as unknown as NextFunction
+    authMiddleware(makeReq({ cookie: 'foo=bar; rs_token=s3kret; baz=qux' }), res, next)
+    expect(next).toHaveBeenCalledOnce()
+  })
+
+  it('rejects a wrong session cookie with a generic 401', () => {
+    vi.stubEnv('RESUME_API_TOKEN', 's3kret')
+    const { res, state } = makeRes()
+    const next = vi.fn() as unknown as NextFunction
+    authMiddleware(makeReq({ cookie: 'rs_token=nope' }), res, next)
+    expect(next).not.toHaveBeenCalled()
+    expect(state.statusCode).toBe(401)
+    expect(state.body).toEqual({ error: 'Unauthorized' })
+  })
+
   it('does not leak whether the token length matched (same 401 either way)', () => {
     vi.stubEnv('RESUME_API_TOKEN', 's3kret')
     const short = makeRes()

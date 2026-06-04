@@ -20,7 +20,7 @@ import { ResumeViewsEditor } from './components/editor/ResumeViewsEditor'
 import { ConflictModal } from './components/ConflictModal'
 import { useRoute, navigate, Link } from './lib/router'
 import { dropLegacyCache } from './lib/localCache'
-import { api, setStoredToken, UnauthorizedError, clearStoredToken } from './lib/api'
+import { api } from './lib/api'
 
 // One-shot legacy-cache cleanup on first module load. The pre-multi-resume
 // localStorage key holds data that can't safely be attributed to any one
@@ -37,16 +37,13 @@ export default function App() {
   const onUnauthorized = useCallback(() => setAuthNeeded(true), [])
 
   const handleAuthSubmit = useCallback(async (token: string) => {
-    setStoredToken(token)
-    try {
-      // Cheap probe — listResumes is the smallest auth-gated call we have.
-      await api.listResumes()
-      setAuthNeeded(false)
-      setAuthEpoch((n) => n + 1)
-    } catch (err) {
-      if (err instanceof UnauthorizedError) clearStoredToken()
-      throw err
-    }
+    // Exchange the token for an HttpOnly session cookie (throws
+    // UnauthorizedError on a wrong token — no cookie is set), then verify with
+    // the smallest auth-gated call we have.
+    await api.login(token)
+    await api.listResumes()
+    setAuthNeeded(false)
+    setAuthEpoch((n) => n + 1)
   }, [])
 
   if (authNeeded) {

@@ -3,6 +3,7 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import rateLimit from 'express-rate-limit'
 import { authMiddleware } from './auth.js'
+import authRouter from './routes/auth.js'
 import resumeRouter from './routes/resume.js'
 import translateRouter from './routes/translate.js'
 import backupRouter from './routes/backup.js'
@@ -102,6 +103,12 @@ export function createApp(): Express {
   app.get('/api/health', (_req, res) => {
     res.json({ ok: true })
   })
+
+  // ── Auth (rate-limited, NOT auth-gated — this is how a browser logs in) ────
+  // Exchanges the token for an HttpOnly session cookie so it never sits in
+  // JS-readable storage. Rate-limited like the rest of the API so login
+  // attempts (401s) are throttled against brute force.
+  app.use('/api/auth', apiLimiter, authRouter)
 
   // ── Resume API (auth-gated) ──────────────────────────────────────────────
   app.use('/api/resumes', apiLimiter, authMiddleware, resumeRouter)
