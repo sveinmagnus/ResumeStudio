@@ -235,7 +235,12 @@ describe('exportDocx()', () => {
     const smallBytes = new Uint8Array(await lastBlob!.arrayBuffer())
     await exportDocx(store, large, 'en')
     const largeBytes = new Uint8Array(await lastBlob!.arrayBuffer())
-    // Different font sizes serialise to different XML payloads — sizes differ.
-    expect(smallBytes.length).not.toBe(largeBytes.length)
+    // Different font sizes serialise to different XML payloads. The byte
+    // lengths can coincide (18 vs 24 half-points are both two digits), so
+    // compare content rather than length.
+    const identical =
+      smallBytes.length === largeBytes.length &&
+      smallBytes.every((b, i) => b === largeBytes[i])
+    expect(identical).toBe(false)
   })
 })

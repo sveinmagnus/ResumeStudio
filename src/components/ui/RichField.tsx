@@ -208,6 +208,21 @@ function RichColumn({ variant, locale, html, onCommit, placeholder, header }: Ri
     onInput()
   }
 
+  /**
+   * Intercept the standard formatting shortcuts. Browsers DO handle
+   * Ctrl/Cmd+B/I/U natively inside a contentEditable, but the markup they
+   * emit varies (some wrap in <b>, some apply inline styles the sanitiser
+   * then strips). Routing through `exec` guarantees the same allowed tags
+   * and that the change is committed to the store on the spot.
+   */
+  const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!(e.ctrlKey || e.metaKey) || e.altKey) return
+    const key = e.key.toLowerCase()
+    if (key === 'b')      { e.preventDefault(); exec('bold') }
+    else if (key === 'i') { e.preventDefault(); exec('italic') }
+    else if (key === 'u') { e.preventDefault(); exec('underline') }
+  }
+
   // Show placeholder via :empty + ::before in CSS — but only when the
   // editor truly has zero text content (an empty <p> still counts as empty
   // markup, so we treat that as empty too).
@@ -229,6 +244,7 @@ function RichColumn({ variant, locale, html, onCommit, placeholder, header }: Ri
         suppressContentEditableWarning
         data-placeholder={placeholder || `${LOCALE_LABELS[locale]?.name || locale}…`}
         onInput={onInput}
+        onKeyDown={onKeyDown}
         onFocus={() => setHasFocus(true)}
         onBlur={() => {
           setHasFocus(false)

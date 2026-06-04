@@ -8,10 +8,22 @@ import { DEFAULT_VIEW_STYLE, deriveTokens, resolveSectionStyle, withDefaults, ty
 
 // ─── Section helpers ──────────────────────────────────────────────────────────
 
-/** Build default ViewSection[] for a new view — all content sections at 'full' in master order. */
+/**
+ * Sections that can appear in an exported view. Excludes:
+ *  - 'views' (the export config itself), and
+ *  - the reusable registries 'skills' / 'roles' — these are structural data
+ *    referenced by other sections, never rendered as a section of their own.
+ */
+const NON_EXPORT_KEYS = new Set(['views', 'skills', 'roles'])
+
+export function isExportableSection(s: { key: string; storeKey?: unknown }): boolean {
+  return !!s.storeKey && !NON_EXPORT_KEYS.has(s.key)
+}
+
+/** Build default ViewSection[] for a new view — all exportable sections at 'full' in master order. */
 export function buildViewSections(): ViewSection[] {
   return SECTIONS
-    .filter((s) => s.storeKey && s.key !== 'views')
+    .filter(isExportableSection)
     .map((s, i) => ({ key: s.key, detail: 'full' as const, sort_order: i }))
 }
 
@@ -339,7 +351,7 @@ export function buildViewHtml(store: ResumeStore, view: ResumeView, locale: stri
   const filtered = applyView(store, view)
   const lc = (ls_: LocalizedString | undefined) => resolve(ls_, locale)
 
-  const contentSections = SECTIONS.filter((s) => s.storeKey && s.key !== 'views')
+  const contentSections = SECTIONS.filter(isExportableSection)
 
   const enabledSections = contentSections
     .map((s) => {

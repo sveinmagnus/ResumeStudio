@@ -12,16 +12,24 @@ import {
 // ─── buildViewSections ────────────────────────────────────────────────────────
 
 describe('buildViewSections()', () => {
-  it('produces one entry per content section (excludes views)', () => {
+  it('produces one entry per exportable section (excludes views + registries)', () => {
     const sections = buildViewSections()
-    const contentSections = SECTIONS.filter((s) => s.storeKey && s.key !== 'views')
-    expect(sections).toHaveLength(contentSections.length)
+    const exportable = SECTIONS.filter(
+      (s) => s.storeKey && !['views', 'skills', 'roles'].includes(s.key)
+    )
+    expect(sections).toHaveLength(exportable.length)
     expect(sections.every((s) => s.detail === 'full')).toBe(true)
   })
 
   it('does not include the "views" section', () => {
     const sections = buildViewSections()
     expect(sections.some((s) => s.key === 'views')).toBe(false)
+  })
+
+  it('does not include the skill/role registries', () => {
+    const sections = buildViewSections()
+    expect(sections.some((s) => s.key === 'skills')).toBe(false)
+    expect(sections.some((s) => s.key === 'roles')).toBe(false)
   })
 
   it('assigns unique, gap-free sort_order values', () => {

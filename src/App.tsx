@@ -136,7 +136,7 @@ function EditorRoute({ resumeId, onUnauthorized }: { resumeId: string; onUnautho
           />
         )}
 
-        <div className="app-content">
+        <div className={`app-content${activeSection === 'views' ? ' app-content-wide' : ''}`}>
           {/* Reset boundary on section change so a crashed view never traps the user. */}
           <ErrorBoundary resetKey={activeSection}>
             {activeSection === 'overview'              && <Overview />}
@@ -165,6 +165,8 @@ function EditorRoute({ resumeId, onUnauthorized }: { resumeId: string; onUnautho
         .app-shell { display: flex; min-height: 100vh; position: relative; z-index: 1; }
         .app-main  { flex: 1; min-width: 0; display: flex; flex-direction: column; }
         .app-content { padding: 28px 36px 80px; max-width: 1000px; width: 100%; }
+        /* Resume Views uses the side-by-side preview — let it span the viewport. */
+        .app-content-wide { max-width: none; }
       `}</style>
     </div>
   )

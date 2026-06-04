@@ -24,7 +24,7 @@ export function DateField({ label, value, onChange, allowOngoing }: {
   return (
     <div className="pf-wrap">
       <label className="pf-label">{label}</label>
-      <div style={{ display: 'flex', gap: 6 }}>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
         <input className="pf-input" type="number" placeholder="Year" style={{ width: 80 }}
           value={value?.year || ''} onChange={(e) => {
             const y = parseInt(e.target.value)

@@ -35,13 +35,26 @@ function renderHeader() {
 }
 
 describe('<AppHeader>', () => {
-  beforeEach(() => resetStore())
+  beforeEach(() => {
+    resetStore()
+    // The ResumeSwitcher preloads the list on mount — provide a default.
+    vi.spyOn(api, 'listResumes').mockResolvedValue([
+      { id: 'r1', name: 'My CV', primary_locale: 'en', secondary_locale: 'no', saved_at: '', created_at: '', version: 1 },
+    ])
+  })
   afterEach(() => vi.restoreAllMocks())
 
   it('renders the active section title', () => {
     seed()
     renderHeader()
     expect(screen.getByText('Projects')).toBeInTheDocument()
+  })
+
+  it('preloads the resume name into the switcher trigger without opening the menu', async () => {
+    seed()
+    renderHeader()
+    // Name appears once the mount-time listResumes resolves — no click needed.
+    expect(await screen.findByText('My CV')).toBeInTheDocument()
   })
 
   it('disables undo/redo when there is no history', () => {

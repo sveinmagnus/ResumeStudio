@@ -26,7 +26,7 @@ import type {
 } from '../types'
 import { SECTIONS } from './sections'
 import { resolve, fmtRange, fmtDate } from './locales'
-import { applyView } from './viewFilter'
+import { applyView, isExportableSection } from './viewFilter'
 import { parseRichBlocks, type RichRun } from './richText'
 import { deriveTokens, resolveSectionStyle, withDefaults, type ResolvedSectionStyle, type StyleTokens } from './viewStyle'
 
@@ -229,7 +229,7 @@ export async function exportDocx(store: ResumeStore, view: ResumeView, locale: s
   }
 
   // ── Content sections in the view's chosen order ─────────────────────────
-  const contentSections = SECTIONS.filter((s) => s.storeKey && s.key !== 'views')
+  const contentSections = SECTIONS.filter(isExportableSection)
   const enabledSections = contentSections
     .map((s) => {
       const vs = view.sections.find((v) => v.key === s.key)

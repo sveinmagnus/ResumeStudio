@@ -154,16 +154,19 @@ function ResumeSwitcher({ resumeId, onUnauthorized }: ResumeSwitcherProps) {
     return () => document.removeEventListener('mousedown', onClick)
   }, [open])
 
-  // Lazy-load the list the first time the dropdown opens.
+  // Preload the list on mount so the trigger shows the current resume's name
+  // immediately (rather than a dash until the menu is first opened).
   useEffect(() => {
-    if (!open || items !== null) return
+    let cancelled = false
     api.listResumes()
-      .then(setItems)
+      .then((r) => { if (!cancelled) setItems(r) })
       .catch((err: unknown) => {
+        if (cancelled) return
         if (err instanceof UnauthorizedError) { onUnauthorized(); return }
         setItems([])
       })
-  }, [open, items, onUnauthorized])
+    return () => { cancelled = true }
+  }, [onUnauthorized])
 
   const current = items?.find((r) => r.id === resumeId)
   const others = items?.filter((r) => r.id !== resumeId) ?? []

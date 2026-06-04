@@ -4,7 +4,7 @@ import { DualField } from '../ui/DualField'
 import { SECTIONS } from '../../lib/sections'
 import { LOCALE_LABELS, resolve } from '../../lib/locales'
 import {
-  buildViewSections, reorderViewSections,
+  buildViewSections, reorderViewSections, isExportableSection,
   getItemTitle, getItemSubtitle, buildViewHtml,
 } from '../../lib/viewFilter'
 import { DEFAULT_VIEW_STYLE } from '../../lib/viewStyle'
@@ -15,11 +15,11 @@ import type {
 import {
   Plus, Pencil, Trash2, ChevronUp, ChevronDown,
   ArrowLeft, LayoutList, Star, FileText, FileDown,
-  Sliders, RotateCcw,
+  Sliders, RotateCcw, PanelRight, PanelRightClose, ExternalLink,
 } from 'lucide-react'
 
-// ─── Content sections (excludes non-content like overview, header, views) ─────
-const CONTENT_SECTIONS = SECTIONS.filter((s) => s.storeKey && s.key !== 'views')
+// ─── Content sections (excludes non-content + the skill/role registries) ─────
+const CONTENT_SECTIONS = SECTIONS.filter(isExportableSection)
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
@@ -154,7 +154,9 @@ function ViewEditor({ view, onBack, onDelete, onUpdate }: {
     buildViewHtml(data, view, exportLocale)
   )
   const [pageCount, setPageCount] = useState<number | null>(null)
+  const [showPreview, setShowPreview] = useState(true)
   const iframeRef = useRef<HTMLIFrameElement>(null)
+  const popoutRef = useRef<Window | null>(null)
 
   useEffect(() => {
     const t = window.setTimeout(() => {
@@ -162,6 +164,29 @@ function ViewEditor({ view, onBack, onDelete, onUpdate }: {
     }, 250)
     return () => window.clearTimeout(t)
   }, [data, view, exportLocale])
+
+  // Keep a popped-out preview window in sync with the live HTML.
+  useEffect(() => {
+    const win = popoutRef.current
+    if (win && !win.closed) {
+      win.document.open()
+      win.document.write(previewHtml)
+      win.document.close()
+    }
+  }, [previewHtml])
+
+  // Close the pop-out when leaving the view editor.
+  useEffect(() => () => { popoutRef.current?.close() }, [])
+
+  const popOut = () => {
+    const win = window.open('', 'rs-view-preview', 'width=900,height=1200')
+    if (!win) { alert('Please allow pop-ups to open the preview window.'); return }
+    popoutRef.current = win
+    win.document.open()
+    win.document.write(previewHtml)
+    win.document.close()
+    win.focus()
+  }
 
   useEffect(() => {
     const iframe = iframeRef.current
@@ -274,12 +299,25 @@ function ViewEditor({ view, onBack, onDelete, onUpdate }: {
         <div className="rv-editor-stats">
           {visibleItems} items visible
         </div>
+        <div className="rv-preview-controls">
+          <button
+            className="rv-prev-ctrl"
+            onClick={() => setShowPreview((v) => !v)}
+            title={showPreview ? 'Hide preview' : 'Show preview'}
+          >
+            {showPreview ? <PanelRightClose size={15} /> : <PanelRight size={15} />}
+            {showPreview ? 'Hide preview' : 'Show preview'}
+          </button>
+          <button className="rv-prev-ctrl" onClick={popOut} title="Open the preview in a separate window">
+            <ExternalLink size={14} /> Pop out
+          </button>
+        </div>
         <button className="rv-btn-del rv-del-view" onClick={onDelete} title="Delete this view">
           <Trash2 size={14} /> Delete view
         </button>
       </div>
 
-      <div className="rv-editor-grid">
+      <div className={`rv-editor-grid${showPreview ? '' : ' rv-grid-solo'}`}>
         <div className="rv-editor-controls">
 
       {/* ── Name ── */}
@@ -476,6 +514,7 @@ function ViewEditor({ view, onBack, onDelete, onUpdate }: {
 
         </div>
 
+        {showPreview && (
         <aside className="rv-preview-pane">
           <div className="rv-preview-header">
             <span className="rv-preview-label">Preview</span>
@@ -485,6 +524,14 @@ function ViewEditor({ view, onBack, onDelete, onUpdate }: {
                 {view.page_limit != null ? ` / ${view.page_limit}` : ''}
               </span>
             )}
+            <div className="rv-preview-head-actions">
+              <button className="rv-preview-iconbtn" onClick={popOut} title="Open in a separate window" aria-label="Pop out preview">
+                <ExternalLink size={14} />
+              </button>
+              <button className="rv-preview-iconbtn" onClick={() => setShowPreview(false)} title="Hide preview" aria-label="Hide preview">
+                <PanelRightClose size={15} />
+              </button>
+            </div>
           </div>
           {/*
             sandbox="allow-same-origin" disables script execution inside the
@@ -500,6 +547,7 @@ function ViewEditor({ view, onBack, onDelete, onUpdate }: {
             sandbox="allow-same-origin"
           />
         </aside>
+        )}
       </div>
 
       <Styles />
@@ -574,6 +622,13 @@ function Styles() {
       .rv-back-btn:hover { color: var(--accent); }
       .rv-editor-stats { flex: 1; font-size: 13px; color: var(--ink-faint); }
       .rv-del-view { gap: 6px; padding: 7px 12px; font-size: 13px; }
+      .rv-preview-controls { display: flex; align-items: center; gap: 6px; }
+      .rv-prev-ctrl {
+        display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px;
+        background: var(--paper-sunken); border: 1px solid var(--line); border-radius: var(--r-sm);
+        font-size: 12.5px; font-weight: 600; color: var(--ink-soft); transition: all .13s;
+      }
+      .rv-prev-ctrl:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-wash); }
 
       /* ── Field blocks ── */
       .rv-section-block {
@@ -773,6 +828,8 @@ function Styles() {
         gap: 28px;
         align-items: start;
       }
+      /* Preview hidden → single, comfortably-bounded controls column. */
+      .rv-grid-solo { grid-template-columns: minmax(0, 860px); }
       .rv-editor-controls { min-width: 0; }
       .rv-preview-pane {
         position: sticky;
@@ -801,6 +858,13 @@ function Styles() {
         font-variant-numeric: tabular-nums;
       }
       .rv-preview-over { color: #b91c1c; font-weight: 600; }
+      .rv-preview-head-actions { margin-left: auto; display: flex; align-items: center; gap: 2px; }
+      .rv-preview-pages + .rv-preview-head-actions { margin-left: 10px; }
+      .rv-preview-iconbtn {
+        width: 28px; height: 26px; display: grid; place-items: center;
+        border-radius: var(--r-sm); color: var(--ink-faint); transition: all .13s;
+      }
+      .rv-preview-iconbtn:hover { background: var(--accent-wash); color: var(--accent); }
       .rv-preview-frame {
         flex: 1; border: none; background: #fff; width: 100%;
       }
