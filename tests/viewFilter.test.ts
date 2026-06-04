@@ -726,11 +726,23 @@ describe('isDataImage()', () => {
     expect(isDataImage('data:image/png;base64,AAAA')).toBe(true)
     expect(isDataImage('data:image/jpeg;base64,AAAA')).toBe(true)
   })
+  it('accepts the other raster formats', () => {
+    expect(isDataImage('data:image/gif;base64,AAAA')).toBe(true)
+    expect(isDataImage('data:image/bmp;base64,AAAA')).toBe(true)
+    expect(isDataImage('data:image/webp;base64,AAAA')).toBe(true)
+  })
   it('rejects external URLs, empty, and null', () => {
     expect(isDataImage('https://example.com/a.png')).toBe(false)
     expect(isDataImage('')).toBe(false)
     expect(isDataImage(null)).toBe(false)
     expect(isDataImage(undefined)).toBe(false)
+  })
+  it('rejects SVG data URLs (markup/script carrier)', () => {
+    expect(isDataImage('data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=')).toBe(false)
+    expect(isDataImage('data:image/svg+xml,<svg onload=alert(1)>')).toBe(false)
+  })
+  it('rejects a non-image data URL', () => {
+    expect(isDataImage('data:text/html;base64,PHNjcmlwdD4=')).toBe(false)
   })
 })
 

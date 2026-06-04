@@ -115,6 +115,36 @@ describe('POST /api/settings/translate/test', () => {
     expect(res.body.reachable).toBe(false)
     expect(res.body.message).toMatch(/provider/i)
   })
+
+  it('ignores pending URL/provider overrides on a non-desktop build (SSRF guard)', async () => {
+    // On the VPS build the test route must use the saved/effective (env) config
+    // only — otherwise an authed user could point the server probe at an
+    // arbitrary internal host (e.g. cloud metadata). Clear the translate env so
+    // the effective provider is genuinely 'off' (earlier PUT tests push config
+    // onto process.env via applyToEnv).
+    delete process.env.RESUME_DESKTOP
+    const TRANSLATE_ENV = ['TRANSLATE_PROVIDER', 'LIBRETRANSLATE_URL', 'LIBRETRANSLATE_API_KEY', 'DEEPL_API_KEY', 'GOOGLE_TRANSLATE_API_KEY', 'AZURE_TRANSLATOR_KEY', 'AZURE_TRANSLATOR_REGION']
+    const saved = Object.fromEntries(TRANSLATE_ENV.map((k) => [k, process.env[k]]))
+    for (const k of TRANSLATE_ENV) delete process.env[k]
+    try {
+      const res = await request(app).post('/api/settings/translate/test').send({
+        translate_provider: 'libretranslate',
+        libretranslate_url: 'http://169.254.169.254/latest/meta-data',
+      })
+      expect(res.status).toBe(200)
+      // The override is ignored → effective provider is 'off' → "no provider",
+      // NOT an attempt to reach the supplied URL. If the guard regressed, the
+      // route would instead try the supplied host and report it unreachable.
+      expect(res.body.reachable).toBe(false)
+      expect(res.body.message).toMatch(/provider/i)
+    } finally {
+      process.env.RESUME_DESKTOP = '1'
+      for (const [k, v] of Object.entries(saved)) {
+        if (v === undefined) delete process.env[k]
+        else process.env[k] = v
+      }
+    }
+  })
 })
 
 describe('POST /api/settings/docker', () => {

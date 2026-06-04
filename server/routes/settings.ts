@@ -101,15 +101,23 @@ router.post('/translate/test', (req: Request, res: Response): void => {
     const body = (req.body ?? {}) as Record<string, unknown>
     const base = currentSettings()
     const merged: AppSettings = { ...base }
-    const str = (k: string) => (typeof body[k] === 'string' ? (body[k] as string) : undefined)
-    if (str('translate_provider') !== undefined) merged.translate_provider = body.translate_provider as AppSettings['translate_provider']
-    if (str('libretranslate_url') !== undefined) merged.libretranslate_url = (body.libretranslate_url as string).trim()
-    if (typeof body.translate_docker === 'boolean') merged.translate_docker = body.translate_docker
-    if (str('libretranslate_api_key')) merged.libretranslate_api_key = body.libretranslate_api_key as string
-    if (str('deepl_api_key')) merged.deepl_api_key = body.deepl_api_key as string
-    if (str('google_api_key')) merged.google_api_key = body.google_api_key as string
-    if (str('azure_api_key')) merged.azure_api_key = body.azure_api_key as string
-    if (str('azure_region') !== undefined) merged.azure_region = (body.azure_region as string).trim()
+    // SECURITY: pending body values (esp. libretranslate_url) let the caller
+    // point the server's probe at an arbitrary host — a server-side request
+    // forgery vector. Only honour them on the desktop build, where the user IS
+    // the operator configuring their own machine. On the VPS build we test the
+    // saved/effective (env-derived) config only, so an authed user can't make
+    // the server fetch arbitrary URLs.
+    if (isDesktop()) {
+      const str = (k: string) => (typeof body[k] === 'string' ? (body[k] as string) : undefined)
+      if (str('translate_provider') !== undefined) merged.translate_provider = body.translate_provider as AppSettings['translate_provider']
+      if (str('libretranslate_url') !== undefined) merged.libretranslate_url = (body.libretranslate_url as string).trim()
+      if (typeof body.translate_docker === 'boolean') merged.translate_docker = body.translate_docker
+      if (str('libretranslate_api_key')) merged.libretranslate_api_key = body.libretranslate_api_key as string
+      if (str('deepl_api_key')) merged.deepl_api_key = body.deepl_api_key as string
+      if (str('google_api_key')) merged.google_api_key = body.google_api_key as string
+      if (str('azure_api_key')) merged.azure_api_key = body.azure_api_key as string
+      if (str('azure_region') !== undefined) merged.azure_region = (body.azure_region as string).trim()
+    }
 
     const cfg = settingsToTranslateConfig(merged)
     if (cfg.provider === 'off') {

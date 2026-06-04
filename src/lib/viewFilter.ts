@@ -206,12 +206,19 @@ export function escapeHtml(s: string | null | undefined): string {
 }
 
 /**
- * Guard: only embed images that are base64 data URLs. The generated document's
- * CSP allows `img-src 'self' data:` — an external http(s) URL would be blocked
- * anyway, so we never emit one (and never trust an arbitrary attribute value).
+ * Guard: only embed images that are base64 data URLs of a known *raster*
+ * format. The generated document's CSP allows `img-src 'self' data:`, so an
+ * external http(s) URL is blocked regardless — and we never trust an arbitrary
+ * attribute value.
+ *
+ * SECURITY: SVG is excluded deliberately. `data:image/svg+xml` can carry markup
+ * /script; while a browser doesn't execute script in an SVG loaded via <img>
+ * (and the CSP would block it), restricting to raster formats removes the
+ * question entirely. Uploads are re-encoded to PNG/JPEG via canvas (lib/image),
+ * so this never rejects a legitimately-uploaded photo or logo.
  */
 export function isDataImage(src: string | null | undefined): src is string {
-  return !!src && /^data:image\//.test(src)
+  return !!src && /^data:image\/(png|jpe?g|gif|bmp|webp)[;,]/i.test(src)
 }
 
 /**
