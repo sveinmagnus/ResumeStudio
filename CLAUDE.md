@@ -25,8 +25,10 @@ What works today:
 - **Auto-save** to an Express + SQLite backend (debounced ~1s) — sends the
   resume payload + locales in a single PUT per mutation. **Per-id
   localStorage fallback** so a server outage never costs work.
-- **Auth-gated server** (token-based, see `.env.example`); falls back to a
-  local-only mode if the server is unreachable.
+- **Auth-gated server** (token-based, see `.env.example`). The browser exchanges
+  the token for an **HttpOnly session cookie** via `/api/auth/login` (so the
+  token never lives in JS-readable storage); `Authorization: Bearer` still works
+  for non-browser clients. Falls back to a local-only mode if unreachable.
 - **Targeted exports via Resume Views** — pick sections, exclude items,
   starred-only filter, custom intro, then export PDF (browser print pipeline)
   or DOCX (lazy-loaded docx lib). A **live preview pane** in the view editor
@@ -185,7 +187,7 @@ src/
 server/                         ← Express API + SQLite persistence
 ├── index.ts                    ← Bootstrap (VPS/dev entry): createApp() + app.listen() on a fixed port
 ├── app.ts                      ← createApp(): security headers, json, routers, static client serving (RESUME_CLIENT_DIR or prod dist)
-├── auth.ts                     ← Bearer-token middleware (env: RESUME_API_TOKEN, read lazily), constant-time compare
+├── auth.ts                     ← Auth middleware: accepts the HttpOnly session cookie OR `Authorization: Bearer` (env: RESUME_API_TOKEN, read lazily); constant-time compare; presentedToken/tokenIsValid/isAuthRequired
 ├── db.ts                       ← createResumeDb(path) factory + lazy singleton; multi-row `resumes` + scoped `resume_snapshots` (last 50/resume, deduped, ON DELETE CASCADE); dumpResumes/restoreResumes (store sync) + close() (WAL checkpoint); getDefaultDb/closeDefaultDb
 ├── config.ts                   ← PURE: resolvePaths()/defaultDataDir() — per-user data dir, db path, backup dir, log file (desktop build)
 ├── backup.ts                   ← Whole-store JSON backup format (StoreBackupV1) + atomic write/read + signature. NOT the per-resume client backup
@@ -199,6 +201,7 @@ server/                         ← Express API + SQLite persistence
 │   ├── freePort.ts             ← Find a free loopback port (preferred → ladder → OS-assigned)
 │   └── openBrowser.ts          ← Zero-dep cross-platform default-browser opener
 └── routes/
+    ├── auth.ts                 ← /api/auth: POST /login (token → HttpOnly cookie), POST /logout, GET /status. Rate-limited, NOT auth-gated
     ├── resume.ts               ← /api/resumes collection: list/create/load/save/rename/delete + per-resume /snapshots(/:sid)
     ├── translate.ts            ← GET /api/translate/status, POST /api/translate
     ├── backup.ts               ← /api/backup: GET /status, POST /now, POST /restore (reads RESUME_BACKUP_DIR lazily)
@@ -390,10 +393,24 @@ than calling `set()` directly. Return `null` from the updater for a no-op
 6. If the section has `sort_order`, wrap its `<EditorCard>`s in a `<SortableList section="…" ids={items.map(x=>x.id)}>`. If it doesn't, pass `sortable={false}` to each `<EditorCard>` so the drag handle isn't shown.
 7. If it should appear in Resume View exports: add a `case` to both
    `lib/viewFilter.ts → renderItem` (HTML/PDF path) and `lib/exporter.ts →
-   renderSection` (DOCX path). Also extend `getItemTitle`/`getItemSubtitle`
-   in `viewFilter.ts` for the View-editor item list. The **export-pipeline
-   skill** (`.claude/skills/export-pipeline.md`) covers keeping the two render
-   paths in sync, the docx lazy-load discipline, and the escaping cross-check.
+   renderSection` (DOCX path). The `viewFilter` case must handle the
+   `summary` vs `full` `SectionDetail` (the `isSummary` branch) and route
+   description-shaped fields through `renderRichHtml(...)` (rich text) and all
+   other values through `escapeHtml(...)` — **never interpolate a raw value**.
+   Also extend `getItemTitle`/`getItemSubtitle` for the View-editor item list.
+   The section is picked up by the view automatically via `isExportableSection`
+   + `normalizeViewSections`; give it a `defaultViewDetail` if it shouldn't
+   default to `full`. The **export-pipeline skill**
+   (`.claude/skills/export-pipeline.md`) covers keeping the two render paths in
+   sync, the docx lazy-load discipline, and the escaping cross-check; the
+   **security skill** covers the escape/sanitise rules for the render pipeline.
+8. If you add a configurable **style/header field** to a view (not just a
+   content section), it is untrusted-import surface — sanitise it at the render
+   boundary (`lib/viewStyle.ts → deriveTokens` / `lib/viewHeader.ts →
+   withHeaderDefaults`) and add a breakout regression test. See the security
+   skill before touching those files.
+9. If the section is sortable by something other than `sort_order`, wire it
+   into `lib/sectionSort.ts` (used by `useSortedItems` / `useReorderGuard`).
 
 ---
 
@@ -555,16 +572,26 @@ npm run test:coverage     # v8 coverage in coverage/
 ```
 
 ### What's covered
-- **`lib/`** — every pure-logic library has a `.test.ts`: `locales`, `completeness`, `viewFilter`, `backup`, `importer`, `merge`, `exporter` (smoke test with jsdom for DOM bits), `localCache` (jsdom).
+- **`lib/`** — every pure-logic library has a `.test.ts`: `locales`,
+  `completeness`, `viewFilter`, `backup`, `importer`, `merge`, `exporter`
+  (smoke test with jsdom), `localCache` (jsdom), plus the view-rendering /
+  styling modules `viewStyle`, `viewHeader`, `richText`, `image`,
+  `sectionSort`, and the offline-sync modules `syncEngine`, `diffResume`,
+  `connectivity`, `wipeLocale`, and the client `api` (mocked `fetch`).
+  The **security-regression** suites live in `viewFilter.test.ts`
+  ("HTML escaping (XSS)" — escaping + `<style>`/attribute breakout via crafted
+  view config), `viewStyle.test.ts` (`sanitizeHexColor`, enum-fallback), and
+  `viewHeader.test.ts` (boundary validators).
 - **`store/useStore.ts`** — generic CRUD, `moveItem`/`reorderItem`, `mutationCount` semantics (every mutator bumps once, no-ops don't bump, `loadStore` resets, `replaceData` bumps).
 - **React components** — `tests/components/*.test.tsx` via React Testing Library cover every editor, the shell components, and the ui primitives (render → interact → assert through the store). See "Component tests" below.
 - **The Express server** — `tests/server/*.test.ts` (node env): `db` (multi-
   resume CRUD, snapshot dedup/prune *scoped per resume*, CASCADE on delete,
-  via `createResumeDb(':memory:')`), `translate` (locale map + `translate()`
-  error matrix with a mocked `fetch`), `auth` (token matrix on the
-  middleware), and `routes` (HTTP status/validation for the full
-  `/api/resumes/...` grammar via **supertest** against `createApp()`, with
-  `RESUME_DB_PATH=':memory:'`).
+  via `createResumeDb(':memory:')`), `translate` / `translateDocker`,
+  `settings`, `config`, `backup`, `auth` (the bearer **and cookie** token
+  matrix on the middleware), and the route suites (`resume`, `settings`,
+  `backup`, and `authRoutes` — login/logout/status + the cookie→authorized
+  round-trip) via **supertest** against `createApp()` with
+  `RESUME_DB_PATH=':memory:'`.
 - **Test fixtures** — `tests/fixtures.ts` exports `emptyStore()` + `makeProject()`, `makeWork()`, etc. Use these instead of constructing entities inline so future shape changes are one-place fixes.
 
 ### What's NOT covered

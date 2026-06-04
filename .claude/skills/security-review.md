@@ -9,9 +9,9 @@ Read this before reviewing or writing code that touches any surface below. It en
 
 ## 1. The trust model in one paragraph
 
-One consultant, one deployment (a VPS instance OR a portable desktop build). The Express server is the source of truth; the SPA is its only client. Auth is a single bearer token (`RESUME_API_TOKEN`) sent in `Authorization: Bearer` headers and stored client-side in **`sessionStorage`** (`src/lib/api.ts`). Any JavaScript running in the app's origin can read that token and call the API as the user. Persistence is **multi-resume**: SQLite (`resumes` + `resume_snapshots`) on the server, with a per-resume **plaintext `localStorage`** outbound queue/cache (`src/lib/localCache.ts`, key `resumestudio:store-cache:v1:<id>`). The untrusted-input surface is: imported CVpartner JSON, imported **backup/snapshot JSON**, anything already stored in a resume or a **view config** (because the export/preview pipeline re-renders it as HTML), and any HTTP request body.
+One consultant, one deployment (a VPS instance OR a portable desktop build). The Express server is the source of truth; the SPA is its only client. Auth is a single token (`RESUME_API_TOKEN`); the browser exchanges it at `POST /api/auth/login` for an **HttpOnly, SameSite=Strict session cookie**, so the token is no longer in JS-readable storage (a bearer header still works for non-browser clients). Persistence is **multi-resume**: SQLite (`resumes` + `resume_snapshots`) on the server, with a per-resume **plaintext `localStorage`** outbound queue/cache (`src/lib/localCache.ts`, key `resumestudio:store-cache:v1:<id>`). The untrusted-input surface is: imported CVpartner JSON, imported **backup/snapshot JSON**, anything already stored in a resume or a **view config** (because the export/preview pipeline re-renders it as HTML), and any HTTP request body.
 
-**Implication: XSS = total compromise.** The token leaves with the attacker and so does every resume. Almost every finding here traces back to that.
+**Implication: XSS is still serious** — it can drive the API as the user (the cookie auto-authenticates same-origin requests) and read the full resume from `localStorage`. It can no longer exfiltrate the token itself. Treat the render pipeline (§2) as the primary battleground; almost every finding here traces back to it.
 
 ## 2. The render pipeline is the #1 XSS surface
 
@@ -53,7 +53,7 @@ Both block script execution from an injection — but a `</style>` or attribute 
 
 The server is hardened in `server/app.ts` — keep it that way:
 - **CSP + security headers** on every response; `x-powered-by` disabled; JSON body limit **2 MB** (don't raise without reason); **rate limiter** (`skipSuccessfulRequests` — counts ≥400s, so brute-forcing the token gets 429'd but auto-save doesn't). Runs before `authMiddleware`. New routers go under `/api/...` with `apiLimiter, authMiddleware`, or are explicitly justified as public (only `/api/health` is).
-- **`auth.ts`**: `crypto.timingSafeEqual` compare, single generic `{error:'Unauthorized'}` for all failures, token read lazily. Don't regress any of these.
+- **`auth.ts` / `routes/auth.ts`**: `crypto.timingSafeEqual` compare; single generic `{error:'Unauthorized'}` for all failures; token read lazily; accepts the HttpOnly cookie or a bearer header. `/api/auth/login` is rate-limited but NOT auth-gated (it's how you authenticate) — keep it that way, and never log the token or echo it (only the `Set-Cookie` carries it, HttpOnly).
 - **`routes/resume.ts`** (multi-resume `/api/resumes`): validate body shape; `version` optimistic-concurrency (409 on stale `base_version`); errors must not leak SQL/internal detail. SQL is parameterised in `db.ts` — keep it parameterised (never string-build SQL).
 - **`translate.ts`** (provider proxy): upstream URLs/keys stay server-side; errors **never echo upstream detail** (could leak an internal URL/key); timeout via `AbortSignal.timeout`; Google key is `encodeURIComponent`'d in the query. The upstream URL is operator-configured (env / desktop settings), not attacker-supplied per request.
 - **`settings.ts`** (desktop-only; VPS reports `managed:false`, PUT 403s): API keys are **write-only over the API** — `toView()` returns `*_set` booleans, never the value. `settings.json` is written `0600`. Don't add a route or log line that echoes a key. PUT validates types + the provider enum.
@@ -72,8 +72,15 @@ The server is hardened in `server/app.ts` — keep it that way:
 
 ## 5. Token & cache handling
 
-- `sessionStorage` holds the bearer token (JS-readable). The render pipeline staying XSS-free is what keeps it safe.
-- `localStorage` holds the full resume per-resume in plaintext as the offline outbound queue. A mid-session 401 clears the plaintext caches **only when nothing is unsynced** (so a wrong token doesn't destroy queued edits). Don't move secrets into `localStorage`; don't add cache keys without thinking through their lifecycle (and the `beforeunload`/dirty-queue guards).
+- The API token is **not** in JS-readable storage. The client POSTs it to
+  `POST /api/auth/login` (`server/routes/auth.ts`), which sets an **HttpOnly,
+  SameSite=Strict** session cookie; the auth middleware accepts that cookie or
+  an `Authorization: Bearer` header (`server/auth.ts → presentedToken`). So an
+  XSS bug can no longer read or exfiltrate the token. Keep it that way: don't
+  reintroduce `sessionStorage`/`localStorage` token storage, don't drop
+  `HttpOnly`/`SameSite=Strict`, and remember the cookie is the CSRF surface —
+  `SameSite=Strict` is the defence (a same-origin SPA needs no token in headers).
+- `localStorage` holds the full resume per-resume in plaintext as the offline outbound queue. A mid-session 401 clears the plaintext caches **only when nothing is unsynced** (so a wrong token doesn't destroy queued edits); the AuthGate "Clear local data" button calls `api.logout()` + `clearAllCaches()`. Don't move secrets into `localStorage`; don't add cache keys without thinking through their lifecycle (and the `beforeunload`/dirty-queue guards).
 
 ## 6. Pre-commit checklist
 
@@ -87,12 +94,19 @@ The server is hardened in `server/app.ts` — keep it that way:
 
 ## 7. Known residual risks (don't re-flag — do prioritise fixing)
 
-Closed since the first review: rate limiting, SPA-shell CSP, DB/settings file ACLs, and clearing the plaintext cache on a clean mid-session 401 all exist now. Remaining:
+Closed: rate limiting, SPA-shell CSP, DB/settings file ACLs, clean-401 cache
+clearing, the render-pipeline XSS class (§2), the **token→HttpOnly-cookie**
+migration, the `/api/settings/translate/test` SSRF (pending overrides ignored
+on non-desktop builds), and SVG data URLs (`isDataImage` is raster-only).
+Remaining:
 
-- **Token in `sessionStorage`** — the biggest one. Migrate to an HTTP-only `Secure` `SameSite=Strict` cookie + a `POST /api/auth/login` step + an origin/`Sec-Fetch-Site` CSRF check. Browser JS would never see the token.
-- **`/api/settings/translate/test` is not desktop-gated** — an authed user can make the server probe an arbitrary `http(s)` URL via a pending `libretranslate_url` (mild SSRF; response shape leaks little). Single-tenant authed-operator → low. Gate it behind `isDesktop()` or restrict to the saved provider when you touch that file.
-- **SVG data URLs in image overrides** — `isDataImage` permits `data:image/svg+xml`. Script in an SVG loaded via `<img>` doesn't execute and CSP blocks it, but tightening `isDataImage` to raster types (or stripping SVG on import) would remove the question entirely.
+- **Session cookie carries the token value** (HttpOnly), not an opaque random
+  session id backed by a server store. Deliberate for the single-tenant model —
+  it keeps the desktop/no-restart story simple — but if a server-side session
+  table ever appears, switch the cookie to an opaque id so the long-lived secret
+  isn't in the cookie at all.
 - **Schema validation at the import boundary** — imports are still `as`-cast, not validated. A Zod schema for `BackupV1`/CVpartner would give better errors and a firmer trust boundary (more robustness than security now that §2 holds).
+- **CSRF depends on `SameSite=Strict`** alone (no token/anti-CSRF header, since the cookie auto-authenticates). Fine for a same-origin SPA; if a cross-origin client is ever added, add an `Origin`/`Sec-Fetch-Site` check on mutating routes.
 
 ## 8. What is *not* a finding here
 
@@ -107,3 +121,4 @@ Closed since the first review: rate limiting, SPA-shell CSP, DB/settings file AC
 
 - `d6d7c25` — *Close stored-XSS in Resume View export and harden the server.* The original escape-at-render + CSP + server-hardening work; read it (and `tests/viewFilter.test.ts` "HTML escaping (XSS)") before touching `viewFilter.ts`/`exporter.ts`/`server/`.
 - The `viewStyle.ts`/`viewHeader.ts` boundary validators (`sanitizeHexColor`, `safe*` coercers) — the second-round fix for CSS-injection / attribute breakout via crafted view config. The pattern to copy when adding view-config fields.
+- The `routes/auth.ts` + `auth.ts` cookie-session work — token moved out of `sessionStorage` into an HttpOnly cookie; the `/api/settings/translate/test` SSRF gate; and `isDataImage` raster-only. See `tests/server/authRoutes.test.ts` and the `/translate/test` SSRF-guard test in `settingsRoutes.test.ts`.
