@@ -1,8 +1,10 @@
 import { useStore, newId } from '../../store/useStore'
+import { useSortedItems } from '../../store/useSortedItems'
 import { DualField } from '../ui/DualField'
 import { TextField } from '../ui/Fields'
 import { EditorCard, AddButton, FieldRow } from '../ui/EditorCard'
 import { SortableList } from '../ui/SortableList'
+import { SortBar } from '../ui/SortBar'
 import { resolve } from '../../lib/locales'
 import {
   mergeSkills, mergeRoles, countSkillReferences, countRoleReferences,
@@ -90,7 +92,7 @@ export function SkillsEditor() {
 
 export function RolesEditor() {
   const { data, primaryLocale, addItem, updateItem, replaceData } = useStore()
-  const items = [...data.roles].sort((a, b) => a.sort_order - b.sort_order)
+  const items = useSortedItems('roles')
   const usage = new Map(items.map((r) => [r.id, countRoleReferences(data, r.id)]))
 
   const add = () => {
@@ -108,6 +110,7 @@ export function RolesEditor() {
   return (
     <div className="section-pane">
       <p className="registry-note">Reusable role labels referenced by projects. "Solution Architect" is defined once here.</p>
+      <SortBar section="roles" count={items.length} />
       <SortableList section="roles" ids={items.map((x) => x.id)}>
       {items.map((r) => (
         <EditorCard key={r.id} section="roles" id={r.id}
@@ -258,7 +261,7 @@ export function ReferencesEditor() {
 
 export function TechCategoriesEditor() {
   const { data, primaryLocale, addItem, updateItem } = useStore()
-  const items = [...data.technology_categories].sort((a, b) => a.sort_order - b.sort_order)
+  const items = useSortedItems('technology_categories')
 
   const add = () => {
     const c: TechnologyCategory = {
@@ -286,6 +289,7 @@ export function TechCategoriesEditor() {
   return (
     <div className="section-pane">
       <p className="registry-note">A curated showcase grouping skills from the registry for display in exports.</p>
+      <SortBar section="technology_categories" count={items.length} />
       <SortableList section="technology_categories" ids={items.map((x) => x.id)}>
       {items.map((cat) => (
         <EditorCard key={cat.id} section="technology_categories" id={cat.id}

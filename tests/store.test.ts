@@ -27,6 +27,7 @@ const reset = () => {
     expandedItemId: null,
     hasData: true,
     currentResumeId: null,
+    sectionSort: {},
     mutationCount: 0,
   }))
 }
@@ -206,6 +207,52 @@ describe('moveItem()', () => {
     useStore.getState().moveItem('projects', 'b', 2)
     const ordered = [...useStore.getState().data.projects].sort((x, y) => x.sort_order - y.sort_order)
     expect(ordered.map((p) => p.id)).toEqual(['c', 'a', 'b'])
+  })
+})
+
+describe('sectionSort + mode-aware reorder', () => {
+  it('setSectionSort sets the mode without bumping mutationCount', () => {
+    const before = useStore.getState().mutationCount
+    useStore.getState().setSectionSort('projects', 'alpha')
+    expect(useStore.getState().sectionSort.projects).toBe('alpha')
+    expect(useStore.getState().mutationCount).toBe(before)
+  })
+
+  it('a manual move in a computed mode bakes the displayed order and switches to custom', () => {
+    // sort_order is a,b,c but alpha order is the title order.
+    useStore.getState().addItem('projects', makeProject({ id: 'a', sort_order: 0, customer: { en: 'Banana' } }))
+    useStore.getState().addItem('projects', makeProject({ id: 'b', sort_order: 1, customer: { en: 'Apple' } }))
+    useStore.getState().addItem('projects', makeProject({ id: 'c', sort_order: 2, customer: { en: 'Cherry' } }))
+    useStore.getState().setSectionSort('projects', 'alpha')
+    // Alpha display order: Apple(b), Banana(a), Cherry(c).
+    // Move Cherry (index 2) to the top (index 0).
+    useStore.getState().moveItem('projects', 'c', 0)
+    // Section flipped back to custom.
+    expect(useStore.getState().sectionSort.projects).toBe('custom')
+    // The baked custom order is the displayed order with the move applied:
+    // Cherry, Apple, Banana.
+    const ordered = [...useStore.getState().data.projects].sort((x, y) => x.sort_order - y.sort_order)
+    expect(ordered.map((p) => p.id)).toEqual(['c', 'b', 'a'])
+    expect(ordered.map((p) => p.sort_order)).toEqual([0, 1, 2])
+  })
+
+  it('reorderItem up/down operates on the displayed (alpha) order', () => {
+    useStore.getState().addItem('projects', makeProject({ id: 'a', sort_order: 0, customer: { en: 'Banana' } }))
+    useStore.getState().addItem('projects', makeProject({ id: 'b', sort_order: 1, customer: { en: 'Apple' } }))
+    useStore.getState().setSectionSort('projects', 'alpha')
+    // Alpha order: Apple(b), Banana(a). Move Apple down → Banana, Apple.
+    useStore.getState().reorderItem('projects', 'b', 'down')
+    const ordered = [...useStore.getState().data.projects].sort((x, y) => x.sort_order - y.sort_order)
+    expect(ordered.map((p) => p.id)).toEqual(['a', 'b'])
+    expect(useStore.getState().sectionSort.projects).toBe('custom')
+  })
+
+  it('a move in custom mode leaves the mode as custom (unset)', () => {
+    useStore.getState().addItem('projects', makeProject({ id: 'a' }))
+    useStore.getState().addItem('projects', makeProject({ id: 'b' }))
+    useStore.getState().moveItem('projects', 'a', 1)
+    // Never explicitly set → still undefined (treated as custom).
+    expect(useStore.getState().sectionSort.projects).toBeUndefined()
   })
 })
 

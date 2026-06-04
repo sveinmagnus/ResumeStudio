@@ -1,9 +1,11 @@
 import { useStore, newId } from '../../store/useStore'
+import { useSortedItems } from '../../store/useSortedItems'
 import { DualField } from '../ui/DualField'
 import { RichField } from '../ui/RichField'
 import { TextField, DateField, TagField } from '../ui/Fields'
 import { EditorCard, AddButton, FieldRow } from '../ui/EditorCard'
 import { SortableList } from '../ui/SortableList'
+import { SortBar } from '../ui/SortBar'
 import { resolve, fmtRange, fmtDate } from '../../lib/locales'
 import { richToPlain } from '../../lib/richText'
 import type {
@@ -15,7 +17,7 @@ import type {
 
 export function WorkEditor() {
   const { data, primaryLocale, addItem, updateItem } = useStore()
-  const items = [...data.work_experiences].sort((a, b) => a.sort_order - b.sort_order)
+  const items = useSortedItems('work_experiences')
   const add = () => {
     const w: WorkExperience = {
       id: newId(), resume_id: data.resume!.id, employer: {}, role_title: {}, description: {},
@@ -26,6 +28,7 @@ export function WorkEditor() {
   }
   return (
     <div className="section-pane">
+      <SortBar section="work_experiences" count={items.length} />
       <SortableList section="work_experiences" ids={items.map((x) => x.id)}>
       {items.map((w) => (
         <EditorCard key={w.id} section="work_experiences" id={w.id}
@@ -66,7 +69,7 @@ export function WorkEditor() {
 
 export function EducationEditor() {
   const { data, primaryLocale, addItem, updateItem } = useStore()
-  const items = [...data.educations].sort((a, b) => a.sort_order - b.sort_order)
+  const items = useSortedItems('educations')
   const add = () => {
     const e: Education = {
       id: newId(), resume_id: data.resume!.id, school: {}, degree: {}, description: {},
@@ -77,6 +80,7 @@ export function EducationEditor() {
   }
   return (
     <div className="section-pane">
+      <SortBar section="educations" count={items.length} />
       <SortableList section="educations" ids={items.map((x) => x.id)}>
       {items.map((e) => (
         <EditorCard key={e.id} section="educations" id={e.id}
@@ -107,7 +111,7 @@ export function EducationEditor() {
 
 export function CoursesEditor() {
   const { data, primaryLocale, addItem, updateItem } = useStore()
-  const items = [...data.courses].sort((a, b) => a.sort_order - b.sort_order)
+  const items = useSortedItems('courses')
   const add = () => {
     const c: Course = {
       id: newId(), resume_id: data.resume!.id, name: {}, program: {}, description: {},
@@ -117,6 +121,7 @@ export function CoursesEditor() {
   }
   return (
     <div className="section-pane">
+      <SortBar section="courses" count={items.length} />
       <SortableList section="courses" ids={items.map((x) => x.id)}>
       {items.map((c) => (
         <EditorCard key={c.id} section="courses" id={c.id}
@@ -139,7 +144,7 @@ export function CoursesEditor() {
 
 export function CertificationsEditor() {
   const { data, primaryLocale, addItem, updateItem } = useStore()
-  const items = [...data.certifications].sort((a, b) => a.sort_order - b.sort_order)
+  const items = useSortedItems('certifications')
   const add = () => {
     const c: Certification = {
       id: newId(), resume_id: data.resume!.id, name: {}, organiser: {}, description: {},
@@ -150,6 +155,7 @@ export function CertificationsEditor() {
   }
   return (
     <div className="section-pane">
+      <SortBar section="certifications" count={items.length} />
       <SortableList section="certifications" ids={items.map((x) => x.id)}>
       {items.map((c) => (
         <EditorCard key={c.id} section="certifications" id={c.id}
@@ -176,7 +182,7 @@ export function CertificationsEditor() {
 
 export function PositionsEditor() {
   const { data, primaryLocale, addItem, updateItem } = useStore()
-  const items = [...data.positions].sort((a, b) => a.sort_order - b.sort_order)
+  const items = useSortedItems('positions')
   const add = () => {
     const p: Position = {
       id: newId(), resume_id: data.resume!.id, name: {}, organisation: {}, description: {},
@@ -190,6 +196,7 @@ export function PositionsEditor() {
         Board memberships, advisory roles, volunteer positions, association leadership,
         committee work, and other engagements outside paid employment.
       </p>
+      <SortBar section="positions" count={items.length} />
       <SortableList section="positions" ids={items.map((x) => x.id)}>
       {items.map((p) => (
         <EditorCard key={p.id} section="positions" id={p.id}
@@ -223,7 +230,7 @@ export function PositionsEditor() {
 
 export function PresentationsEditor() {
   const { data, primaryLocale, addItem, updateItem } = useStore()
-  const items = [...data.presentations].sort((a, b) => a.sort_order - b.sort_order)
+  const items = useSortedItems('presentations')
   const add = () => {
     const p: Presentation = {
       id: newId(), resume_id: data.resume!.id, title: {}, event: {}, description: {},
@@ -233,6 +240,7 @@ export function PresentationsEditor() {
   }
   return (
     <div className="section-pane">
+      <SortBar section="presentations" count={items.length} />
       <SortableList section="presentations" ids={items.map((x) => x.id)}>
       {items.map((p) => (
         <EditorCard key={p.id} section="presentations" id={p.id}
@@ -258,7 +266,7 @@ export function PresentationsEditor() {
 
 export function PublicationsEditor() {
   const { data, primaryLocale, addItem, updateItem } = useStore()
-  const items = [...data.publications].sort((a, b) => a.sort_order - b.sort_order)
+  const items = useSortedItems('publications')
   const add = () => {
     const p: Publication = {
       id: newId(), resume_id: data.resume!.id, title: {}, publisher: {}, co_authors: [], abstract: {},
@@ -269,6 +277,7 @@ export function PublicationsEditor() {
   }
   return (
     <div className="section-pane">
+      <SortBar section="publications" count={items.length} />
       <SortableList section="publications" ids={items.map((x) => x.id)}>
       {items.map((p) => (
         <EditorCard key={p.id} section="publications" id={p.id}
@@ -306,7 +315,7 @@ export function PublicationsEditor() {
 
 export function AwardsEditor() {
   const { data, primaryLocale, addItem, updateItem } = useStore()
-  const items = [...data.honor_awards].sort((a, b) => a.sort_order - b.sort_order)
+  const items = useSortedItems('honor_awards')
   const add = () => {
     const a: HonorAward = {
       id: newId(), resume_id: data.resume!.id, name: {}, issuer: {}, for_work: {}, description: {},
@@ -316,6 +325,7 @@ export function AwardsEditor() {
   }
   return (
     <div className="section-pane">
+      <SortBar section="honor_awards" count={items.length} />
       <SortableList section="honor_awards" ids={items.map((x) => x.id)}>
       {items.map((a) => (
         <EditorCard key={a.id} section="honor_awards" id={a.id}
@@ -339,13 +349,14 @@ export function AwardsEditor() {
 
 export function SpokenLanguagesEditor() {
   const { data, primaryLocale, addItem, updateItem } = useStore()
-  const items = [...data.spoken_languages].sort((a, b) => a.sort_order - b.sort_order)
+  const items = useSortedItems('spoken_languages')
   const add = () => {
     const l: SpokenLanguage = { id: newId(), resume_id: data.resume!.id, name: {}, level: {}, sort_order: items.length, disabled: false }
     addItem('spoken_languages', l)
   }
   return (
     <div className="section-pane">
+      <SortBar section="spoken_languages" count={items.length} />
       <SortableList section="spoken_languages" ids={items.map((x) => x.id)}>
       {items.map((l) => (
         <EditorCard key={l.id} section="spoken_languages" id={l.id}
@@ -365,7 +376,7 @@ export function SpokenLanguagesEditor() {
 
 export function ProfileEditor() {
   const { data, primaryLocale, secondaryLocale, addItem, updateItem } = useStore()
-  const items = [...data.key_qualifications].sort((a, b) => a.sort_order - b.sort_order)
+  const items = useSortedItems('key_qualifications')
   const add = () => {
     const k: KeyQualification = {
       id: newId(), resume_id: data.resume!.id, label: {}, tag_line: {}, summary: {},
@@ -394,6 +405,7 @@ export function ProfileEditor() {
 
   return (
     <div className="section-pane">
+      <SortBar section="key_qualifications" count={items.length} />
       <SortableList section="key_qualifications" ids={items.map((x) => x.id)}>
       {items.map((kq) => (
         <EditorCard key={kq.id} section="key_qualifications" id={kq.id}

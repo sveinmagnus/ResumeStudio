@@ -11,6 +11,7 @@ import type { ReactNode } from 'react'
 import { DndContext, PointerSensor, KeyboardSensor, useSensor, useSensors, closestCenter, type DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { useStore } from '../../store/useStore'
+import { useReorderGuard } from '../../store/useReorderGuard'
 import type { ResumeStore } from '../../types'
 
 type ArraySection = Exclude<keyof ResumeStore, 'resume'>
@@ -24,6 +25,7 @@ interface Props {
 
 export function SortableList({ section, ids, children }: Props) {
   const moveItem = useStore((s) => s.moveItem)
+  const guard = useReorderGuard(section)
 
   // Pointer sensor: small activation distance so a normal click on the card
   // does not start a drag. Keyboard sensor: Space to lift, arrows to move.
@@ -37,7 +39,9 @@ export function SortableList({ section, ids, children }: Props) {
     if (!over || active.id === over.id) return
     const toIndex = ids.indexOf(String(over.id))
     if (toIndex === -1) return
-    moveItem(section, String(active.id), toIndex)
+    // Confirm before discarding a saved custom order when a computed sort
+    // mode is active; in custom mode this runs the move immediately.
+    guard(() => moveItem(section, String(active.id), toIndex))
   }
 
   return (

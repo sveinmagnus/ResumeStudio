@@ -1,5 +1,6 @@
 import { ReactNode } from 'react'
 import { useStore } from '../../store/useStore'
+import { useReorderGuard } from '../../store/useReorderGuard'
 import {
   ChevronDown, Star, Eye, EyeOff, ArrowUp, ArrowDown, Trash2, GripVertical,
 } from 'lucide-react'
@@ -41,6 +42,7 @@ export function EditorCard({
   canStar = true, canDisable = true, sortable = true, children,
 }: EditorCardProps) {
   const { expandedItemId, setExpandedItem, updateItem, removeItem, reorderItem } = useStore()
+  const guard = useReorderGuard(section)
   const open = expandedItemId === id
 
   // useSortable is called unconditionally because hooks may not be
@@ -99,8 +101,8 @@ export function EditorCard({
           )}
           {sortable && (
             <>
-              <button className="ec-act" title="Move up" onClick={() => reorderItem(section, id, 'up')}><ArrowUp size={15} /></button>
-              <button className="ec-act" title="Move down" onClick={() => reorderItem(section, id, 'down')}><ArrowDown size={15} /></button>
+              <button className="ec-act" title="Move up" onClick={() => guard(() => reorderItem(section, id, 'up'))}><ArrowUp size={15} /></button>
+              <button className="ec-act" title="Move down" onClick={() => guard(() => reorderItem(section, id, 'down'))}><ArrowDown size={15} /></button>
             </>
           )}
           <button className="ec-act ec-del" title="Delete"

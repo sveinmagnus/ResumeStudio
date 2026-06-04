@@ -5,6 +5,7 @@ import { importFromCVPartner } from '../lib/importer'
 import { detectLocalesInData, sortLocales } from '../lib/locales'
 import { foldRoleDescriptions } from '../lib/migrate'
 import { emptyStore as makeEmpty, freshStore as makeFresh } from '../lib/freshStore'
+import { sortItems, type SortMode } from '../lib/sectionSort'
 
 interface AppState {
   data: ResumeStore
@@ -16,6 +17,13 @@ interface AppState {
   secondaryLocale: string | null
   expandedItemId: string | null
   hasData: boolean
+  /**
+   * Per-section display sort mode (UI-only, NOT persisted). 'custom' (the
+   * default for any unset section) renders by `sort_order`; the other modes
+   * are computed views. A manual reorder while a computed mode is active
+   * bakes the view into `sort_order` and resets the section to 'custom'.
+   */
+  sectionSort: Record<string, SortMode>
 
   /**
    * Monotonic counter that increments on every USER-initiated data mutation.
@@ -64,6 +72,8 @@ interface AppState {
   setPrimaryLocale: (l: string) => void
   setSecondaryLocale: (l: string | null) => void
   setExpandedItem: (id: string | null) => void
+  /** Change a section's display sort mode (UI-only; does not bump mutationCount). */
+  setSectionSort: (section: ArraySectionKey, mode: SortMode) => void
 
   // ── Resume / locale ───────────────────────────────────────────────────────
   updateResume: (patch: Partial<Resume>) => void
@@ -119,6 +129,7 @@ export const useStore = create<AppState>((set, get) => {
     secondaryLocale: 'no',
     expandedItemId: null,
     hasData: false,
+    sectionSort: {},
     mutationCount: 0,
 
     // ── Loads ──────────────────────────────────────────────────────────────
@@ -128,7 +139,7 @@ export const useStore = create<AppState>((set, get) => {
       const { primary, secondary } = pickLocales(data.resume?.supported_locales ?? ['en'])
       set({
         data, hasData: true, mutationCount: 0,
-        activeSection: 'overview',
+        activeSection: 'overview', sectionSort: {},
         primaryLocale: primary, secondaryLocale: secondary,
       })
     },
@@ -145,14 +156,14 @@ export const useStore = create<AppState>((set, get) => {
         ? localesArg.secondary
         : (supported[1] ?? null)
       set({
-        data: migrated, hasData: true, mutationCount: 0,
+        data: migrated, hasData: true, mutationCount: 0, sectionSort: {},
         primaryLocale: primary, secondaryLocale: secondary,
       })
     },
 
     unloadStore: () => set({
       data: emptyStore, hasData: false, mutationCount: 0,
-      currentResumeId: null, expandedItemId: null,
+      currentResumeId: null, expandedItemId: null, sectionSort: {},
     }),
 
     setCurrentResumeId: (id) => set({ currentResumeId: id }),
@@ -160,7 +171,7 @@ export const useStore = create<AppState>((set, get) => {
     startFresh: () => {
       set({
         data: makeFresh(), hasData: true, mutationCount: 0,
-        activeSection: 'header', expandedItemId: null,
+        activeSection: 'header', expandedItemId: null, sectionSort: {},
         primaryLocale: 'en', secondaryLocale: null,
       })
     },
@@ -172,6 +183,11 @@ export const useStore = create<AppState>((set, get) => {
     // ── UI ─────────────────────────────────────────────────────────────────
 
     setActiveSection: (s) => set({ activeSection: s, expandedItemId: null }),
+    // Sort mode is a display preference only — plain set, no mutationCount bump
+    // (nothing in `data` changes, so there's nothing to auto-save).
+    setSectionSort: (section, mode) => set((st) => ({
+      sectionSort: { ...st.sectionSort, [section]: mode },
+    })),
     // Locale changes are persisted server-side per resume (decision 10) — they
     // ride along on the next PUT, so they go through `mutate()` like any other
     // user-visible change. No-op if the value didn't actually change.
@@ -229,24 +245,46 @@ export const useStore = create<AppState>((set, get) => {
     }),
 
     moveItem: (section, id, toIndex) => mutate((st) => {
-      // Sort by current sort_order so positions line up with rendered order
-      // (drag indexes are computed from what the user sees, not array order).
-      const arr = [...(st.data[section] as Array<{ id: string; sort_order: number }>)]
-        .sort((a, b) => a.sort_order - b.sort_order)
+      // Order by the section's CURRENT display mode so drag/arrow indices line
+      // up with what the user sees (which may be alpha/date, not sort_order).
+      const mode = st.sectionSort[section] ?? 'custom'
+      const arr = sortItems(
+        section,
+        st.data[section] as unknown as Array<{ id: string; sort_order: number }>,
+        mode,
+        st.primaryLocale,
+      )
       const from = arr.findIndex((it) => it.id === id)
       if (from === -1) return null
       const to = Math.max(0, Math.min(toIndex, arr.length - 1))
-      if (from === to) return null
-      const [item] = arr.splice(from, 1)
-      arr.splice(to, 0, item)
-      arr.forEach((it, i) => { it.sort_order = i })
-      return { data: { ...st.data, [section]: arr } }
+      // A no-op only counts as a no-op in custom mode. In a computed mode the
+      // user has just confirmed they want to commit the current arrangement,
+      // so we still bake it into sort_order + switch back to custom below.
+      if (from === to && mode === 'custom') return null
+      const moved = [...arr]
+      const [item] = moved.splice(from, 1)
+      moved.splice(to, 0, item)
+      // Bake the resulting order into sort_order (new objects — keep it pure).
+      const renumbered = moved.map((it, i) => ({ ...it, sort_order: i }))
+      const patch: Partial<AppState> = { data: { ...st.data, [section]: renumbered } }
+      // Any manual move makes the section's order custom from now on.
+      if (mode !== 'custom') {
+        patch.sectionSort = { ...st.sectionSort, [section]: 'custom' }
+      }
+      return patch
     }),
 
     reorderItem: (section, id, direction) => {
-      // Thin wrapper: keyboard up/down is just "move by one neighbour".
-      const arr = [...(get().data[section] as Array<{ id: string; sort_order: number }>)]
-        .sort((a, b) => a.sort_order - b.sort_order)
+      // Thin wrapper: keyboard up/down is "move by one neighbour" in the
+      // currently-displayed order (mode-aware via moveItem).
+      const st = get()
+      const mode = st.sectionSort[section] ?? 'custom'
+      const arr = sortItems(
+        section,
+        st.data[section] as unknown as Array<{ id: string; sort_order: number }>,
+        mode,
+        st.primaryLocale,
+      )
       const idx = arr.findIndex((it) => it.id === id)
       if (idx === -1) return
       get().moveItem(section, id, direction === 'up' ? idx - 1 : idx + 1)

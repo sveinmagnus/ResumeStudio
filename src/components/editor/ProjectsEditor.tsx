@@ -1,9 +1,11 @@
 import { useStore, newId } from '../../store/useStore'
+import { useSortedItems } from '../../store/useSortedItems'
 import { DualField } from '../ui/DualField'
 import { RichField } from '../ui/RichField'
 import { TextField, DateField, TagField } from '../ui/Fields'
 import { EditorCard, AddButton, FieldRow } from '../ui/EditorCard'
 import { SortableList } from '../ui/SortableList'
+import { SortBar } from '../ui/SortBar'
 import { resolve, fmtRange } from '../../lib/locales'
 import { richToPlain } from '../../lib/richText'
 import type { Project, ProjectRole, ProjectSkill } from '../../types'
@@ -11,7 +13,7 @@ import { Plus, X } from 'lucide-react'
 
 export function ProjectsEditor() {
   const { data, primaryLocale, addItem, updateItem } = useStore()
-  const projects = [...data.projects].sort((a, b) => a.sort_order - b.sort_order)
+  const projects = useSortedItems('projects')
 
   const allTags = [...new Set(data.projects.flatMap((p) => p.skill_tags))]
 
@@ -29,6 +31,7 @@ export function ProjectsEditor() {
 
   return (
     <div className="section-pane">
+      <SortBar section="projects" count={projects.length} />
       <SortableList section="projects" ids={projects.map((p) => p.id)}>
       {projects.map((p) => (
         <EditorCard key={p.id} section="projects" id={p.id}
