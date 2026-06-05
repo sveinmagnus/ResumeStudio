@@ -58,9 +58,27 @@ handy for trying the desktop boot/sync behavior without assembling `release/`.
 ## 2. Launching & stopping
 
 Double-click the launcher. A small window appears showing startup logs and the
-URL, and your browser opens the app automatically. **Close that window (or press
-Ctrl-C in it) to stop the app.** The `.vbs` variant runs with no window; stop it
-from Task Manager.
+URL, your browser opens the app automatically, and a **Resume Studio icon
+appears in the system tray** (notification area).
+
+**To stop the app, use the tray icon** — right-click it and choose **Quit Resume
+Studio**. The tray menu also has **Open Resume Studio**, which reopens the app in
+your browser (handy after you've closed the tab).
+
+> Why the tray, and not a button in the web page? Closing the browser tab does
+> **not** stop the app — the little local server keeps running. And quitting from
+> inside the web UI would be confusing: any other open tab would then start
+> erroring. The tray lives outside the page, so Quit is unambiguous. Quitting
+> from the tray runs a clean shutdown (final backup written, database closed
+> safely).
+
+Other ways to stop, if you prefer: **close the launcher window**, or press
+**Ctrl-C** in it — both do the same clean shutdown. (The `.vbs` "no window"
+launcher has no window to close, which is exactly why the tray Quit exists.)
+
+If the tray icon doesn't appear (e.g. a minimal Linux desktop with no system
+tray, or Docker-style headless box), the app still runs — just use the window /
+Ctrl-C to stop it. The log notes when the tray is unavailable.
 
 To make a Start-menu / desktop shortcut, create a normal OS shortcut pointing at
 the launcher file. (On Linux you can write a `~/.local/share/applications/

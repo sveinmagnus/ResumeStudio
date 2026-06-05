@@ -197,9 +197,11 @@ server/                         ← Express API + SQLite persistence
 ├── translateDocker.ts          ← Optional managed Docker LibreTranslate: dockerAvailable/start/stop + translateReachable probe (spawn, argv-only)
 ├── translate.ts               ← LibreTranslate proxy: locale map, fetch w/ timeout (env: LIBRETRANSLATE_URL/_API_KEY, read lazily)
 ├── desktop/                    ← Desktop launcher (not used by the VPS entry)
-│   ├── launcher.ts             ← Entry the portable build runs: data dir + free port + boot-restore + open browser + scheduler + graceful shutdown. No import.meta/__dirname so it bundles to CJS
+│   ├── launcher.ts             ← Entry the portable build runs: data dir + free port + boot-restore + open browser + scheduler + tray + graceful shutdown. No import.meta/__dirname so it bundles to CJS
 │   ├── freePort.ts             ← Find a free loopback port (preferred → ladder → OS-assigned)
-│   └── openBrowser.ts          ← Zero-dep cross-platform default-browser opener
+│   ├── openBrowser.ts          ← Zero-dep cross-platform default-browser opener
+│   ├── tray.ts                 ← System-tray icon (systray2) with Open / Quit; routeClick() pure dispatch; best-effort (null if no tray). Quit → the launcher's graceful shutdown
+│   └── trayIcon.ts             ← PURE: generates the tray icon (navy/cyan mark) via zlib — PNG (*nix) / ICO (Windows), no image dep
 └── routes/
     ├── auth.ts                 ← /api/auth: POST /login (token → HttpOnly cookie), POST /logout, GET /status. Rate-limited, NOT auth-gated
     ├── resume.ts               ← /api/resumes collection: list/create/load/save/rename/delete + per-resume /snapshots(/:sid)
@@ -781,8 +783,20 @@ Full end-user + build docs live in **`DESKTOP.md`**. Key facts for working here:
   documented escape hatch if someone insists.
 - **`db.close()`** does `wal_checkpoint(TRUNCATE)` then close — the launcher
   calls it (via `closeDefaultDb()`) on shutdown so the `.db` is self-contained at
-  rest. Keep shutdown ordering: `scheduler.flush()` → `closeDefaultDb()` →
-  `server.close()`.
+  rest. Keep shutdown ordering: `tray.kill()` → `flushBackup()` →
+  `closeDefaultDb()` → `server.close()`.
+- **System-tray icon = the user's Quit affordance** (`desktop/tray.ts`, built on
+  `systray2`). Tray Quit calls the same `shutdown()` as Ctrl-C/signals — never
+  add a "quit" control to the web UI (it'd error other open tabs). Two gotchas
+  that cost real debugging: (1) **register `onClick`/`onError` only after
+  `await systray.ready()`** — `init()` is async, so `_process`/`_rl` are null
+  before then and `onError` dereferences null; (2) the CJS↔ESM default-import
+  interop puts the `SysTray` constructor in different places under `tsx` vs the
+  esbuild bundle — `tray.ts` resolves it defensively. `systray2` is **external +
+  vendored** in the build (like `better-sqlite3`); esbuild mangles its
+  stdio/readline wiring if bundled. The build copies its dep closure into
+  `app/node_modules` and prunes `traybin/` to the current platform. The tray is
+  best-effort: any failure logs and returns null, app keeps running.
 - **Two backup concepts, don't conflate:** `src/lib/backup.ts` =
   per-resume client download (`resumestudio/v1`); `server/backup.ts` =
   whole-store sync file (`resumestudio-store/v1`).

@@ -56,7 +56,10 @@ await esbuild.build({
   platform: 'node',
   format: 'cjs',
   target: 'node20',
-  external: ['better-sqlite3'],
+  // better-sqlite3 is a native addon; systray2 spawns a helper binary and does
+  // stdio/readline wiring that esbuild's bundling breaks — both run from a
+  // vendored node_modules instead (see below).
+  external: ['better-sqlite3', 'systray2'],
   legalComments: 'none',
   logLevel: 'warning',
   // app.ts / db.ts read import.meta.url for their __dirname, but only use it for
@@ -69,22 +72,41 @@ await esbuild.build({
 log('copying client (dist/) …')
 fs.cpSync(distSrc, path.join(appDir, 'dist'), { recursive: true })
 
-// ── 4. Copy the native runtime deps esbuild left external ───────────────────
-// Runtime closure of better-sqlite3: itself + bindings + file-uri-to-path.
+// ── 4. Vendor the deps esbuild left external ────────────────────────────────
+// better-sqlite3's closure (itself + bindings + file-uri-to-path) and systray2's
+// closure (itself + debug/ms + fs-extra/graceful-fs/jsonfile/universalify). The
+// bundle's require()s resolve these from app/node_modules at runtime.
 // (prebuild-install is install-time only, so it's intentionally omitted.)
-const nativeDeps = ['better-sqlite3', 'bindings', 'file-uri-to-path']
+const requiredDeps = new Set(['better-sqlite3'])
+const vendoredDeps = [
+  'better-sqlite3', 'bindings', 'file-uri-to-path',
+  'systray2', 'debug', 'ms', 'fs-extra', 'graceful-fs', 'jsonfile', 'universalify',
+]
 const nmOut = path.join(appDir, 'node_modules')
-for (const dep of nativeDeps) {
+for (const dep of vendoredDeps) {
   const src = path.join(root, 'node_modules', dep)
   if (!fs.existsSync(src)) {
-    if (dep === 'better-sqlite3') {
+    if (requiredDeps.has(dep)) {
       console.error(`[build-desktop] required dependency ${dep} not found — run npm install`)
       process.exit(1)
     }
-    log(`(optional dep ${dep} absent — skipping)`)
+    log(`(optional dep ${dep} absent — skipping; its feature will be unavailable)`)
     continue
   }
   fs.cpSync(src, path.join(nmOut, dep), { recursive: true, dereference: true })
+}
+// Prune systray2's tray helpers to just this platform's (~3.5 MB each, 3 shipped).
+const trayDir = path.join(nmOut, 'systray2', 'traybin')
+const keepTrayBin = {
+  win32: 'tray_windows_release.exe', darwin: 'tray_darwin_release', linux: 'tray_linux_release',
+}[process.platform]
+if (fs.existsSync(trayDir)) {
+  for (const f of fs.readdirSync(trayDir)) {
+    if (f !== keepTrayBin) fs.rmSync(path.join(trayDir, f), { force: true })
+  }
+  if (!isWin && keepTrayBin) {
+    try { fs.chmodSync(path.join(trayDir, keepTrayBin), 0o755) } catch { /* best-effort */ }
+  }
 }
 // Sanity-check the compiled native binary made it across.
 const nodeAddon = path.join(nmOut, 'better-sqlite3', 'build', 'Release', 'better_sqlite3.node')
@@ -109,6 +131,7 @@ if (fs.existsSync(composeSrc)) {
   log('(docker-compose.yml absent — managed-translate will be unavailable)')
 }
 
+
 // ── 6. Write launcher shim(s) for this platform ─────────────────────────────
 log('writing launcher shim(s) …')
 if (isWin) {
@@ -123,9 +146,8 @@ rem Tip: the sync folder and translation are configured from the in-app
 rem Settings screen (gear icon) — no need to edit this file.
 "%~dp0node.exe" "%~dp0app\\launcher.cjs"
 `)
-  // Optional: launch with no console window. Stopping then needs Task Manager
-  // (or the app shuts down when you close the browser? no — it keeps running),
-  // so the .cmd is recommended for most users.
+  // Optional: launch with no console window. Quit via the system-tray icon
+  // (right-click → Quit). The .cmd is still handy when you want to see the log.
   fs.writeFileSync(path.join(release, 'Resume Studio (no window).vbs'),
 `Set sh = CreateObject("WScript.Shell")
 root = Left(WScript.ScriptFullName, InStrRev(WScript.ScriptFullName, "\\"))
@@ -163,8 +185,12 @@ fs.writeFileSync(path.join(release, 'README.txt'),
 =======================================
 
 To start:  double-click "${launchName}".
-A small window opens (status/logs) and your browser opens the app
-automatically. Close that window (or press Ctrl-C in it) to stop.
+A small window opens (status/logs), your browser opens the app automatically,
+and a Resume Studio icon appears in the system tray.
+
+To stop:   right-click the tray icon and choose "Quit Resume Studio".
+           (Closing the launcher window or pressing Ctrl-C also stops it.)
+           Note: closing the browser tab does NOT stop the app.
 
 Your data:
   Everything is stored in a private per-user folder, NOT inside this build

@@ -34,6 +34,7 @@ import { initBackupRuntime, reconfigureBackup, flushBackup, stopBackup } from '.
 import { startTranslate } from '../translateDocker.js'
 import { findFreePort } from './freePort.js'
 import { openBrowser } from './openBrowser.js'
+import { startTray, type TrayHandle } from './tray.js'
 
 const HOST = '127.0.0.1' // loopback only — never expose a personal CV store to the LAN
 const PREFERRED_PORT = parseInt(process.env.PORT ?? '3001', 10)
@@ -150,11 +151,13 @@ async function main(): Promise<void> {
   }
 
   // ── Graceful shutdown ────────────────────────────────────────────────────
+  let trayHandle: TrayHandle | null = null
   let shuttingDown = false
   const shutdown = (signal: string): void => {
     if (shuttingDown) return
     shuttingDown = true
     log(`Shutting down (${signal}) …`)
+    trayHandle?.kill()        // remove the tray icon (doesn't exit node itself)
     flushBackup()             // one last sync-folder write
     stopBackup()
     closeDefaultDb()          // WAL checkpoint + close so the .db is self-contained
@@ -170,6 +173,16 @@ async function main(): Promise<void> {
   process.on('SIGTERM', () => shutdown('SIGTERM'))
   // On Windows a closed console window arrives as SIGHUP/SIGBREAK on some shells.
   process.on('SIGHUP', () => shutdown('SIGHUP'))
+
+  // ── System-tray icon (Open / Quit) ───────────────────────────────────────
+  // Non-blocking + best-effort: a tray failure never stops the server, and the
+  // launcher window / Ctrl-C remains a working way to quit. With the tray, the
+  // no-window (.vbs) launcher is fully usable — Quit lives in the tray.
+  void startTray({
+    onOpen: () => openBrowser(url),
+    onQuit: () => shutdown('tray'),
+    log,
+  }).then((h) => { trayHandle = h })
 }
 
 main().catch((err) => {
