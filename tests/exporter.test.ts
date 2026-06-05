@@ -10,8 +10,14 @@ import { exportDocx } from '../src/lib/exporter'
 import { buildViewSections } from '../src/lib/viewFilter'
 import {
   emptyStore, makeProject, makeWork, makeEducation, makeView,
-  makeKQ, makeReference,
+  makeKQ, makeReference, makeResume, makeSpokenLanguage,
+  makeKeyCompetency, makeRecommendation,
 } from './fixtures'
+import { withHeaderDefaults, withFooterDefaults } from '../src/lib/viewHeader'
+
+// A real 1x1 PNG (valid bytes so the exporter's image parser embeds it).
+const PNG_1x1 =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+P+/HgAFhAJ/wlseKgAAAABJRU5ErkJggg=='
 
 // ─── Capture the blob the exporter wants to download ────────────────────────
 let lastBlob: Blob | null = null
@@ -243,4 +249,83 @@ describe('exportDocx()', () => {
       smallBytes.every((b, i) => b === largeBytes[i])
     expect(identical).toBe(false)
   })
+
+  // ─── Header images + footer ────────────────────────────────────────────────
+
+  describe('header images & footer', () => {
+    it('produces a valid zip with a photo (left), logo, and footer', async () => {
+      const store = emptyStore()
+      store.resume = makeResume({
+        profile_photo: PNG_1x1,
+        company_logo: PNG_1x1,
+        company_name: 'Cartavio AS',
+        phone: '+47 913 04 810',
+      })
+      store.spoken_languages = [makeSpokenLanguage({ name: { en: 'English' }, level: { en: 'Native' } })]
+      const view = makeView({
+        sections: buildViewSections(),
+        header: withHeaderDefaults({ photo_placement: 'left', logo_placement: 'center' }),
+        footer: withFooterDefaults({ separator: 'line', copyright: 'company', note: { en: 'Confidential' } }),
+      })
+      await exportDocx(store, view, 'en')
+      expect(lastBlob).not.toBeNull()
+      expect(await isZip(lastBlob!)).toBe(true)
+      // The docx media folder appears when an image is embedded.
+      expect(await blobContains(lastBlob!, 'word/media/')).toBe(true)
+    })
+
+    it('does not embed media when no images are configured', async () => {
+      const store = emptyStore()
+      store.resume = makeResume({ profile_photo: PNG_1x1 })
+      const view = makeView({
+        sections: buildViewSections(),
+        header: withHeaderDefaults({ photo_placement: 'none', logo_placement: 'none' }),
+      })
+      await exportDocx(store, view, 'en')
+      expect(await blobContains(lastBlob!, 'word/media/')).toBe(false)
+    })
+
+    it('embeds media for every photo placement without throwing', async () => {
+      for (const placement of ['left', 'right', 'above', 'below'] as const) {
+        const store = emptyStore()
+        store.resume = makeResume({ profile_photo: PNG_1x1 })
+        const view = makeView({
+          sections: buildViewSections(),
+          header: withHeaderDefaults({ photo_placement: placement }),
+        })
+        await exportDocx(store, view, 'en')
+        expect(await isZip(lastBlob!)).toBe(true)
+        expect(await blobContains(lastBlob!, 'word/media/')).toBe(true)
+      }
+    })
+  })
 })
+
+  // ─── Follow-up sections (key competencies, recommendations, promoted) ───────
+
+  describe('new sections & promoted projects', () => {
+    it('exports key competencies and recommendations without throwing', async () => {
+      const store = emptyStore()
+      store.key_competencies.push(makeKeyCompetency({ title: { en: 'Architecture' }, description: { en: 'Designs systems' } }))
+      store.recommendations.push(makeRecommendation({ recommender_name: 'Jane Boss', text: { en: 'Great work' } }))
+      await exportDocx(store, makeView({ sections: buildViewSections() }), 'en')
+      expect(await isZip(lastBlob!)).toBe(true)
+    })
+
+    it('renders a Promoted Projects section from starred projects when enabled', async () => {
+      const baseStore = emptyStore()
+      baseStore.projects.push(makeProject({ id: 'p1', customer: { en: 'StarCorp' }, starred: true }))
+
+      // Default view: promoted_projects off.
+      await exportDocx(baseStore, makeView({ sections: buildViewSections() }), 'en')
+      const offSize = lastBlob!.size
+
+      // Enable promoted_projects → an extra section heading + item is emitted.
+      const sections = buildViewSections().map((s) =>
+        s.key === 'promoted_projects' ? { ...s, detail: 'full' as const } : s
+      )
+      await exportDocx(baseStore, makeView({ sections }), 'en')
+      expect(await isZip(lastBlob!)).toBe(true)
+      expect(lastBlob!.size).toBeGreaterThan(offSize)
+    })
+  })

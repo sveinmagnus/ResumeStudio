@@ -4,7 +4,13 @@ import { fileURLToPath } from 'url'
 import { randomUUID } from 'crypto'
 import fs from 'fs'
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
+// See the note in app.ts: esbuild emits "" for import.meta.url in the desktop
+// CJS bundle, so guard against fileURLToPath(""). DATA_DIR is only consulted
+// when RESUME_DB_PATH is unset, which never happens in the desktop build (the
+// launcher sets it), so the cwd-relative fallback there is moot.
+const __dirname = import.meta.url
+  ? path.dirname(fileURLToPath(import.meta.url))
+  : process.cwd()
 const DATA_DIR = path.join(__dirname, '..', 'data')
 
 /** How many recent snapshots to retain per resume. Older ones are pruned on each save. */
@@ -24,6 +30,42 @@ export interface ResumeMeta {
 export interface ResumeFull {
   meta: ResumeMeta
   data: Record<string, unknown>
+}
+
+/**
+ * A full resume row as it travels in a portable store-backup (see
+ * `server/backup.ts`). Carries everything needed to recreate the row on another
+ * machine — note there is no `version` field: optimistic-concurrency tokens are
+ * per-machine sequences and meaningless across devices, so cross-machine
+ * merging keys on `saved_at` instead.
+ */
+export interface ResumeBackupEntry {
+  id: string
+  name: string
+  primary_locale: string
+  secondary_locale: string | null
+  saved_at: string
+  created_at: string
+  data: Record<string, unknown>
+}
+
+/** Outcome of a `restoreResumes` merge — one count per disposition. */
+export interface RestoreSummary {
+  inserted: number
+  updated: number
+  skipped: number
+  deleted: number
+}
+
+export interface RestoreOptions {
+  /**
+   * 'merge' (default): union of local + incoming, newest `saved_at` wins per
+   *   id; nothing is ever deleted. Safe for the multi-machine sync flow.
+   * 'replace': as merge, but also deletes local resumes absent from the
+   *   incoming set (snapshots cascade). Destructive — only for an explicit
+   *   "make this machine match the backup" action.
+   */
+  mode?: 'merge' | 'replace'
 }
 
 /**
@@ -77,6 +119,24 @@ export interface ResumeDb {
   renameResume(id: string, name: string): boolean
   listSnapshots(resumeId: string): SnapshotMeta[]
   getSnapshot(resumeId: string, snapshotId: number): Record<string, unknown> | null
+  /**
+   * Every resume as portable backup entries, oldest-created first. The source
+   * for a store-backup written to the sync folder.
+   */
+  dumpResumes(): ResumeBackupEntry[]
+  /**
+   * Merge a set of backup entries into this DB (see `RestoreOptions`). Runs in
+   * a single transaction; appends a snapshot for each inserted/updated resume
+   * so a surprising restore is itself reversible from History.
+   */
+  restoreResumes(entries: ResumeBackupEntry[], opts?: RestoreOptions): RestoreSummary
+  /**
+   * Checkpoint the WAL into the main DB file and close the connection. Call on
+   * graceful shutdown so the `.db` file is self-contained at rest (important
+   * when it — or its backup — lives in a cloud-synced folder). No-op-safe to
+   * call once; the instance must not be used afterwards.
+   */
+  close(): void
 }
 
 /**
@@ -87,7 +147,14 @@ export interface ResumeDb {
 export function createResumeDb(dbPath: string): ResumeDb {
   const db = new Database(dbPath)
   // WAL improves concurrent reads on a file DB; it's a no-op for ':memory:'.
-  db.pragma('journal_mode = WAL')
+  // It's the right default for the normal case (DB in a local app-data dir).
+  // A power user who relocates the live DB into a cloud-synced folder should
+  // set RESUME_DB_JOURNAL=TRUNCATE: WAL leaves long-lived -wal/-shm sidecars
+  // that a sync client can upload at an inconsistent moment and corrupt the DB.
+  // TRUNCATE keeps everything in the single .db file between transactions.
+  const journal = (process.env.RESUME_DB_JOURNAL?.trim().toUpperCase() || 'WAL')
+  const allowedJournal = new Set(['WAL', 'TRUNCATE', 'DELETE', 'PERSIST', 'MEMORY', 'OFF'])
+  db.pragma(`journal_mode = ${allowedJournal.has(journal) ? journal : 'WAL'}`)
   // CASCADE on resume delete depends on this — SQLite default is OFF.
   db.pragma('foreign_keys = ON')
 
@@ -170,6 +237,23 @@ export function createResumeDb(dbPath: string): ResumeDb {
   `)
   const deleteResumeStmt = db.prepare(`
     DELETE FROM resumes WHERE id = ?
+  `)
+  const selectAllFull = db.prepare(`
+    SELECT id, name, data, primary_locale, secondary_locale, saved_at, created_at, version
+    FROM resumes ORDER BY created_at ASC
+  `)
+  const selectAllIds = db.prepare('SELECT id FROM resumes')
+  // Restore-only inserts/updates: they carry an explicit id + saved_at (taken
+  // from the backup) rather than minting new ones, so a row keeps its identity
+  // and timestamp across machines. New rows start at version 1; updates bump.
+  const insertResumeWithId = db.prepare(`
+    INSERT INTO resumes (id, name, data, primary_locale, secondary_locale, saved_at, created_at, version)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+  `)
+  const updateResumeFromRestore = db.prepare(`
+    UPDATE resumes
+    SET name = ?, data = ?, primary_locale = ?, secondary_locale = ?, saved_at = ?, version = version + 1
+    WHERE id = ?
   `)
 
   const lastSnapshotData = db.prepare(`
@@ -307,9 +391,82 @@ export function createResumeDb(dbPath: string): ResumeDb {
     return row ? (JSON.parse(row.data) as Record<string, unknown>) : null
   }
 
+  const dumpResumes = (): ResumeBackupEntry[] =>
+    (selectAllFull.all() as FullRow[]).map((row) => ({
+      id: row.id,
+      name: row.name,
+      primary_locale: row.primary_locale,
+      secondary_locale: row.secondary_locale,
+      saved_at: row.saved_at,
+      created_at: row.created_at,
+      data: JSON.parse(row.data) as Record<string, unknown>,
+    }))
+
+  const restoreResumes = (
+    entries: ResumeBackupEntry[],
+    opts?: RestoreOptions,
+  ): RestoreSummary => {
+    const summary: RestoreSummary = { inserted: 0, updated: 0, skipped: 0, deleted: 0 }
+    const incomingIds = new Set(entries.map((e) => e.id))
+    const snapshot = (id: string, json: string, savedAt: string) => {
+      // Mirror saveResume's per-resume dedupe so an identical restore doesn't
+      // pile up history.
+      const last = lastSnapshotData.get(id) as { data: string } | undefined
+      if (!last || last.data !== json) {
+        insertSnapshot.run(id, json, savedAt)
+        pruneSnapshots.run(id, id, MAX_SNAPSHOTS)
+      }
+    }
+    const tx = db.transaction(() => {
+      for (const e of entries) {
+        const existing = selectResumeFull.get(e.id) as FullRow | undefined
+        const json = JSON.stringify(e.data)
+        if (!existing) {
+          insertResumeWithId.run(
+            e.id, e.name, json, e.primary_locale, e.secondary_locale, e.saved_at, e.created_at,
+          )
+          snapshot(e.id, json, e.saved_at)
+          summary.inserted++
+          continue
+        }
+        // Newest-wins by saved_at (ISO-8601 UTC strings sort chronologically).
+        // A tie or older incoming row, or identical content, is a no-op so the
+        // merge converges without churning versions/snapshots/backups.
+        if (e.saved_at <= existing.saved_at || existing.data === json) {
+          summary.skipped++
+          continue
+        }
+        updateResumeFromRestore.run(
+          e.name, json, e.primary_locale, e.secondary_locale, e.saved_at, e.id,
+        )
+        snapshot(e.id, json, e.saved_at)
+        summary.updated++
+      }
+      if (opts?.mode === 'replace') {
+        for (const { id } of selectAllIds.all() as { id: string }[]) {
+          if (!incomingIds.has(id)) {
+            deleteResumeStmt.run(id) // snapshots cascade
+            summary.deleted++
+          }
+        }
+      }
+    })
+    tx()
+    return summary
+  }
+
+  const close = (): void => {
+    // Fold the WAL back into the main file so the .db is self-contained at rest
+    // (a no-op when not in WAL mode, e.g. ':memory:'). Best-effort: never let a
+    // shutdown-time checkpoint failure mask the real exit.
+    try { db.pragma('wal_checkpoint(TRUNCATE)') } catch { /* ignore */ }
+    db.close()
+  }
+
   return {
     listResumes, createResume, getResume, saveResume,
     deleteResume, renameResume, listSnapshots, getSnapshot,
+    dumpResumes, restoreResumes, close,
   }
 }
 
@@ -356,3 +513,22 @@ export const listSnapshots = (resumeId: string): SnapshotMeta[] => defaultDb().l
 export const getSnapshot = (
   resumeId: string, snapshotId: number,
 ): Record<string, unknown> | null => defaultDb().getSnapshot(resumeId, snapshotId)
+export const dumpResumes = (): ResumeBackupEntry[] => defaultDb().dumpResumes()
+export const restoreResumes = (
+  entries: ResumeBackupEntry[], opts?: RestoreOptions,
+): RestoreSummary => defaultDb().restoreResumes(entries, opts)
+
+/**
+ * The shared singleton DB instance (same one the routes use). The desktop
+ * launcher needs the real handle — not just the free-function wrappers — for
+ * the boot-time restore, the backup scheduler, and `close()` on shutdown.
+ */
+export const getDefaultDb = (): ResumeDb => defaultDb()
+
+/** Close + null the singleton so a fresh one is built on next use (shutdown). */
+export const closeDefaultDb = (): void => {
+  if (_default) {
+    _default.close()
+    _default = null
+  }
+}

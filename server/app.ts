@@ -3,10 +3,20 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import rateLimit from 'express-rate-limit'
 import { authMiddleware } from './auth.js'
+import authRouter from './routes/auth.js'
 import resumeRouter from './routes/resume.js'
 import translateRouter from './routes/translate.js'
+import backupRouter from './routes/backup.js'
+import settingsRouter from './routes/settings.js'
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
+// import.meta.url is this module's file URL under tsx/ESM (dev + the VPS
+// `tsx` entry), but esbuild emits "" for it in the desktop CJS bundle. Guard so
+// we never call fileURLToPath("") at module load. In the bundle this dir-based
+// static-file fallback is unused anyway — the launcher always sets
+// RESUME_CLIENT_DIR — so the cwd fallback value is moot there.
+const __dirname = import.meta.url
+  ? path.dirname(fileURLToPath(import.meta.url))
+  : process.cwd()
 
 /**
  * Build the Express app (routes, middleware, security headers) WITHOUT
@@ -94,19 +104,34 @@ export function createApp(): Express {
     res.json({ ok: true })
   })
 
+  // ── Auth (rate-limited, NOT auth-gated — this is how a browser logs in) ────
+  // Exchanges the token for an HttpOnly session cookie so it never sits in
+  // JS-readable storage. Rate-limited like the rest of the API so login
+  // attempts (401s) are throttled against brute force.
+  app.use('/api/auth', apiLimiter, authRouter)
+
   // ── Resume API (auth-gated) ──────────────────────────────────────────────
   app.use('/api/resumes', apiLimiter, authMiddleware, resumeRouter)
 
   // ── Translation proxy (auth-gated) — drafts via self-hosted LibreTranslate ─
   app.use('/api/translate', apiLimiter, authMiddleware, translateRouter)
 
-  // ── In production: serve the built frontend ──────────────────────────────
-  if (isProd) {
-    const distDir = path.join(__dirname, '..', 'dist')
-    app.use(express.static(distDir))
+  // ── Store backup / sync (auth-gated) — desktop build's Drive-folder sync ───
+  app.use('/api/backup', apiLimiter, authMiddleware, backupRouter)
+
+  // ── In-app settings (auth-gated) — desktop build only; env-managed on VPS ──
+  app.use('/api/settings', apiLimiter, authMiddleware, settingsRouter)
+
+  // ── Serve the built frontend ──────────────────────────────────────────────
+  // VPS prod sets NODE_ENV=production and ships dist/ next to the server; the
+  // desktop launcher instead points RESUME_CLIENT_DIR at the bundled dist/.
+  // Serve static whenever we have a client dir to serve.
+  const clientDir = process.env.RESUME_CLIENT_DIR?.trim() || (isProd ? path.join(__dirname, '..', 'dist') : null)
+  if (clientDir) {
+    app.use(express.static(clientDir))
     // SPA fallback — all non-API routes serve index.html
     app.get(/^(?!\/api).*/, (_req, res) => {
-      res.sendFile(path.join(distDir, 'index.html'))
+      res.sendFile(path.join(clientDir, 'index.html'))
     })
   }
 

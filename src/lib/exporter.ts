@@ -19,16 +19,20 @@
 
 import {
   Document, Packer, Paragraph, TextRun, AlignmentType,
-  PageOrientation, BorderStyle,
+  PageOrientation, BorderStyle, ImageRun, Table, TableRow, TableCell,
+  TableBorders, WidthType, VerticalAlign,
 } from 'docx'
 import type {
-  ResumeStore, ResumeView, LocalizedString, SectionDetail, SectionStyle,
+  ResumeStore, ResumeView, Resume, LocalizedString, SectionDetail, SectionStyle,
+  ViewHeaderConfig, FooterSeparator,
 } from '../types'
 import { SECTIONS } from './sections'
 import { resolve, fmtRange, fmtDate } from './locales'
-import { applyView, isExportableSection } from './viewFilter'
+import { applyView, isExportableSection, defaultViewDetail, promotedProjectItems } from './viewFilter'
 import { parseRichBlocks, type RichRun } from './richText'
-import { deriveTokens, resolveSectionStyle, withDefaults, type ResolvedSectionStyle, type StyleTokens } from './viewStyle'
+import { deriveTokens, resolveSectionStyle, withDefaults, resolveFontDocx, type ResolvedSectionStyle, type StyleTokens } from './viewStyle'
+import { withHeaderDefaults, withFooterDefaults, buildHeaderLines, buildCopyrightLine } from './viewHeader'
+import { imageInfoFromDataUrl, type ImageInfo } from './image'
 
 const SUBTLE_HEX = '666666'
 const FAINT_HEX  = '888888'
@@ -156,6 +160,106 @@ const ls = (it: AnyItem, field: string, locale: string): string =>
 const metaJoin = (parts: Array<string | undefined | null>) =>
   parts.filter((p): p is string => !!p && p.length > 0).join(' · ')
 
+// ─── Header image / identity helpers ─────────────────────────────────────────
+
+/** Build an ImageRun scaled to fit within maxW × maxH px, preserving aspect. */
+function imageRunScaled(info: ImageInfo, maxW: number, maxH: number): ImageRun {
+  const safeW = info.width > 0 ? info.width : maxW
+  const safeH = info.height > 0 ? info.height : maxH
+  const scale = Math.min(1, maxW / safeW, maxH / safeH)
+  return new ImageRun({
+    type: info.type,
+    data: info.bytes,
+    transformation: {
+      width: Math.max(1, Math.round(safeW * scale)),
+      height: Math.max(1, Math.round(safeH * scale)),
+    },
+  })
+}
+
+function logoAlign(placement: 'left' | 'center' | 'right'): (typeof AlignmentType)[keyof typeof AlignmentType] {
+  if (placement === 'center') return AlignmentType.CENTER
+  if (placement === 'right') return AlignmentType.RIGHT
+  return AlignmentType.LEFT
+}
+
+/** Build the name / title / contact-line paragraphs for the header. */
+function buildIdentityParagraphs(
+  r: Resume,
+  header: ViewHeaderConfig,
+  store: ResumeStore,
+  locale: string,
+  baseTokens: StyleTokens,
+): Paragraph[] {
+  const out: Paragraph[] = []
+  out.push(new Paragraph({
+    spacing: { after: 60 },
+    children: [new TextRun({
+      text: r.full_name,
+      bold: true,
+      size: (header.name_style.size_pt ?? baseTokens.h1Pt) * 2,
+      font: resolveFontDocx(header.name_style.font),
+      color: baseTokens.accentHex,
+    })],
+  }))
+  const titleText = L(r.title, locale)
+  if (titleText) {
+    out.push(new Paragraph({
+      spacing: { after: 120 },
+      children: [new TextRun({
+        text: titleText,
+        size: (header.title_style.size_pt ?? baseTokens.smallFontSizePt + 1) * 2,
+        font: resolveFontDocx(header.title_style.font),
+        color: '444444',
+      })],
+    }))
+  }
+  const lines = buildHeaderLines(header, r, store, locale)
+  const sz = baseTokens.metaFontSizePt * 2
+  lines.forEach((line, li) => {
+    const runs: TextRun[] = []
+    line.forEach((seg, i) => {
+      if (i > 0) runs.push(new TextRun({ text: header.separator, color: FAINT_HEX, size: sz, font: baseTokens.bodyFontDocx }))
+      if (seg.label) runs.push(new TextRun({ text: seg.label, color: FAINT_HEX, size: sz, font: baseTokens.bodyFontDocx }))
+      runs.push(new TextRun({ text: seg.value, color: SUBTLE_HEX, size: sz, font: baseTokens.bodyFontDocx }))
+    })
+    out.push(new Paragraph({ spacing: { after: li === lines.length - 1 ? 200 : 30 }, children: runs }))
+  })
+  return out
+}
+
+/** Lay identity text beside a photo using a borderless 2-cell table. */
+function photoSideTable(photoRun: ImageRun, identity: Paragraph[], placement: 'left' | 'right'): Table {
+  const photoCell = new TableCell({
+    width: { size: 22, type: WidthType.PERCENTAGE },
+    verticalAlign: VerticalAlign.TOP,
+    margins: { right: placement === 'left' ? 200 : 0, left: placement === 'right' ? 200 : 0 },
+    children: [new Paragraph({ children: [photoRun] })],
+  })
+  const textCell = new TableCell({
+    width: { size: 78, type: WidthType.PERCENTAGE },
+    verticalAlign: VerticalAlign.TOP,
+    children: identity,
+  })
+  return new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    borders: TableBorders.NONE,
+    rows: [new TableRow({ children: placement === 'right' ? [textCell, photoCell] : [photoCell, textCell] })],
+  })
+}
+
+const FOOTER_BORDER: Record<Exclude<FooterSeparator, 'none'>, (typeof BorderStyle)[keyof typeof BorderStyle]> = {
+  line:   BorderStyle.SINGLE,
+  double: BorderStyle.DOUBLE,
+  dotted: BorderStyle.DOTTED,
+  dashed: BorderStyle.DASHED,
+  thick:  BorderStyle.SINGLE,
+}
+
+function footerBorderStyle(sep: FooterSeparator): (typeof BorderStyle)[keyof typeof BorderStyle] {
+  return sep === 'none' ? BorderStyle.NONE : FOOTER_BORDER[sep]
+}
+
 // ─── Public entry point ──────────────────────────────────────────────────────
 
 /**
@@ -166,49 +270,39 @@ const metaJoin = (parts: Array<string | undefined | null>) =>
 export async function exportDocx(store: ResumeStore, view: ResumeView, locale: string): Promise<void> {
   const viewStyle = withDefaults(view.style)
   const baseTokens = deriveTokens(viewStyle)
+  const header = withHeaderDefaults(view.header)
+  const footer = withFooterDefaults(view.footer)
   const filtered = applyView(store, view)
-  const children: Paragraph[] = []
+  const children: Array<Paragraph | Table> = []
 
-  // ── Header (resume identity) ────────────────────────────────────────────
+  // ── Header (configurable identity block + images) ───────────────────────
   const r = filtered.resume
   if (r) {
-    children.push(new Paragraph({
-      spacing: { after: 80 },
-      children: [new TextRun({
-        text: r.full_name,
-        bold: true,
-        size: baseTokens.h1Pt * 2,
-        font: baseTokens.headingFontDocx,
-        color: baseTokens.accentHex,
-      })],
-    }))
-    const titleText = L(r.title, locale)
-    if (titleText) {
+    const photoInfo = imageInfoFromDataUrl(header.photo_override ?? r.profile_photo ?? null)
+    const logoInfo  = imageInfoFromDataUrl(header.logo_override ?? r.company_logo ?? null)
+
+    // Logo banner sits at the very top, aligned per its placement.
+    if (header.logo_placement !== 'none' && logoInfo) {
       children.push(new Paragraph({
-        spacing: { after: 120 },
-        children: [new TextRun({
-          text: titleText,
-          size: (baseTokens.smallFontSizePt + 1) * 2,
-          font: baseTokens.headingFontDocx,
-          color: '444444',
-        })],
+        alignment: logoAlign(header.logo_placement),
+        spacing: { after: 140 },
+        children: [imageRunScaled(logoInfo, 240, 64)],
       }))
     }
-    const contactBits: string[] = []
-    if (r.email)           contactBits.push(r.email)
-    if (r.phone)           contactBits.push(r.phone)
-    if (r.linkedin_url)    contactBits.push(r.linkedin_url)
-    if (r.website_url)     contactBits.push(r.website_url)
-    if (contactBits.length) {
-      children.push(new Paragraph({
-        spacing: { after: 220 },
-        children: [new TextRun({
-          text: contactBits.join('  •  '),
-          size: baseTokens.metaFontSizePt * 2,
-          color: SUBTLE_HEX,
-          font: baseTokens.bodyFontDocx,
-        })],
-      }))
+
+    const identity = buildIdentityParagraphs(r, header, store, locale, baseTokens)
+
+    if (header.photo_placement !== 'none' && photoInfo) {
+      const photoRun = imageRunScaled(photoInfo, 132, 156)
+      if (header.photo_placement === 'left' || header.photo_placement === 'right') {
+        children.push(photoSideTable(photoRun, identity, header.photo_placement))
+      } else if (header.photo_placement === 'above') {
+        children.push(new Paragraph({ spacing: { after: 100 }, children: [photoRun] }), ...identity)
+      } else { // below
+        children.push(...identity, new Paragraph({ spacing: { before: 100, after: 120 }, children: [photoRun] }))
+      }
+    } else {
+      children.push(...identity)
     }
   }
 
@@ -236,7 +330,7 @@ export async function exportDocx(store: ResumeStore, view: ResumeView, locale: s
       return {
         ...s,
         sort_order: vs?.sort_order ?? 999,
-        detail: vs?.detail ?? 'full' as SectionDetail,
+        detail: vs?.detail ?? defaultViewDetail(s.key),
         sectionStyle: vs?.style as SectionStyle | undefined,
       }
     })
@@ -245,7 +339,12 @@ export async function exportDocx(store: ResumeStore, view: ResumeView, locale: s
 
   for (const def of enabledSections) {
     if (!def.storeKey) continue
-    const items = filtered[def.storeKey] as unknown[]
+    // Virtual promoted_projects derives from the starred projects; everything
+    // else reads its filtered store array. The label stays "Promoted Projects"
+    // but it renders through the project renderer.
+    const items = def.key === 'promoted_projects'
+      ? promotedProjectItems(store, view)
+      : (filtered[def.storeKey] as unknown[])
     if (!items.length) continue
     const resolved = resolveSectionStyle(viewStyle, def.sectionStyle)
     const ctx: ExportCtx = {
@@ -254,8 +353,42 @@ export async function exportDocx(store: ResumeStore, view: ResumeView, locale: s
       resolved,
       tokens: deriveTokens(resolved),
     }
-    const block = renderSection(def.key, def.label, items, ctx)
+    const renderKey = def.key === 'promoted_projects' ? 'projects' : def.key
+    const block = renderSection(renderKey, def.label, items, ctx)
     if (block.length) children.push(...block)
+  }
+
+  // ── Footer (closing visual) ─────────────────────────────────────────────
+  if (r) {
+    const copyright = buildCopyrightLine(footer, r, new Date().getFullYear(), locale)
+    const footerNote = L(footer.note, locale)
+    const footerText = [copyright, footerNote].filter(Boolean).join('  ·  ')
+    if (footer.separator !== 'none') {
+      children.push(new Paragraph({
+        spacing: { before: 280, after: footerText ? 60 : 0 },
+        border: {
+          top: {
+            style: footerBorderStyle(footer.separator),
+            color: baseTokens.accentHex,
+            space: 1,
+            size: footer.separator === 'thick' ? 18 : 6,
+          },
+        },
+        children: [],
+      }))
+    }
+    if (footerText) {
+      children.push(new Paragraph({
+        alignment: AlignmentType.CENTER,
+        spacing: { before: footer.separator === 'none' ? 280 : 0 },
+        children: [new TextRun({
+          text: footerText,
+          size: baseTokens.metaFontSizePt * 2,
+          color: FAINT_HEX,
+          font: baseTokens.bodyFontDocx,
+        })],
+      }))
+    }
   }
 
   // ── Page setup — A4 with style-driven margins ───────────────────────────
@@ -287,6 +420,8 @@ export async function exportDocx(store: ResumeStore, view: ResumeView, locale: s
 function renderSection(key: string, label: string, items: unknown[], ctx: ExportCtx): Paragraph[] {
   switch (key) {
     case 'key_qualifications':    return wrap(label, renderKQs(items, ctx), ctx)
+    case 'key_competencies':      return wrap(label, renderKeyCompetencies(items, ctx), ctx)
+    case 'recommendations':       return wrap(label, renderRecommendations(items, ctx), ctx)
     case 'projects':              return wrap(label, renderProjects(items, ctx), ctx)
     case 'work_experiences':      return wrap(label, renderWork(items, ctx), ctx)
     case 'educations':            return wrap(label, renderEducations(items, ctx), ctx)
@@ -352,6 +487,52 @@ function renderKQs(items: unknown[], ctx: ExportCtx): Paragraph[] {
           ...(name && desc ? [new TextRun({ text: ' — ', font: ctx.tokens.bodyFontDocx, size: sz })] : []),
           ...(desc ? [new TextRun({ text: desc, font: ctx.tokens.bodyFontDocx, size: sz })] : []),
         ],
+      }))
+    }
+  }
+  return out
+}
+
+function renderKeyCompetencies(items: unknown[], ctx: ExportCtx): Paragraph[] {
+  const out: Paragraph[] = []
+  for (const k of items as AnyItem[]) {
+    const title = ls(k, 'title', ctx.locale)
+    const desc  = ls(k, 'description', ctx.locale)
+    if (!title && !desc) continue
+    if (ctx.detail === 'summary') {
+      out.push(summaryLine(title || 'Competency', '', ctx))
+      continue
+    }
+    const sz = ctx.tokens.bodyFontSizePt * 2
+    out.push(new Paragraph({
+      spacing: { before: 60, after: desc ? 40 : 60 },
+      children: [new TextRun({ text: title, bold: true, font: ctx.tokens.bodyFontDocx, size: sz })],
+    }))
+    if (desc) out.push(...richParagraphs(desc, ctx, { after: 100 }))
+  }
+  return out
+}
+
+function renderRecommendations(items: unknown[], ctx: ExportCtx): Paragraph[] {
+  const out: Paragraph[] = []
+  const sz = ctx.tokens.bodyFontSizePt * 2
+  for (const rec of items as AnyItem[]) {
+    const name = String(rec.recommender_name ?? '')
+    const attrib = [rec.recommender_title as string, rec.recommender_company as string].filter(Boolean).join(', ')
+    const date = dateAt(rec, 'date', ctx)
+    if (ctx.detail === 'summary') {
+      out.push(summaryLine(name || 'Recommendation', metaJoin([attrib, date]), ctx))
+      continue
+    }
+    const quote = ls(rec, 'text', ctx.locale)
+    if (quote) out.push(...richParagraphs(quote, ctx, { italic: true, after: 40 }))
+    const rel = ls(rec, 'relationship', ctx.locale)
+    const attribLine = [name, attrib].filter(Boolean).join(', ')
+    const tail = [attribLine, rel ? `(${rel})` : '', date].filter(Boolean).join(' · ')
+    if (tail) {
+      out.push(new Paragraph({
+        spacing: { after: 120 },
+        children: [new TextRun({ text: `— ${tail}`, color: SUBTLE_HEX, font: ctx.tokens.bodyFontDocx, size: sz })],
       }))
     }
   }

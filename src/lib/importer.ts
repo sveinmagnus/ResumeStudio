@@ -138,6 +138,9 @@ export function importFromCVPartner(raw: Record<string, unknown>): ResumeStore {
     linkedin_url: null,
     website_url: null,
     profile_image_url: (raw.image as string) || null,
+    profile_photo: null,
+    company_logo: null,
+    company_name: null,
     default_locale: (raw.language_code as string) === 'no' ? 'no' : 'en',
     supported_locales: (() => {
       const codes = (raw.language_codes as string[]) || [raw.language_code as string || 'no']
@@ -528,6 +531,8 @@ export function importFromCVPartner(raw: Record<string, unknown>): ResumeStore {
     skills,
     roles,
     key_qualifications,
+    key_competencies: [],
+    recommendations: [],
     projects,
     work_experiences,
     educations,

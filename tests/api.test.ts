@@ -4,7 +4,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
   api, UnauthorizedError, NotFoundError, ServerError, ConflictError,
-  isAbortError, setStoredToken, clearStoredToken,
+  isAbortError,
 } from '../src/lib/api'
 import { emptyStore, makeResume } from './fixtures'
 import type { ResumeMeta } from '../src/lib/api'
@@ -26,11 +26,9 @@ let fetchMock: ReturnType<typeof vi.fn>
 beforeEach(() => {
   fetchMock = vi.fn()
   vi.stubGlobal('fetch', fetchMock)
-  clearStoredToken()
 })
 afterEach(() => {
   vi.unstubAllGlobals()
-  clearStoredToken()
 })
 
 const META: ResumeMeta = {
@@ -213,20 +211,37 @@ describe('snapshots', () => {
   })
 })
 
-describe('auth header', () => {
-  it('attaches a bearer token when one is stored', async () => {
-    setStoredToken('s3cret')
-    fetchMock.mockResolvedValue(mockRes({ body: { resumes: [] } }))
-    await api.listResumes()
-    const headers = callArgs()[1].headers as Record<string, string>
-    expect(headers['Authorization']).toBe('Bearer s3cret')
+describe('auth (cookie session)', () => {
+  it('login POSTs the token to /api/auth/login', async () => {
+    fetchMock.mockResolvedValue(mockRes({ body: { ok: true } }))
+    await api.login('s3cret')
+    const [url, init] = callArgs()
+    expect(url).toBe('/api/auth/login')
+    expect(init.method).toBe('POST')
+    expect(JSON.parse(init.body as string)).toEqual({ token: 's3cret' })
   })
 
-  it('omits the header when no token is stored', async () => {
+  it('login throws UnauthorizedError on 401 (wrong token)', async () => {
+    fetchMock.mockResolvedValue(mockRes({ status: 401 }))
+    await expect(api.login('bad')).rejects.toBeInstanceOf(UnauthorizedError)
+  })
+
+  it('sends requests with same-origin credentials so the cookie carries auth', async () => {
+    fetchMock.mockResolvedValue(mockRes({ body: { resumes: [] } }))
+    await api.listResumes()
+    expect(callArgs()[1].credentials).toBe('same-origin')
+  })
+
+  it('never attaches an Authorization header from JS (token is not in JS storage)', async () => {
     fetchMock.mockResolvedValue(mockRes({ body: { resumes: [] } }))
     await api.listResumes()
     const headers = callArgs()[1].headers as Record<string, string>
     expect(headers['Authorization']).toBeUndefined()
+  })
+
+  it('logout POSTs to /api/auth/logout and never throws', async () => {
+    fetchMock.mockRejectedValue(new Error('network'))
+    await expect(api.logout()).resolves.toBeUndefined()
   })
 })
 

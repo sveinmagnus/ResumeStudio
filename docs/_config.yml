@@ -1,0 +1,23 @@
+title: Resume Studio
+description: One master CV across languages. Targeted PDF and Word exports for each audience.
+theme: jekyll-theme-cayman
+
+# All download/source links in the site read from {{ site.repo_url }}.
+repo_url: https://github.com/sveinmagnus/resumestudio
+
+# Navigation shown on every page (rendered in the layout's header).
+nav:
+  - title: Home
+    url: /
+  - title: Features
+    url: /features.html
+  - title: Download
+    url: /download.html
+  - title: How-to
+    url: /how-to.html
+
+defaults:
+  - scope:
+      path: ""
+    values:
+      layout: default

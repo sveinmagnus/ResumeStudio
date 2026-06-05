@@ -43,6 +43,25 @@ export function withDefaults(style: Partial<ViewStyle> | undefined): ViewStyle {
   return { ...DEFAULT_VIEW_STYLE, ...(style ?? {}) }
 }
 
+/**
+ * Validate an accent color down to a safe 6-hex-digit string (no leading '#').
+ * Accepts '#rgb' / '#rrggbb' (with or without '#'); anything else falls back
+ * to the Cartavio navy default.
+ *
+ * SECURITY: `accent_color` flows verbatim into the `<style>` block of the
+ * exported / previewed document (see viewFilter.buildViewHtml). The editor UI
+ * constrains it to a hex value, but a crafted backup / snapshot import does
+ * not — an unvalidated value such as `</style><img src=x onerror=…>` would
+ * break out of the `<style>` element. Validating at this single render-boundary
+ * chokepoint neutralises that for every interpolation site (HTML + DOCX).
+ */
+export function sanitizeHexColor(input: string | null | undefined, fallback = '002E6E'): string {
+  const raw = (input ?? '').trim().replace(/^#/, '')
+  if (/^[0-9a-fA-F]{6}$/.test(raw)) return raw.toUpperCase()
+  if (/^[0-9a-fA-F]{3}$/.test(raw)) return raw.split('').map((c) => c + c).join('').toUpperCase()
+  return fallback
+}
+
 // ─── Concrete style tokens ──────────────────────────────────────────────────
 
 /**
@@ -114,15 +133,36 @@ const BODY_FONT_CSS = `Ubuntu, sans-serif`
 const BODY_FONT_DOCX = 'Ubuntu'
 
 /**
+ * Resolve a header text-style font choice (a HeadingFont or the body font) to a
+ * CSS family string. Used by the configurable view header (name / title).
+ */
+export function resolveFontCss(font: HeadingFont | 'body'): string {
+  if (font === 'body') return BODY_FONT_CSS
+  // Fall back to the default heading font for unknown values (e.g. from a
+  // crafted import) — an undefined map entry would otherwise throw, and the
+  // raw value is interpolated into a CSS font-family.
+  return (HEADING_FONT_MAP[font] ?? HEADING_FONT_MAP.condensed).css
+}
+
+/** DOCX equivalent of resolveFontCss — returns the bare font name docx expects. */
+export function resolveFontDocx(font: HeadingFont | 'body'): string {
+  if (font === 'body') return BODY_FONT_DOCX
+  return (HEADING_FONT_MAP[font] ?? HEADING_FONT_MAP.condensed).docx
+}
+
+/**
  * Resolve a ViewStyle (or section override merged with view) to the concrete
  * tokens that renderers consume. Pure — same input gives the same tokens.
  */
 export function deriveTokens(style: ViewStyle): StyleTokens {
-  const density = DENSITY_SCALE[style.density]
-  const sizes = BODY_SCALE[style.body_size]
-  const headingFont = HEADING_FONT_MAP[style.heading_font]
-  const pageMargin = PAGE_MARGIN_MAP[style.page_margin]
-  const accentHex = style.accent_color.replace(/^#/, '').toUpperCase()
+  // `?? default` on every map lookup: a crafted import (or stale data) can carry
+  // an out-of-enum value that would otherwise index to undefined and throw when
+  // a property is read. Renderers must never crash on untrusted view config.
+  const density = DENSITY_SCALE[style.density] ?? DENSITY_SCALE.normal
+  const sizes = BODY_SCALE[style.body_size] ?? BODY_SCALE.normal
+  const headingFont = HEADING_FONT_MAP[style.heading_font] ?? HEADING_FONT_MAP.condensed
+  const pageMargin = PAGE_MARGIN_MAP[style.page_margin] ?? PAGE_MARGIN_MAP.normal
+  const accentHex = sanitizeHexColor(style.accent_color)
   return {
     bodyFontSizePt: sizes.bodyPt,
     smallFontSizePt: Math.max(7, sizes.bodyPt - 1),

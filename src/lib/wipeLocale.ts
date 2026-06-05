@@ -17,10 +17,10 @@
 
 import type {
   ResumeStore, LocalizedString, Resume,
-  KeyQualification, Project, WorkExperience, Education, Course,
-  Certification, SpokenLanguage, TechnologyCategory, Position, Presentation,
-  HonorAward, Publication, Reference, Skill, Role, KeyPoint, ProjectRole,
-  ProjectSkill, CategorySkill, ResumeView,
+  KeyQualification, KeyCompetency, Recommendation, Project, WorkExperience,
+  Education, Course, Certification, SpokenLanguage, TechnologyCategory,
+  Position, Presentation, HonorAward, Publication, Reference, Skill, Role,
+  KeyPoint, ProjectRole, ProjectSkill, CategorySkill, ResumeView,
 } from '../types'
 
 export function wipeLocale(store: ResumeStore, locale: string): ResumeStore {
@@ -50,6 +50,16 @@ export function wipeLocale(store: ResumeStore, locale: string): ResumeStore {
         name: ls(kp.name),
         long_description: ls(kp.long_description),
       })),
+    })),
+    key_competencies: store.key_competencies.map((k): KeyCompetency => ({
+      ...k,
+      title: ls(k.title),
+      description: ls(k.description),
+    })),
+    recommendations: store.recommendations.map((r): Recommendation => ({
+      ...r,
+      relationship: ls(r.relationship),
+      text: ls(r.text),
     })),
     projects: store.projects.map((p): Project => ({
       ...p,

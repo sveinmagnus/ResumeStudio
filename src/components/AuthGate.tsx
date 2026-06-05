@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { UnauthorizedError, getStoredToken, clearStoredToken } from '../lib/api'
+import { UnauthorizedError, api } from '../lib/api'
 import { clearAllCaches, listDirty } from '../lib/localCache'
 
 const YEAR = new Date().getFullYear()
@@ -63,32 +63,30 @@ export function AuthGate({ onSubmit }: AuthGateProps) {
         >
           Connect
         </button>
-        {getStoredToken() && (
-          <button
-            className="auth-clear"
-            onClick={() => {
-              // Deliberate logout: drop the token AND the plaintext resume
-              // caches in localStorage. Closes the shared-machine data-leak
-              // residual (security skill §4). Guard first — clearing the caches
-              // also discards any unsynced offline edits, so warn if the queue
-              // is non-empty and let the user back out to export a backup.
-              const dirty = listDirty().length
-              if (
-                dirty > 0 &&
-                !window.confirm(
-                  `You have ${dirty} resume(s) with unsynced changes. ` +
-                  `Clearing your token also deletes the local copies — ` +
-                  `export a backup first if unsure. Clear anyway?`,
-                )
-              ) return
-              clearStoredToken()
-              clearAllCaches()
-              setTokenInput('')
-            }}
-          >
-            Clear saved token
-          </button>
-        )}
+        <button
+          className="auth-clear"
+          onClick={() => {
+            // Deliberate logout: clear the server session cookie AND the
+            // plaintext resume caches in localStorage. Closes the shared-machine
+            // data-leak residual (security skill). Guard first — clearing the
+            // caches also discards any unsynced offline edits, so warn if the
+            // queue is non-empty and let the user back out to export a backup.
+            const dirty = listDirty().length
+            if (
+              dirty > 0 &&
+              !window.confirm(
+                `You have ${dirty} resume(s) with unsynced changes. ` +
+                `Clearing local data also deletes the local copies — ` +
+                `export a backup first if unsure. Clear anyway?`,
+              )
+            ) return
+            void api.logout()
+            clearAllCaches()
+            setTokenInput('')
+          }}
+        >
+          Clear local data
+        </button>
 
         <div className="auth-footer">
           © {YEAR} Cartavio AS ·{' '}

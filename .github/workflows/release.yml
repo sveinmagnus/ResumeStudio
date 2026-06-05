@@ -1,0 +1,89 @@
+# Build the portable desktop bundle on Windows, macOS, and Linux when a
+# version tag is pushed (e.g. `git tag v0.1.0 && git push origin v0.1.0`),
+# then attach the three artifacts to the matching GitHub Release.
+#
+# Filenames here MUST match what docs/download.md links to, otherwise the
+# /releases/latest/download/<file> URLs 404 on the project site.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write   # required by softprops/action-gh-release to attach assets
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            asset: ResumeStudio-windows-x64.zip
+            archive: zip
+          - os: macos-latest
+            asset: ResumeStudio-macos.zip
+            archive: zip
+          - os: ubuntu-latest
+            asset: ResumeStudio-linux-x64.tar.gz
+            archive: tar.gz
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Builds the React client + assembles the portable release/ folder with
+      # the bundled Node binary and better-sqlite3 native addon for THIS OS.
+      - name: Build desktop bundle
+        run: npm run build:desktop
+
+      # Stage release/ under a top-level ResumeStudio/ folder so the user
+      # gets a clean directory when they unzip, not loose files.
+      - name: Stage release folder
+        shell: bash
+        run: |
+          mkdir -p staging/ResumeStudio
+          cp -R release/. staging/ResumeStudio/
+
+      - name: Package (zip)
+        if: matrix.archive == 'zip' && runner.os != 'Windows'
+        shell: bash
+        run: |
+          cd staging
+          zip -r "../${{ matrix.asset }}" ResumeStudio
+
+      - name: Package (zip, Windows)
+        if: matrix.archive == 'zip' && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Compress-Archive -Path staging\ResumeStudio -DestinationPath ${{ matrix.asset }}
+
+      - name: Package (tar.gz)
+        if: matrix.archive == 'tar.gz'
+        shell: bash
+        run: |
+          tar -czf "${{ matrix.asset }}" -C staging ResumeStudio
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ matrix.asset }}
+          # Auto-creates the release on first asset upload for this tag, and
+          # appends artifacts from each matrix job to the same release.
+          fail_on_unmatched_files: true
+          draft: false
+          prerelease: false

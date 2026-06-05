@@ -18,6 +18,11 @@ export default defineConfig({
     // `@vitest-environment jsdom` pragma (see tests/components/*.test.tsx).
     environment: 'node',
     include: ['tests/**/*.test.{ts,tsx}'],
+    // The jsdom component tests (live-preview iframe, large editors) can take
+    // several seconds under full-suite parallelism on slower machines; the
+    // default 5s per-test timeout flakes there. 15s is comfortably above the
+    // real worst case without masking a genuine hang.
+    testTimeout: 15000,
     // Registers @testing-library/jest-dom matchers on Vitest's `expect`.
     // Safe to load in either env — registration has no DOM-side effects.
     setupFiles: ['tests/setup-rtl.ts'],

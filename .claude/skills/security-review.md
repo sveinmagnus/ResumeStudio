@@ -1,115 +1,124 @@
 ---
 name: security-review
-description: Pre-commit security check for Resume Studio. Use before committing code that touches HTML/string templating, the Express server, auth, persistence (SQLite/localStorage/sessionStorage), file imports (CVpartner/backup JSON), or exports (PDF/DOCX). Also use when the user asks "is this safe?", "review for security", or "audit this change". Encodes this codebase's trust boundaries and the patterns that have produced real vulnerabilities here.
+description: Pre-commit security check for Resume Studio. Use before committing code that touches HTML/string templating or the export/preview render pipeline, the Express server, auth, persistence (SQLite/localStorage/sessionStorage), file imports (CVpartner/backup/snapshot JSON), exports (PDF/DOCX), the translation proxy, the desktop launcher, or settings. Also use when the user asks "is this safe?", "review for security", or "audit this change". Encodes this codebase's trust boundaries and the patterns that have produced real vulnerabilities here.
 ---
 
 # Resume Studio — security review
 
-Read this before reviewing or writing code that touches any of the surfaces below. It encodes what the codebase actually looks like — not generic web-security advice. Skip the parts that don't apply to the diff.
+Read this before reviewing or writing code that touches any surface below. It encodes what *this* codebase looks like, not generic web-security advice. Skip the parts the diff doesn't touch.
 
 ## 1. The trust model in one paragraph
 
-One consultant, one deployment. The Express server is the source of truth; the SPA is its only client. Auth is a single bearer token (`RESUME_API_TOKEN`) carried in `Authorization: Bearer` headers, stored client-side in **`sessionStorage`** (`src/lib/api.ts`). Any JavaScript that runs in the app's origin can read that token and call `/api/resume` as the user. The DB is a single-row SQLite table (`server/db.ts`, `CHECK (id = 1)`). The resume is also cached unencrypted in **`localStorage`** (`src/lib/localCache.ts`). The "untrusted input" surface is: imported CVpartner JSON, imported backup JSON, anything stored in the resume after import (because it'll be re-rendered by the export pipeline), and any HTTP request body.
+One consultant, one deployment (a VPS instance OR a portable desktop build). The Express server is the source of truth; the SPA is its only client. Auth is a single token (`RESUME_API_TOKEN`); the browser exchanges it at `POST /api/auth/login` for an **HttpOnly, SameSite=Strict session cookie**, so the token is no longer in JS-readable storage (a bearer header still works for non-browser clients). Persistence is **multi-resume**: SQLite (`resumes` + `resume_snapshots`) on the server, with a per-resume **plaintext `localStorage`** outbound queue/cache (`src/lib/localCache.ts`, key `resumestudio:store-cache:v1:<id>`). The untrusted-input surface is: imported CVpartner JSON, imported **backup/snapshot JSON**, anything already stored in a resume or a **view config** (because the export/preview pipeline re-renders it as HTML), and any HTTP request body.
 
-**Implication:** **XSS = total compromise.** The token leaves with the attacker, and so does the entire resume. Every finding below traces back to this fact.
+**Implication: XSS is still serious** — it can drive the API as the user (the cookie auto-authenticates same-origin requests) and read the full resume from `localStorage`. It can no longer exfiltrate the token itself. Treat the render pipeline (§2) as the primary battleground; almost every finding here traces back to it.
 
-## 2. The patterns that have produced real bugs here
+## 2. The render pipeline is the #1 XSS surface
 
-### 2.1 String-built HTML (CRITICAL — has bitten us)
+The export/preview pipeline turns stored data into an HTML **string** that is rendered in a same-origin `<iframe srcdoc>` (live preview) and a same-origin `window.open` + `document.write` popup (PDF print). This is where real bugs have happened — twice.
 
-`src/lib/viewFilter.ts → buildViewHtml` concatenates user fields into an HTML document that gets rendered into a same-origin iframe (`srcDoc={previewHtml}`) and a same-origin popup (`win.document.write(html)`). Before commit `d6d7c25` everything was interpolated raw.
+The pipeline spans several `lib/` files; **all of them must stay safe**:
 
-**Grep for any new template-string HTML:**
-```
-Grep: \$\{[a-zA-Z_]   in *.ts/*.tsx, paths matching lib/, exporter, viewFilter, render
-```
-Every `${...}` inside a `` ` `` containing `<` must call `escapeHtml(...)` from `viewFilter.ts`. The only exceptions are values you've personally verified are hardcoded constants (e.g. `SECTIONS[i].label`) — and even those we escape defensively.
+- `src/lib/viewFilter.ts` → `buildViewHtml` / `renderItem` — the document builder. Plain text fields go through `escapeHtml`; description-shaped fields go through `renderRichHtml`.
+- `src/lib/richText.ts` → `sanitizeRich` / `renderRichHtml` — the rich-text allowlist (tags `p,br,strong,b,em,i,u,ul,ol,li`; **all attributes stripped**; `script/style/iframe/object/embed/form/svg` removed with subtree). `renderRichHtml(value, escapeHtml)` is the only sanctioned way to emit a description field: plain values are escaped, marked-up values are allowlist-sanitised.
+- `src/lib/viewStyle.ts` → `deriveTokens` — maps the view's style choices to concrete CSS values that are interpolated into the document's `<style>` block.
+- `src/lib/viewHeader.ts` → `withHeaderDefaults` / `withFooterDefaults` — header/footer config consumed by both render paths.
+- `src/lib/exporter.ts` — the DOCX path (the `docx` lib XML-escapes `TextRun`s, so it's safe by construction — but don't hand-roll XML/HTML there).
 
-**Also check:** any new code that writes to a `Document` / `Window` we open:
-- `iframe.srcDoc = ...`
-- `win.document.write(...)`
-- `el.innerHTML = ...`
-- `dangerouslySetInnerHTML={{ __html: ... }}` (none currently — keep it that way)
+### The two rules that keep it safe
 
-If a new export format appears (HTML email, RTF, anything), apply the same `escapeHtml` discipline and add the same `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; ...">` defence-in-depth meta from `buildViewHtml`.
+1. **Every value interpolated into the HTML string is escaped or sanitised.** Text → `escapeHtml`. Description/rich → `renderRichHtml`. No exceptions, even for values you "know" are constants (escape them defensively — `s.label` etc. are escaped).
 
-### 2.2 The `LocalizedString` rendering pipeline
+2. **Validate untrusted view config at the boundary, not at the interpolation site.** `accent_color`, fonts, placements, sizes, separators flow into `<style>` blocks, inline `style="…"` attributes, and `class="…"` attributes — contexts `escapeHtml` is *not* applied to. The editor UI validates these, but **the import path does not**, so a crafted backup/snapshot can carry anything. They are sanitised at the render boundary:
+   - `deriveTokens` runs `accent_color` through `sanitizeHexColor` (→ 6 hex digits or the brand default) and every enum map lookup has a `?? default` fallback (so a bad value can't break out of `<style>` *and* can't crash the renderer with `undefined.foo`).
+   - `withHeaderDefaults` / `withFooterDefaults` coerce `photo_placement` / `logo_placement` / `footer.separator` / `copyright` to their enums, font choices to the known set, and `size_pt` to a finite clamped number-or-null.
+   - Images are gated by `isDataImage` (only `data:image/…`) and the `src` is escaped. Uploads are re-encoded through a canvas (`lib/image.ts`), which strips any embedded script; `imageInfoFromDataUrl` rejects SVG.
 
-`resolve(value, locale)` returns a raw string. **It does not escape.** Anywhere it's used to build HTML, the result must be escaped. React JSX is safe (`{resolve(...)}` auto-escapes), but string-built HTML is not.
+If you add a field to `ViewStyle` / `ViewHeaderConfig` / `ViewFooterConfig`, or a new interpolation into a `<style>`/`style=`/`class=`, **you must extend the matching boundary validator and add a breakout regression test.**
 
-Hot files: `viewFilter.ts`, `exporter.ts`. The DOCX `exporter.ts` is safe because the `docx` library's `TextRun` XML-escapes automatically — don't introduce a custom XML/HTML emitter without re-checking.
+### Defence in depth (do not rely on these alone)
 
-### 2.3 Server input handling
+- `buildViewHtml` emits a strict `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; …">` in the generated document.
+- `server/app.ts` sends a CSP + `nosniff`/`DENY`/`no-referrer`/`Permissions-Policy` on every response (the live preview iframe inherits it).
 
-`server/index.ts`:
-- Body limit is **2 MB** (was 50 MB — a memory-exhaustion amplifier). Don't raise it without a real reason; resumes are ~100 KB.
-- Security headers middleware sets `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`. Don't remove these.
-- `app.disable('x-powered-by')` — leave disabled.
+Both block script execution from an injection — but a `</style>` or attribute breakout is still a real bug. **Escaping/validation is the primary defence; CSP is the backstop.**
 
-`server/auth.ts`:
-- Token compared with `crypto.timingSafeEqual`. Don't switch back to `===`/`!==`.
-- All 401 paths return the same generic `{ error: 'Unauthorized' }`. Don't add granular messages — they leak parser state.
-- Env vars are read **lazily** inside the middleware so tests can `vi.stubEnv`. Don't pull `process.env.RESUME_API_TOKEN` to module top-level.
+### Grep the diff
 
-`server/routes/resume.ts`:
-- Any new route must be mounted under the `authMiddleware`-gated `/api/resume` prefix, **or** explicitly justified as public (like `/api/health`).
-- Validate body shape at the boundary. `typeof body === 'object'` is the floor; better: a real schema (Zod) if you're adding non-trivial fields.
+- `` \$\{ `` inside a `` ` `` template containing `<`, `style=`, or `class=` → is each value escaped / sanitised / from a sanitised token?
+- `innerHTML`, `srcdoc`/`srcDoc`, `document.write`, `dangerouslySetInnerHTML` → any new occurrence needs written justification. (Today: none use `dangerouslySetInnerHTML`; keep it that way.)
+- New `lib/viewStyle.ts` / `lib/viewHeader.ts` fields → boundary validator updated?
 
-### 2.4 File imports (CVpartner JSON and backup JSON)
+## 3. Server (`server/`)
 
-`src/lib/importer.ts` and `src/lib/backup.ts` accept untrusted JSON.
+The server is hardened in `server/app.ts` — keep it that way:
+- **CSP + security headers** on every response; `x-powered-by` disabled; JSON body limit **2 MB** (don't raise without reason); **rate limiter** (`skipSuccessfulRequests` — counts ≥400s, so brute-forcing the token gets 429'd but auto-save doesn't). Runs before `authMiddleware`. New routers go under `/api/...` with `apiLimiter, authMiddleware`, or are explicitly justified as public (only `/api/health` is).
+- **`auth.ts` / `routes/auth.ts`**: `crypto.timingSafeEqual` compare; single generic `{error:'Unauthorized'}` for all failures; token read lazily; accepts the HttpOnly cookie or a bearer header. `/api/auth/login` is rate-limited but NOT auth-gated (it's how you authenticate) — keep it that way, and never log the token or echo it (only the `Set-Cookie` carries it, HttpOnly).
+- **`routes/resume.ts`** (multi-resume `/api/resumes`): validate body shape; `version` optimistic-concurrency (409 on stale `base_version`); errors must not leak SQL/internal detail. SQL is parameterised in `db.ts` — keep it parameterised (never string-build SQL).
+- **`translate.ts`** (provider proxy): upstream URLs/keys stay server-side; errors **never echo upstream detail** (could leak an internal URL/key); timeout via `AbortSignal.timeout`; Google key is `encodeURIComponent`'d in the query. The upstream URL is operator-configured (env / desktop settings), not attacker-supplied per request.
+- **`settings.ts`** (desktop-only; VPS reports `managed:false`, PUT 403s): API keys are **write-only over the API** — `toView()` returns `*_set` booleans, never the value. `settings.json` is written `0600`. Don't add a route or log line that echoes a key. PUT validates types + the provider enum.
+- **`translateDocker.ts`**: shells out with `spawn` + **explicit argv** (never a shell string) and a fixed service name. No user input reaches the command line. Keep it that way — no `exec`, no template-string commands.
+- **`routes/backup.ts`**: the backup dir comes from `RESUME_BACKUP_DIR` (operator env), never from the request body — the client can't choose a filesystem path. Don't add a body-supplied path.
+- **Desktop launcher** (`server/desktop/launcher.ts`, `app.ts`, `db.ts`): must not use `import.meta`/`__dirname` (esbuild bundles to CJS and emits `""`). DB file + data dir are chmod'd `0600`/`0700` (best-effort, no-op on Windows).
 
-- Imported text becomes resume fields, which later flow into `buildViewHtml`. **Escaping in viewFilter is what protects you here**, not the importer. Don't move escaping into the importer — it would break editing.
-- Prototype pollution surface is currently nil because `result[key] = stringValue` on a plain `{}` doesn't pollute (assigning a string to `__proto__` is a no-op). Don't change this: never use `Object.assign(target, untrustedJson)`, never use spread with a top-level untrusted object as a key source.
-- `isBackupFormat` is lenient on purpose — `migrateBackup` is the gatekeeper. New format versions add a `migrateV{n-1}toV{n}` step and chain.
+## 4. File imports (CVpartner / backup / snapshot JSON)
 
-### 2.5 Token and cache handling
+`src/lib/importer.ts`, `src/lib/backup.ts`, and snapshot restore accept untrusted JSON.
 
-- `sessionStorage` holds the bearer token. JS-readable. Future XSS = stolen token. **The XSS escaping in viewFilter is the only thing standing between an imported file and full account takeover.** Treat every change to the export pipeline accordingly.
-- `localStorage` cache (`resumestudio:store-cache:v1`) holds the full resume in plaintext. Persists across tabs. Cleared on successful server sync; **not cleared on auth failure** (open issue — see writeup).
-- Don't move secrets into `localStorage`. Don't add new `sessionStorage` keys without thinking about their lifecycle.
+- Imported text becomes resume fields and view config, which the render pipeline re-emits. **§2 is what protects you** — escaping/validation at render, not at import. Don't move escaping into the importer (it would break editing) and don't assume the importer cleaned anything.
+- **No prototype pollution today**: importers assign string values onto fresh `{}`. Keep it that way — never `Object.assign(target, untrustedJson)`, never spread an untrusted object as a *key source* into a privileged object.
+- `isBackupFormat` is deliberately lenient; `migrateBackup` is the gatekeeper (throws `UnsupportedBackupVersionError`). New format versions add a `migrateV{n-1}toV{n}` step.
+- View config from a backup/snapshot is the sharpest edge — it reaches `<style>`/attribute contexts (§2 rule 2).
 
-### 2.6 `window.open` and printable popups
+## 5. Token & cache handling
 
-`ResumeViewsEditor.handleExport` opens a same-origin popup and writes HTML into it. Same XSS rules apply. The popup inherits the parent origin and can call `window.opener.sessionStorage` — `noopener` would block that but also break `win.print()` from the parent. The defence is escape + CSP `<meta>`, both of which are already in `buildViewHtml`.
+- The API token is **not** in JS-readable storage. The client POSTs it to
+  `POST /api/auth/login` (`server/routes/auth.ts`), which sets an **HttpOnly,
+  SameSite=Strict** session cookie; the auth middleware accepts that cookie or
+  an `Authorization: Bearer` header (`server/auth.ts → presentedToken`). So an
+  XSS bug can no longer read or exfiltrate the token. Keep it that way: don't
+  reintroduce `sessionStorage`/`localStorage` token storage, don't drop
+  `HttpOnly`/`SameSite=Strict`, and remember the cookie is the CSRF surface —
+  `SameSite=Strict` is the defence (a same-origin SPA needs no token in headers).
+- `localStorage` holds the full resume per-resume in plaintext as the offline outbound queue. A mid-session 401 clears the plaintext caches **only when nothing is unsynced** (so a wrong token doesn't destroy queued edits); the AuthGate "Clear local data" button calls `api.logout()` + `clearAllCaches()`. Don't move secrets into `localStorage`; don't add cache keys without thinking through their lifecycle (and the `beforeunload`/dirty-queue guards).
 
-## 3. Pre-commit checklist
+## 6. Pre-commit checklist
 
-Run through this for any diff that touches the surfaces in §2.
+1. Grep the diff for the §2 patterns. Every `${…}` in HTML/`style=`/`class=` is escaped, sanitised, or a sanitised token.
+2. New `ViewStyle`/`ViewHeaderConfig`/`ViewFooterConfig` field, or new style/class interpolation → boundary validator extended + breakout regression test added (`tests/viewFilter.test.ts` "HTML escaping (XSS)", `tests/viewStyle.test.ts`, `tests/viewHeader.test.ts`).
+3. New server route → under `apiLimiter, authMiddleware`; body validated; no secret/SQL/upstream detail in errors or logs.
+4. New file-import field → trace where it flows; if it reaches the render pipeline, confirm the escape/validate chain.
+5. New dependency → `npm audit`; a moderate+ advisory in a **prod** dep is a stop (dev deps like vite/esbuild/vitest don't ship — lower priority).
+6. Never expose store/state on `window`.
+7. Run `npm run typecheck` + `npm test` + `npm run build`. The XSS/breakout suites are the canary for this whole class.
 
-1. **Grep the diff** for HTML-building patterns. For each `${...}` inside a `<...>` template literal:
-   - Is the value escaped via `escapeHtml`?
-   - Or is it provably a hardcoded constant?
-   - If neither: stop, fix, re-run.
-2. **Grep the diff** for `innerHTML`, `srcDoc`, `document.write`, `dangerouslySetInnerHTML`. Any new occurrence needs a written justification.
-3. **For new server routes**: confirm auth, body-size validation, and that any user data echoed in error messages is the kind we want echoed (no token fragments, no SQL).
-4. **For new file imports**: trace what fields the imported value flows into. If any reach `buildViewHtml`/`renderItem`/`exporter.ts`, confirm the escape chain is intact.
-5. **For new dependencies**: `npm audit` — moderate or higher in a prod dep is a stop. Dev deps (`vite`, `vitest`, `esbuild`, `tsx`) don't ship and are lower priority.
-6. **Don't expose internal state on `window`**. No `window.useStore` or similar; XSS would read it.
-7. **Run `npm test` and `npm run typecheck`**. The XSS regression tests (`tests/viewFilter.test.ts → HTML escaping (XSS)`) are the canary for this whole class.
+## 7. Known residual risks (don't re-flag — do prioritise fixing)
 
-## 4. Known residual risks (don't re-flag, do prioritize fixing)
+Closed: rate limiting, SPA-shell CSP, DB/settings file ACLs, clean-401 cache
+clearing, the render-pipeline XSS class (§2), the **token→HttpOnly-cookie**
+migration, the `/api/settings/translate/test` SSRF (pending overrides ignored
+on non-desktop builds), and SVG data URLs (`isDataImage` is raster-only).
+Remaining:
 
-These are documented findings from the security review on commit `d6d7c25`. Don't open new tickets for them; do close them when you can.
+- **Session cookie carries the token value** (HttpOnly), not an opaque random
+  session id backed by a server store. Deliberate for the single-tenant model —
+  it keeps the desktop/no-restart story simple — but if a server-side session
+  table ever appears, switch the cookie to an opaque id so the long-lived secret
+  isn't in the cookie at all.
+- **Schema validation at the import boundary** — imports are still `as`-cast, not validated. A Zod schema for `BackupV1`/CVpartner would give better errors and a firmer trust boundary (more robustness than security now that §2 holds).
+- **CSRF depends on `SameSite=Strict`** alone (no token/anti-CSRF header, since the cookie auto-authenticates). Fine for a same-origin SPA; if a cross-origin client is ever added, add an `Origin`/`Sec-Fetch-Site` check on mutating routes.
 
-- **Token in `sessionStorage`** — migrate to HTTP-only cookie + login endpoint when feasible.
-- **No rate limit on `/api/resume`** — add `express-rate-limit` with a tight 429 on the auth-failure path.
-- **No CSP header on the SPA shell** — the print-popup CSP is per-document; the SPA itself has none. Add one to the Express static handler.
-- **`localCache` not cleared on auth gate** — clear it in `submitToken` on `UnauthorizedError`.
-- **DB file ACLs are OS-default** — chmod 0600/0700 after create.
+## 8. What is *not* a finding here
 
-## 5. What is *not* a security finding here
+- `localStorage`/`sessionStorage` existing — load-bearing for offline-first; the fix is closing XSS, not removing storage.
+- `docx` output — it XML-escapes; the DOCX path is safe.
+- PDF via `window.print()` — browser-driven; no PDF library = no PDF-engine CVE surface.
+- `alert()` for error UX — renders text, not HTML.
+- Operator-configured upstreams (LibreTranslate URL, backup dir, compose file) — these are the operator's own server, not remote-attacker input.
+- `uuid < 11.1.1` advisory — only the `buf` parameter path; we call `uuidv4()` with no args. `esbuild`/`vite` advisories — dev-only, don't ship.
 
-Pre-empt the usual noise:
+## 9. Reference commits
 
-- **CVpartner skill proficiency = 0 across the board.** Data quality, not a bug.
-- **`alert()` for error UX.** UX issue, not XSS (alert renders text).
-- **localStorage / sessionStorage in general.** They're load-bearing for offline-first; the fix is closing XSS, not removing storage.
-- **`docx` library output.** It XML-escapes. The DOCX path is safe.
-- **PDF export via `window.print()`.** Browser-driven; no PDF library means no PDF-engine CVE surface.
-- **`uuid < 11.1.1` advisory.** Only the `buf` parameter path is affected; we don't use it.
-- **`esbuild`/`vite` advisories.** Dev-only, don't ship.
-
-## 6. Reference commit
-
-`d6d7c25` — *Close stored-XSS in Resume View export and harden the server.* Read the diff and the body of the commit before reviewing anything in `viewFilter.ts`, `exporter.ts`, or the `server/` tree — it captures the exact patterns and the exact rationale, and the added tests in `tests/viewFilter.test.ts` are the regression net.
+- `d6d7c25` — *Close stored-XSS in Resume View export and harden the server.* The original escape-at-render + CSP + server-hardening work; read it (and `tests/viewFilter.test.ts` "HTML escaping (XSS)") before touching `viewFilter.ts`/`exporter.ts`/`server/`.
+- The `viewStyle.ts`/`viewHeader.ts` boundary validators (`sanitizeHexColor`, `safe*` coercers) — the second-round fix for CSS-injection / attribute breakout via crafted view config. The pattern to copy when adding view-config fields.
+- The `routes/auth.ts` + `auth.ts` cookie-session work — token moved out of `sessionStorage` into an HttpOnly cookie; the `/api/settings/translate/test` SSRF gate; and `isDataImage` raster-only. See `tests/server/authRoutes.test.ts` and the `/translate/test` SSRF-guard test in `settingsRoutes.test.ts`.

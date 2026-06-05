@@ -1,20 +1,12 @@
 import type { ResumeStore } from '../types'
 
-// ─── Auth token (session-scoped) ──────────────────────────────────────────────
-
-const TOKEN_KEY = 'resumestudio-api-token'
-
-export function getStoredToken(): string | null {
-  return sessionStorage.getItem(TOKEN_KEY)
-}
-
-export function setStoredToken(token: string): void {
-  sessionStorage.setItem(TOKEN_KEY, token.trim())
-}
-
-export function clearStoredToken(): void {
-  sessionStorage.removeItem(TOKEN_KEY)
-}
+// ─── Auth ──────────────────────────────────────────────────────────────────────
+//
+// The API token is NOT stored in JS-readable storage. The client POSTs it once
+// to /api/auth/login, which sets an HttpOnly + SameSite=Strict session cookie;
+// every subsequent request carries that cookie automatically (same-origin
+// fetch). This means an XSS bug can no longer read or exfiltrate the token.
+// `api.login` / `api.logout` below drive that exchange.
 
 // ─── Error types ──────────────────────────────────────────────────────────────
 
@@ -62,12 +54,12 @@ async function request(
   const headers: Record<string, string> = {}
   if (body !== undefined) headers['Content-Type'] = 'application/json'
 
-  const token = getStoredToken()
-  if (token) headers['Authorization'] = `Bearer ${token}`
-
   const res = await fetch(url, {
     method,
     headers,
+    // Send the HttpOnly session cookie (same-origin). Auth is carried by the
+    // cookie set at /api/auth/login — no token is attached from JS.
+    credentials: 'same-origin',
     body: body !== undefined ? JSON.stringify(body) : undefined,
     signal,
   })
@@ -116,6 +108,75 @@ export interface LocaleUpdate {
   secondary_locale: string | null
 }
 
+/** Whole-store sync/backup status (desktop build). */
+export type BackupStatus =
+  | { configured: false }
+  | {
+      configured: true
+      /** The configured sync folder (e.g. a Google Drive path). */
+      dir: string
+      /** Absolute path of the backup file inside `dir`. */
+      file: string
+      /** Whether the backup file exists yet. */
+      exists: boolean
+      /** ISO timestamp of the file's last write, or null if it doesn't exist. */
+      lastBackupAt: string | null
+      /** True when the on-disk backup matches the live store. */
+      upToDate: boolean
+      /** Resumes currently in this machine's DB. */
+      resumeCount: number
+      /** Resumes in the backup file, or null if it doesn't exist. */
+      backupResumeCount: number | null
+    }
+
+/** Result of merging the synced backup into this DB. */
+export interface RestoreSummary {
+  inserted: number
+  updated: number
+  skipped: number
+  deleted: number
+}
+
+export type TranslateProvider = 'off' | 'libretranslate' | 'deepl' | 'google' | 'azure'
+
+/** Editable settings as returned to the client (API keys masked to booleans). */
+export interface SettingsView {
+  translate_provider: TranslateProvider
+  libretranslate_url: string
+  libretranslate_api_key_set: boolean
+  translate_docker: boolean
+  deepl_api_key_set: boolean
+  google_api_key_set: boolean
+  azure_api_key_set: boolean
+  azure_region: string
+  backup_dir: string
+  backup_interval_ms: number
+}
+
+/** GET /api/settings response. `managed` is false on env-driven (VPS) builds. */
+export interface SettingsStatus {
+  managed: boolean
+  settings: SettingsView
+  translate: { configured: boolean }
+}
+
+/** Partial settings update (only sent keys change; api keys omitted = unchanged). */
+export interface SettingsUpdate {
+  translate_provider?: TranslateProvider
+  libretranslate_url?: string
+  libretranslate_api_key?: string
+  translate_docker?: boolean
+  deepl_api_key?: string
+  google_api_key?: string
+  azure_api_key?: string
+  azure_region?: string
+  backup_dir?: string
+  backup_interval_ms?: number
+}
+
+export interface TranslateTestResult { reachable: boolean; languages?: number; message: string }
+export interface DockerActionResult { ok?: boolean; available: boolean; reachable?: boolean; message: string }
+
 // ─── API surface ──────────────────────────────────────────────────────────────
 
 export const api = {
@@ -129,6 +190,28 @@ export const api = {
       return res.ok
     } catch {
       return false
+    }
+  },
+
+  // ── Auth (cookie session) ─────────────────────────────────────────────────
+
+  /**
+   * Exchange the API token for an HttpOnly session cookie. On success the
+   * cookie is set by the server and subsequent requests are authenticated
+   * automatically. Throws UnauthorizedError on a wrong token, ServerError
+   * otherwise.
+   */
+  async login(token: string): Promise<void> {
+    const res = await request('POST', '/api/auth/login', { token })
+    if (!res.ok) throw new ServerError(res.status, `Login failed: ${res.statusText}`)
+  },
+
+  /** Clear the session cookie. Best-effort — never throws. */
+  async logout(): Promise<void> {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' })
+    } catch {
+      /* best-effort */
     }
   },
 
@@ -270,5 +353,111 @@ export const api = {
     }
     const json = await res.json() as { translation: string }
     return json.translation
+  },
+
+  // ── Store backup / sync (desktop build) ──────────────────────────────────
+
+  /**
+   * Where/whether the synced store-backup is configured, and whether it's
+   * current. Never throws — returns `{ configured: false }` on any error so a
+   * web/VPS deployment (no sync folder) simply hides the feature.
+   */
+  async backupStatus(): Promise<BackupStatus> {
+    try {
+      const res = await request('GET', '/api/backup/status')
+      if (!res.ok) return { configured: false }
+      return await res.json() as BackupStatus
+    } catch {
+      return { configured: false }
+    }
+  },
+
+  /** Write the whole store to the sync folder now. Throws ServerError on failure. */
+  async backupNow(): Promise<{ file: string; bytes: number; resumeCount: number }> {
+    const res = await request('POST', '/api/backup/now')
+    if (!res.ok) {
+      let message = `Backup failed (${res.status})`
+      try {
+        const json = await res.json() as { error?: string }
+        if (json.error) message = json.error
+      } catch { /* keep default */ }
+      throw new ServerError(res.status, message)
+    }
+    return await res.json() as { file: string; bytes: number; resumeCount: number }
+  },
+
+  /**
+   * Merge the synced backup into this machine's DB. 'merge' (default) is
+   * newest-wins per resume and never deletes; 'replace' also drops local
+   * resumes absent from the backup. Throws ServerError on failure.
+   */
+  async restoreBackup(mode: 'merge' | 'replace' = 'merge'): Promise<RestoreSummary> {
+    const res = await request('POST', '/api/backup/restore', { mode })
+    if (!res.ok) {
+      let message = `Restore failed (${res.status})`
+      try {
+        const json = await res.json() as { error?: string }
+        if (json.error) message = json.error
+      } catch { /* keep default */ }
+      throw new ServerError(res.status, message)
+    }
+    return await res.json() as RestoreSummary
+  },
+
+  // ── Settings (desktop build) ─────────────────────────────────────────────
+
+  /** Current settings + whether they're editable here (`managed`). */
+  async getSettings(): Promise<SettingsStatus> {
+    const res = await request('GET', '/api/settings')
+    if (!res.ok) throw new ServerError(res.status, `Could not load settings: ${res.statusText}`)
+    return await res.json() as SettingsStatus
+  },
+
+  /** Persist a settings change; returns the refreshed status. */
+  async saveSettings(update: SettingsUpdate): Promise<SettingsStatus> {
+    const res = await request('PUT', '/api/settings', update)
+    if (!res.ok) {
+      let message = `Could not save settings (${res.status})`
+      try {
+        const json = await res.json() as { error?: string }
+        if (json.error) message = json.error
+      } catch { /* keep default */ }
+      throw new ServerError(res.status, message)
+    }
+    return await res.json() as SettingsStatus
+  },
+
+  /**
+   * Test a translation config by drafting one short phrase. Pass the pending
+   * form values (provider + any typed keys/url/region); anything omitted falls
+   * back to the saved config server-side, so a masked (un-retyped) key still
+   * works. Never throws.
+   */
+  async testTranslate(input?: SettingsUpdate): Promise<TranslateTestResult> {
+    try {
+      const res = await request('POST', '/api/settings/translate/test', input ?? {})
+      if (!res.ok) return { reachable: false, message: `Test failed (${res.status})` }
+      return await res.json() as TranslateTestResult
+    } catch {
+      return { reachable: false, message: 'Test request failed.' }
+    }
+  },
+
+  /** Start/stop/status the managed Docker LibreTranslate. Never throws. */
+  async translateDocker(action: 'start' | 'stop' | 'status'): Promise<DockerActionResult> {
+    try {
+      const res = await request('POST', '/api/settings/docker', { action })
+      if (!res.ok) {
+        let message = `Docker ${action} failed (${res.status})`
+        try {
+          const json = await res.json() as { error?: string }
+          if (json.error) message = json.error
+        } catch { /* keep default */ }
+        return { available: false, message }
+      }
+      return await res.json() as DockerActionResult
+    } catch {
+      return { available: false, message: `Docker ${action} request failed.` }
+    }
   },
 }

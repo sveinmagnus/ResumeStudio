@@ -1,16 +1,24 @@
 import { useEffect, useRef, useState } from 'react'
 import { useStore, newId } from '../../store/useStore'
 import { DualField } from '../ui/DualField'
+import { ImageField } from '../ui/ImageField'
 import { SECTIONS } from '../../lib/sections'
 import { LOCALE_LABELS, resolve } from '../../lib/locales'
 import {
   buildViewSections, reorderViewSections, isExportableSection,
-  getItemTitle, getItemSubtitle, buildViewHtml,
+  getItemTitle, getItemSubtitle, buildViewHtml, normalizeViewSections,
+  defaultViewDetail,
 } from '../../lib/viewFilter'
 import { DEFAULT_VIEW_STYLE } from '../../lib/viewStyle'
+import {
+  DEFAULT_VIEW_HEADER, DEFAULT_VIEW_FOOTER, withHeaderDefaults, withFooterDefaults,
+  defaultHeaderFields,
+} from '../../lib/viewHeader'
 import type {
   ResumeView, ViewStyle, SectionStyle, SectionDetail,
   Density, BodySize, HeadingFont, PageMargin, TagStyle,
+  ViewHeaderConfig, ViewFooterConfig, HeaderField, HeaderTextStyle,
+  PhotoPlacement, LogoPlacement, FooterSeparator, CopyrightHolder,
 } from '../../types'
 import {
   Plus, Pencil, Trash2, ChevronUp, ChevronDown,
@@ -18,14 +26,27 @@ import {
   Sliders, RotateCcw, PanelRight, PanelRightClose, ExternalLink,
 } from 'lucide-react'
 
+// ─── Header field display labels ──────────────────────────────────────────────
+const HEADER_FIELD_LABELS: Record<HeaderField['key'], string> = {
+  phone: 'Phone',
+  email: 'Email',
+  location: 'Location',
+  nationality: 'Nationality',
+  date_of_birth: 'Date of birth',
+  linkedin: 'LinkedIn',
+  website: 'Website',
+  twitter: 'Twitter / X',
+  languages: 'Languages summary',
+}
+
 // ─── Content sections (excludes non-content + the skill/role registries) ─────
 const CONTENT_SECTIONS = SECTIONS.filter(isExportableSection)
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export function ResumeViewsEditor() {
-  const { data, addItem, removeItem, updateItem } = useStore()
-  const [activeViewId, setActiveViewId] = useState<string | null>(null)
+  // activeViewId lives in the store so the sidebar can deep-link a view.
+  const { data, addItem, removeItem, updateItem, activeViewId, setActiveView } = useStore()
 
   const views = data.views
 
@@ -42,33 +63,35 @@ export function ResumeViewsEditor() {
       page_limit: null,
       template_id: null,
       style: { ...DEFAULT_VIEW_STYLE },
+      header: { ...DEFAULT_VIEW_HEADER, fields: defaultHeaderFields() },
+      footer: { ...DEFAULT_VIEW_FOOTER, copyright_custom: {}, note: {} },
       last_exported_at: null,
       created_at: now,
       updated_at: now,
     }
     addItem('views', view)
-    setActiveViewId(view.id)
+    setActiveView(view.id)
   }
 
   const deleteView = (id: string) => {
-    if (activeViewId === id) setActiveViewId(null)
+    if (activeViewId === id) setActiveView(null)
     removeItem('views', id)
   }
 
   if (activeViewId !== null) {
     const view = views.find((v) => v.id === activeViewId)
-    if (!view) { setActiveViewId(null); return null }
+    if (!view) { setActiveView(null); return null }
     return (
       <ViewEditor
         view={view}
-        onBack={() => setActiveViewId(null)}
+        onBack={() => setActiveView(null)}
         onDelete={() => deleteView(view.id)}
         onUpdate={(patch) => updateItem('views', view.id, patch)}
       />
     )
   }
 
-  return <ViewList views={views} onCreate={createView} onEdit={setActiveViewId} onDelete={deleteView} />
+  return <ViewList views={views} onCreate={createView} onEdit={setActiveView} onDelete={deleteView} />
 }
 
 // ─── View list ────────────────────────────────────────────────────────────────
@@ -212,11 +235,14 @@ function ViewEditor({ view, onBack, onDelete, onUpdate }: {
   const overLimit =
     view.page_limit != null && pageCount != null && pageCount > view.page_limit
 
-  const sections = [...view.sections].sort((a, b) => a.sort_order - b.sort_order)
+  // Normalized so sections added after this view was created (e.g. Key
+  // Competencies, Recommendations, Promoted Projects) still appear and are
+  // configurable. Section edits write the full normalized list back.
+  const sections = normalizeViewSections(view.sections)
 
   const setSectionDetail = (key: string, detail: SectionDetail) => {
     onUpdate({
-      sections: view.sections.map((s) =>
+      sections: sections.map((s) =>
         s.key === key ? { ...s, detail } : s
       ),
     })
@@ -224,7 +250,7 @@ function ViewEditor({ view, onBack, onDelete, onUpdate }: {
 
   const setSectionStyle = (key: string, patch: SectionStyle | null) => {
     onUpdate({
-      sections: view.sections.map((s) => {
+      sections: sections.map((s) => {
         if (s.key !== key) return s
         if (patch === null) {
           const { style: _drop, ...rest } = s
@@ -237,7 +263,7 @@ function ViewEditor({ view, onBack, onDelete, onUpdate }: {
   }
 
   const moveSection = (key: string, dir: 'up' | 'down') => {
-    onUpdate({ sections: reorderViewSections(view.sections, key, dir) })
+    onUpdate({ sections: reorderViewSections(sections, key, dir) })
   }
 
   const toggleItem = (itemId: string) => {
@@ -249,6 +275,15 @@ function ViewEditor({ view, onBack, onDelete, onUpdate }: {
   const viewStyle: ViewStyle = view.style ?? DEFAULT_VIEW_STYLE
   const updateViewStyle = (patch: Partial<ViewStyle>) => {
     onUpdate({ style: { ...viewStyle, ...patch } })
+  }
+
+  const header = withHeaderDefaults(view.header)
+  const updateHeader = (patch: Partial<ViewHeaderConfig>) => {
+    onUpdate({ header: { ...header, ...patch } })
+  }
+  const footer = withFooterDefaults(view.footer)
+  const updateFooter = (patch: Partial<ViewFooterConfig>) => {
+    onUpdate({ footer: { ...footer, ...patch } })
   }
 
   const [docxBusy, setDocxBusy] = useState(false)
@@ -279,9 +314,9 @@ function ViewEditor({ view, onBack, onDelete, onUpdate }: {
 
   const locales = data.resume?.supported_locales ?? [primaryLocale]
   const totalItems = CONTENT_SECTIONS.reduce((acc, s) => {
-    if (!s.storeKey) return acc
+    if (!s.storeKey || s.virtual) return acc // skip the synthetic promoted_projects (shares projects)
     const vs = view.sections.find((v) => v.key === s.key)
-    const detail = vs?.detail ?? 'full'
+    const detail = vs?.detail ?? defaultViewDetail(s.key)
     if (detail === 'off') return acc
     return acc + (data[s.storeKey] as unknown[]).filter(
       (it) => !(it as { disabled?: boolean }).disabled
@@ -343,6 +378,23 @@ function ViewEditor({ view, onBack, onDelete, onUpdate }: {
         />
       </div>
 
+      {/* ── Header ── */}
+      <div className="rv-section-block">
+        <div className="rv-block-heading">Header</div>
+        <p className="rv-block-desc">
+          Configure the document header — name &amp; title typography, which
+          personal-detail rows show (with custom descriptors), and the profile
+          photo / company logo placement.
+        </p>
+        <ViewHeaderControls
+          header={header}
+          primaryLocale={primaryLocale}
+          masterPhoto={data.resume?.profile_photo ?? null}
+          masterLogo={data.resume?.company_logo ?? null}
+          onChange={updateHeader}
+        />
+      </div>
+
       {/* ── Styling ── */}
       <div className="rv-section-block">
         <div className="rv-block-heading">View styling</div>
@@ -368,6 +420,8 @@ function ViewEditor({ view, onBack, onDelete, onUpdate }: {
             if (!def || !def.storeKey) return null
             const storeItems = (data[def.storeKey] as Array<{ id: string; disabled?: boolean; starred?: boolean }>)
               .filter((it) => !it.disabled)
+              // Promoted Projects only lists the starred projects (its source set).
+              .filter((it) => vs.key !== 'promoted_projects' || it.starred)
 
             const off = vs.detail === 'off'
             const hasStyle = !!vs.style && Object.keys(vs.style).length > 0
@@ -456,14 +510,6 @@ function ViewEditor({ view, onBack, onDelete, onUpdate }: {
             />
             Starred items only
           </label>
-          <label className="rv-opt-check">
-            <input
-              type="checkbox"
-              checked={view.include_photo}
-              onChange={(e) => onUpdate({ include_photo: e.target.checked })}
-            />
-            Include photo
-          </label>
           <label className="rv-opt-num">
             <span>Page limit</span>
             <input
@@ -476,6 +522,20 @@ function ViewEditor({ view, onBack, onDelete, onUpdate }: {
             />
           </label>
         </div>
+      </div>
+
+      {/* ── Footer ── */}
+      <div className="rv-section-block">
+        <div className="rv-block-heading">Footer</div>
+        <p className="rv-block-desc">
+          A closing visual at the end of the document — an optional separator
+          line and a short copyright statement.
+        </p>
+        <ViewFooterControls
+          footer={footer}
+          hasCompany={!!(data.resume?.company_name ?? '').trim()}
+          onChange={updateFooter}
+        />
       </div>
 
       {/* ── Export ── */}
@@ -770,6 +830,59 @@ function Styles() {
       }
       .rv-vs-reset:hover { color: var(--accent); background: var(--accent-wash); }
 
+      /* ── Header controls ── */
+      .rv-hdr-sub {
+        display: flex; align-items: center; justify-content: space-between; gap: 12px;
+        font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+        color: var(--ink-faint); margin: 18px 0 10px; padding-top: 14px;
+        border-top: 1px solid var(--line);
+      }
+      .rv-hdr > .rv-hdr-sub:first-child { margin-top: 0; padding-top: 0; border-top: none; }
+      .rv-hdr-note { font-size: 12px; color: var(--ink-soft); margin-bottom: 10px; line-height: 1.5; }
+      .rv-hdr-type-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+      .rv-hdr-type { display: flex; flex-direction: column; gap: 5px; }
+      .rv-hdr-type-row { display: flex; align-items: center; gap: 6px; }
+      .rv-hdr-type-row .rv-vs-select { flex: 1; min-width: 0; }
+      .rv-hdr-size {
+        width: 70px; padding: 7px 8px; border: 1px solid var(--line);
+        border-radius: var(--r-sm); background: var(--paper-raised); font-size: 14px;
+      }
+      .rv-hdr-size:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-wash); }
+      .rv-hdr-pt { font-size: 12px; color: var(--ink-faint); }
+      .rv-hdr-sep {
+        display: inline-flex; align-items: center; gap: 6px; text-transform: none;
+        letter-spacing: 0; font-weight: 600; font-size: 11px; color: var(--ink-soft);
+      }
+      .rv-hdr-sep-input {
+        width: 48px; padding: 3px 6px; border: 1px solid var(--line); border-radius: var(--r-sm);
+        background: var(--paper); text-align: center; font-family: monospace; font-size: 13px;
+      }
+      .rv-hdr-fields { display: flex; flex-direction: column; gap: 4px; }
+      .rv-hdr-field {
+        display: flex; align-items: center; gap: 8px; padding: 5px 8px;
+        border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--paper-raised);
+      }
+      .rv-hdr-field.is-off { opacity: .55; background: var(--paper-sunken); }
+      .rv-hdr-ord { display: flex; flex-direction: column; flex-shrink: 0; }
+      .rv-hdr-ord .rv-ord-btn { width: 20px; height: 16px; }
+      .rv-hdr-show { display: inline-flex; align-items: center; flex-shrink: 0; }
+      .rv-hdr-show input, .rv-hdr-sameline input { accent-color: var(--accent); }
+      .rv-hdr-fname { font-size: 13px; font-weight: 500; width: 130px; flex-shrink: 0; }
+      .rv-hdr-desc {
+        flex: 1; min-width: 60px; padding: 5px 8px; border: 1px solid var(--line);
+        border-radius: var(--r-sm); background: var(--paper); font-size: 13px;
+      }
+      .rv-hdr-desc:focus { outline: none; border-color: var(--accent); }
+      .rv-hdr-desc:disabled { background: var(--paper-sunken); }
+      .rv-hdr-sameline {
+        display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0;
+        font-size: 11.5px; color: var(--ink-soft); cursor: pointer;
+      }
+      .rv-hdr-img-grid {
+        display: grid; grid-template-columns: minmax(150px, 200px) 1fr; gap: 16px; align-items: start;
+      }
+      .rv-hdr-img-grid .imgf-wrap { margin-bottom: 0; }
+
       /* ── Item list ── */
       .rv-item-list { display: flex; flex-direction: column; gap: 1px; margin-top: 10px; }
       .rv-item-row {
@@ -997,6 +1110,266 @@ function Select<T extends string>({
         {options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
       </select>
     </label>
+  )
+}
+
+// ─── View header controls ────────────────────────────────────────────────────
+
+function ViewHeaderControls({
+  header, primaryLocale, masterPhoto, masterLogo, onChange,
+}: {
+  header: ViewHeaderConfig
+  primaryLocale: string
+  masterPhoto: string | null
+  masterLogo: string | null
+  onChange: (patch: Partial<ViewHeaderConfig>) => void
+}) {
+  const fields = [...header.fields].sort((a, b) => a.sort_order - b.sort_order)
+
+  const setField = (key: HeaderField['key'], patch: Partial<HeaderField>) => {
+    onChange({ fields: header.fields.map((f) => (f.key === key ? { ...f, ...patch } : f)) })
+  }
+  const setLabel = (key: HeaderField['key'], text: string) => {
+    const f = header.fields.find((x) => x.key === key)
+    if (!f) return
+    const label = { ...f.label }
+    if (text) label[primaryLocale] = text
+    else delete label[primaryLocale]
+    setField(key, { label })
+  }
+  const moveField = (key: HeaderField['key'], dir: 'up' | 'down') => {
+    const sorted = [...header.fields].sort((a, b) => a.sort_order - b.sort_order)
+    const idx = sorted.findIndex((f) => f.key === key)
+    const swap = dir === 'up' ? idx - 1 : idx + 1
+    if (idx === -1 || swap < 0 || swap >= sorted.length) return
+    ;[sorted[idx], sorted[swap]] = [sorted[swap], sorted[idx]]
+    onChange({ fields: sorted.map((f, i) => ({ ...f, sort_order: i })) })
+  }
+
+  return (
+    <div className="rv-hdr">
+      {/* Typography */}
+      <div className="rv-hdr-sub">Typography</div>
+      <div className="rv-hdr-type-grid">
+        <HeaderTextStyleControl
+          label="Name" value={header.name_style} autoLabel="Auto (large)"
+          onChange={(name_style) => onChange({ name_style })}
+        />
+        <HeaderTextStyleControl
+          label="Title" value={header.title_style} autoLabel="Auto"
+          onChange={(title_style) => onChange({ title_style })}
+        />
+      </div>
+
+      {/* Detail rows */}
+      <div className="rv-hdr-sub">
+        Detail rows
+        <label className="rv-hdr-sep">
+          Separator
+          <input
+            className="rv-hdr-sep-input"
+            value={header.separator}
+            onChange={(e) => onChange({ separator: e.target.value })}
+            maxLength={5}
+          />
+        </label>
+      </div>
+      <p className="rv-hdr-note">
+        Toggle which rows show, edit the descriptor text (in your primary
+        language), and choose whether each shares the previous row's line.
+      </p>
+      <div className="rv-hdr-fields">
+        {fields.map((f, idx) => (
+          <div key={f.key} className={`rv-hdr-field ${f.show ? '' : 'is-off'}`}>
+            <div className="rv-hdr-ord">
+              <button className="rv-ord-btn" onClick={() => moveField(f.key, 'up')} disabled={idx === 0} aria-label="Move up">
+                <ChevronUp size={13} />
+              </button>
+              <button className="rv-ord-btn" onClick={() => moveField(f.key, 'down')} disabled={idx === fields.length - 1} aria-label="Move down">
+                <ChevronDown size={13} />
+              </button>
+            </div>
+            <label className="rv-hdr-show" title="Show this row">
+              <input type="checkbox" checked={f.show} onChange={(e) => setField(f.key, { show: e.target.checked })} />
+            </label>
+            <span className="rv-hdr-fname">{HEADER_FIELD_LABELS[f.key]}</span>
+            <input
+              className="rv-hdr-desc"
+              value={f.label[primaryLocale] ?? ''}
+              placeholder="descriptor…"
+              disabled={!f.show}
+              onChange={(e) => setLabel(f.key, e.target.value)}
+            />
+            <label className="rv-hdr-sameline" title="Render on the same line as the previous row">
+              <input
+                type="checkbox"
+                checked={f.same_line}
+                disabled={!f.show || idx === 0}
+                onChange={(e) => setField(f.key, { same_line: e.target.checked })}
+              />
+              same line
+            </label>
+          </div>
+        ))}
+      </div>
+
+      {/* Photo */}
+      <div className="rv-hdr-sub">Profile photo</div>
+      <div className="rv-hdr-img-grid">
+        <Select<PhotoPlacement>
+          label="Placement"
+          value={header.photo_placement}
+          options={[
+            ['none', 'Hidden'],
+            ['left', 'Left of details'],
+            ['right', 'Right of details'],
+            ['above', 'Above details'],
+            ['below', 'Below details'],
+          ]}
+          onChange={(photo_placement) => onChange({ photo_placement })}
+        />
+        <div className="rv-hdr-override">
+          <ImageField
+            label="Photo override (this view)"
+            value={header.photo_override}
+            onChange={(photo_override) => onChange({ photo_override })}
+            format="jpeg"
+            maxDim={600}
+            shape="square"
+            hint={masterPhoto ? 'Leave empty to use the master photo.' : 'No master photo set — upload one here or in Personal Details.'}
+          />
+        </div>
+      </div>
+
+      {/* Logo */}
+      <div className="rv-hdr-sub">Company logo</div>
+      <div className="rv-hdr-img-grid">
+        <Select<LogoPlacement>
+          label="Placement"
+          value={header.logo_placement}
+          options={[
+            ['none', 'Hidden'],
+            ['left', 'Top left'],
+            ['center', 'Top center'],
+            ['right', 'Top right'],
+          ]}
+          onChange={(logo_placement) => onChange({ logo_placement })}
+        />
+        <div className="rv-hdr-override">
+          <ImageField
+            label="Logo override (this view)"
+            value={header.logo_override}
+            onChange={(logo_override) => onChange({ logo_override })}
+            format="png"
+            maxDim={600}
+            shape="wide"
+            hint={masterLogo ? 'Leave empty to use the master logo.' : 'No master logo set — upload one here or in Personal Details.'}
+          />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function HeaderTextStyleControl({
+  label, value, autoLabel, onChange,
+}: {
+  label: string
+  value: HeaderTextStyle
+  autoLabel: string
+  onChange: (v: HeaderTextStyle) => void
+}) {
+  return (
+    <div className="rv-hdr-type">
+      <span className="rv-vs-label">{label}</span>
+      <div className="rv-hdr-type-row">
+        <select
+          className="rv-vs-select"
+          value={value.font}
+          onChange={(e) => onChange({ ...value, font: e.target.value as HeaderTextStyle['font'] })}
+        >
+          <option value="condensed">Condensed</option>
+          <option value="sans">Sans (Ubuntu)</option>
+          <option value="serif">Serif (Georgia)</option>
+          <option value="body">Body font</option>
+        </select>
+        <input
+          className="rv-hdr-size"
+          type="number"
+          min={6} max={72}
+          value={value.size_pt ?? ''}
+          placeholder={autoLabel}
+          title="Font size in points (blank = automatic)"
+          onChange={(e) => onChange({ ...value, size_pt: e.target.value ? parseInt(e.target.value) : null })}
+        />
+        <span className="rv-hdr-pt">pt</span>
+      </div>
+    </div>
+  )
+}
+
+// ─── View footer controls ────────────────────────────────────────────────────
+
+function ViewFooterControls({
+  footer, hasCompany, onChange,
+}: {
+  footer: ViewFooterConfig
+  hasCompany: boolean
+  onChange: (patch: Partial<ViewFooterConfig>) => void
+}) {
+  return (
+    <>
+      <div className="rv-vs-grid">
+        <Select<FooterSeparator>
+          label="Closing separator"
+          value={footer.separator}
+          options={[
+            ['none', 'None'],
+            ['line', 'Thin line'],
+            ['thick', 'Thick line'],
+            ['double', 'Double line'],
+            ['dotted', 'Dotted'],
+            ['dashed', 'Dashed'],
+          ]}
+          onChange={(separator) => onChange({ separator })}
+        />
+        <Select<CopyrightHolder>
+          label="Copyright statement"
+          value={footer.copyright}
+          options={[
+            ['none', 'None'],
+            ['person', 'Your name'],
+            ['company', hasCompany ? 'Company name' : 'Company (not set)'],
+            ['custom', 'Custom…'],
+          ]}
+          onChange={(copyright) => onChange({ copyright })}
+        />
+      </div>
+      {footer.copyright === 'company' && !hasCompany && (
+        <p className="rv-hdr-note" style={{ color: '#b45309' }}>
+          No company name is set in Personal Details — the copyright line will be
+          omitted until you add one.
+        </p>
+      )}
+      {footer.copyright === 'custom' && (
+        <div style={{ marginTop: 12 }}>
+          <DualField
+            label="Custom copyright holder (this view)"
+            value={footer.copyright_custom}
+            onChange={(copyright_custom) => onChange({ copyright_custom })}
+            placeholder="e.g. Another Consultancy AS"
+          />
+        </div>
+      )}
+      <div style={{ marginTop: 12 }}>
+        <DualField
+          label="Footer note (optional)"
+          value={footer.note}
+          onChange={(note) => onChange({ note })}
+          placeholder="e.g. Confidential — do not distribute"
+        />
+      </div>
+    </>
   )
 }
 

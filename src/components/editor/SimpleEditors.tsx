@@ -11,6 +11,7 @@ import { richToPlain } from '../../lib/richText'
 import type {
   WorkExperience, Education, Course, Certification, Position,
   Presentation, HonorAward, Publication, SpokenLanguage, KeyQualification,
+  KeyCompetency, Recommendation,
 } from '../../types'
 
 // ── Employment ────────────────────────────────────────────────────────────────
@@ -368,6 +369,106 @@ export function SpokenLanguagesEditor() {
       ))}
       </SortableList>
       <AddButton label="Add language" onClick={add} />
+    </div>
+  )
+}
+
+// ── Key competencies ───────────────────────────────────────────────────────
+
+export function KeyCompetenciesEditor() {
+  const { data, primaryLocale, addItem, updateItem } = useStore()
+  const items = useSortedItems('key_competencies')
+  const add = () => {
+    const k: KeyCompetency = {
+      id: newId(), resume_id: data.resume!.id, title: {}, description: {},
+      sort_order: items.length, starred: false, disabled: false,
+    }
+    addItem('key_competencies', k)
+  }
+  return (
+    <div className="section-pane">
+      <p className="kc-intro">
+        A custom summary of your skillset as a set of key competencies — each a
+        short heading and a longer description. These render as their own section,
+        by default just below your profile.
+      </p>
+      <SortBar section="key_competencies" count={items.length} />
+      <SortableList section="key_competencies" ids={items.map((x) => x.id)}>
+      {items.map((k) => (
+        <EditorCard key={k.id} section="key_competencies" id={k.id}
+          title={resolve(k.title, primaryLocale) || 'Competency'}
+          preview={richToPlain(resolve(k.description, primaryLocale))}
+          starred={k.starred} disabled={k.disabled}>
+          <DualField label="Competency" value={k.title} onChange={(v) => updateItem('key_competencies', k.id, { title: v })} placeholder="e.g. Solution architecture" />
+          <RichField label="Description" value={k.description} onChange={(v) => updateItem('key_competencies', k.id, { description: v })} />
+        </EditorCard>
+      ))}
+      </SortableList>
+      <AddButton label="Add competency" onClick={add} />
+      <style>{`
+        .kc-intro {
+          font-size: 13.5px; color: var(--ink-soft); line-height: 1.55;
+          padding: 12px 14px; margin-bottom: 16px;
+          background: var(--paper-sunken); border-left: 3px solid var(--accent);
+          border-radius: var(--r-sm);
+        }
+      `}</style>
+    </div>
+  )
+}
+
+// ── Recommendations ────────────────────────────────────────────────────────
+
+export function RecommendationsEditor() {
+  const { data, primaryLocale, addItem, updateItem } = useStore()
+  const items = useSortedItems('recommendations')
+  const add = () => {
+    const r: Recommendation = {
+      id: newId(), resume_id: data.resume!.id,
+      recommender_name: '', recommender_title: null, recommender_company: null,
+      relationship: {}, text: {}, date: null, source: null, contact_url: null,
+      sort_order: items.length, starred: false, disabled: false,
+    }
+    addItem('recommendations', r)
+  }
+  return (
+    <div className="section-pane">
+      <p className="rec-intro">
+        Testimonials you have received from colleagues and customers. Choose which
+        ones appear in each Resume View from the view editor.
+      </p>
+      <SortBar section="recommendations" count={items.length} />
+      <SortableList section="recommendations" ids={items.map((x) => x.id)}>
+      {items.map((r) => (
+        <EditorCard key={r.id} section="recommendations" id={r.id}
+          title={r.recommender_name || 'Recommendation'}
+          subtitle={[r.recommender_title, r.recommender_company].filter(Boolean).join(', ')}
+          meta={fmtDate(r.date)} preview={richToPlain(resolve(r.text, primaryLocale))}
+          starred={r.starred} disabled={r.disabled}>
+          <FieldRow>
+            <TextField label="Recommender" value={r.recommender_name} onChange={(v) => updateItem('recommendations', r.id, { recommender_name: v })} />
+            <TextField label="Title / role" value={r.recommender_title || ''} onChange={(v) => updateItem('recommendations', r.id, { recommender_title: v || null })} />
+            <TextField label="Company" value={r.recommender_company || ''} onChange={(v) => updateItem('recommendations', r.id, { recommender_company: v || null })} />
+          </FieldRow>
+          <DualField label="Relationship" value={r.relationship} onChange={(v) => updateItem('recommendations', r.id, { relationship: v })} placeholder="e.g. Project manager on the platform rebuild" />
+          <RichField label="Testimonial" value={r.text} onChange={(v) => updateItem('recommendations', r.id, { text: v })} />
+          <FieldRow>
+            <DateField label="Date received" value={r.date} onChange={(v) => updateItem('recommendations', r.id, { date: v })} />
+            <TextField label="Source" value={r.source || ''} onChange={(v) => updateItem('recommendations', r.id, { source: v || null })} placeholder="e.g. LinkedIn" />
+            <TextField label="Link" value={r.contact_url || ''} onChange={(v) => updateItem('recommendations', r.id, { contact_url: v || null })} />
+          </FieldRow>
+        </EditorCard>
+      ))}
+      </SortableList>
+      <AddButton label="Add recommendation" onClick={add} />
+      <style>{`
+        .rec-intro {
+          font-size: 13.5px; color: var(--ink-soft); line-height: 1.55;
+          padding: 12px 14px; margin-bottom: 16px;
+          background: var(--paper-sunken); border-left: 3px solid var(--accent);
+          border-radius: var(--r-sm);
+        }
+      `}</style>
     </div>
   )
 }

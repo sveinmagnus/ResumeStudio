@@ -1,0 +1,228 @@
+# Resume Studio — Desktop build & cross-computer sync
+
+This is the downloadable, self-deployable build: a double-clickable launcher
+that starts the app locally and opens it in your browser, with your data stored
+privately on your machine and an optional one-folder backup that syncs across
+computers via Google Drive / Dropbox / OneDrive.
+
+It is the **same** Express + SQLite + React app as the server build — just
+packaged so a non-technical user can run it without installing Node, and wired
+to keep data in a stable per-user location with a safe sync story. The
+architecture is unchanged, so a future move to Electron is repackaging, not a
+rewrite (see CLAUDE.md §1 / the desktop notes there).
+
+---
+
+## 1. Building the portable folder
+
+```
+npm install
+npm run build:desktop
+```
+
+This runs the client build and then `scripts/build-desktop.mjs`, producing a
+self-contained `release/` folder:
+
+```
+release/
+  node[.exe]                     ← the Node runtime (copied from your machine)
+  Resume Studio.cmd              ← Windows launcher (shows a status/log window)
+  Resume Studio (no window).vbs  ← Windows launcher, no console window
+  resume-studio.sh               ← Linux/macOS launcher
+  Resume Studio.command          ← macOS Finder-double-clickable (macOS builds)
+  README.txt                     ← end-user quick start
+  app/
+    launcher.cjs                 ← the whole server, bundled by esbuild
+    dist/                        ← the built React client
+    node_modules/                ← only better-sqlite3 + its native deps
+```
+
+Zip `release/`, hand it to a user, and they unzip + double-click. No install.
+
+> **Build on each target OS.** The bundled Node binary and better-sqlite3's
+> compiled `.node` addon are platform-specific. Run `npm run build:desktop` on
+> Windows to make the Windows build, on Linux for Linux, on macOS for macOS.
+> There is no cross-compilation step.
+
+### Quick local run (no packaging)
+
+```
+npm run desktop
+```
+
+Builds the client and runs the launcher straight from the source via `tsx` —
+handy for trying the desktop boot/sync behavior without assembling `release/`.
+
+---
+
+## 2. Launching & stopping
+
+Double-click the launcher. A small window appears showing startup logs and the
+URL, and your browser opens the app automatically. **Close that window (or press
+Ctrl-C in it) to stop the app.** The `.vbs` variant runs with no window; stop it
+from Task Manager.
+
+To make a Start-menu / desktop shortcut, create a normal OS shortcut pointing at
+the launcher file. (On Linux you can write a `~/.local/share/applications/
+resume-studio.desktop` entry whose `Exec=` is the absolute path to
+`resume-studio.sh`.)
+
+The launcher picks the first free port starting at 3001, so multiple things on
+3001 won't collide, and writes the chosen URL into the window + log.
+
+---
+
+## 3. Where your data lives
+
+The live SQLite database and a log file live in a **private per-user folder**,
+deliberately *outside* the `release/` folder so you can move, replace, or delete
+the app folder without touching your data:
+
+| OS | Data folder |
+|----|-------------|
+| Windows | `%APPDATA%\ResumeStudio` |
+| macOS | `~/Library/Application Support/ResumeStudio` |
+| Linux | `$XDG_DATA_HOME/resume-studio` or `~/.local/share/resume-studio` |
+
+Override with `RESUME_DATA_DIR` if you want it elsewhere.
+
+The database keeps full snapshot history per resume (the in-app **History**
+button), so accidental edits are recoverable independently of backups.
+
+---
+
+## 4. Settings (translation + sync folder)
+
+Click the **gear icon** (top-right of the resume picker) to open Settings. This
+is where a desktop user turns features on or off — no shell variables, no
+editing the launcher. Changes are saved to `settings.json` in the data folder
+(§3) and take effect immediately.
+
+Two things are configured here:
+
+- **Translation** (the "Draft translation" button on the second language) — pick
+  a provider from the dropdown:
+  - **Off** (default) — no machine translation. "Copy from primary" still works.
+  - **LibreTranslate — local (Docker-managed)** — the app runs a LibreTranslate
+    container for you via Docker. Requires **Docker Desktop** installed and
+    running; the **first** start downloads language models (a few GB, several
+    minutes). Use **Start / Stop / Check status**, then **Save** to auto-start it
+    on every launch. Nothing leaves your machine.
+  - **LibreTranslate — remote URL** — point at a LibreTranslate instance you host
+    elsewhere, with an optional API key.
+  - **DeepL** — paste a DeepL API key. Free and Pro keys both work (auto-detected
+    from the `:fx` suffix). Best quality for Norwegian/Swedish/Danish.
+  - **Google Cloud Translation** — paste a Google Cloud Translation API key.
+  - **Microsoft Azure Translator** — paste the key and its **region** (e.g.
+    `westeurope`).
+  - For any provider except "off", **Test connection** drafts one short phrase to
+    confirm the key/URL works. CV text only ever travels browser → this app →
+    the chosen provider.
+- **Backup & sync folder** — the cloud-synced folder described in §5. Paste the
+  path and Save.
+
+> On a server (VPS) deployment the gear shows a read-only note instead: there,
+> these are controlled by environment variables, not the app.
+
+## 5. Backup & sync across computers
+
+This is the recommended way to use one set of CVs on several machines.
+
+**How it works.** In **Settings → Backup & sync folder**, set a cloud-synced
+folder (Google Drive / Dropbox / OneDrive). Resume Studio then keeps a single
+JSON file, `resume-studio-backup.json`, in that folder containing **all** your
+resumes. It is written atomically (so the sync client never sees a half file):
+
+- once at startup,
+- whenever the store changes while running (about once a minute, only if
+  something actually changed — no idle churn),
+- once on a clean shutdown,
+- and on demand from the picker's **Sync & backup** panel ("Back up now").
+
+On every launch, Resume Studio also **merges in** anything newer from that file.
+So the typical flow is:
+
+1. On computer A, open **Settings** and set the backup folder to e.g.
+   `…/Google Drive/ResumeStudio`, then use the app normally.
+2. On computer B, set the **same** synced folder in Settings and relaunch (or
+   click **Restore from folder** in the picker's Sync panel). B pulls A's
+   resumes in automatically (the log shows `sync-in: +N new`).
+
+**Merge rules (safe by design).** Merging is *newest-wins per resume*, keyed on
+each resume's last-saved time, and a union across machines:
+
+- A resume that's newer in the backup replaces the local copy.
+- A resume you don't have yet is added.
+- A resume that's newer locally is kept.
+- **Nothing is ever deleted** by a normal restore. (A restore also drops a
+  snapshot first, so you can undo it from History.)
+
+This means it's last-writer-wins if you edit the *same* resume on two machines
+without syncing in between — fine for a single person hopping between computers,
+but it is not a real-time multi-writer collaboration system.
+
+### Why not just put the database in Google Drive?
+
+Because a live SQLite file (plus its `-wal`/`-shm` sidecars) inside a cloud-sync
+folder is a known corruption trap: the sync client uploads the pieces at
+inconsistent moments and two machines can clobber each other. The JSON backup
+sidesteps that entirely — only a plain, atomically-written file syncs, and the
+merge is deterministic. (If you really want the live DB in a synced folder
+anyway, set `RESUME_DB_JOURNAL=TRUNCATE` so no WAL sidecars are left around —
+but the JSON-backup route above is strongly preferred.)
+
+### Manual / portable backups
+
+Independent of the sync folder, the in-editor **Export backup** button still
+downloads a single resume's portable JSON, and **History** keeps server-side
+snapshots. The sync folder backup is the *whole store*; the export button is
+*one resume*.
+
+---
+
+## 6. Configuration reference
+
+Most users never touch these — **Settings** (§4) covers translation and the sync
+folder, with everything else defaulted. These env vars are an advanced/override
+layer (set them in the shell or the launcher shim before launching). On the
+desktop build, `settings.json` is authoritative: it's seeded from these on the
+first run, then overrides them.
+
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `RESUME_DATA_DIR` | Where the live DB + log live | per-user OS folder (§3) |
+| `RESUME_BACKUP_DIR` | Cloud-synced folder for the store backup (usually set via Settings) | unset (sync off) |
+| `RESUME_BACKUP_INTERVAL_MS` | How often to refresh the backup when changed | `60000` |
+| `LIBRETRANSLATE_URL` | LibreTranslate base URL (usually set via Settings) | unset (translate off) |
+| `LIBRETRANSLATE_API_KEY` | Optional LibreTranslate key | unset |
+| `RESUME_DB_PATH` | Exact DB file (overrides data-dir derivation) | `<dataDir>/resume.db` |
+| `RESUME_DB_JOURNAL` | SQLite journal mode | `WAL` |
+| `RESUME_CLIENT_DIR` | Where the built client lives | set by the launcher shim |
+| `RESUME_COMPOSE_FILE` | docker-compose file for managed translate | set by the launcher shim |
+| `PORT` | Preferred port (auto-advances if taken) | `3001` |
+| `RESUME_NO_BROWSER` | Don't auto-open a browser (headless/CI) | unset |
+| `RESUME_API_TOKEN` | Require a bearer token (not needed for loopback-only) | unset |
+
+The server binds **loopback only** (`127.0.0.1`), so the app is never exposed to
+your local network.
+
+---
+
+## 7. Troubleshooting
+
+- **Nothing opened in the browser.** The window/log prints the URL — open it
+  manually. Pop-up/launch blockers can stop the auto-open.
+- **Where are the logs?** `resume-studio.log` in the data folder (§3).
+- **"Restore from folder" is greyed out.** No backup file exists in the sync
+  folder yet — click **Back up now** on the first machine first (or let it run a
+  minute), and make sure the cloud client has finished syncing the file down to
+  this machine.
+- **Moved the app and lost data?** You didn't — data is in the per-user folder
+  (§3), not in `release/`. Set the same backup folder in Settings on the new copy
+  if you also want the synced backup.
+- **Translate "Draft" button missing.** Open **Settings** and choose Local
+  (Docker) or Remote URL, then **Save**. With the local option, the container's
+  first run downloads models — until that finishes, **Check status** / **Test
+  connection** report "not reachable" and drafts will fail.
+- **Docker option says "not available".** Install Docker Desktop and make sure
+  it's running, or use a Remote URL instead.

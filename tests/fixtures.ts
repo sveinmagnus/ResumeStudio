@@ -2,14 +2,16 @@ import type {
   ResumeStore, ResumeView, Project, WorkExperience, Education,
   Course, Certification, Skill, Role, KeyQualification, SpokenLanguage,
   TechnologyCategory, Position, Presentation, Publication, HonorAward,
-  Reference, Resume,
+  Reference, Resume, KeyCompetency, Recommendation,
 } from '../src/types'
 import { DEFAULT_VIEW_STYLE } from '../src/lib/viewStyle'
+import { DEFAULT_VIEW_HEADER, DEFAULT_VIEW_FOOTER, defaultHeaderFields } from '../src/lib/viewHeader'
 
 export function emptyStore(): ResumeStore {
   return {
     resume: makeResume(),
-    skills: [], roles: [], key_qualifications: [], projects: [],
+    skills: [], roles: [], key_qualifications: [], key_competencies: [],
+    recommendations: [], projects: [],
     work_experiences: [], educations: [], courses: [], certifications: [],
     spoken_languages: [], technology_categories: [], positions: [],
     presentations: [], honor_awards: [], publications: [], references: [],
@@ -34,6 +36,9 @@ export function makeResume(over: Partial<Resume> = {}): Resume {
     linkedin_url: null,
     website_url: null,
     profile_image_url: null,
+    profile_photo: null,
+    company_logo: null,
+    company_name: null,
     default_locale: 'en',
     supported_locales: ['en', 'no'],
     created_at: '2024-01-01T00:00:00Z',
@@ -194,6 +199,38 @@ export function makeKQ(over: Partial<KeyQualification> = {}): KeyQualification {
   }
 }
 
+export function makeKeyCompetency(over: Partial<KeyCompetency> = {}): KeyCompetency {
+  return {
+    id: id(),
+    resume_id: 'resume-1',
+    title: { en: 'Solution architecture' },
+    description: { en: 'Designing scalable systems.' },
+    sort_order: 0,
+    starred: false,
+    disabled: false,
+    ...over,
+  }
+}
+
+export function makeRecommendation(over: Partial<Recommendation> = {}): Recommendation {
+  return {
+    id: id(),
+    resume_id: 'resume-1',
+    recommender_name: 'Jane Colleague',
+    recommender_title: 'CTO',
+    recommender_company: 'BigCo',
+    relationship: { en: 'Worked together on the platform' },
+    text: { en: 'A pleasure to work with.' },
+    date: null,
+    source: null,
+    contact_url: null,
+    sort_order: 0,
+    starred: false,
+    disabled: false,
+    ...over,
+  }
+}
+
 export function makeSpokenLanguage(over: Partial<SpokenLanguage> = {}): SpokenLanguage {
   return {
     id: id(),
@@ -319,6 +356,8 @@ export function makeView(over: Partial<ResumeView> = {}): ResumeView {
     page_limit: null,
     template_id: null,
     style: { ...DEFAULT_VIEW_STYLE },
+    header: { ...DEFAULT_VIEW_HEADER, fields: defaultHeaderFields() },
+    footer: { ...DEFAULT_VIEW_FOOTER, copyright_custom: {}, note: {} },
     last_exported_at: null,
     created_at: '2024-01-01T00:00:00Z',
     updated_at: '2024-01-01T00:00:00Z',

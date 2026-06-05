@@ -2,6 +2,9 @@ node_modules/
 dist/
 coverage/
 
+# Portable desktop build output (assembled by scripts/build-desktop.mjs)
+release/
+
 # Runtime data — database lives here, never commit it
 data/
 

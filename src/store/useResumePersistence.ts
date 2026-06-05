@@ -22,8 +22,6 @@ import {
   ConflictError,
   ServerError,
   isAbortError,
-  setStoredToken,
-  clearStoredToken,
 } from '../lib/api'
 import type { ResumeStore } from '../types'
 import { type SaveState } from '../components/layout/SaveStatus'
@@ -359,22 +357,19 @@ export function useResumePersistence(resumeId: string): ResumePersistence {
   }, [conflict, loadStore, resumeId, flushToServer])
 
   const submitToken = useCallback(async (token: string) => {
-    setStoredToken(token)
-    try {
-      const res = await api.loadResume(resumeId)
-      if (res) {
-        loadStore(res.data, {
-          primary: res.meta.primary_locale,
-          secondary: res.meta.secondary_locale,
-        })
-        baseVersion.current = res.meta.version
-        setLoadState('ready')
-      } else {
-        setLoadState('not-found')
-      }
-    } catch (err) {
-      if (err instanceof UnauthorizedError) clearStoredToken()
-      throw err
+    // Exchange the token for the HttpOnly session cookie first; a wrong token
+    // throws UnauthorizedError here (no cookie set), which the AuthGate surfaces.
+    await api.login(token)
+    const res = await api.loadResume(resumeId)
+    if (res) {
+      loadStore(res.data, {
+        primary: res.meta.primary_locale,
+        secondary: res.meta.secondary_locale,
+      })
+      baseVersion.current = res.meta.version
+      setLoadState('ready')
+    } else {
+      setLoadState('not-found')
     }
   }, [loadStore, resumeId])
 

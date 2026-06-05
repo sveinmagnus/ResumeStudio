@@ -1,17 +1,20 @@
 import { useStore } from '../../store/useStore'
 import { DualField } from '../ui/DualField'
 import { TextField } from '../ui/Fields'
-import { ProfileEditor } from './SimpleEditors'
-import { User, FileText } from 'lucide-react'
+import { ImageField } from '../ui/ImageField'
+import { ProfileEditor, KeyCompetenciesEditor } from './SimpleEditors'
+import { User, FileText, ListChecks } from 'lucide-react'
 
 /**
- * Personal Details host. Two sub-tabs:
- *   - Identity: the resume root (name/contact/title/links).
+ * Personal Details host. Three sub-tabs:
+ *   - Identity: the resume root (name/contact/title/links/photo/company).
  *   - Profile: the key_qualifications blocks (label/tag-line/summary/key points).
+ *   - Key competencies: the key_competencies entries (title + description).
  *
  * Which tab is active mirrors the store's `activeSection`:
  *   - 'header'             → Identity
  *   - 'key_qualifications' → Profile
+ *   - 'key_competencies'   → Key competencies
  *
  * The Overview's "missing field" drill-down navigates to
  * activeSection='key_qualifications' for KQ fields; we honour that here so a
@@ -22,7 +25,9 @@ export function HeaderEditor() {
   const r = data.resume
   if (!r) return null
 
-  const tab = activeSection === 'key_qualifications' ? 'profile' : 'identity'
+  const tab = activeSection === 'key_qualifications' ? 'profile'
+    : activeSection === 'key_competencies' ? 'competencies'
+    : 'identity'
 
   return (
     <div className="section-pane">
@@ -43,9 +48,19 @@ export function HeaderEditor() {
         >
           <FileText size={14} /> Profile &amp; summary
         </button>
+        <button
+          role="tab"
+          aria-selected={tab === 'competencies'}
+          className={`hd-tab ${tab === 'competencies' ? 'is-active' : ''}`}
+          onClick={() => setActiveSection('key_competencies')}
+        >
+          <ListChecks size={14} /> Key competencies
+        </button>
       </div>
 
-      {tab === 'identity' ? (
+      {tab === 'competencies' ? (
+        <KeyCompetenciesEditor />
+      ) : tab === 'identity' ? (
         <>
           <div className="editor-block">
             <h3 className="eb-title">Identity</h3>
@@ -73,6 +88,40 @@ export function HeaderEditor() {
               <TextField label="Profile image URL" value={r.profile_image_url || ''} onChange={(v) => updateResume({ profile_image_url: v })} />
             </div>
           </div>
+
+          <div className="editor-block">
+            <h3 className="eb-title">Photo &amp; company</h3>
+            <p className="eb-desc">
+              Upload a profile photo and your consultancy logo here. Each Resume View
+              controls whether and where they appear, and can override them per view.
+            </p>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
+              <ImageField
+                label="Profile photo"
+                value={r.profile_photo ?? null}
+                onChange={(v) => updateResume({ profile_photo: v })}
+                format="jpeg"
+                maxDim={600}
+                shape="square"
+                hint="Square crop works best. Stored in the resume; scaled down automatically."
+              />
+              <ImageField
+                label="Company logo"
+                value={r.company_logo ?? null}
+                onChange={(v) => updateResume({ company_logo: v })}
+                format="png"
+                maxDim={600}
+                shape="wide"
+                hint="Transparent PNG recommended."
+              />
+            </div>
+            <TextField
+              label="Company name"
+              value={r.company_name || ''}
+              onChange={(v) => updateResume({ company_name: v })}
+              placeholder="e.g. Cartavio AS"
+            />
+          </div>
         </>
       ) : (
         <ProfileEditor />
@@ -92,6 +141,7 @@ export function HeaderEditor() {
         }
         .hd-tab:hover { color: var(--accent); }
         .hd-tab.is-active { color: var(--accent); border-bottom-color: var(--accent); }
+        .eb-desc { font-size: 13px; color: var(--ink-soft); line-height: 1.55; margin-bottom: 14px; }
       `}</style>
     </div>
   )

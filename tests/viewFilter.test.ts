@@ -1,13 +1,21 @@
 import { describe, it, expect } from 'vitest'
 import {
   applyView, buildViewSections, reorderViewSections,
-  getItemTitle, getItemSubtitle, buildViewHtml,
+  getItemTitle, getItemSubtitle, buildViewHtml, isDataImage,
+  normalizeViewSections, defaultViewDetail, promotedProjectItems,
 } from '../src/lib/viewFilter'
 import { SECTIONS } from '../src/lib/sections'
+import { DEFAULT_VIEW_STYLE } from '../src/lib/viewStyle'
+import { withHeaderDefaults, withFooterDefaults } from '../src/lib/viewHeader'
 import {
   emptyStore, makeProject, makeWork, makeEducation, makeKQ,
-  makeView, makeReference, makeSpokenLanguage,
+  makeView, makeReference, makeSpokenLanguage, makeResume,
+  makeKeyCompetency, makeRecommendation,
 } from './fixtures'
+
+// A 1x1 transparent PNG data URL (valid for the isDataImage guard + img embedding).
+const PNG_1x1 =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+P+/HgAFhAJ/wlseKgAAAABJRU5ErkJggg=='
 
 // ─── buildViewSections ────────────────────────────────────────────────────────
 
@@ -18,7 +26,11 @@ describe('buildViewSections()', () => {
       (s) => s.storeKey && !['views', 'skills', 'roles'].includes(s.key)
     )
     expect(sections).toHaveLength(exportable.length)
-    expect(sections.every((s) => s.detail === 'full')).toBe(true)
+    // Every content section defaults to 'full' except the synthetic
+    // promoted_projects, which defaults to 'off' so views are unchanged
+    // until the user opts in.
+    expect(sections.filter((s) => s.key !== 'promoted_projects').every((s) => s.detail === 'full')).toBe(true)
+    expect(sections.find((s) => s.key === 'promoted_projects')?.detail).toBe('off')
   })
 
   it('does not include the "views" section', () => {
@@ -372,6 +384,61 @@ describe('buildViewHtml()', () => {
       expect(html).toMatch(/<meta http-equiv="Content-Security-Policy"/)
       expect(html).toContain("default-src 'none'")
     })
+
+    // ── CSS-injection / <style> breakout via view style+header config ──
+    // These fields come from the view, which can originate from an untrusted
+    // backup / snapshot import (the editor UI validates, the import path does
+    // not). They flow into the document's <style> block / inline style=/class
+    // attributes, so a crafted value must not break out.
+
+    it('neutralises a CSS-injection payload in accent_color', () => {
+      const store = emptyStore()
+      const view = makeView({
+        sections: buildViewSections(),
+        // Attempt to close the <style> element and inject active markup.
+        style: { ...DEFAULT_VIEW_STYLE, accent_color: '</style><img src=x onerror=alert(1)>' },
+      })
+      const html = buildViewHtml(store, view, 'en')
+      expect(html).not.toMatch(/<\/style><img/i)
+      expect(html).not.toMatch(/<img\s+src=x\s+onerror=/i)
+      // The accent falls back to the Cartavio navy default.
+      expect(html).toContain('#002E6E')
+    })
+
+    it('neutralises a breakout payload in name_style.size_pt (inline style)', () => {
+      const store = emptyStore()
+      const header = withHeaderDefaults(undefined)
+      // size_pt is typed number|null but a crafted import can smuggle a string.
+      ;(header.name_style as { size_pt: unknown }).size_pt = '0pt"><img src=x onerror=alert(1)><span x="'
+      const html = buildViewHtml(store, makeView({ sections: buildViewSections(), header }), 'en')
+      expect(html).not.toMatch(/<img\s+src=x\s+onerror=/i)
+    })
+
+    it('neutralises a breakout payload in photo_placement (class attribute)', () => {
+      const store = emptyStore()
+      store.resume!.profile_photo = PNG_1x1
+      const header = withHeaderDefaults(undefined)
+      ;(header as { photo_placement: unknown }).photo_placement = 'left"><img src=x onerror=alert(1)><div class="'
+      const html = buildViewHtml(store, makeView({ sections: buildViewSections(), header }), 'en')
+      expect(html).not.toMatch(/<img\s+src=x\s+onerror=/i)
+    })
+
+    it('neutralises a breakout payload in footer.separator (class attribute)', () => {
+      const store = emptyStore()
+      const footer = withFooterDefaults(undefined)
+      ;(footer as { separator: unknown }).separator = 'line"><img src=x onerror=alert(1)><footer class="'
+      const html = buildViewHtml(store, makeView({ sections: buildViewSections(), footer }), 'en')
+      expect(html).not.toMatch(/<img\s+src=x\s+onerror=/i)
+    })
+
+    it('does not throw on out-of-enum style values from a crafted import', () => {
+      const store = emptyStore()
+      const view = makeView({
+        sections: buildViewSections(),
+        style: { ...DEFAULT_VIEW_STYLE, density: 'evil', body_size: 'evil', heading_font: 'evil', page_margin: 'evil' } as never,
+      })
+      expect(() => buildViewHtml(store, view, 'en')).not.toThrow()
+    })
   })
 
   // ─── Per-section detail levels ──────────────────────────────────────────
@@ -496,5 +563,272 @@ describe('buildViewHtml()', () => {
       expect(html).not.toContain('Jan 2020')
       expect(html).not.toContain('Jun 2021')
     })
+  })
+
+  // ─── Configurable header ─────────────────────────────────────────────────
+
+  describe('header configuration', () => {
+    it('renders contact rows with descriptor prefixes', () => {
+      const store = emptyStore()
+      store.resume = makeResume({ phone: '+47 913 04 810', email: 'sm@cartavio.no' })
+      const view = makeView({
+        sections: buildViewSections(),
+        header: withHeaderDefaults({
+          fields: [
+            { key: 'phone', show: true, label: { en: 'Telefon: ' }, same_line: false, sort_order: 0 },
+            { key: 'email', show: true, label: { en: 'Epost: ' }, same_line: true, sort_order: 1 },
+          ],
+        }),
+      })
+      const html = buildViewHtml(store, view, 'en')
+      expect(html).toContain('Telefon: ')
+      expect(html).toContain('+47 913 04 810')
+      expect(html).toContain('Epost: ')
+      expect(html).toContain('sm@cartavio.no')
+    })
+
+    it('renders the languages summary row', () => {
+      const store = emptyStore()
+      store.resume = makeResume()
+      store.spoken_languages = [
+        makeSpokenLanguage({ name: { en: 'Norwegian' }, level: { en: 'native' }, sort_order: 0 }),
+        makeSpokenLanguage({ name: { en: 'English' }, level: { en: 'fluent' }, sort_order: 1 }),
+      ]
+      const view = makeView({
+        sections: buildViewSections(),
+        header: withHeaderDefaults({
+          fields: [{ key: 'languages', show: true, label: { en: 'Languages: ' }, same_line: false, sort_order: 0 }],
+        }),
+      })
+      const html = buildViewHtml(store, view, 'en')
+      expect(html).toContain('Norwegian (native), English (fluent)')
+    })
+
+    it('applies an explicit name font size', () => {
+      const store = emptyStore()
+      const view = makeView({
+        sections: buildViewSections(),
+        header: withHeaderDefaults({ name_style: { size_pt: 41, font: 'serif' } }),
+      })
+      const html = buildViewHtml(store, view, 'en')
+      expect(html).toMatch(/font-size:41pt/)
+    })
+
+    it('embeds the profile photo when placement is set and a data URL exists', () => {
+      const store = emptyStore()
+      store.resume = makeResume({ profile_photo: PNG_1x1 })
+      const view = makeView({
+        sections: buildViewSections(),
+        header: withHeaderDefaults({ photo_placement: 'left' }),
+      })
+      const html = buildViewHtml(store, view, 'en')
+      expect(html).toContain('class="ve-photo"')
+      expect(html).toContain('ve-photo-left')
+      expect(html).toContain(PNG_1x1)
+    })
+
+    it('does not embed a photo when placement is none', () => {
+      const store = emptyStore()
+      store.resume = makeResume({ profile_photo: PNG_1x1 })
+      const view = makeView({
+        sections: buildViewSections(),
+        header: withHeaderDefaults({ photo_placement: 'none' }),
+      })
+      const html = buildViewHtml(store, view, 'en')
+      expect(html).not.toContain('class="ve-photo"')
+    })
+
+    it('prefers the per-view photo override over the master photo', () => {
+      const store = emptyStore()
+      store.resume = makeResume({ profile_photo: 'data:image/png;base64,MASTERxx' })
+      const view = makeView({
+        sections: buildViewSections(),
+        header: withHeaderDefaults({ photo_placement: 'above', photo_override: PNG_1x1 }),
+      })
+      const html = buildViewHtml(store, view, 'en')
+      expect(html).toContain(PNG_1x1)
+      expect(html).not.toContain('MASTERxx')
+    })
+
+    it('embeds the company logo banner with placement class', () => {
+      const store = emptyStore()
+      store.resume = makeResume({ company_logo: PNG_1x1 })
+      const view = makeView({
+        sections: buildViewSections(),
+        header: withHeaderDefaults({ logo_placement: 'center' }),
+      })
+      const html = buildViewHtml(store, view, 'en')
+      expect(html).toContain('ve-logo-banner')
+      expect(html).toContain('ve-logo-center')
+    })
+  })
+
+  // ─── Footer ───────────────────────────────────────────────────────────────
+
+  describe('footer configuration', () => {
+    it('renders a person copyright line', () => {
+      const store = emptyStore()
+      store.resume = makeResume({ full_name: 'Ada Lovelace' })
+      const view = makeView({
+        sections: buildViewSections(),
+        footer: withFooterDefaults({ separator: 'line', copyright: 'person', note: {} }),
+      })
+      const html = buildViewHtml(store, view, 'en')
+      expect(html).toContain('ve-footer-line')
+      expect(html).toMatch(/©\s*\d{4}\s*Ada Lovelace/)
+    })
+
+    it('renders a company copyright + note', () => {
+      const store = emptyStore()
+      store.resume = makeResume({ company_name: 'Cartavio AS' })
+      const view = makeView({
+        sections: buildViewSections(),
+        footer: withFooterDefaults({ separator: 'thick', copyright: 'company', note: { en: 'Confidential' } }),
+      })
+      const html = buildViewHtml(store, view, 'en')
+      expect(html).toContain('Cartavio AS')
+      expect(html).toContain('Confidential')
+    })
+
+    it('renders a per-view custom copyright holder in the export locale', () => {
+      const store = emptyStore()
+      store.resume = makeResume({ full_name: 'Ada', company_name: 'Cartavio AS' })
+      const view = makeView({
+        sections: buildViewSections(),
+        footer: withFooterDefaults({
+          separator: 'dotted',
+          copyright: 'custom',
+          copyright_custom: { en: 'Partner Consulting Ltd' },
+        }),
+      })
+      const html = buildViewHtml(store, view, 'en')
+      expect(html).toContain('Partner Consulting Ltd')
+      expect(html).not.toContain('Cartavio AS')
+      expect(html).not.toMatch(/©\s*\d{4}\s*Ada\b/)
+    })
+
+    it('omits the footer entirely when separator none and copyright none', () => {
+      const store = emptyStore()
+      const view = makeView({
+        sections: buildViewSections(),
+        footer: withFooterDefaults({ separator: 'none', copyright: 'none', note: {} }),
+      })
+      const html = buildViewHtml(store, view, 'en')
+      // The footer CSS classes always exist in the <style> block; assert the
+      // footer *element* is absent instead.
+      expect(html).not.toContain('<footer')
+    })
+  })
+})
+
+describe('isDataImage()', () => {
+  it('accepts base64 image data URLs', () => {
+    expect(isDataImage('data:image/png;base64,AAAA')).toBe(true)
+    expect(isDataImage('data:image/jpeg;base64,AAAA')).toBe(true)
+  })
+  it('accepts the other raster formats', () => {
+    expect(isDataImage('data:image/gif;base64,AAAA')).toBe(true)
+    expect(isDataImage('data:image/bmp;base64,AAAA')).toBe(true)
+    expect(isDataImage('data:image/webp;base64,AAAA')).toBe(true)
+  })
+  it('rejects external URLs, empty, and null', () => {
+    expect(isDataImage('https://example.com/a.png')).toBe(false)
+    expect(isDataImage('')).toBe(false)
+    expect(isDataImage(null)).toBe(false)
+    expect(isDataImage(undefined)).toBe(false)
+  })
+  it('rejects SVG data URLs (markup/script carrier)', () => {
+    expect(isDataImage('data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=')).toBe(false)
+    expect(isDataImage('data:image/svg+xml,<svg onload=alert(1)>')).toBe(false)
+  })
+  it('rejects a non-image data URL', () => {
+    expect(isDataImage('data:text/html;base64,PHNjcmlwdD4=')).toBe(false)
+  })
+})
+
+// ─── New sections + promoted projects (follow-up features) ────────────────────
+
+describe('key_competencies & recommendations rendering', () => {
+  it('renders key_competencies (title + description) as a section', () => {
+    const store = emptyStore()
+    store.key_competencies.push(makeKeyCompetency({
+      title: { en: 'Architecture' }, description: { en: 'Designs scalable systems' },
+    }))
+    const html = buildViewHtml(store, makeView({ sections: buildViewSections() }), 'en')
+    expect(html).toContain('Architecture')
+    expect(html).toContain('Designs scalable systems')
+  })
+
+  it('renders recommendations with the quote and recommender name', () => {
+    const store = emptyStore()
+    store.recommendations.push(makeRecommendation({
+      recommender_name: 'Jane Boss', text: { en: 'Excellent to work with' },
+    }))
+    const html = buildViewHtml(store, makeView({ sections: buildViewSections() }), 'en')
+    expect(html).toContain('Excellent to work with')
+    expect(html).toContain('Jane Boss')
+  })
+
+  it('getItemTitle resolves the new sections', () => {
+    expect(getItemTitle('key_competencies', makeKeyCompetency({ title: { en: 'X' } }), 'en')).toBe('X')
+    expect(getItemTitle('recommendations', makeRecommendation({ recommender_name: 'Y' }), 'en')).toBe('Y')
+  })
+})
+
+describe('promoted projects', () => {
+  it('omits the Promoted Projects section by default', () => {
+    const store = emptyStore()
+    store.projects.push(makeProject({ customer: { en: 'StarCorp' }, starred: true }))
+    const html = buildViewHtml(store, makeView({ sections: buildViewSections() }), 'en')
+    expect(html).not.toContain('Promoted Projects')
+  })
+
+  it('renders only starred projects in the Promoted Projects section when enabled', () => {
+    const store = emptyStore()
+    store.projects.push(makeProject({ id: 'p1', customer: { en: 'StarCorp' }, starred: true }))
+    store.projects.push(makeProject({ id: 'p2', customer: { en: 'PlainCo' }, starred: false }))
+    const sections = buildViewSections().map((s) =>
+      s.key === 'promoted_projects' ? { ...s, detail: 'full' as const } : s
+    )
+    const html = buildViewHtml(store, makeView({ sections }), 'en')
+    expect(html).toContain('Promoted Projects')
+    expect(html).toContain('StarCorp')
+  })
+
+  it('promotedProjectItems returns starred, enabled, non-excluded projects', () => {
+    const store = emptyStore()
+    store.projects.push(makeProject({ id: 'p1', starred: true }))
+    store.projects.push(makeProject({ id: 'p2', starred: false }))
+    store.projects.push(makeProject({ id: 'p3', starred: true, disabled: true }))
+    store.projects.push(makeProject({ id: 'p4', starred: true }))
+    const view = makeView({ sections: buildViewSections(), excluded_item_ids: ['p4'] })
+    const ids = (promotedProjectItems(store, view) as Array<{ id: string }>).map((p) => p.id)
+    expect(ids).toEqual(['p1'])
+  })
+})
+
+describe('normalizeViewSections()', () => {
+  it('fills in sections missing from an older view', () => {
+    const partial = [{ key: 'projects', detail: 'summary' as const, sort_order: 0 }]
+    const norm = normalizeViewSections(partial)
+    expect(norm.find((s) => s.key === 'recommendations')).toBeTruthy()
+    expect(norm.find((s) => s.key === 'key_competencies')).toBeTruthy()
+    expect(norm.find((s) => s.key === 'promoted_projects')?.detail).toBe('off')
+    // preserves the existing entry's detail
+    expect(norm.find((s) => s.key === 'projects')?.detail).toBe('summary')
+  })
+
+  it('is a no-op (same coverage) for a freshly built section list', () => {
+    const built = buildViewSections()
+    const norm = normalizeViewSections(built)
+    expect(norm.map((s) => s.key).sort()).toEqual(built.map((s) => s.key).sort())
+  })
+})
+
+describe('defaultViewDetail()', () => {
+  it('is off for promoted_projects, full otherwise', () => {
+    expect(defaultViewDetail('promoted_projects')).toBe('off')
+    expect(defaultViewDetail('projects')).toBe('full')
+    expect(defaultViewDetail('recommendations')).toBe('full')
   })
 })

@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
-import { FileText, Plus, Trash2, Loader2, Pencil, Check, X } from 'lucide-react'
+import { FileText, Plus, Trash2, Loader2, Pencil, Check, X, Settings } from 'lucide-react'
 import { api, type ResumeMeta, UnauthorizedError, ServerError } from '../lib/api'
 import { fmtRelativeTime, detectLocalesInData } from '../lib/locales'
 import { freshStore } from '../lib/freshStore'
 import { listDirty } from '../lib/localCache'
 import { navigate, Link } from '../lib/router'
 import { ImportScreen } from './ImportScreen'
+import { SyncPanel } from './SyncPanel'
+import { SettingsModal } from './SettingsModal'
 import type { ResumeStore } from '../types'
 
 const YEAR = new Date().getFullYear()
@@ -26,6 +28,10 @@ export function ResumeList({ onUnauthorized }: ResumeListProps) {
   const [deleting, setDeleting] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [draftName, setDraftName] = useState('')
+  const [showSettings, setShowSettings] = useState(false)
+  // Bumped after a settings change so the SyncPanel remounts and re-reads the
+  // (possibly newly-configured) backup folder status.
+  const [syncRefreshKey, setSyncRefreshKey] = useState(0)
   // Ids with unsynced local edits — read once on mount (the queue only changes
   // from the editor, which isn't mounted while the picker is shown).
   const [dirtyIds] = useState<Set<string>>(() => new Set(listDirty().map((d) => d.id)))
@@ -114,6 +120,33 @@ export function ResumeList({ onUnauthorized }: ResumeListProps) {
     }
   }, [draftName, items, onUnauthorized, reload])
 
+  const onSettingsChanged = useCallback(() => {
+    setSyncRefreshKey((k) => k + 1) // remount SyncPanel to re-read sync status
+    reload()
+  }, [reload])
+
+  // Settings gear + modal — rendered in every non-loading picker state so the
+  // user can configure translation / the sync folder even with zero resumes.
+  const settingsOverlay = (
+    <>
+      <button
+        className="rl-settings-fab"
+        onClick={() => setShowSettings(true)}
+        title="Settings"
+        aria-label="Settings"
+      >
+        <Settings size={18} />
+      </button>
+      {showSettings && (
+        <SettingsModal
+          onClose={() => setShowSettings(false)}
+          onChanged={onSettingsChanged}
+          onUnauthorized={onUnauthorized}
+        />
+      )}
+    </>
+  )
+
   // ── Render states ──────────────────────────────────────────────────────
 
   if (items === null) {
@@ -134,13 +167,22 @@ export function ResumeList({ onUnauthorized }: ResumeListProps) {
     )
   }
 
-  // Empty → full-bleed import screen.
+  // Empty → full-bleed import screen. The sync panel renders above it (only on
+  // a desktop build with a sync folder configured — otherwise it's null), so a
+  // freshly-set-up second machine can pull its resumes from the backup folder.
   if (items.length === 0 && !error) {
-    return <ImportScreen onStartFresh={onStartFresh} onImported={onImported} />
+    return (
+      <>
+        {settingsOverlay}
+        <SyncPanel key={syncRefreshKey} standalone onRestored={reload} onUnauthorized={onUnauthorized} />
+        <ImportScreen onStartFresh={onStartFresh} onImported={onImported} />
+      </>
+    )
   }
 
   return (
     <div className="rl-screen">
+      {settingsOverlay}
       <div className="rl-wrap">
         <header className="rl-head">
           <div className="rl-brand">
@@ -153,6 +195,8 @@ export function ResumeList({ onUnauthorized }: ResumeListProps) {
         </header>
 
         {error && <div className="rl-error">{error}</div>}
+
+        <SyncPanel key={syncRefreshKey} onRestored={reload} onUnauthorized={onUnauthorized} />
 
         {dirtyIds.size > 0 && (
           <div className="rl-unsynced-note">
@@ -271,6 +315,16 @@ export function ResumeList({ onUnauthorized }: ResumeListProps) {
           transition: background .15s;
         }
         .rl-add:hover { background: var(--accent-bright); }
+
+        .rl-settings-fab {
+          position: fixed; top: 18px; right: 18px; z-index: 20;
+          display: grid; place-items: center; width: 38px; height: 38px;
+          border-radius: var(--r-md); background: var(--paper-raised);
+          border: 1px solid var(--line); color: var(--ink-soft);
+          box-shadow: var(--shadow-sm);
+          transition: color .12s, border-color .12s;
+        }
+        .rl-settings-fab:hover { color: var(--accent); border-color: var(--accent); }
 
         .rl-error {
           margin-bottom: 16px; padding: 10px 14px;

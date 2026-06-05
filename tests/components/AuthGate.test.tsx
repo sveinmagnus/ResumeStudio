@@ -5,7 +5,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { AuthGate } from '../../src/components/AuthGate'
-import { UnauthorizedError, setStoredToken, getStoredToken } from '../../src/lib/api'
+import { UnauthorizedError, api } from '../../src/lib/api'
 import { savePending, loadPending } from '../../src/lib/localCache'
 import { emptyStore } from '../fixtures'
 
@@ -43,45 +43,47 @@ describe('<AuthGate>', () => {
     expect(await screen.findByText(/could not connect/i)).toBeInTheDocument()
   })
 
-  // Security skill §4: explicit logout must wipe the local plaintext resume
-  // caches, not just the token, so a shared machine doesn't retain the CV.
-  it('"Clear saved token" wipes token + caches with no prompt when nothing is unsynced', async () => {
-    setStoredToken('a-token')
+  // Security skill: explicit logout must clear the server session cookie AND
+  // wipe the local plaintext resume caches, so a shared machine doesn't retain
+  // the CV. (The token itself now lives only in an HttpOnly cookie, so there's
+  // nothing JS-readable to assert — we assert the logout call + cache wipe.)
+  it('"Clear local data" logs out + wipes caches with no prompt when nothing is unsynced', async () => {
+    const logoutSpy = vi.spyOn(api, 'logout').mockResolvedValue(undefined)
     pending('r1', false)
     pending('r2', false)
     const confirmSpy = vi.spyOn(window, 'confirm')
 
     render(<AuthGate onSubmit={vi.fn()} />)
-    await userEvent.click(screen.getByRole('button', { name: /clear saved token/i }))
+    await userEvent.click(screen.getByRole('button', { name: /clear local data/i }))
 
     expect(confirmSpy).not.toHaveBeenCalled()
-    expect(getStoredToken()).toBeNull()
+    expect(logoutSpy).toHaveBeenCalledOnce()
     expect(loadPending('r1')).toBeNull()
     expect(loadPending('r2')).toBeNull()
   })
 
   it('prompts before wiping when there are unsynced changes, and clears on confirm', async () => {
-    setStoredToken('a-token')
+    const logoutSpy = vi.spyOn(api, 'logout').mockResolvedValue(undefined)
     pending('r1', true)
     vi.spyOn(window, 'confirm').mockReturnValue(true)
 
     render(<AuthGate onSubmit={vi.fn()} />)
-    await userEvent.click(screen.getByRole('button', { name: /clear saved token/i }))
+    await userEvent.click(screen.getByRole('button', { name: /clear local data/i }))
 
-    expect(getStoredToken()).toBeNull()
+    expect(logoutSpy).toHaveBeenCalledOnce()
     expect(loadPending('r1')).toBeNull()
   })
 
-  it('keeps the token AND the caches when the user cancels the unsynced-changes prompt', async () => {
-    setStoredToken('a-token')
+  it('keeps the caches when the user cancels the unsynced-changes prompt', async () => {
+    const logoutSpy = vi.spyOn(api, 'logout').mockResolvedValue(undefined)
     pending('r1', true)
     vi.spyOn(window, 'confirm').mockReturnValue(false)
 
     render(<AuthGate onSubmit={vi.fn()} />)
-    await userEvent.click(screen.getByRole('button', { name: /clear saved token/i }))
+    await userEvent.click(screen.getByRole('button', { name: /clear local data/i }))
 
-    // Nothing discarded — unsynced work is preserved.
-    expect(getStoredToken()).toBe('a-token')
+    // Nothing discarded — unsynced work is preserved, no logout fired.
+    expect(logoutSpy).not.toHaveBeenCalled()
     expect(loadPending('r1')).not.toBeNull()
   })
 })

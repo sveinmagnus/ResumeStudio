@@ -19,7 +19,7 @@ function seedTwoLocaleResume() {
         nationality: { en: 'Norwegian', no: 'Norsk' },
         place_of_residence: { en: 'Oslo', no: 'Oslo' },
       }),
-      skills: [], roles: [], key_qualifications: [],
+      skills: [], roles: [], key_qualifications: [], key_competencies: [], recommendations: [],
       projects: [makeProject({
         id: 'p1',
         customer: { en: 'Acme' },                              // missing 'no'

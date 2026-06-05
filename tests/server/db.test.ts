@@ -3,7 +3,7 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 import Database from 'better-sqlite3'
-import { createResumeDb, MAX_SNAPSHOTS } from '../../server/db'
+import { createResumeDb, MAX_SNAPSHOTS, type ResumeBackupEntry } from '../../server/db'
 
 // Each test gets its own isolated in-memory database.
 const freshDb = () => createResumeDb(':memory:')
@@ -346,5 +346,123 @@ describe('createResumeDb — snapshot history', () => {
     const meta = db.createResume({ name: 'Mine' })
     db.saveResume(meta.id, { v: 1 })
     expect(db.getSnapshot(meta.id, 9999)).toBeNull()
+  })
+})
+
+describe('createResumeDb — dumpResumes / restoreResumes (store sync)', () => {
+  it('dumpResumes returns portable entries for every resume', () => {
+    const db = freshDb()
+    const a = db.createResume({ name: 'A', data: { x: 1 }, primary_locale: 'no', secondary_locale: 'en' })
+    db.createResume({ name: 'B', data: { y: 2 } })
+    const dump = db.dumpResumes()
+    expect(dump).toHaveLength(2)
+    const first = dump.find((e) => e.id === a.id)!
+    expect(first).toMatchObject({
+      name: 'A', primary_locale: 'no', secondary_locale: 'en', data: { x: 1 },
+    })
+    // No version leaks into the portable shape (it's per-machine).
+    expect('version' in first).toBe(false)
+  })
+
+  it('round-trips a dump from one db into a fresh one (insert)', () => {
+    const src = freshDb()
+    const a = src.createResume({ name: 'A', data: { hello: 'world' } })
+    const dst = freshDb()
+    const summary = dst.restoreResumes(src.dumpResumes())
+    expect(summary).toMatchObject({ inserted: 1, updated: 0, skipped: 0, deleted: 0 })
+    const full = dst.getResume(a.id)
+    expect(full?.meta.name).toBe('A')
+    expect(full?.data).toEqual({ hello: 'world' })
+    expect(full?.meta.version).toBe(1)
+  })
+
+  it('merge keeps the local copy when it is newer (incoming older → skip)', () => {
+    const db = freshDb()
+    const a = db.createResume({ name: 'A' })
+    db.saveResume(a.id, { local: 'newer' }) // advances saved_at
+    const local = db.getResume(a.id)!
+    const incoming: ResumeBackupEntry = {
+      ...local.meta,
+      created_at: local.meta.created_at,
+      saved_at: '2000-01-01T00:00:00.000Z', // older
+      data: { remote: 'older' },
+    }
+    const summary = db.restoreResumes([incoming])
+    expect(summary).toMatchObject({ inserted: 0, updated: 0, skipped: 1 })
+    expect(db.getResume(a.id)?.data).toEqual({ local: 'newer' })
+  })
+
+  it('merge takes the incoming copy when it is newer (update + snapshot)', () => {
+    const db = freshDb()
+    const a = db.createResume({ name: 'A', data: { v: 'old' } })
+    const snapsBefore = db.listSnapshots(a.id).length
+    const incoming: ResumeBackupEntry = {
+      id: a.id, name: 'A (edited elsewhere)',
+      primary_locale: 'en', secondary_locale: null,
+      created_at: a.created_at,
+      saved_at: '2999-01-01T00:00:00.000Z', // far future → wins
+      data: { v: 'new' },
+    }
+    const summary = db.restoreResumes([incoming])
+    expect(summary).toMatchObject({ inserted: 0, updated: 1, skipped: 0 })
+    const full = db.getResume(a.id)!
+    expect(full.data).toEqual({ v: 'new' })
+    expect(full.meta.name).toBe('A (edited elsewhere)')
+    expect(full.meta.saved_at).toBe('2999-01-01T00:00:00.000Z') // preserves source timestamp
+    expect(full.meta.version).toBe(2) // bumped
+    expect(db.listSnapshots(a.id).length).toBe(snapsBefore + 1) // restore is reversible
+  })
+
+  it('merge is idempotent — re-restoring the same dump changes nothing', () => {
+    const src = freshDb()
+    src.createResume({ name: 'A', data: { a: 1 } })
+    src.createResume({ name: 'B', data: { b: 2 } })
+    const dump = src.dumpResumes()
+    const dst = freshDb()
+    dst.restoreResumes(dump)
+    const second = dst.restoreResumes(dump)
+    expect(second).toMatchObject({ inserted: 0, updated: 0, skipped: 2, deleted: 0 })
+  })
+
+  it('merge never deletes local-only resumes', () => {
+    const db = freshDb()
+    const keep = db.createResume({ name: 'LocalOnly' })
+    db.restoreResumes([]) // empty incoming
+    expect(db.getResume(keep.id)).not.toBeNull()
+  })
+
+  it('replace mode deletes local resumes absent from the incoming set', () => {
+    const db = freshDb()
+    const gone = db.createResume({ name: 'Gone' })
+    const kept = db.createResume({ name: 'Kept', data: { k: 1 } })
+    const incoming = db.dumpResumes().filter((e) => e.id === kept.id)
+    const summary = db.restoreResumes(incoming, { mode: 'replace' })
+    expect(summary.deleted).toBe(1)
+    expect(db.getResume(gone.id)).toBeNull()
+    expect(db.getResume(kept.id)).not.toBeNull()
+  })
+})
+
+describe('createResumeDb — close()', () => {
+  const rmQuiet = (dir: string) => {
+    try { fs.rmSync(dir, { recursive: true, force: true }) } catch { /* ignore */ }
+  }
+
+  it('checkpoints + closes a file-backed DB without throwing', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rs-close-'))
+    const file = path.join(dir, 'resume.db')
+    const db = createResumeDb(file)
+    db.createResume({ name: 'A' })
+    expect(() => db.close()).not.toThrow()
+    // Reopening sees the persisted row (data survived the checkpoint+close).
+    const reopened = createResumeDb(file)
+    expect(reopened.listResumes()).toHaveLength(1)
+    reopened.close()
+    rmQuiet(dir)
+  })
+
+  it('close() is safe on an in-memory DB', () => {
+    const db = freshDb()
+    expect(() => db.close()).not.toThrow()
   })
 })

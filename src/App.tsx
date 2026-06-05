@@ -13,14 +13,14 @@ import { ProjectsEditor } from './components/editor/ProjectsEditor'
 import {
   WorkEditor, EducationEditor, CoursesEditor, CertificationsEditor,
   PositionsEditor, PresentationsEditor, PublicationsEditor, AwardsEditor,
-  SpokenLanguagesEditor,
+  SpokenLanguagesEditor, RecommendationsEditor,
 } from './components/editor/SimpleEditors'
 import { SkillsEditor, RolesEditor, ReferencesEditor, TechCategoriesEditor } from './components/editor/RegistryEditors'
 import { ResumeViewsEditor } from './components/editor/ResumeViewsEditor'
 import { ConflictModal } from './components/ConflictModal'
 import { useRoute, navigate, Link } from './lib/router'
 import { dropLegacyCache } from './lib/localCache'
-import { api, setStoredToken, UnauthorizedError, clearStoredToken } from './lib/api'
+import { api } from './lib/api'
 
 // One-shot legacy-cache cleanup on first module load. The pre-multi-resume
 // localStorage key holds data that can't safely be attributed to any one
@@ -37,16 +37,13 @@ export default function App() {
   const onUnauthorized = useCallback(() => setAuthNeeded(true), [])
 
   const handleAuthSubmit = useCallback(async (token: string) => {
-    setStoredToken(token)
-    try {
-      // Cheap probe — listResumes is the smallest auth-gated call we have.
-      await api.listResumes()
-      setAuthNeeded(false)
-      setAuthEpoch((n) => n + 1)
-    } catch (err) {
-      if (err instanceof UnauthorizedError) clearStoredToken()
-      throw err
-    }
+    // Exchange the token for an HttpOnly session cookie (throws
+    // UnauthorizedError on a wrong token — no cookie is set), then verify with
+    // the smallest auth-gated call we have.
+    await api.login(token)
+    await api.listResumes()
+    setAuthNeeded(false)
+    setAuthEpoch((n) => n + 1)
   }, [])
 
   if (authNeeded) {
@@ -106,10 +103,14 @@ function EditorRoute({ resumeId, onUnauthorized }: { resumeId: string; onUnautho
   }
 
   // ── Main editor shell ────────────────────────────────────────────────────
-  // 'key_qualifications' folds into Personal Details (Profile sub-tab), so the
-  // breadcrumb/title still reads "Personal Details" while the section key may
-  // still be 'key_qualifications' (Overview's missing-field deep link uses it).
-  const sectionKeyForChrome = activeSection === 'key_qualifications' ? 'header' : activeSection
+  // 'key_qualifications' and 'key_competencies' fold into Personal Details
+  // (sub-tabs), so the breadcrumb/title still reads "Personal Details" while
+  // the section key may be one of those (Overview's missing-field deep link
+  // uses 'key_qualifications').
+  const sectionKeyForChrome =
+    activeSection === 'key_qualifications' || activeSection === 'key_competencies'
+      ? 'header'
+      : activeSection
   const section = SECTIONS.find((s) => s.key === sectionKeyForChrome)
 
   return (
@@ -141,7 +142,8 @@ function EditorRoute({ resumeId, onUnauthorized }: { resumeId: string; onUnautho
           <ErrorBoundary resetKey={activeSection}>
             {activeSection === 'overview'              && <Overview />}
             {(activeSection === 'header' ||
-              activeSection === 'key_qualifications') && <HeaderEditor />}
+              activeSection === 'key_qualifications' ||
+              activeSection === 'key_competencies')    && <HeaderEditor />}
             {activeSection === 'projects'              && <ProjectsEditor />}
             {activeSection === 'work_experiences'      && <WorkEditor />}
             {activeSection === 'positions'             && <PositionsEditor />}
@@ -153,6 +155,7 @@ function EditorRoute({ resumeId, onUnauthorized }: { resumeId: string; onUnautho
             {activeSection === 'presentations'         && <PresentationsEditor />}
             {activeSection === 'publications'          && <PublicationsEditor />}
             {activeSection === 'honor_awards'          && <AwardsEditor />}
+            {activeSection === 'recommendations'       && <RecommendationsEditor />}
             {activeSection === 'references'            && <ReferencesEditor />}
             {activeSection === 'skills'                && <SkillsEditor />}
             {activeSection === 'roles'                 && <RolesEditor />}

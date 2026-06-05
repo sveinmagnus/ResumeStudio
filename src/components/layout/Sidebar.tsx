@@ -4,6 +4,7 @@ import {
   LayoutDashboard, User, FileText, Briefcase, Building2, Users,
   GraduationCap, BookOpen, Award, Layers, Languages, Presentation,
   Newspaper, Trophy, Contact, Tags, SquareUser, LayoutList, Circle,
+  ListChecks, Quote,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -11,12 +12,13 @@ const ICON_MAP: Record<string, LucideIcon> = {
   LayoutDashboard, User, FileText, Briefcase, Building2, Users,
   GraduationCap, BookOpen, Award, Layers, Languages, Presentation,
   Newspaper, Trophy, Contact, Tags, SquareUser, LayoutList,
+  ListChecks, Quote,
 }
 
 const YEAR = new Date().getFullYear()
 
 export function Sidebar() {
-  const { data, activeSection, setActiveSection } = useStore()
+  const { data, activeSection, activeViewId, setActiveSection, setActiveView } = useStore()
 
   const grouped = SECTIONS.filter((s) => !s.hidden).reduce<Record<string, typeof SECTIONS>>((acc, s) => {
     (acc[s.group] ||= []).push(s)
@@ -45,6 +47,43 @@ export function Sidebar() {
             {items.map((s) => {
               const Icon = ICON_MAP[s.icon] || Circle
               const count = s.storeKey ? (data[s.storeKey] as unknown[]).length : null
+
+              // The Resume Views item gets a sub-list so each view is reachable
+              // directly from the nav (parent → the view list).
+              if (s.key === 'views') {
+                const onList = activeSection === 'views' && !activeViewId
+                return (
+                  <div key={s.key}>
+                    <button
+                      className={`sb-item ${onList ? 'active' : ''}`}
+                      onClick={() => setActiveView(null)}
+                    >
+                      <Icon size={16} />
+                      <span className="sb-item-label">{s.label}</span>
+                      {count !== null && <span className="sb-count">{count}</span>}
+                    </button>
+                    {data.views.length > 0 && (
+                      <div className="sb-subnav">
+                        {data.views.map((v) => {
+                          const vActive = activeSection === 'views' && activeViewId === v.id
+                          return (
+                            <button
+                              key={v.id}
+                              className={`sb-subitem ${vActive ? 'active' : ''}`}
+                              onClick={() => setActiveView(v.id)}
+                              title={v.name}
+                            >
+                              <span className="sb-subdot" />
+                              <span className="sb-item-label">{v.name}</span>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )
+              }
+
               const active = activeSection === s.key
               return (
                 <button
@@ -122,6 +161,28 @@ export function Sidebar() {
           background: rgba(244,241,234,0.12); color: rgba(244,241,234,0.85);
         }
         .sb-item.active .sb-count { background: rgba(255,255,255,0.22); color: #fff; }
+
+        /* ── Views sub-nav ── */
+        .sb-subnav {
+          display: flex; flex-direction: column;
+          margin: 2px 0 2px 10px; padding-left: 12px;
+          border-left: 1px solid rgba(244,241,234,0.12);
+        }
+        .sb-subitem {
+          display: flex; align-items: center; gap: 9px; width: 100%;
+          padding: 6px 10px; border-radius: var(--r-sm);
+          color: rgba(244,241,234,0.62); font-size: 12.5px; font-weight: 500;
+          text-align: left; transition: all .13s; margin-bottom: 1px;
+        }
+        .sb-subitem:hover { background: rgba(244,241,234,0.07); color: var(--paper); }
+        .sb-subitem.active { background: var(--accent); color: #fff; }
+        .sb-subdot {
+          width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0;
+          background: currentColor; opacity: .6;
+        }
+        .sb-subitem .sb-item-label {
+          overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
 
         /* ── Footer ── */
         .sb-footer {
