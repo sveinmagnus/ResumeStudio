@@ -4,7 +4,7 @@ A multi-language consultant resume manager. Maintain one master CV across
 languages, then export targeted variants — PDF or Microsoft Word — for
 different audiences.
 
-Built for a single consultant; runs as a small self-hosted web app (React +
+Built for a single consultant or small team; runs as a small self-hosted web app (React +
 Express + SQLite) with offline-tolerant persistence.
 
 ---
@@ -72,12 +72,6 @@ run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once.
 - **PDF** via the browser's print pipeline.
 - **DOCX** (.docx) via the [`docx`](https://docx.js.org/) library, lazy-loaded
   so it only downloads when you actually click Export.
-
-### Import
-- **CVpartner JSON** exports. The importer handles both shapes CVpartner
-  emits (object + interleaved-array localized values), normalises `int` →
-  `en`, scans content for locales the export under-declares, and links
-  projects to work experiences through the source IDs.
 
 ---
 
