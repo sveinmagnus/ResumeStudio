@@ -1,4 +1,4 @@
-# Resume Studio
+# Cartavio Resume Studio
 
 A multi-language consultant resume manager. Maintain one master CV across
 languages, then export targeted variants — PDF or Microsoft Word — for
