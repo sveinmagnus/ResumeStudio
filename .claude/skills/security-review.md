@@ -52,7 +52,8 @@ Both block script execution from an injection — but a `</style>` or attribute 
 ## 3. Server (`server/`)
 
 The server is hardened in `server/app.ts` — keep it that way:
-- **CSP + security headers** on every response; `x-powered-by` disabled; JSON body limit **2 MB** (don't raise without reason); **rate limiter** (`skipSuccessfulRequests` — counts ≥400s, so brute-forcing the token gets 429'd but auto-save doesn't). Runs before `authMiddleware`. New routers go under `/api/...` with `apiLimiter, authMiddleware`, or are explicitly justified as public (only `/api/health` is).
+- **CSP + security headers** on every response; `x-powered-by` disabled; JSON body limit **2 MB** (don't raise without reason); **rate limiter** (`skipSuccessfulRequests` — counts ≥400s, so brute-forcing the token gets 429'd but auto-save doesn't). Runs before `authMiddleware`. New routers go under `/api/...` with `apiLimiter, authMiddleware`, or are explicitly justified as public (`/api/health`, `/api/auth`).
+- **Cross-site guard** (CSRF brake): a global middleware 403s state-changing requests (non-GET/HEAD/OPTIONS) with `Sec-Fetch-Site: cross-site`. This is the desktop build's main CSRF defence — there the API runs auth-less on loopback, so a visited web page could otherwise fire a simple no-preflight POST (e.g. `/api/update/install`, `/api/backup/restore`). Same-origin SPA fetches and header-less non-browser clients are unaffected. Don't regress it; new mutating routes inherit it automatically.
 - **`auth.ts` / `routes/auth.ts`**: `crypto.timingSafeEqual` compare; single generic `{error:'Unauthorized'}` for all failures; token read lazily; accepts the HttpOnly cookie or a bearer header. `/api/auth/login` is rate-limited but NOT auth-gated (it's how you authenticate) — keep it that way, and never log the token or echo it (only the `Set-Cookie` carries it, HttpOnly).
 - **`routes/resume.ts`** (multi-resume `/api/resumes`): validate body shape; `version` optimistic-concurrency (409 on stale `base_version`); errors must not leak SQL/internal detail. SQL is parameterised in `db.ts` — keep it parameterised (never string-build SQL).
 - **`translate.ts`** (provider proxy): upstream URLs/keys stay server-side; errors **never echo upstream detail** (could leak an internal URL/key); timeout via `AbortSignal.timeout`; Google key is `encodeURIComponent`'d in the query. The upstream URL is operator-configured (env / desktop settings), not attacker-supplied per request.
@@ -60,6 +61,7 @@ The server is hardened in `server/app.ts` — keep it that way:
 - **`translateDocker.ts`**: shells out with `spawn` + **explicit argv** (never a shell string) and a fixed service name. No user input reaches the command line. Keep it that way — no `exec`, no template-string commands.
 - **`routes/backup.ts`**: the backup dir comes from `RESUME_BACKUP_DIR` (operator env), never from the request body — the client can't choose a filesystem path. Don't add a body-supplied path.
 - **Desktop launcher** (`server/desktop/launcher.ts`, `app.ts`, `db.ts`): must not use `import.meta`/`__dirname` (esbuild bundles to CJS and emits `""`). DB file + data dir are chmod'd `0600`/`0700` (best-effort, no-op on Windows).
+- **Auto-updater** (`server/desktop/updater.ts` + `updateRuntime.ts`, `routes/update.ts`): downloads + extracts + swaps app files, so it's high-risk by nature. Invariants to preserve: every URL passes `isAllowedHost` (https + GitHub suffixes) on the API call, the asset, and **each redirect hop**; the release **tag is charset-validated** (`/^[A-Za-z0-9][A-Za-z0-9.+-]*$/`) before it becomes a path segment / is embedded in the swap script; `extractArchive` is argv-only `tar`; `buildSwapScript` uses OS-derived paths + a numeric pid + single-quote escaping (POSIX) — keep all interpolated values non-attacker-controlled; `/api/update` mutations are gated by `isUpdateSupported()` (403 on the VPS — a server must never rewrite its own files). Trust boundary = the configured GitHub repo over HTTPS; there's **no signature / checksum** (no code-signing — documented), and `tar` extraction trusts the archive, so the host allowlist + repo trust are load-bearing. Keep `assetNameFor` in sync with the copy in `scripts/build-desktop.mjs`.
 
 ## 4. File imports (CVpartner / backup / snapshot JSON)
 
@@ -97,8 +99,9 @@ The server is hardened in `server/app.ts` — keep it that way:
 Closed: rate limiting, SPA-shell CSP, DB/settings file ACLs, clean-401 cache
 clearing, the render-pipeline XSS class (§2), the **token→HttpOnly-cookie**
 migration, the `/api/settings/translate/test` SSRF (pending overrides ignored
-on non-desktop builds), and SVG data URLs (`isDataImage` is raster-only).
-Remaining:
+on non-desktop builds), SVG data URLs (`isDataImage` is raster-only), and the
+**cross-site CSRF brake** (`Sec-Fetch-Site` guard in §3 — closes the auth-less
+desktop build's exposure). Remaining:
 
 - **Session cookie carries the token value** (HttpOnly), not an opaque random
   session id backed by a server store. Deliberate for the single-tenant model —
@@ -106,7 +109,8 @@ Remaining:
   table ever appears, switch the cookie to an opaque id so the long-lived secret
   isn't in the cookie at all.
 - **Schema validation at the import boundary** — imports are still `as`-cast, not validated. A Zod schema for `BackupV1`/CVpartner would give better errors and a firmer trust boundary (more robustness than security now that §2 holds).
-- **CSRF depends on `SameSite=Strict`** alone (no token/anti-CSRF header, since the cookie auto-authenticates). Fine for a same-origin SPA; if a cross-origin client is ever added, add an `Origin`/`Sec-Fetch-Site` check on mutating routes.
+- **CSRF defence is `SameSite=Strict` (auth on) + the `Sec-Fetch-Site` cross-site guard (always)** — no anti-CSRF token. Adequate for a same-origin SPA and the loopback desktop build. The residual: very old browsers that don't send `Sec-Fetch-Site` get no guard coverage (they fall back to `SameSite` only, which on the auth-less desktop build is nothing) — acceptable given the bounded impact (the updater only installs the legit configured release). If a cross-origin client is ever added, revisit with an explicit `Origin` allowlist.
+- **No update signature / checksum** — the updater trusts the configured GitHub repo over HTTPS (host-allowlisted) and `tar`-extracts the archive. A compromised release (or repo) would be installed. Code-signing / a published checksum would close it; out of scope today (documented "no code signing").
 
 ## 8. What is *not* a finding here
 
@@ -122,3 +126,4 @@ Remaining:
 - `d6d7c25` — *Close stored-XSS in Resume View export and harden the server.* The original escape-at-render + CSP + server-hardening work; read it (and `tests/viewFilter.test.ts` "HTML escaping (XSS)") before touching `viewFilter.ts`/`exporter.ts`/`server/`.
 - The `viewStyle.ts`/`viewHeader.ts` boundary validators (`sanitizeHexColor`, `safe*` coercers) — the second-round fix for CSS-injection / attribute breakout via crafted view config. The pattern to copy when adding view-config fields.
 - The `routes/auth.ts` + `auth.ts` cookie-session work — token moved out of `sessionStorage` into an HttpOnly cookie; the `/api/settings/translate/test` SSRF gate; and `isDataImage` raster-only. See `tests/server/authRoutes.test.ts` and the `/translate/test` SSRF-guard test in `settingsRoutes.test.ts`.
+- The auto-updater (`server/desktop/updater.ts`, `updateRuntime.ts`, `routes/update.ts`) — host-allowlisted GitHub fetches, charset-validated release tags, argv-only `tar`, escaped swap script, `isUpdateSupported()` route gating. Tests: `tests/server/updater.test.ts` (incl. the malicious-tag case), `updateRuntime.test.ts` (swap script), `updateRoutes.test.ts`. The `Sec-Fetch-Site` cross-site guard + `tests/server/csrfGuard.test.ts` landed alongside it.

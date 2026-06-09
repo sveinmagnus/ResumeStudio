@@ -84,6 +84,25 @@ export function createApp(): Express {
     next()
   })
 
+  // ── Cross-site request guard (CSRF brake) ─────────────────────────────────
+  // Browsers tag every request with `Sec-Fetch-Site`. Reject state-changing
+  // requests a browser reports as cross-site. This matters most on the desktop
+  // build, where the API runs auth-less on a loopback port: without it, a web
+  // page the user happens to visit could fire a "simple" no-preflight POST at
+  // 127.0.0.1 and trigger a side effect (e.g. POST /api/update/install →
+  // download + swap + relaunch, or /api/backup/restore). Same-origin SPA
+  // fetches send 'same-origin'; non-browser clients (curl, bearer-token API
+  // consumers, tests) send no such header and are unaffected. Complements the
+  // session cookie's SameSite=Strict, which only helps when auth is enabled.
+  const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS'])
+  app.use((req, res, next) => {
+    if (!SAFE_METHODS.has(req.method) && req.headers['sec-fetch-site'] === 'cross-site') {
+      res.status(403).json({ error: 'Cross-site request blocked' })
+      return
+    }
+    next()
+  })
+
   // 2 MB is plenty for realistic resumes (typical payload is well under 200 KB).
   // The previous 50 MB ceiling made unauthenticated body parsing a DoS amplifier.
   app.use(express.json({ limit: '2mb' }))
