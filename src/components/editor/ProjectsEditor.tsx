@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useStore, newId } from '../../store/useStore'
 import { useSortedItems } from '../../store/useSortedItems'
 import { DualField } from '../ui/DualField'
@@ -6,9 +7,11 @@ import { TextField, DateField, TagField } from '../ui/Fields'
 import { EditorCard, AddButton, FieldRow } from '../ui/EditorCard'
 import { SortableList } from '../ui/SortableList'
 import { SortBar } from '../ui/SortBar'
+import { Autocomplete } from '../ui/Autocomplete'
+import { SkillTranslationPopover } from './RegistryEditors'
 import { resolve, fmtRange } from '../../lib/locales'
 import { richToPlain } from '../../lib/richText'
-import type { Project, ProjectRole, ProjectSkill } from '../../types'
+import type { Project, ProjectRole, ProjectSkill, Skill } from '../../types'
 import { Plus, X } from 'lucide-react'
 
 export function ProjectsEditor() {
@@ -152,35 +155,112 @@ function ProjectRolesEditor({ project }: { project: Project }) {
 // ── Project skills ───────────────────────────────────────────────────────────
 
 function ProjectSkillsEditor({ project }: { project: Project }) {
-  const { data, updateItem, primaryLocale } = useStore()
+  const { data, addItem, updateItem, primaryLocale } = useStore()
 
-  const add = () => {
-    const skill: ProjectSkill = { id: newId(), skill_id: '', name: {}, duration_in_years: 0, offset_in_years: 0, total_duration_in_years: 0, sort_order: project.skills.length }
+  const remove = (sid: string) => updateItem('projects', project.id, { skills: project.skills.filter((s) => s.id !== sid) })
+
+  // Link an existing registry skill to the project. Skips silently if the
+  // skill is already attached (same `skill_id` already present).
+  const linkExisting = (skillId: string) => {
+    if (project.skills.some((s) => s.skill_id === skillId)) return
+    const reg = data.skills.find((x) => x.id === skillId)
+    if (!reg) return
+    const skill: ProjectSkill = {
+      id: newId(), skill_id: skillId, name: reg.name,
+      duration_in_years: 0, offset_in_years: 0, total_duration_in_years: 0,
+      sort_order: project.skills.length,
+    }
     updateItem('projects', project.id, { skills: [...project.skills, skill] })
   }
-  const remove = (sid: string) => updateItem('projects', project.id, { skills: project.skills.filter((s) => s.id !== sid) })
-  const link = (sid: string, skillId: string) => {
-    const reg = data.skills.find((x) => x.id === skillId)
-    updateItem('projects', project.id, {
-      skills: project.skills.map((s) => (s.id === sid ? { ...s, skill_id: skillId, name: reg ? reg.name : s.name } : s)),
-    })
+
+  // Create a brand-new registry skill from typed text, then immediately
+  // attach it to this project. Mirrors how CategorySkillChip handles the
+  // same flow inside TechCategoriesEditor.
+  const createAndLink = (text: string) => {
+    const reg: Skill = {
+      id: newId(), resume_id: data.resume!.id,
+      name: { [primaryLocale]: text },
+      default_category: null, skill_type: 'technical',
+      total_duration_in_years: 0, proficiency: 0,
+      is_highlighted: false, created_at: new Date().toISOString(),
+    }
+    addItem('skills', reg)
+    const ps: ProjectSkill = {
+      id: newId(), skill_id: reg.id, name: reg.name,
+      duration_in_years: 0, offset_in_years: 0, total_duration_in_years: 0,
+      sort_order: project.skills.length,
+    }
+    // Read the current state via the store rather than the stale `project`
+    // closure so we don't lose the just-added skill if another mutation
+    // races in.
+    const current = useStore.getState().data.projects.find((p) => p.id === project.id)
+    if (!current) return
+    updateItem('projects', project.id, { skills: [...current.skills, ps] })
   }
 
   return (
     <div className="sub-block">
-      <div className="sub-head">Skills used <span className="sub-hint">linked to global registry</span></div>
-      <div className="skill-chips">
+      <div className="sub-head">Skills used <span className="sub-hint">linked to global registry — click a chip to edit its translation</span></div>
+      <div className="skill-chip-list">
         {project.skills.map((s) => (
-          <div key={s.id} className="skill-chip">
-            <select value={s.skill_id} onChange={(e) => link(s.id, e.target.value)} className="skill-chip-sel">
-              <option value="">{resolve(s.name, primaryLocale) || '— select skill —'}</option>
-              {data.skills.map((reg) => <option key={reg.id} value={reg.id}>{resolve(reg.name, primaryLocale)}</option>)}
-            </select>
-            <button onClick={() => remove(s.id)}><X size={12} /></button>
-          </div>
+          <ProjectSkillChip key={s.id} ps={s} onRemove={() => remove(s.id)} />
         ))}
       </div>
-      <button className="sub-add" onClick={add}><Plus size={13} /> Add skill</button>
+      <Autocomplete
+        options={data.skills
+          .filter((reg) => !project.skills.some((ps) => ps.skill_id === reg.id))
+          .map((reg) => ({
+            id: reg.id,
+            label: resolve(reg.name, primaryLocale) || '(unnamed skill)',
+            sublabel: reg.skill_type,
+          }))}
+        onPick={linkExisting}
+        onAddNew={createAndLink}
+        addLabel="skill"
+        placeholder="Search or add a skill…"
+      />
+    </div>
+  )
+}
+
+/**
+ * A ProjectSkill chip. Clicking opens a popover with a DualField bound to
+ * the GLOBAL registry Skill so editing the translation here updates every
+ * other reference too (which is the consultant's natural expectation:
+ * "TypeScript" should mean the same thing everywhere). The chip's own
+ * snapshot is re-derived from the registry name on every render.
+ */
+function ProjectSkillChip({ ps, onRemove }: { ps: ProjectSkill; onRemove: () => void }) {
+  const { data, primaryLocale, updateItem } = useStore()
+  const [open, setOpen] = useState(false)
+  const skill = data.skills.find((x) => x.id === ps.skill_id)
+  const label = resolve(skill?.name ?? ps.name, primaryLocale) || '(unlinked)'
+
+  return (
+    <div className="skill-chip-w">
+      <button
+        type="button"
+        className="skill-chip"
+        onClick={() => setOpen((o) => !o)}
+        title="Edit translation"
+      >
+        <span>{label}</span>
+      </button>
+      <button
+        type="button"
+        className="skill-chip-x"
+        onClick={(e) => { e.stopPropagation(); onRemove() }}
+        title="Remove from this project"
+      >
+        <X size={12} />
+      </button>
+      {open && skill && (
+        <SkillTranslationPopover
+          skill={skill}
+          onClose={() => setOpen(false)}
+          onChange={(name) => updateItem('skills', skill.id, { name })}
+        />
+      )}
     </div>
   )
 }
@@ -204,11 +284,13 @@ function PaneStyles() {
       .nested-card { background: var(--paper-raised); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 12px; margin-bottom: 8px; }
       .nested-top { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
       .role-select { flex: 1; padding: 7px 10px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--paper); font-weight: 500; }
-      .skill-chips { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 10px; }
-      .skill-chip { display: inline-flex; align-items: center; background: var(--paper-raised); border: 1px solid var(--line); border-radius: 20px; padding: 2px 4px 2px 2px; }
-      .skill-chip-sel { border: none; background: none; padding: 4px 6px; font-size: 13px; font-weight: 500; max-width: 200px; }
-      .skill-chip button { width: 20px; height: 20px; display: grid; place-items: center; color: var(--ink-faint); border-radius: 50%; }
-      .skill-chip button:hover { background: var(--accent-wash); color: var(--accent); }
+      .skill-chip-list { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 10px; }
+      .skill-chip-w { position: relative; display: inline-flex; align-items: center; background: var(--paper-raised); border: 1px solid var(--line); border-radius: 20px; padding: 2px 6px 2px 2px; }
+      .skill-chip-w:hover { border-color: var(--accent); }
+      .skill-chip { padding: 4px 10px; font-size: 13px; font-weight: 500; background: transparent; cursor: pointer; }
+      .skill-chip:hover { color: var(--accent); }
+      .skill-chip-x { width: 20px; height: 20px; display: grid; place-items: center; color: var(--ink-faint); border-radius: 50%; }
+      .skill-chip-x:hover { background: var(--accent-wash); color: var(--accent); }
       .section-pane { animation: fadeUp .35s ease; }
       .editor-block { margin-bottom: 26px; }
       .eb-title { font-size: 20px; margin-bottom: 14px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }

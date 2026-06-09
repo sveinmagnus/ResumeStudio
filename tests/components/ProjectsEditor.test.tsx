@@ -73,18 +73,35 @@ describe('<ProjectsEditor>', () => {
     void project
   })
 
-  it('adds a project skill chip and links it to a registry skill', async () => {
+  it('links a registry skill into the project via the autocomplete', async () => {
     const skill = makeSkill({ name: { en: 'React' } })
     seedExpandedProject({ skills: [skill] })
     render(<ProjectsEditor />)
 
-    await userEvent.click(screen.getByRole('button', { name: /add skill/i }))
-    expect(useStore.getState().data.projects[0].skills).toHaveLength(1)
+    const input = screen.getByPlaceholderText(/search or add a skill/i)
+    await userEvent.click(input)
+    await userEvent.click(screen.getByRole('option', { name: /React/ }))
 
-    await userEvent.selectOptions(
-      screen.getByDisplayValue('— select skill —'),
-      screen.getByRole('option', { name: 'React' }),
-    )
-    expect(useStore.getState().data.projects[0].skills[0].skill_id).toBe(skill.id)
+    const state = useStore.getState().data
+    expect(state.projects[0].skills).toHaveLength(1)
+    expect(state.projects[0].skills[0].skill_id).toBe(skill.id)
+    // Snapshot name copied from the registry on link.
+    expect(state.projects[0].skills[0].name.en).toBe('React')
+  })
+
+  it('creates a brand-new registry skill via the autocomplete add-new path', async () => {
+    seedExpandedProject()
+    render(<ProjectsEditor />)
+
+    const input = screen.getByPlaceholderText(/search or add a skill/i)
+    await userEvent.click(input)
+    await userEvent.type(input, 'Terraform{Enter}')
+
+    const state = useStore.getState().data
+    expect(state.skills).toHaveLength(1)
+    expect(state.skills[0].name).toEqual({ en: 'Terraform' })
+    // The new skill is linked to the project in one shot.
+    expect(state.projects[0].skills).toHaveLength(1)
+    expect(state.projects[0].skills[0].skill_id).toBe(state.skills[0].id)
   })
 })

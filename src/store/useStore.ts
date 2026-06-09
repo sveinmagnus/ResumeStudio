@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid'
 import type { ResumeStore, Resume, LocalizedString } from '../types'
 import { importFromCVPartner } from '../lib/importer'
 import { detectLocalesInData, sortLocales } from '../lib/locales'
-import { foldRoleDescriptions, extractKeyPointsToCompetencies } from '../lib/migrate'
+import { foldRoleDescriptions, extractKeyPointsToCompetencies, defaultEmploymentRoleLinks } from '../lib/migrate'
 import { emptyStore as makeEmpty, freshStore as makeFresh } from '../lib/freshStore'
 import { sortItems, type SortMode } from '../lib/sectionSort'
 
@@ -155,7 +155,9 @@ export const useStore = create<AppState>((set, get) => {
       // Bring older persisted data up to the current shape before it enters
       // the store (e.g. fold legacy per-role descriptions into the project,
       // promote per-KQ key_points up to standalone key_competencies).
-      const migrated = extractKeyPointsToCompetencies(foldRoleDescriptions(store))
+      const migrated = defaultEmploymentRoleLinks(
+        extractKeyPointsToCompetencies(foldRoleDescriptions(store)),
+      )
       const supported = migrated.resume?.supported_locales ?? ['en']
       // Prefer caller-supplied locales (server-persisted per-resume choice).
       // Fall back to first/second of supported_locales otherwise.

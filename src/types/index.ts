@@ -188,6 +188,13 @@ export interface WorkExperience {
   company_url: string | null
   start: YearMonth | null
   end: YearMonth | null
+  /**
+   * Optional link to a registry Role. When set, the registry role's name is
+   * the canonical title (and registry merges rewrite this id alongside
+   * project role links). `role_title` stays as a free-text override so older
+   * data without a registry link still renders.
+   */
+  role_id: string | null
   skill_tags: string[]
   sort_order: number
   starred: boolean

@@ -506,6 +506,7 @@ export function importFromAIDraft(input: AIImportV1): ResumeStore {
       company_url: null,
       start: toYearMonth(w.start),
       end: toYearMonth(w.end),
+      role_id: null,
       skill_tags: [],
       sort_order: i,
       starred: false,
