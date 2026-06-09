@@ -622,7 +622,8 @@ describe('buildViewHtml()', () => {
         header: withHeaderDefaults({ photo_placement: 'left' }),
       })
       const html = buildViewHtml(store, view, 'en')
-      expect(html).toContain('class="ve-photo"')
+      // The shape class is appended to the base class — match both halves.
+      expect(html).toMatch(/class="ve-photo ve-photo-shape-\w+"/)
       expect(html).toContain('ve-photo-left')
       expect(html).toContain(PNG_1x1)
     })
@@ -635,7 +636,33 @@ describe('buildViewHtml()', () => {
         header: withHeaderDefaults({ photo_placement: 'none' }),
       })
       const html = buildViewHtml(store, view, 'en')
-      expect(html).not.toContain('class="ve-photo"')
+      expect(html).not.toContain('class="ve-photo')
+    })
+
+    it('applies the per-view profile photo shape as a class', () => {
+      const store = emptyStore()
+      store.resume = makeResume({ profile_photo: PNG_1x1 })
+      for (const shape of ['square', 'rounded', 'circle'] as const) {
+        const view = makeView({
+          sections: buildViewSections(),
+          header: withHeaderDefaults({ photo_placement: 'left', photo_shape: shape }),
+        })
+        const html = buildViewHtml(store, view, 'en')
+        expect(html).toContain(`ve-photo-shape-${shape}`)
+      }
+    })
+
+    it('defaults profile photo shape to square when the field is missing', () => {
+      // Older saved views won't have photo_shape set. withHeaderDefaults must
+      // coerce it back to 'square' so the renderer interpolates a known class.
+      const store = emptyStore()
+      store.resume = makeResume({ profile_photo: PNG_1x1 })
+      const view = makeView({
+        sections: buildViewSections(),
+        header: withHeaderDefaults({ photo_placement: 'left' }),
+      })
+      const html = buildViewHtml(store, view, 'en')
+      expect(html).toContain('ve-photo-shape-square')
     })
 
     it('prefers the per-view photo override over the master photo', () => {

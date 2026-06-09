@@ -427,6 +427,14 @@ export interface HeaderField {
 /** Where the profile photo sits relative to the identity (name/title/contact) block. */
 export type PhotoPlacement = 'none' | 'left' | 'right' | 'above' | 'below'
 
+/**
+ * How the profile photo is rendered in a Resume View — a square (the raw
+ * cropped image), a square with rounded corners, or a circular mask. HTML/PDF
+ * exports apply this via CSS border-radius; the DOCX exporter has to pre-mask
+ * the embedded image since Word can't apply a CSS mask to an `ImageRun`.
+ */
+export type ProfileImageShape = 'square' | 'rounded' | 'circle'
+
 /** Where the company logo sits in the top banner. */
 export type LogoPlacement = 'none' | 'left' | 'center' | 'right'
 
@@ -448,6 +456,13 @@ export interface ViewHeaderConfig {
   photo_placement: PhotoPlacement
   /** Override the master profile photo for this view (base64 data URL). null = use the master photo. */
   photo_override: string | null
+  /**
+   * Visual shape of the rendered profile photo. Defaults to 'square'. HTML/PDF
+   * paths apply this via CSS border-radius on the <img>; the DOCX exporter
+   * pre-masks the bytes to a PNG with the appropriate alpha so Word renders
+   * the same shape inside an `ImageRun`.
+   */
+  photo_shape: ProfileImageShape
   logo_placement: LogoPlacement
   /** Override the master company logo for this view (base64 data URL). null = use the master logo. */
   logo_override: string | null

@@ -514,7 +514,11 @@ export function buildViewHtml(store: ResumeStore, view: ResumeView, locale: stri
     .join('\n')
 
   const titleText = escapeHtml(lc(r.title))
-  const photoImg = showPhoto ? `<img class="ve-photo" src="${escapeHtml(photoSrc!)}" alt="">` : ''
+  // photo_shape is sanitised by withHeaderDefaults — only ever 'square' /
+  // 'rounded' / 'circle' here, so it's safe to interpolate as a class name.
+  const photoImg = showPhoto
+    ? `<img class="ve-photo ve-photo-shape-${header.photo_shape}" src="${escapeHtml(photoSrc!)}" alt="">`
+    : ''
   const identityHtml = `<div class="ve-identity">
     <h1 class="ve-name" style="${nameStyleCss}">${escapeHtml(r.full_name)}</h1>
     ${titleText ? `<div class="ve-header-title" style="${titleStyleCss}">${titleText}</div>` : ''}
@@ -585,9 +589,13 @@ export function buildViewHtml(store: ResumeStore, view: ResumeView, locale: stri
     .ve-header.ve-photo-below { display: flex; gap: 12px; flex-direction: column; align-items: flex-start; }
     .ve-identity { min-width: 0; }
     .ve-photo {
-      width: 112px; height: 112px; object-fit: cover; border-radius: 8px;
+      width: 112px; height: 112px; object-fit: cover;
       flex-shrink: 0; border: 1px solid ${tokens.accentCss}22;
     }
+    /* Profile photo shape — picked per view (square / rounded / circle). */
+    .ve-photo-shape-square  { border-radius: 0; }
+    .ve-photo-shape-rounded { border-radius: 18px; }
+    .ve-photo-shape-circle  { border-radius: 50%; }
     /* Footer */
     .ve-footer { margin-top: 28px; padding-top: 12px; }
     .ve-footer-line   { border-top: 1px solid ${tokens.accentCss}66; }

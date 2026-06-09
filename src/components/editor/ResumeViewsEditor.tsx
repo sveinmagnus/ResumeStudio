@@ -18,7 +18,7 @@ import type {
   ResumeView, ViewStyle, SectionStyle, SectionDetail,
   Density, BodySize, HeadingFont, PageMargin, TagStyle,
   ViewHeaderConfig, ViewFooterConfig, HeaderField, HeaderTextStyle,
-  PhotoPlacement, LogoPlacement, FooterSeparator, CopyrightHolder,
+  PhotoPlacement, ProfileImageShape, LogoPlacement, FooterSeparator, CopyrightHolder,
 } from '../../types'
 import {
   Plus, Pencil, Trash2, ChevronUp, ChevronDown,
@@ -1228,6 +1228,16 @@ function ViewHeaderControls({
           ]}
           onChange={(photo_placement) => onChange({ photo_placement })}
         />
+        <Select<ProfileImageShape>
+          label="Shape"
+          value={header.photo_shape}
+          options={[
+            ['square',  'Square (original)'],
+            ['rounded', 'Square, rounded corners'],
+            ['circle',  'Circular'],
+          ]}
+          onChange={(photo_shape) => onChange({ photo_shape })}
+        />
         <div className="rv-hdr-override">
           <ImageField
             label="Photo override (this view)"
@@ -1236,6 +1246,7 @@ function ViewHeaderControls({
             format="jpeg"
             maxDim={600}
             shape="square"
+            crop
             hint={masterPhoto ? 'Leave empty to use the master photo.' : 'No master photo set — upload one here or in Personal Details.'}
           />
         </div>

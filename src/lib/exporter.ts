@@ -32,7 +32,7 @@ import { applyView, isExportableSection, defaultViewDetail, promotedProjectItems
 import { parseRichBlocks, type RichRun } from './richText'
 import { deriveTokens, resolveSectionStyle, withDefaults, resolveFontDocx, type ResolvedSectionStyle, type StyleTokens } from './viewStyle'
 import { withHeaderDefaults, withFooterDefaults, buildHeaderLines, buildCopyrightLine } from './viewHeader'
-import { imageInfoFromDataUrl, type ImageInfo } from './image'
+import { imageInfoFromDataUrl, applyShapeMaskToDataUrl, type ImageInfo } from './image'
 
 const SUBTLE_HEX = '666666'
 const FAINT_HEX  = '888888'
@@ -278,7 +278,21 @@ export async function exportDocx(store: ResumeStore, view: ResumeView, locale: s
   // ── Header (configurable identity block + images) ───────────────────────
   const r = filtered.resume
   if (r) {
-    const photoInfo = imageInfoFromDataUrl(header.photo_override ?? r.profile_photo ?? null)
+    // Word can't apply a CSS-style border-radius to an ImageRun, so for the
+    // 'rounded' / 'circle' shapes we pre-mask the source data URL into a
+    // transparent PNG via canvas. 'square' is the original bytes (no work).
+    // Mask failures are tolerated — we fall back to the raw image rather
+    // than blocking the whole export.
+    const rawPhotoUrl = header.photo_override ?? r.profile_photo ?? null
+    let maskedPhotoUrl = rawPhotoUrl
+    if (rawPhotoUrl && header.photo_placement !== 'none' && header.photo_shape !== 'square') {
+      try {
+        maskedPhotoUrl = await applyShapeMaskToDataUrl(rawPhotoUrl, header.photo_shape)
+      } catch {
+        maskedPhotoUrl = rawPhotoUrl
+      }
+    }
+    const photoInfo = imageInfoFromDataUrl(maskedPhotoUrl)
     const logoInfo  = imageInfoFromDataUrl(header.logo_override ?? r.company_logo ?? null)
 
     // Logo banner sits at the very top, aligned per its placement.

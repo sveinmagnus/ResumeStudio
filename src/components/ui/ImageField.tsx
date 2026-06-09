@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { Upload, X, ImageOff } from 'lucide-react'
 import { fileToResizedDataUrl } from '../../lib/image'
+import { ImageCropperModal } from './ImageCropperModal'
 
 /**
  * Upload / preview / remove control for an image stored as a base64 data URL.
@@ -8,9 +9,20 @@ import { fileToResizedDataUrl } from '../../lib/image'
  * per-view overrides (ResumeViewsEditor). The selected file is downscaled
  * client-side before being handed to `onChange` so the stored payload stays
  * small.
+ *
+ * Two upload paths, picked by the `crop` prop:
+ *   - crop = false  → go straight to `fileToResizedDataUrl` (the original
+ *                     behaviour: scale to fit `maxDim`, return data URL).
+ *                     This is what the company logo wants — no cropping, the
+ *                     wide aspect ratio is preserved as-is.
+ *   - crop = true   → open the `ImageCropperModal` so the user can pan + zoom
+ *                     a square out of the picked image. The cropper handles
+ *                     resizing internally and hands the cropped data URL back
+ *                     via `onConfirm`. The profile photo uses this path.
  */
 export function ImageField({
   label, value, onChange, format = 'jpeg', maxDim = 600, hint, shape = 'square',
+  crop = false,
 }: {
   label: string
   value: string | null
@@ -19,17 +31,30 @@ export function ImageField({
   maxDim?: number
   hint?: string
   shape?: 'square' | 'wide'
+  /** Open the pan/zoom cropper after picking, before producing the data URL. */
+  crop?: boolean
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [pendingFile, setPendingFile] = useState<File | null>(null)
 
   const pick = () => inputRef.current?.click()
 
+  const clearInput = () => { if (inputRef.current) inputRef.current.value = '' }
+
   const onFile = async (file: File | undefined) => {
     if (!file) return
-    setBusy(true)
     setError(null)
+    if (crop) {
+      // The cropper modal owns the rest of the lifecycle — including showing
+      // a decode error. We just hand off and re-enable the input when it
+      // resolves so the user can pick a different file if they cancel.
+      setPendingFile(file)
+      clearInput()
+      return
+    }
+    setBusy(true)
     try {
       const dataUrl = await fileToResizedDataUrl(file, { format, maxDim })
       onChange(dataUrl)
@@ -37,7 +62,7 @@ export function ImageField({
       setError((e as Error).message)
     } finally {
       setBusy(false)
-      if (inputRef.current) inputRef.current.value = ''
+      clearInput()
     }
   }
 
@@ -70,6 +95,15 @@ export function ImageField({
         className="imgf-input"
         onChange={(e) => void onFile(e.target.files?.[0])}
       />
+      {pendingFile && (
+        <ImageCropperModal
+          file={pendingFile}
+          label={label}
+          outputSize={maxDim}
+          onCancel={() => setPendingFile(null)}
+          onConfirm={(dataUrl) => { setPendingFile(null); onChange(dataUrl) }}
+        />
+      )}
       <style>{`
         .imgf-wrap { margin-bottom: 16px; }
         .imgf-label {

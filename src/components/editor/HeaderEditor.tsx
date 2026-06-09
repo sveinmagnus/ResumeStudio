@@ -103,7 +103,8 @@ export function HeaderEditor() {
                 format="jpeg"
                 maxDim={600}
                 shape="square"
-                hint="Square crop works best. Stored in the resume; scaled down automatically."
+                crop
+                hint="Pick a file and pan / zoom into the square crop. Each Resume View picks how it's masked (square, rounded, or circular)."
               />
               <ImageField
                 label="Company logo"

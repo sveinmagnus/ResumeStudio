@@ -12,7 +12,8 @@
 import type {
   ResumeStore, Resume, LocalizedString,
   ViewHeaderConfig, ViewFooterConfig, HeaderField, HeaderFieldKey,
-  HeaderTextStyle, PhotoPlacement, LogoPlacement, FooterSeparator, CopyrightHolder,
+  HeaderTextStyle, PhotoPlacement, ProfileImageShape, LogoPlacement,
+  FooterSeparator, CopyrightHolder,
 } from '../types'
 import { resolve } from './locales'
 
@@ -24,11 +25,15 @@ import { resolve } from './locales'
 // out of an attribute, and a non-numeric size_pt would inject into a style.
 
 const PHOTO_PLACEMENTS = new Set<PhotoPlacement>(['none', 'left', 'right', 'above', 'below'])
+const PROFILE_IMAGE_SHAPES = new Set<ProfileImageShape>(['square', 'rounded', 'circle'])
 const LOGO_PLACEMENTS = new Set<LogoPlacement>(['none', 'left', 'center', 'right'])
 const TEXT_FONTS = new Set<HeaderTextStyle['font']>(['condensed', 'sans', 'serif', 'body'])
 
 function safePhotoPlacement(v: unknown): PhotoPlacement {
   return PHOTO_PLACEMENTS.has(v as PhotoPlacement) ? (v as PhotoPlacement) : 'none'
+}
+export function safeProfileImageShape(v: unknown): ProfileImageShape {
+  return PROFILE_IMAGE_SHAPES.has(v as ProfileImageShape) ? (v as ProfileImageShape) : 'square'
 }
 function safeLogoPlacement(v: unknown): LogoPlacement {
   return LOGO_PLACEMENTS.has(v as LogoPlacement) ? (v as LogoPlacement) : 'none'
@@ -99,6 +104,7 @@ export const DEFAULT_VIEW_HEADER: ViewHeaderConfig = {
   title_style: { size_pt: null, font: 'body' },
   photo_placement: 'none',
   photo_override: null,
+  photo_shape: 'square',
   logo_placement: 'none',
   logo_override: null,
 }
@@ -124,6 +130,7 @@ export function withHeaderDefaults(header: Partial<ViewHeaderConfig> | undefined
     title_style: safeTextStyle(header.title_style, DEFAULT_VIEW_HEADER.title_style),
     photo_placement: safePhotoPlacement(header.photo_placement),
     photo_override: header.photo_override ?? null,
+    photo_shape: safeProfileImageShape(header.photo_shape),
     logo_placement: safeLogoPlacement(header.logo_placement),
     logo_override: header.logo_override ?? null,
   }

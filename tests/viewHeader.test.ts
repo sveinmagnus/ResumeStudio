@@ -66,6 +66,20 @@ describe('withHeaderDefaults() — boundary validation', () => {
     const h = withHeaderDefaults({ logo_placement: 'evil' } as never)
     expect(h.logo_placement).toBe('none')
   })
+  it('coerces an out-of-enum photo_shape to square (defends viewFilter class interpolation)', () => {
+    // photo_shape is interpolated as part of an HTML class name (ve-photo-
+    // shape-${shape}) in viewFilter — a crafted import like 'x"><script>'
+    // would break out of the attribute if we didn't whitelist here.
+    const h = withHeaderDefaults({ photo_shape: 'x"><script>' } as never)
+    expect(h.photo_shape).toBe('square')
+  })
+  it('keeps a valid photo_shape value', () => {
+    expect(withHeaderDefaults({ photo_shape: 'rounded' }).photo_shape).toBe('rounded')
+    expect(withHeaderDefaults({ photo_shape: 'circle' }).photo_shape).toBe('circle')
+  })
+  it('defaults photo_shape to square when missing (legacy view config)', () => {
+    expect(withHeaderDefaults({}).photo_shape).toBe('square')
+  })
   it('coerces an unknown text font back to the default', () => {
     const h = withHeaderDefaults({ name_style: { size_pt: null, font: 'comic-sans' } } as never)
     expect(h.name_style.font).toBe(DEFAULT_VIEW_HEADER.name_style.font)
