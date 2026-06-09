@@ -95,6 +95,13 @@ What works today:
   newest-wins merge on launch. Build with `npm run build:desktop`. See §14 and
   `DESKTOP.md`. The persistence architecture is unchanged, so a later move to
   Electron is repackaging, not a rewrite.
+- **Automatic updates (desktop build)** — the system-tray "Check for updates"
+  item (plus an in-app picker banner + Settings → Updates) checks GitHub
+  Releases daily / on demand, toggles to "Install update (vX.Y.Z)" when a newer
+  release exists, and on click downloads the per-platform `.tar.gz` and swaps
+  the build in place via a detached per-OS script, then relaunches. Desktop-only
+  + `isUpdateSupported()`-gated (the VPS build reports `supported:false`). No
+  Electron, no code signing. See §14 and `DESKTOP.md` §6.
 
 What's intentionally simple:
 - The **router** is a hand-rolled ~120-line History API hook
@@ -185,7 +192,8 @@ src/
 │   ├── SnapshotHistory.tsx     ← Per-resume version-history modal: takes resumeId; restore via replaceData
 │   ├── ConflictModal.tsx       ← Non-blocking 409 conflict UI: diffResume summary + keep-mine / discard-mine
 │   ├── SyncPanel.tsx           ← Picker "Sync & backup" panel (desktop build only): status + Back up now / Restore from folder. Renders null when no sync folder is configured
-│   ├── SettingsModal.tsx       ← Picker gear → Settings: translation mode (off / Docker-managed / remote URL) + sync folder. Read-only note when server reports managed:false
+│   ├── SettingsModal.tsx       ← Picker gear → Settings: translation mode (off / Docker-managed / remote URL) + sync folder + Updates (version + check). Read-only note when server reports managed:false
+│   ├── UpdateBanner.tsx        ← Picker "Update available → Install" banner (desktop build); polls /api/update/status; renders null when unsupported/up-to-date
 │   ├── AppHeader.tsx           ← Editor top bar: ResumeSwitcher + SaveStatus + undo/redo + LanguageSwitcher + History + backup-export
 │   ├── layout/
 │   │   ├── Sidebar.tsx         ← Section navigation
@@ -220,18 +228,22 @@ server/                         ← Express API + SQLite persistence
 ├── settings.ts                 ← Desktop settings file (settings.json): load/save + applyToEnv onto process.env; isDesktop() gate; toView() masks the API key
 ├── translateDocker.ts          ← Optional managed Docker LibreTranslate: dockerAvailable/start/stop + translateReachable probe (spawn, argv-only)
 ├── translate.ts               ← LibreTranslate proxy: locale map, fetch w/ timeout (env: LIBRETRANSLATE_URL/_API_KEY, read lazily)
+├── version.ts                  ← PURE-ish: APP_VERSION (RESUME_APP_VERSION env, baked into the desktop shims, else package.json under tsx). Used by the auto-updater
 ├── desktop/                    ← Desktop launcher (not used by the VPS entry)
-│   ├── launcher.ts             ← Entry the portable build runs: data dir + free port + boot-restore + open browser + scheduler + tray + graceful shutdown. No import.meta/__dirname so it bundles to CJS
+│   ├── launcher.ts             ← Entry the portable build runs: data dir + free port + boot-restore + open browser + scheduler + tray + auto-update + graceful shutdown. No import.meta/__dirname so it bundles to CJS
 │   ├── freePort.ts             ← Find a free loopback port (preferred → ladder → OS-assigned)
 │   ├── openBrowser.ts          ← Zero-dep cross-platform default-browser opener
-│   ├── tray.ts                 ← System-tray icon (systray2) with Open / Quit; routeClick() pure dispatch; best-effort (null if no tray). Quit → the launcher's graceful shutdown
-│   └── trayIcon.ts             ← PURE: generates the tray icon (navy/cyan mark) via zlib — PNG (*nix) / ICO (Windows), no image dep
+│   ├── tray.ts                 ← System-tray icon (systray2) with Open / Updates / Quit; routeClick() pure dispatch + setUpdate() (live update-item); best-effort (null if no tray)
+│   ├── trayIcon.ts             ← PURE: generates the tray icon (navy/cyan mark) via zlib — PNG (*nix) / ICO (Windows), no image dep
+│   ├── updater.ts              ← Auto-updater core: PURE compareVersions/assetNameFor/isAllowedHost (SSRF) + checkForUpdate (GitHub) + downloadAsset/extractArchive(tar)/stageUpdate
+│   └── updateRuntime.ts        ← Process-wide updater state holder (mirrors backupRuntime): init/getStatus/runCheck/runInstall/setTrayRefresher + PURE buildSwapScript (per-OS swap+relaunch)
 └── routes/
     ├── auth.ts                 ← /api/auth: POST /login (token → HttpOnly cookie), POST /logout, GET /status. Rate-limited, NOT auth-gated
     ├── resume.ts               ← /api/resumes collection: list/create/load/save/rename/delete + per-resume /snapshots(/:sid)
     ├── translate.ts            ← GET /api/translate/status, POST /api/translate
     ├── backup.ts               ← /api/backup: GET /status, POST /now, POST /restore (reads RESUME_BACKUP_DIR lazily)
-    └── settings.ts             ← /api/settings: GET/PUT (desktop-gated) + POST /translate/test + POST /docker (start/stop/status)
+    ├── settings.ts             ← /api/settings: GET/PUT (desktop-gated) + POST /translate/test + POST /docker (start/stop/status)
+    └── update.ts               ← /api/update: GET /status, POST /check, POST /install (desktop-gated via isUpdateSupported)
 
 scripts/build-desktop.mjs       ← Assembles the portable release/ folder (esbuild bundle + dist + native deps + Node runtime + launcher shims). Run per target OS
 
@@ -847,3 +859,20 @@ Full end-user + build docs live in **`DESKTOP.md`**. Key facts for working here:
   /api/settings/translate/test` to probe *pending* (unsaved) config by drafting
   one phrase. Keys are write-only over the API: `toView()` returns `*_set`
   booleans, never the value; only the on-disk `settings.json` holds them.
+- **Auto-update = staged-swap, not Electron.** `updater.ts` checks GitHub
+  Releases (`checkForUpdate`), downloads the per-platform `resume-studio-<os>-
+  <arch>.tar.gz` (host-allowlisted to GitHub — SSRF guard), extracts with the
+  system `tar`, and validates the tree (`looksLikeValidBuild`). `updateRuntime.ts`
+  holds the state (mirrors `backupRuntime`), and to replace files a *running*
+  process can't overwrite (esp. `node.exe` on Windows) it writes a detached
+  per-OS swap script (`buildSwapScript`) that waits for our PID to exit,
+  mirrors/copies the staged build over `RESUME_INSTALL_DIR`, relaunches the shim,
+  and self-deletes. The launcher seeds the runtime (`initUpdateRuntime`), runs a
+  daily check, and wires the tray (`setTrayRefresher` → `setUpdate`). Gated by
+  `isUpdateSupported()` (the runtime is only seeded on the desktop build), so
+  `/api/update` reports `supported:false` and 403s mutations on the VPS — a
+  server must never rewrite its own files. `RESUME_NO_UPDATE` disables it;
+  `RESUME_UPDATE_REPO` overrides the repo. The build (`build-desktop.mjs`) bakes
+  `RESUME_APP_VERSION` into the shims and emits the `.tar.gz` to `release-dist/`;
+  `.github/workflows/release.yml` publishes it. Keep `assetNameFor` in
+  `updater.ts` and the duplicated copy in `build-desktop.mjs` in sync.

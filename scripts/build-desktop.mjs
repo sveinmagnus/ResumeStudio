@@ -24,6 +24,7 @@ import esbuild from 'esbuild'
 import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
+import { execFileSync } from 'child_process'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const release = path.join(root, 'release')
@@ -31,6 +32,20 @@ const appDir = path.join(release, 'app')
 const isWin = process.platform === 'win32'
 
 const log = (m) => console.log(`[build-desktop] ${m}`)
+
+// App version, baked into the launcher shims as RESUME_APP_VERSION (the bundle
+// has no package.json to read at runtime, and the auto-updater compares this to
+// the latest GitHub release). See server/version.ts.
+const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
+const VERSION = pkg.version || '0.0.0'
+
+// The release-asset name for THIS platform/arch — must match
+// server/desktop/updater.ts `assetNameFor` (intentionally duplicated: a build
+// script can't import the TS module) and what the auto-updater downloads.
+function assetNameFor(platform = process.platform, arch = process.arch) {
+  const os = platform === 'win32' ? 'windows' : platform === 'darwin' ? 'macos' : 'linux'
+  return `resume-studio-${os}-${arch}.tar.gz`
+}
 
 // ── 0. Preconditions ────────────────────────────────────────────────────────
 const distSrc = path.join(root, 'dist')
@@ -140,8 +155,10 @@ if (isWin) {
   fs.writeFileSync(path.join(release, 'Resume Studio.cmd'),
 `@echo off
 setlocal
+set "RESUME_INSTALL_DIR=%~dp0."
 set "RESUME_CLIENT_DIR=%~dp0app\\dist"
 set "RESUME_COMPOSE_FILE=%~dp0docker-compose.yml"
+set "RESUME_APP_VERSION=${VERSION}"
 rem Tip: the sync folder and translation are configured from the in-app
 rem Settings screen (gear icon) — no need to edit this file.
 "%~dp0node.exe" "%~dp0app\\launcher.cjs"
@@ -151,8 +168,10 @@ rem Settings screen (gear icon) — no need to edit this file.
   fs.writeFileSync(path.join(release, 'Resume Studio (no window).vbs'),
 `Set sh = CreateObject("WScript.Shell")
 root = Left(WScript.ScriptFullName, InStrRev(WScript.ScriptFullName, "\\"))
+sh.Environment("PROCESS")("RESUME_INSTALL_DIR") = root
 sh.Environment("PROCESS")("RESUME_CLIENT_DIR") = root & "app\\dist"
 sh.Environment("PROCESS")("RESUME_COMPOSE_FILE") = root & "docker-compose.yml"
+sh.Environment("PROCESS")("RESUME_APP_VERSION") = "${VERSION}"
 sh.Run """" & root & "node.exe"" """ & root & "app\\launcher.cjs""", 0, False
 `)
 } else {
@@ -160,8 +179,10 @@ sh.Run """" & root & "node.exe"" """ & root & "app\\launcher.cjs""", 0, False
 `#!/bin/sh
 # Resume Studio launcher
 DIR="$(cd "$(dirname "$0")" && pwd)"
+export RESUME_INSTALL_DIR="$DIR"
 export RESUME_CLIENT_DIR="$DIR/app/dist"
 export RESUME_COMPOSE_FILE="$DIR/docker-compose.yml"
+export RESUME_APP_VERSION="${VERSION}"
 # Tip: the sync folder and translation are configured from the in-app
 # Settings screen (gear icon) — no need to edit this file.
 exec "$DIR/node" "$DIR/app/launcher.cjs"
@@ -210,7 +231,28 @@ Backup & sync across computers (optional):
 See DESKTOP.md in the source repo for full details.
 `)
 
+// ── 7b. Emit the per-platform release archive (for the auto-updater + CI) ────
+// A .tar.gz of release/ contents, named per platform/arch. The auto-updater
+// downloads this from the GitHub release and `tar -xzf`s it (works on Win10+,
+// macOS, Linux). Written OUTSIDE release/ so it isn't archived into itself.
+const archiveName = assetNameFor()
+const distDir = path.join(root, 'release-dist')
+fs.mkdirSync(distDir, { recursive: true })
+const archivePath = path.join(distDir, archiveName)
+fs.rmSync(archivePath, { force: true })
+log(`creating ${archiveName} (v${VERSION}) …`)
+try {
+  // Run with cwd = distDir and a BARE archive filename. A Windows drive letter
+  // in the -f path (e.g. C:\…) is misread as a remote host (`host:path`) by GNU
+  // tar; a relative -f avoids that. The -C source dir is never host-parsed.
+  execFileSync('tar', ['-czf', archiveName, '-C', release, '.'], { cwd: distDir, stdio: 'inherit' })
+} catch (err) {
+  console.error(`[build-desktop] failed to create ${archiveName} (${err.message}). Is tar available?`)
+  process.exit(1)
+}
+
 // ── 8. Done ─────────────────────────────────────────────────────────────────
 const platName = isWin ? 'windows' : process.platform
-log(`done → ${release}  (platform: ${platName})`)
+log(`done → ${release}  (platform: ${platName}, v${VERSION})`)
+log(`archive → ${archivePath}`)
 log(`launch with: ${launchName}`)

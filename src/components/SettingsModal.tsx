@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
   X, Loader2, Check, AlertCircle, Languages, FolderSync, Server, Box, Power, Settings,
+  RefreshCw, Download,
 } from 'lucide-react'
 import {
-  api, type SettingsStatus, type SettingsUpdate, UnauthorizedError,
+  api, type SettingsStatus, type SettingsUpdate, type UpdateStatus, UnauthorizedError,
 } from '../lib/api'
 import { resetTranslationAvailability } from '../lib/translateClient'
 
@@ -43,6 +44,10 @@ export function SettingsModal({ onClose, onChanged, onUnauthorized }: SettingsMo
   const [test, setTest] = useState<{ busy: boolean; text?: string; ok?: boolean }>({ busy: false })
   const [docker, setDocker] = useState<{ busy: boolean; text?: string; ok?: boolean }>({ busy: false })
 
+  // ── Updates (desktop build) ───────────────────────────────────────────────
+  const [upd, setUpd] = useState<UpdateStatus | null>(null)
+  const [updBusy, setUpdBusy] = useState<null | 'check' | 'install'>(null)
+
   const seed = useCallback((s: SettingsStatus) => {
     setStatus(s)
     const v = s.settings
@@ -67,7 +72,33 @@ export function SettingsModal({ onClose, onChanged, onUnauthorized }: SettingsMo
         if (err instanceof UnauthorizedError) { onUnauthorized(); return }
         setLoadErr('Could not load settings.')
       })
+    api.updateStatus().then(setUpd).catch(() => setUpd(null))
   }, [seed, onUnauthorized])
+
+  const onCheckUpdate = useCallback(async () => {
+    setUpdBusy('check')
+    try {
+      setUpd(await api.checkForUpdate())
+    } catch (err) {
+      if (err instanceof UnauthorizedError) { onUnauthorized(); return }
+      setUpd((u) => (u ? { ...u, state: 'error', error: (err as Error).message } : u))
+    } finally {
+      setUpdBusy(null)
+    }
+  }, [onUnauthorized])
+
+  const onInstallUpdate = useCallback(async () => {
+    setUpdBusy('install')
+    try {
+      await api.installUpdate()
+      setUpd(await api.updateStatus())
+    } catch (err) {
+      if (err instanceof UnauthorizedError) { onUnauthorized(); return }
+      setUpd((u) => (u ? { ...u, state: 'error', error: (err as Error).message } : u))
+    } finally {
+      setUpdBusy(null)
+    }
+  }, [onUnauthorized])
 
   // Map the form to a settings update. Keys are only included when (re)typed, so
   // a masked-but-saved key is preserved server-side.
@@ -283,6 +314,49 @@ export function SettingsModal({ onClose, onChanged, onUnauthorized }: SettingsMo
                 value={backupDir} onChange={(e) => setBackupDir(e.target.value)} aria-label="Backup folder"
               />
             </section>
+
+            {/* ── Updates ─────────────────────────────────────────────── */}
+            {upd?.supported && (
+              <section className="sm-sec">
+                <div className="sm-sec-head"><Download size={15} /> Updates</div>
+                <div className="sm-row">
+                  <span>Current version</span>
+                  <span className="sm-pill">v{upd.currentVersion}</span>
+                </div>
+                <div className="sm-btn-row">
+                  <button className="sm-btn" onClick={() => void onCheckUpdate()} disabled={updBusy !== null}>
+                    {updBusy === 'check' ? <Loader2 size={13} className="sm-spin" /> : <RefreshCw size={13} />}
+                    Check for updates
+                  </button>
+                  {upd.updateAvailable && upd.downloadable && (
+                    <button className="sm-btn sm-primary" onClick={() => void onInstallUpdate()} disabled={updBusy !== null}>
+                      {updBusy === 'install' ? <Loader2 size={13} className="sm-spin" /> : <Download size={13} />}
+                      Install v{upd.latestVersion}
+                    </button>
+                  )}
+                  {upd.updateAvailable && !upd.downloadable && upd.htmlUrl && (
+                    <a className="sm-btn" href={upd.htmlUrl} target="_blank" rel="noopener noreferrer">
+                      <Download size={13} /> Download from GitHub
+                    </a>
+                  )}
+                </div>
+                {upd.state === 'uptodate' && (
+                  <div className="sm-inline sm-ok"><Check size={13} /> You're on the latest version.</div>
+                )}
+                {upd.updateAvailable && !['downloading', 'applying'].includes(upd.state) && (
+                  <div className="sm-inline sm-warn">
+                    <AlertCircle size={13} /> Version v{upd.latestVersion} is available
+                    {upd.downloadable ? '.' : ' (manual download for this platform).'}
+                  </div>
+                )}
+                {(upd.state === 'downloading' || upd.state === 'applying') && (
+                  <div className="sm-inline"><Loader2 size={13} className="sm-spin" /> {upd.state === 'downloading' ? `Downloading… ${Math.round(upd.progress * 100)}%` : 'Installing — the app will restart.'}</div>
+                )}
+                {upd.state === 'error' && upd.error && (
+                  <div className="sm-inline sm-warn"><AlertCircle size={13} /> {upd.error}</div>
+                )}
+              </section>
+            )}
 
             {saveMsg && <div className={`sm-msg ${saveMsg.ok ? 'sm-ok-box' : 'sm-err'}`}>{saveMsg.text}</div>}
 

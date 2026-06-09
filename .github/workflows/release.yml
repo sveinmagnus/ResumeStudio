@@ -1,9 +1,14 @@
 # Build the portable desktop bundle on Windows, macOS, and Linux when a
 # version tag is pushed (e.g. `git tag v0.1.0 && git push origin v0.1.0`),
-# then attach the three artifacts to the matching GitHub Release.
+# then attach the artifacts to the matching GitHub Release.
 #
-# Filenames here MUST match what docs/download.md links to, otherwise the
-# /releases/latest/download/<file> URLs 404 on the project site.
+# Two asset families are uploaded per release:
+#   1. ResumeStudio-<os>.(zip|tar.gz)        — human download (docs/download.md
+#      links to these; filenames MUST stay stable or those URLs 404).
+#   2. resume-studio-<os>-<arch>.tar.gz      — the AUTO-UPDATER asset, emitted by
+#      `npm run build:desktop` into release-dist/. Names MUST match
+#      server/desktop/updater.ts `assetNameFor`, and the format MUST be .tar.gz
+#      (the in-app updater extracts with `tar -xzf`). Do not rename these.
 
 name: Release
 
@@ -46,8 +51,13 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Sanity gate so a broken tag never auto-updates users in the field.
+      - name: Typecheck & test
+        run: npm run typecheck && npm test
+
       # Builds the React client + assembles the portable release/ folder with
-      # the bundled Node binary and better-sqlite3 native addon for THIS OS.
+      # the bundled Node binary and better-sqlite3 native addon for THIS OS,
+      # and emits release-dist/resume-studio-<os>-<arch>.tar.gz (updater asset).
       - name: Build desktop bundle
         run: npm run build:desktop
 
@@ -81,7 +91,10 @@ jobs:
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v3
         with:
-          files: ${{ matrix.asset }}
+          # Both the human-download bundle and the auto-updater .tar.gz.
+          files: |
+            ${{ matrix.asset }}
+            release-dist/*.tar.gz
           # Auto-creates the release on first asset upload for this tag, and
           # appends artifacts from each matrix job to the same release.
           fail_on_unmatched_files: true

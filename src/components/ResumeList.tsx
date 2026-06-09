@@ -8,6 +8,7 @@ import { navigate, Link } from '../lib/router'
 import { ImportScreen } from './ImportScreen'
 import { SyncPanel } from './SyncPanel'
 import { SettingsModal } from './SettingsModal'
+import { UpdateBanner } from './UpdateBanner'
 import type { ResumeStore } from '../types'
 
 const YEAR = new Date().getFullYear()
@@ -174,8 +175,15 @@ export function ResumeList({ onUnauthorized }: ResumeListProps) {
     return (
       <>
         {settingsOverlay}
+        <div className="rl-prelude">
+          <UpdateBanner onUnauthorized={onUnauthorized} />
+        </div>
         <SyncPanel key={syncRefreshKey} standalone onRestored={reload} onUnauthorized={onUnauthorized} />
         <ImportScreen onStartFresh={onStartFresh} onImported={onImported} />
+        <style>{`
+          .rl-prelude { max-width: 720px; margin: 40px auto 0; width: calc(100% - 80px); }
+          .rl-prelude .ub-banner { margin-bottom: 0; }
+        `}</style>
       </>
     )
   }
@@ -195,6 +203,8 @@ export function ResumeList({ onUnauthorized }: ResumeListProps) {
         </header>
 
         {error && <div className="rl-error">{error}</div>}
+
+        <UpdateBanner onUnauthorized={onUnauthorized} />
 
         <SyncPanel key={syncRefreshKey} onRestored={reload} onUnauthorized={onUnauthorized} />
 

@@ -177,6 +177,34 @@ export interface SettingsUpdate {
 export interface TranslateTestResult { reachable: boolean; languages?: number; message: string }
 export interface DockerActionResult { ok?: boolean; available: boolean; reachable?: boolean; message: string }
 
+export type UpdateState =
+  | 'idle' | 'checking' | 'available' | 'uptodate' | 'downloading' | 'staged' | 'applying' | 'error'
+
+/** Auto-update status (desktop build). `supported:false` on web/VPS builds. */
+export interface UpdateStatus {
+  supported: boolean
+  state: UpdateState
+  currentVersion: string
+  latestVersion: string | null
+  updateAvailable: boolean
+  /** True only when a per-platform build exists to install in place. An update
+   *  can be available but not downloadable (no matching asset) — then the UI
+   *  links to the release page instead of offering Install. */
+  downloadable: boolean
+  /** Download progress 0..1 while state === 'downloading'. */
+  progress: number
+  lastCheckedAt: string | null
+  notes: string
+  htmlUrl: string | null
+  error: string | null
+}
+
+const UPDATE_UNSUPPORTED: UpdateStatus = {
+  supported: false, state: 'idle', currentVersion: '0.0.0', latestVersion: null,
+  updateAvailable: false, downloadable: false, progress: 0, lastCheckedAt: null,
+  notes: '', htmlUrl: null, error: null,
+}
+
 // ─── API surface ──────────────────────────────────────────────────────────────
 
 export const api = {
@@ -458,6 +486,53 @@ export const api = {
       return await res.json() as DockerActionResult
     } catch {
       return { available: false, message: `Docker ${action} request failed.` }
+    }
+  },
+
+  // ── Auto-update (desktop build) ──────────────────────────────────────────
+
+  /**
+   * Current update status. Never throws — returns an `unsupported` snapshot on
+   * any error, so web/VPS builds (and an unreachable server) simply hide the UI.
+   */
+  async updateStatus(): Promise<UpdateStatus> {
+    try {
+      const res = await request('GET', '/api/update/status')
+      if (!res.ok) return UPDATE_UNSUPPORTED
+      return await res.json() as UpdateStatus
+    } catch {
+      return UPDATE_UNSUPPORTED
+    }
+  },
+
+  /** Force a GitHub check now; returns the refreshed status. Throws on failure. */
+  async checkForUpdate(): Promise<UpdateStatus> {
+    const res = await request('POST', '/api/update/check')
+    if (!res.ok) {
+      let message = `Update check failed (${res.status})`
+      try {
+        const json = await res.json() as { error?: string }
+        if (json.error) message = json.error
+      } catch { /* keep default */ }
+      throw new ServerError(res.status, message)
+    }
+    return await res.json() as UpdateStatus
+  },
+
+  /**
+   * Begin downloading + installing the available update. Resolves on the 202
+   * accept; the app then swaps files and restarts. Throws ServerError on 409
+   * (nothing to install) / 403 (not the desktop build).
+   */
+  async installUpdate(): Promise<void> {
+    const res = await request('POST', '/api/update/install')
+    if (!res.ok) {
+      let message = `Could not start the update (${res.status})`
+      try {
+        const json = await res.json() as { error?: string }
+        if (json.error) message = json.error
+      } catch { /* keep default */ }
+      throw new ServerError(res.status, message)
     }
   },
 }

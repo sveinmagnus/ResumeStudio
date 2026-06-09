@@ -198,7 +198,47 @@ snapshots. The sync folder backup is the *whole store*; the export button is
 
 ---
 
-## 6. Configuration reference
+## 6. Automatic updates
+
+Resume Studio keeps itself current from its **GitHub Releases**, with no
+installer and no app store — the same self-contained portable folder, swapped in
+place.
+
+**How it checks.** The app checks for a newer release **once shortly after
+launch and then daily**, and you can check on demand. There are two places to
+do it:
+
+- **System tray** — right-click the Resume Studio tray icon. The middle item
+  reads **"Check for updates"**; click it to check now. When a newer version is
+  found it changes to **"Install update (vX.Y.Z)"**.
+- **In the app** — the resume picker shows an **"Update available"** banner with
+  an **Install update** button (and a *Release notes* link), and **Settings →
+  Updates** shows your current version with a **Check for updates** button.
+
+**How it installs.** Click **Install update** (tray or banner). The app
+downloads the new build for your OS from the release, then restarts itself onto
+the new version. Your data is untouched — it lives in the per-user folder (§3),
+not inside the app folder that gets replaced.
+
+**Cross-platform, by design.** This works on Windows, macOS and Linux without
+Electron. Because a running program can't overwrite its own files (especially
+the Node binary on Windows, which is locked while running), the install hands
+off to a tiny helper script that waits for the app to exit, swaps the folder
+contents, and relaunches. The downloaded asset is a `.tar.gz` (extracted with
+the system `tar`, present on Windows 10+/macOS/Linux).
+
+> The desktop build is **not code-signed**. The updater swaps files inside the
+> app folder you already trust and relaunches directly, which avoids the
+> first-run Gatekeeper/SmartScreen prompts — but if your OS still warns, that's
+> why. Updates are a desktop-only feature: a server (VPS) deployment never
+> self-updates (it reports "not supported").
+
+**Turning it off.** Set `RESUME_NO_UPDATE=1` before launching to disable the
+background check and the install action entirely.
+
+---
+
+## 7. Configuration reference
 
 Most users never touch these — **Settings** (§4) covers translation and the sync
 folder, with everything else defaulted. These env vars are an advanced/override
@@ -220,13 +260,17 @@ first run, then overrides them.
 | `PORT` | Preferred port (auto-advances if taken) | `3001` |
 | `RESUME_NO_BROWSER` | Don't auto-open a browser (headless/CI) | unset |
 | `RESUME_API_TOKEN` | Require a bearer token (not needed for loopback-only) | unset |
+| `RESUME_NO_UPDATE` | Disable the auto-updater (background check + install) | unset (updates on) |
+| `RESUME_UPDATE_REPO` | GitHub `owner/repo` to check for releases | `sveinmagnus/resumestudio` |
+| `RESUME_INSTALL_DIR` | The portable build root to swap on update (set by the shim) | derived from `RESUME_CLIENT_DIR` |
+| `RESUME_APP_VERSION` | The running version (baked into the shim at build time) | from `package.json` under `tsx` |
 
 The server binds **loopback only** (`127.0.0.1`), so the app is never exposed to
 your local network.
 
 ---
 
-## 7. Troubleshooting
+## 8. Troubleshooting
 
 - **Nothing opened in the browser.** The window/log prints the URL — open it
   manually. Pop-up/launch blockers can stop the auto-open.
@@ -244,3 +288,10 @@ your local network.
   connection** report "not reachable" and drafts will fail.
 - **Docker option says "not available".** Install Docker Desktop and make sure
   it's running, or use a Remote URL instead.
+- **"Check for updates" never finds anything / the install didn't restart.**
+  The check needs internet access to GitHub. The install replaces the app folder
+  and relaunches a few seconds after the app exits — if your browser tab errored
+  briefly, reopen it from the tray's **Open Resume Studio**. The update log lines
+  are in `resume-studio.log` (§3). If an anti-virus blocks the swap helper
+  script, download the new release manually instead. Set `RESUME_NO_UPDATE=1` to
+  turn the feature off.

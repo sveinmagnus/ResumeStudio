@@ -8,6 +8,7 @@ import resumeRouter from './routes/resume.js'
 import translateRouter from './routes/translate.js'
 import backupRouter from './routes/backup.js'
 import settingsRouter from './routes/settings.js'
+import updateRouter from './routes/update.js'
 
 // import.meta.url is this module's file URL under tsx/ESM (dev + the VPS
 // `tsx` entry), but esbuild emits "" for it in the desktop CJS bundle. Guard so
@@ -127,6 +128,9 @@ export function createApp(): Express {
 
   // ── In-app settings (auth-gated) — desktop build only; env-managed on VPS ──
   app.use('/api/settings', apiLimiter, authMiddleware, settingsRouter)
+
+  // ── Auto-update (auth-gated) — desktop build only; reports unsupported on VPS ─
+  app.use('/api/update', apiLimiter, authMiddleware, updateRouter)
 
   // ── Serve the built frontend ──────────────────────────────────────────────
   // VPS prod sets NODE_ENV=production and ships dist/ next to the server; the

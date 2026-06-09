@@ -35,6 +35,10 @@ import { startTranslate } from '../translateDocker.js'
 import { findFreePort } from './freePort.js'
 import { openBrowser } from './openBrowser.js'
 import { startTray, type TrayHandle } from './tray.js'
+import { APP_VERSION } from '../version.js'
+import {
+  initUpdateRuntime, setTrayRefresher, runCheck, handleUpdateClick,
+} from './updateRuntime.js'
 
 const HOST = '127.0.0.1' // loopback only — never expose a personal CV store to the LAN
 const PREFERRED_PORT = parseInt(process.env.PORT ?? '3001', 10)
@@ -61,6 +65,8 @@ async function main(): Promise<void> {
   process.env.RESUME_DESKTOP = '1'            // flips on the in-app settings surface
   process.env.RESUME_DATA_DIR = paths.dataDir // so settings.ts resolves the same dir
   process.env.RESUME_DB_PATH = paths.dbPath
+  // Make the version visible to child processes (and the status route fallback).
+  if (!process.env.RESUME_APP_VERSION?.trim()) process.env.RESUME_APP_VERSION = APP_VERSION
   // The portable shim sets RESUME_CLIENT_DIR to an absolute dist path. If it's
   // unset (dev run, or a shim that didn't export it) fall back to whichever of
   // these exists relative to the working directory: `dist` (repo checkout) or
@@ -91,6 +97,7 @@ async function main(): Promise<void> {
 
   log('────────────────────────────────────────────────')
   log('Resume Studio (desktop) starting')
+  log(`  version    : ${APP_VERSION}`)
   log(`  data dir   : ${paths.dataDir}`)
   log(`  database   : ${paths.dbPath}`)
   log(`  client dir : ${process.env.RESUME_CLIENT_DIR}`)
@@ -174,15 +181,47 @@ async function main(): Promise<void> {
   // On Windows a closed console window arrives as SIGHUP/SIGBREAK on some shells.
   process.on('SIGHUP', () => shutdown('SIGHUP'))
 
-  // ── System-tray icon (Open / Quit) ───────────────────────────────────────
+  // ── Auto-updater (best-effort, desktop-only) ─────────────────────────────
+  // Seed the updater runtime with where this build lives + a shutdown hook the
+  // swap script needs. RESUME_NO_UPDATE disables the whole feature (headless/CI
+  // / packaged-by-a-store deployments that shouldn't self-update).
+  const updatesEnabled = !process.env.RESUME_NO_UPDATE?.trim()
+  if (updatesEnabled) {
+    // The portable build root = the folder holding node[.exe] + app/ + shims.
+    // The shim exports RESUME_INSTALL_DIR; otherwise derive it from the client
+    // dir (which is <installDir>/app/dist).
+    const installDir = process.env.RESUME_INSTALL_DIR?.trim()
+      || path.dirname(path.dirname(process.env.RESUME_CLIENT_DIR as string))
+    initUpdateRuntime({
+      installDir,
+      appVersion: APP_VERSION,
+      log,
+      requestShutdown: () => shutdown('update'),
+    })
+    log(`  updates    : enabled (install dir: ${installDir})`)
+  }
+
+  // ── System-tray icon (Open / Updates / Quit) ─────────────────────────────
   // Non-blocking + best-effort: a tray failure never stops the server, and the
   // launcher window / Ctrl-C remains a working way to quit. With the tray, the
   // no-window (.vbs) launcher is fully usable — Quit lives in the tray.
   void startTray({
     onOpen: () => openBrowser(url),
     onQuit: () => shutdown('tray'),
+    onUpdate: () => handleUpdateClick(),
     log,
-  }).then((h) => { trayHandle = h })
+  }).then((h) => {
+    trayHandle = h
+    // Let the updater push its state (Check ↔ Install ↔ Downloading…) into the
+    // tray menu item as it changes.
+    if (h && updatesEnabled) setTrayRefresher((view) => h.setUpdate(view))
+  })
+
+  // ── Periodic update check (daily) + one shortly after boot ───────────────
+  if (updatesEnabled) {
+    setTimeout(() => { void runCheck() }, 10_000).unref()
+    setInterval(() => { void runCheck() }, 24 * 60 * 60 * 1000).unref()
+  }
 }
 
 main().catch((err) => {
