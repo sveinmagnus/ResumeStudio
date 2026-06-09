@@ -12,7 +12,8 @@
  *    `long_description`, leaving roles as registry links only.
  */
 
-import type { ResumeStore, LocalizedString, ProjectRole } from '../types'
+import type { ResumeStore, LocalizedString, ProjectRole, KeyCompetency, KeyPoint } from '../types'
+import { v4 as uuidv4 } from 'uuid'
 
 /**
  * Merge localized `addition` into `base`, joining non-empty values per-locale
@@ -113,4 +114,52 @@ export function foldRoleDescriptions(store: ResumeStore): ResumeStore {
 
   if (!storeChanged) return store
   return { ...store, projects }
+}
+
+// ─── Move key_points off key_qualifications and into key_competencies ────────
+//
+// Earlier importer revisions stuffed CVpartner's per-KQ "key_points" array onto
+// each KeyQualification as a sub-list under the Profile editor. Those points
+// are conceptually the same thing as the standalone "Key Competencies" section
+// (short heading + longer description), so the UX now treats them that way: the
+// sub-list under Profile is gone, and the data lives in `key_competencies`.
+//
+// This migration takes any existing per-KQ key_points and appends them to the
+// top-level key_competencies array (mapping name → title, long_description →
+// description), then clears the per-KQ list. Idempotent: a store whose KQs
+// already have empty key_points is returned untouched.
+
+function pointHasText(p: KeyPoint): boolean {
+  const any = (ls: LocalizedString | undefined) => !!ls && Object.values(ls).some((v) => (v ?? '').trim())
+  return any(p.name) || any(p.long_description)
+}
+
+export function extractKeyPointsToCompetencies(store: ResumeStore): ResumeStore {
+  const hasAny = store.key_qualifications.some((kq) => (kq.key_points?.length ?? 0) > 0)
+  if (!hasAny) return store
+
+  const competencies: KeyCompetency[] = [...store.key_competencies]
+  let nextOrder = competencies.length
+    ? Math.max(...competencies.map((c) => c.sort_order)) + 1
+    : 0
+  const resumeId = store.resume?.id ?? ''
+
+  const key_qualifications = store.key_qualifications.map((kq) => {
+    if (!kq.key_points || kq.key_points.length === 0) return kq
+    for (const kp of kq.key_points) {
+      if (!pointHasText(kp)) continue
+      competencies.push({
+        id: uuidv4(),
+        resume_id: resumeId,
+        title: kp.name,
+        description: kp.long_description,
+        sort_order: nextOrder++,
+        starred: false,
+        disabled: kp.disabled ?? false,
+      })
+    }
+    return { ...kq, key_points: [] }
+  })
+
+  return { ...store, key_qualifications, key_competencies: competencies }
 }

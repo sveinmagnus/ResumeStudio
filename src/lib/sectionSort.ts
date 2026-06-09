@@ -93,7 +93,21 @@ export function sortItems<T extends Sortable>(
     case 'start':
       return arr.sort((a, b) => byDateDesc(ymKey(a.start), ymKey(b.start), false))
     case 'end':
-      return arr.sort((a, b) => byDateDesc(ymKey(a.end), ymKey(b.end), true))
+      // Ongoing items (null end) all rank as "most recent" by end date, so
+      // they tie with each other. Without a secondary key the input order
+      // wins — which means a freshly added ongoing role can hide below an
+      // older one. Tie-break ongoing items by start date descending instead,
+      // so the most recently started ongoing entry shows first. Items with
+      // a real end date are still compared purely by that end date.
+      return arr.sort((a, b) => {
+        const ae = ymKey(a.end), be = ymKey(b.end)
+        const primary = byDateDesc(ae, be, true)
+        if (primary !== 0) return primary
+        if (ae === null && be === null) {
+          return byDateDesc(ymKey(a.start), ymKey(b.start), false)
+        }
+        return 0
+      })
     case 'date': {
       const field = DATE_CAPS[section]?.single ?? 'date'
       return arr.sort((a, b) => byDateDesc(ymKey(a[field]), ymKey(b[field]), false))

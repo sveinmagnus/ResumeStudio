@@ -85,27 +85,19 @@ describe('SimpleEditors — editing seeded items', () => {
   })
 })
 
-describe('ProfileEditor — key competency points', () => {
+describe('ProfileEditor', () => {
   beforeEach(() => resetStore())
 
-  it('adds, edits, and removes a competency point', async () => {
+  it('adds a new profile block but does NOT expose the legacy per-KQ key_points sub-list', async () => {
+    // The per-KQ "Key competency points" sub-list moved to the standalone
+    // Key Competencies section (see KeyCompetenciesEditor). Profile blocks
+    // now carry only the label / tag line / summary — adding a block must
+    // not surface an "Add competency" affordance here.
     seed()
     render(<ProfileEditor />)
     await userEvent.click(screen.getByRole('button', { name: /add profile block/i }))
-    const kqId = useStore.getState().data.key_qualifications[0].id
-
-    // Add a competency point.
-    await userEvent.click(screen.getByRole('button', { name: /add competency/i }))
-    expect(useStore.getState().data.key_qualifications[0].key_points).toHaveLength(1)
-
-    // Type into it → writes the primary-locale name.
-    await userEvent.type(screen.getByPlaceholderText('Competency…'), 'Leadership')
-    expect(useStore.getState().data.key_qualifications[0].key_points[0].name.en).toBe('Leadership')
-
-    // Remove it.
-    await userEvent.click(screen.getByRole('button', { name: '×' }))
-    expect(useStore.getState().data.key_qualifications[0].key_points).toHaveLength(0)
-
-    void kqId
+    expect(useStore.getState().data.key_qualifications).toHaveLength(1)
+    expect(useStore.getState().data.key_qualifications[0].key_points).toEqual([])
+    expect(screen.queryByRole('button', { name: /add competency/i })).toBeNull()
   })
 })

@@ -1,7 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { appendLocalized, buildRoleParagraph, foldRoleDescriptions } from '../src/lib/migrate'
+import {
+  appendLocalized, buildRoleParagraph, foldRoleDescriptions,
+  extractKeyPointsToCompetencies,
+} from '../src/lib/migrate'
 import { emptyStore, makeProject } from './fixtures'
-import type { ProjectRole } from '../src/types'
+import type { ProjectRole, KeyQualification, KeyPoint } from '../src/types'
 
 // A ProjectRole carrying the legacy free-text fields that older saves had.
 type LegacyRole = ProjectRole & { long_description?: Record<string, string>; summary?: Record<string, string> }
@@ -108,5 +111,91 @@ describe('foldRoleDescriptions()', () => {
     const out = foldRoleDescriptions(store)
     expect(out.projects[0].long_description.en).toBe('EN bg.\n\nLead: Did EN.')
     expect(out.projects[0].long_description.no).toBe('NO bg.\n\nLeder: Gjorde NO.')
+  })
+})
+
+// Build a KQ carrying the legacy key_points sub-list that older imports left
+// behind. Only `key_points` is varied here — the rest is plumbing.
+function kqWithPoints(points: Partial<KeyPoint>[]): KeyQualification {
+  const filled: KeyPoint[] = points.map((p, i) => ({
+    id: `kp-${i}`,
+    name: {},
+    long_description: {},
+    sort_order: i,
+    disabled: false,
+    ...p,
+  }))
+  return {
+    id: `kq-${Math.random().toString(36).slice(2, 8)}`,
+    resume_id: 'r1',
+    label: { en: 'Profile' },
+    tag_line: {},
+    summary: { en: 'Summary' },
+    key_points: filled,
+    skill_tags: [],
+    sort_order: 0,
+    starred: false,
+    disabled: false,
+    internal_notes: null,
+  }
+}
+
+describe('extractKeyPointsToCompetencies()', () => {
+  it('promotes per-KQ key_points to the top-level key_competencies array', () => {
+    const store = emptyStore()
+    store.resume = { ...store.resume!, id: 'resume-1' }
+    store.key_qualifications.push(kqWithPoints([
+      { name: { en: 'Leadership' }, long_description: { en: 'Led teams' } },
+      { name: { en: 'Architecture' }, long_description: { en: 'Designed systems' } },
+    ]))
+
+    const out = extractKeyPointsToCompetencies(store)
+    expect(out.key_qualifications[0].key_points).toEqual([])
+    expect(out.key_competencies).toHaveLength(2)
+    expect(out.key_competencies[0].title.en).toBe('Leadership')
+    expect(out.key_competencies[0].description.en).toBe('Led teams')
+    expect(out.key_competencies[0].resume_id).toBe('resume-1')
+    // Sort order is dense from zero.
+    expect(out.key_competencies.map((c) => c.sort_order)).toEqual([0, 1])
+  })
+
+  it('drops entirely-empty key_points instead of carrying them over as blanks', () => {
+    const store = emptyStore()
+    store.key_qualifications.push(kqWithPoints([
+      { name: {}, long_description: {} },
+      { name: { en: 'Real' }, long_description: { en: 'value' } },
+    ]))
+    const out = extractKeyPointsToCompetencies(store)
+    expect(out.key_competencies).toHaveLength(1)
+    expect(out.key_competencies[0].title.en).toBe('Real')
+  })
+
+  it('appends to an existing key_competencies array without clobbering order', () => {
+    const store = emptyStore()
+    store.key_competencies.push({
+      id: 'existing', resume_id: '', title: { en: 'Existing' }, description: {},
+      sort_order: 5, starred: false, disabled: false,
+    })
+    store.key_qualifications.push(kqWithPoints([{ name: { en: 'New' } }]))
+    const out = extractKeyPointsToCompetencies(store)
+    expect(out.key_competencies).toHaveLength(2)
+    // New entry's sort_order is strictly after the existing one so the UI
+    // shows it at the bottom of the list rather than overlapping.
+    expect(out.key_competencies[1].sort_order).toBe(6)
+  })
+
+  it('returns the same store reference when no KQ carries key_points', () => {
+    const store = emptyStore()
+    store.key_qualifications.push(kqWithPoints([]))
+    expect(extractKeyPointsToCompetencies(store)).toBe(store)
+  })
+
+  it('is idempotent — running twice does not duplicate competencies', () => {
+    const store = emptyStore()
+    store.key_qualifications.push(kqWithPoints([{ name: { en: 'Once' } }]))
+    const once  = extractKeyPointsToCompetencies(store)
+    const twice = extractKeyPointsToCompetencies(once)
+    expect(twice.key_competencies).toHaveLength(1)
+    expect(twice).toBe(once)
   })
 })

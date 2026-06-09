@@ -476,7 +476,7 @@ export function RecommendationsEditor() {
 // ── Profile / key qualifications ──────────────────────────────────────────────
 
 export function ProfileEditor() {
-  const { data, primaryLocale, secondaryLocale, addItem, updateItem } = useStore()
+  const { data, primaryLocale, addItem, updateItem } = useStore()
   const items = useSortedItems('key_qualifications')
   const add = () => {
     const k: KeyQualification = {
@@ -485,25 +485,11 @@ export function ProfileEditor() {
     }
     addItem('key_qualifications', k)
   }
-  const updatePoint = (kqId: string, idx: number, locale: string, text: string) => {
-    const kq = items.find((x) => x.id === kqId)!
-    const next = kq.key_points.map((kp, i) => {
-      if (i !== idx) return kp
-      const name = { ...kp.name }
-      if (text) name[locale] = text; else delete name[locale]
-      return { ...kp, name }
-    })
-    updateItem('key_qualifications', kqId, { key_points: next })
-  }
-  const addPoint = (kqId: string) => {
-    const kq = items.find((x) => x.id === kqId)!
-    updateItem('key_qualifications', kqId, { key_points: [...kq.key_points, { id: newId(), name: {}, long_description: {}, sort_order: kq.key_points.length, disabled: false }] })
-  }
-  const removePoint = (kqId: string, idx: number) => {
-    const kq = items.find((x) => x.id === kqId)!
-    updateItem('key_qualifications', kqId, { key_points: kq.key_points.filter((_, i) => i !== idx) })
-  }
 
+  // Per-KQ key_points are deprecated UI: the standalone "Key Competencies"
+  // section owns those now (see migrate.extractKeyPointsToCompetencies +
+  // KeyCompetenciesEditor). The Profile block stays focused on the prose
+  // summary and tag line.
   return (
     <div className="section-pane">
       <SortBar section="key_qualifications" count={items.length} />
@@ -516,23 +502,6 @@ export function ProfileEditor() {
           <DualField label="Section label" value={kq.label} onChange={(v) => updateItem('key_qualifications', kq.id, { label: v })} />
           <DualField label="Tag line" value={kq.tag_line} onChange={(v) => updateItem('key_qualifications', kq.id, { tag_line: v })} />
           <RichField label="Summary" value={kq.summary} onChange={(v) => updateItem('key_qualifications', kq.id, { summary: v })} />
-          <div className="sub-block">
-            <div className="sub-head">Key competency points</div>
-            {kq.key_points.map((kp, i) => (
-              <div key={kp.id} className="hl-row">
-                <div className={`hl-inputs ${secondaryLocale ? 'dual' : ''}`}>
-                  <input className="hl-input" value={kp.name[primaryLocale] || ''} placeholder="Competency…"
-                    onChange={(e) => updatePoint(kq.id, i, primaryLocale, e.target.value)} />
-                  {secondaryLocale && (
-                    <input className="hl-input hl-sec" value={kp.name[secondaryLocale] || ''} placeholder="…"
-                      onChange={(e) => updatePoint(kq.id, i, secondaryLocale, e.target.value)} />
-                  )}
-                </div>
-                <button className="hl-del" onClick={() => removePoint(kq.id, i)}>×</button>
-              </div>
-            ))}
-            <button className="sub-add" onClick={() => addPoint(kq.id)}>+ Add competency</button>
-          </div>
         </EditorCard>
       ))}
       </SortableList>

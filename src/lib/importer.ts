@@ -1,9 +1,9 @@
 import { v4 as uuidv4 } from 'uuid'
 import type {
-  ResumeStore, Resume, Skill, Role, KeyQualification, Project,
+  ResumeStore, Resume, Skill, Role, KeyQualification, KeyCompetency, Project,
   WorkExperience, Education, Course, Certification, SpokenLanguage,
   TechnologyCategory, Position, Presentation, HonorAward,
-  LocalizedString, YearMonth, ProjectRole, ProjectSkill, CategorySkill, KeyPoint
+  LocalizedString, YearMonth, ProjectRole, ProjectSkill, CategorySkill,
 } from '../types'
 import { appendLocalized, buildRoleParagraph } from './migrate'
 
@@ -237,25 +237,40 @@ export function importFromCVPartner(raw: Record<string, unknown>): ResumeStore {
     })
   }
 
-  // ── Key qualifications ────────────────────────────────────────────────────
+  // ── Key qualifications + competencies ─────────────────────────────────────
+  // CVpartner nests "key_points" under each key_qualification. We treat those
+  // as standalone Key Competencies (a heading + a longer description) and put
+  // them in the top-level key_competencies array — the Profile editor no
+  // longer carries a per-KQ key_points sub-list. The KQ itself still imports
+  // (label / tag_line / summary), with key_points left empty.
   const key_qualifications: KeyQualification[] = []
+  const key_competencies: KeyCompetency[] = []
   const kqs = (raw.key_qualifications as Array<Record<string, unknown>>) || []
+  let kcOrder = 0
   for (const kq of kqs) {
     const kpoints = (kq.key_points as Array<Record<string, unknown>>) || []
-    const keyPoints: KeyPoint[] = kpoints.map((kp, i) => ({
-      id: uuidv4(),
-      name: localized(kp.name),
-      long_description: localized(kp.long_description),
-      sort_order: (kp.order as number) || i,
-      disabled: (kp.disabled as boolean) || false,
-    }))
+    for (const kp of kpoints) {
+      const title = localized(kp.name)
+      const description = localized(kp.long_description)
+      // Skip an entirely-empty point so re-importing doesn't accumulate blanks.
+      if (!Object.keys(title).length && !Object.keys(description).length) continue
+      key_competencies.push({
+        id: uuidv4(),
+        resume_id: resumeId,
+        title,
+        description,
+        sort_order: kcOrder++,
+        starred: false,
+        disabled: (kp.disabled as boolean) || false,
+      })
+    }
     key_qualifications.push({
       id: uuidv4(),
       resume_id: resumeId,
       label: localized(kq.label),
       tag_line: localized(kq.tag_line),
       summary: localized(kq.long_description),
-      key_points: keyPoints,
+      key_points: [],
       skill_tags: [],
       sort_order: (kq.order as number) || 0,
       starred: (kq.starred as boolean) || false,
@@ -531,7 +546,7 @@ export function importFromCVPartner(raw: Record<string, unknown>): ResumeStore {
     skills,
     roles,
     key_qualifications,
-    key_competencies: [],
+    key_competencies,
     recommendations: [],
     projects,
     work_experiences,

@@ -375,7 +375,10 @@ describe('importFromCVPartner — subsidiary sections', () => {
     expect(store.views).toEqual([])
   })
 
-  it('maps key_qualifications with key_points', () => {
+  it('maps key_qualifications and promotes key_points to key_competencies', () => {
+    // CVpartner nests "key_points" under each key_qualification. We now treat
+    // those as standalone Key Competencies, so the per-KQ key_points array
+    // imports empty and the data lands in the top-level key_competencies list.
     const store = importFromCVPartner({
       key_qualifications: [
         {
@@ -385,12 +388,21 @@ describe('importFromCVPartner — subsidiary sections', () => {
           long_description: { en: 'A summary' },
           key_points: [
             { _id: 'kp1', name: { en: 'Leadership' }, long_description: { en: 'Led teams' } },
+            { _id: 'kp2', name: { en: 'Architecture' }, long_description: { en: 'Designed systems' } },
+            // Entirely empty point → dropped, not carried over as a blank.
+            { _id: 'kp3', name: {}, long_description: {} },
           ],
         },
       ],
     })
     expect(store.key_qualifications[0].label.en).toBe('Profile')
     expect(store.key_qualifications[0].summary.en).toBe('A summary')
-    expect(store.key_qualifications[0].key_points[0].name.en).toBe('Leadership')
+    expect(store.key_qualifications[0].key_points).toEqual([])
+    expect(store.key_competencies).toHaveLength(2)
+    expect(store.key_competencies[0].title.en).toBe('Leadership')
+    expect(store.key_competencies[0].description.en).toBe('Led teams')
+    expect(store.key_competencies[1].title.en).toBe('Architecture')
+    // Sort order is dense from zero so the editor renders them in import order.
+    expect(store.key_competencies.map((c) => c.sort_order)).toEqual([0, 1])
   })
 })

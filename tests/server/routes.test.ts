@@ -51,6 +51,11 @@ describe('security headers', () => {
     expect(csp).toContain('https://fonts.googleapis.com')
     expect(csp).toContain('https://fonts.gstatic.com')
     expect(csp).toContain("object-src 'none'")
+    // blob: must be permitted for img-src so URL.createObjectURL(file) loads
+    // inside the ImageField uploader's hidden <Image> probe (without this the
+    // upload aborts with "Could not load the selected image"). Regression for
+    // the desktop-build photo/logo upload bug.
+    expect(csp).toMatch(/img-src[^;]*\bblob:/)
   })
 
   it('keeps the existing hardening headers', async () => {

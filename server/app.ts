@@ -41,7 +41,13 @@ export function createApp(): Express {
   //                                   convention) + JSX style={{…}} attrs.
   //   - *.googleapis / *.gstatic   → the Google Fonts stylesheet + font files
   //                                   the prod index.html links.
-  //   - img-src 'self' data:       → brand assets + any data: URIs.
+  //   - img-src 'self' data: blob: → brand assets, data: URIs, and the
+  //                                   blob: URLs that URL.createObjectURL
+  //                                   produces for image uploads (ImageField
+  //                                   feeds the picked file through an
+  //                                   <Image> element to measure + downscale
+  //                                   it on a canvas — without blob: in
+  //                                   img-src that <Image> can't load).
   //   - connect-src 'self'         → /api/* only (LibreTranslate is proxied
   //                                   server-side, so the browser never leaves
   //                                   this origin).
@@ -57,7 +63,7 @@ export function createApp(): Express {
     "script-src 'self'",
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' https://fonts.gstatic.com",
-    "img-src 'self' data:",
+    "img-src 'self' data: blob:",
     "connect-src 'self'",
     "object-src 'none'",
     "base-uri 'none'",

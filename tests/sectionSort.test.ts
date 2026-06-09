@@ -75,6 +75,30 @@ describe('sortItems()', () => {
     expect(out.map((x) => x.id)).toEqual(['ongoing', 'ended'])
   })
 
+  it('end mode tie-breaks multiple ongoing items by start date, newest first', () => {
+    // Two roles that are both still active — without a secondary key the
+    // input order wins, which buried a freshly-added current role below an
+    // older one. We now break the tie on start date descending so the most
+    // recently started ongoing item sorts first.
+    const oldOngoing = makeWork({ id: 'old',  end: null, start: { year: 2018, month: 3 } })
+    const newOngoing = makeWork({ id: 'new',  end: null, start: { year: 2023, month: 8 } })
+    const midOngoing = makeWork({ id: 'mid',  end: null, start: { year: 2020, month: 1 } })
+    const ended      = makeWork({ id: 'done', end: { year: 2021, month: 12 }, start: { year: 2019, month: 1 } })
+    const out = sortItems('work_experiences', [oldOngoing, ended, newOngoing, midOngoing], 'end', 'en')
+    expect(out.map((x) => x.id)).toEqual(['new', 'mid', 'old', 'done'])
+  })
+
+  it('end mode keeps an unknown-start ongoing item below dated ongoing ones', () => {
+    // An ongoing item with no recorded start date is treated as oldest among
+    // its ongoing siblings (consistent with how `start` sort treats a missing
+    // start), but still ranks above anything with a concrete end date.
+    const dated   = makeWork({ id: 'dated',   end: null, start: { year: 2022, month: 6 } })
+    const undated = makeWork({ id: 'undated', end: null, start: null })
+    const ended   = makeWork({ id: 'ended',   end: { year: 2024, month: 1 } })
+    const out = sortItems('work_experiences', [undated, ended, dated], 'end', 'en')
+    expect(out.map((x) => x.id)).toEqual(['dated', 'undated', 'ended'])
+  })
+
   it('date mode uses the section single-date field (courses → completed)', () => {
     const a = makeCourse({ id: 'a', completed: { year: 2019, month: 1 } })
     const b = makeCourse({ id: 'b', completed: { year: 2023, month: 1 } })
