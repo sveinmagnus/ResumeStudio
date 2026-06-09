@@ -49,8 +49,9 @@ export function mergeSkills(store: ResumeStore, sourceId: string, targetId: stri
 }
 
 /**
- * Merge two roles: rewrite every project.roles[].role_id that points to
- * `sourceId` to point to `targetId`, then delete the source from the registry.
+ * Merge two roles: rewrite every project.roles[].role_id AND every
+ * work_experiences[].role_id that points to `sourceId` to point to
+ * `targetId`, then delete the source from the registry.
  *
  * No-ops if either id is missing or both ids are the same.
  */
@@ -71,6 +72,11 @@ export function mergeRoles(store: ResumeStore, sourceId: string, targetId: strin
           : pr,
       ),
     })),
+    work_experiences: store.work_experiences.map((w) =>
+      w.role_id === sourceId
+        ? { ...w, role_id: targetId, role_title: target.name }
+        : w,
+    ),
   }
 }
 
@@ -82,9 +88,14 @@ export function countSkillReferences(store: ResumeStore, skillId: string): numbe
   return n
 }
 
-/** Count how many entities reference a given role id. */
+/**
+ * Count how many entities reference a given role id, across projects AND
+ * work_experiences. Used for the "this will affect N references" confirmation
+ * dialog on merge.
+ */
 export function countRoleReferences(store: ResumeStore, roleId: string): number {
   let n = 0
   for (const p of store.projects) for (const pr of p.roles) if (pr.role_id === roleId) n++
+  for (const w of store.work_experiences) if (w.role_id === roleId) n++
   return n
 }

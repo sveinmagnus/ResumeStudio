@@ -6,13 +6,15 @@ import { TextField, DateField, TagField } from '../ui/Fields'
 import { EditorCard, AddButton, FieldRow } from '../ui/EditorCard'
 import { SortableList } from '../ui/SortableList'
 import { SortBar } from '../ui/SortBar'
+import { Autocomplete } from '../ui/Autocomplete'
 import { resolve, fmtRange, fmtDate } from '../../lib/locales'
 import { richToPlain } from '../../lib/richText'
 import type {
   WorkExperience, Education, Course, Certification, Position,
   Presentation, HonorAward, Publication, SpokenLanguage, KeyQualification,
-  KeyCompetency, Recommendation,
+  KeyCompetency, Recommendation, Role,
 } from '../../types'
+import { X } from 'lucide-react'
 
 // ── Employment ────────────────────────────────────────────────────────────────
 
@@ -23,7 +25,7 @@ export function WorkEditor() {
     const w: WorkExperience = {
       id: newId(), resume_id: data.resume!.id, employer: {}, role_title: {}, description: {},
       long_description: {}, employment_type: null, company_size: null, company_url: null,
-      start: null, end: null, skill_tags: [], sort_order: items.length, starred: false, disabled: false, internal_notes: null,
+      start: null, end: null, role_id: null, skill_tags: [], sort_order: items.length, starred: false, disabled: false, internal_notes: null,
     }
     addItem('work_experiences', w)
   }
@@ -38,6 +40,7 @@ export function WorkEditor() {
           starred={w.starred} disabled={w.disabled}>
           <DualField label="Employer" value={w.employer} onChange={(v) => updateItem('work_experiences', w.id, { employer: v })} />
           <DualField label="Role / title" value={w.role_title} onChange={(v) => updateItem('work_experiences', w.id, { role_title: v })} />
+          <EmploymentRoleLink work={w} />
           <RichField label="Description" value={w.long_description} onChange={(v) => updateItem('work_experiences', w.id, { long_description: v })} />
           <FieldRow>
             <DateField label="Start" value={w.start} onChange={(v) => updateItem('work_experiences', w.id, { start: v })} />
@@ -62,6 +65,88 @@ export function WorkEditor() {
       ))}
       </SortableList>
       <AddButton label="Add employment" onClick={add} />
+    </div>
+  )
+}
+
+/**
+ * Optional link from a work_experience to a registry Role. Mirrors the
+ * project.roles[].role_id pattern so role-registry merges can rewrite
+ * employment links in lockstep and the role-usage panel can list both.
+ *
+ * Behaviour: when linked, show the registry name with an unlink button.
+ * When unlinked, show an autocomplete (existing roles + add-new) that
+ * pulls from the role registry.
+ */
+function EmploymentRoleLink({ work }: { work: WorkExperience }) {
+  const { data, primaryLocale, addItem, updateItem } = useStore()
+  const linked = work.role_id ? data.roles.find((r) => r.id === work.role_id) : null
+
+  const link = (roleId: string) => {
+    const reg = data.roles.find((r) => r.id === roleId)
+    updateItem('work_experiences', work.id, {
+      role_id: roleId,
+      // Refresh the snapshot so a later registry rename doesn't silently
+      // rewrite the employment's display title (consistent with mergeRoles).
+      role_title: reg ? reg.name : work.role_title,
+    })
+  }
+  const unlink = () => updateItem('work_experiences', work.id, { role_id: null })
+  const createAndLink = (text: string) => {
+    const r: Role = {
+      id: newId(), resume_id: data.resume!.id,
+      name: { [primaryLocale]: text },
+      years_of_experience: 0, years_of_experience_offset: 0,
+      starred: false, sort_order: data.roles.length, disabled: false,
+    }
+    // addItem opens the role's card; that's fine — it lives in another
+    // section, won't affect this editor. Also link the new id immediately.
+    addItem('roles', r)
+    updateItem('work_experiences', work.id, { role_id: r.id, role_title: r.name })
+  }
+
+  return (
+    <div className="erl-wrap">
+      <label className="erl-label">Registry role link <span className="erl-hint">— share this title with projects / merges</span></label>
+      {linked ? (
+        <div className="erl-linked">
+          <span className="erl-pill">{resolve(linked.name, primaryLocale) || '(unnamed role)'}</span>
+          <button type="button" className="erl-unlink" onClick={unlink} title="Unlink from the role registry">
+            <X size={13} /> Unlink
+          </button>
+        </div>
+      ) : (
+        <Autocomplete
+          options={data.roles
+            .filter((r) => !r.disabled)
+            .map((r) => ({ id: r.id, label: resolve(r.name, primaryLocale) || '(unnamed)' }))}
+          onPick={link}
+          onAddNew={createAndLink}
+          addLabel="role"
+          placeholder="Link to a role from the registry…"
+        />
+      )}
+      <style>{`
+        .erl-wrap { margin-bottom: 18px; }
+        .erl-label {
+          display: block; font-size: 11px; font-weight: 600; letter-spacing: .08em;
+          text-transform: uppercase; color: var(--ink-faint); margin-bottom: 7px;
+        }
+        .erl-hint { font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--ink-faint); margin-left: 2px; }
+        .erl-linked { display: flex; align-items: center; gap: 8px; }
+        .erl-pill {
+          display: inline-flex; align-items: center; padding: 5px 11px;
+          background: var(--accent-wash); color: var(--accent);
+          border-radius: 999px; font-size: 13px; font-weight: 600;
+        }
+        .erl-unlink {
+          display: inline-flex; align-items: center; gap: 4px;
+          padding: 4px 10px; font-size: 12px; color: var(--ink-faint);
+          border: 1px solid var(--line); border-radius: var(--r-sm);
+          background: var(--paper);
+        }
+        .erl-unlink:hover { color: var(--accent); border-color: var(--accent); }
+      `}</style>
     </div>
   )
 }

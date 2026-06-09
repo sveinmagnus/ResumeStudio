@@ -100,7 +100,7 @@ describe('<ReferencesEditor>', () => {
 describe('<TechCategoriesEditor>', () => {
   beforeEach(() => resetStore())
 
-  it('adds a category, adds a skill slot, and links it to the registry', async () => {
+  it('adds a category and links a registry skill via the autocomplete', async () => {
     const skill = makeSkill({ name: { en: 'React' } })
     seed({ ...emptyStore(), skills: [skill] })
     render(<TechCategoriesEditor />)
@@ -109,10 +109,29 @@ describe('<TechCategoriesEditor>', () => {
     const catId = useStore.getState().data.technology_categories[0].id
     useStore.setState({ expandedItemId: catId })
 
-    await userEvent.click(screen.getByRole('button', { name: /add skill/i }))
+    // The Autocomplete renders a textbox; clicking a result row links the skill.
+    const input = screen.getByPlaceholderText(/search or add a skill/i)
+    await userEvent.click(input)
+    await userEvent.click(screen.getByRole('option', { name: /React/ }))
     expect(useStore.getState().data.technology_categories[0].skills).toHaveLength(1)
-
-    await userEvent.selectOptions(screen.getByRole('combobox'), screen.getByRole('option', { name: 'React' }))
     expect(useStore.getState().data.technology_categories[0].skills[0].skill_id).toBe(skill.id)
+  })
+
+  it('creates a brand-new registry skill when the typed name has no match', async () => {
+    seed()
+    render(<TechCategoriesEditor />)
+    await userEvent.click(screen.getByRole('button', { name: /add category/i }))
+    const catId = useStore.getState().data.technology_categories[0].id
+    useStore.setState({ expandedItemId: catId })
+
+    const input = screen.getByPlaceholderText(/search or add a skill/i)
+    await userEvent.click(input)
+    await userEvent.type(input, 'Kubernetes{Enter}')
+
+    const state = useStore.getState().data
+    expect(state.skills).toHaveLength(1)
+    expect(state.skills[0].name).toEqual({ en: 'Kubernetes' })
+    expect(state.technology_categories[0].skills).toHaveLength(1)
+    expect(state.technology_categories[0].skills[0].skill_id).toBe(state.skills[0].id)
   })
 })

@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import {
   appendLocalized, buildRoleParagraph, foldRoleDescriptions,
-  extractKeyPointsToCompetencies,
+  extractKeyPointsToCompetencies, defaultEmploymentRoleLinks,
 } from '../src/lib/migrate'
-import { emptyStore, makeProject } from './fixtures'
-import type { ProjectRole, KeyQualification, KeyPoint } from '../src/types'
+import { emptyStore, makeProject, makeWork } from './fixtures'
+import type { ProjectRole, KeyQualification, KeyPoint, WorkExperience } from '../src/types'
 
 // A ProjectRole carrying the legacy free-text fields that older saves had.
 type LegacyRole = ProjectRole & { long_description?: Record<string, string>; summary?: Record<string, string> }
@@ -197,5 +197,32 @@ describe('extractKeyPointsToCompetencies()', () => {
     const twice = extractKeyPointsToCompetencies(once)
     expect(twice.key_competencies).toHaveLength(1)
     expect(twice).toBe(once)
+  })
+})
+
+// ─── defaultEmploymentRoleLinks ────────────────────────────────────────────
+
+describe('defaultEmploymentRoleLinks()', () => {
+  it('backfills role_id: null on legacy work_experiences', () => {
+    const store = emptyStore()
+    // Strip the field as if this came from an older save.
+    const legacy = makeWork() as Partial<WorkExperience>
+    delete legacy.role_id
+    store.work_experiences.push(legacy as WorkExperience)
+    const out = defaultEmploymentRoleLinks(store)
+    expect(out.work_experiences[0].role_id).toBe(null)
+  })
+
+  it('preserves an existing role_id when present', () => {
+    const store = emptyStore()
+    store.work_experiences.push(makeWork({ role_id: 'r-abc' }))
+    const out = defaultEmploymentRoleLinks(store)
+    expect(out.work_experiences[0].role_id).toBe('r-abc')
+  })
+
+  it('returns the same reference when nothing changed (idempotent)', () => {
+    const store = emptyStore()
+    store.work_experiences.push(makeWork({ role_id: null }))
+    expect(defaultEmploymentRoleLinks(store)).toBe(store)
   })
 })

@@ -73,7 +73,18 @@ What works today:
 - **Drag-and-drop reordering** (`@dnd-kit`) on every section that owns a
   `sort_order`; up/down arrow buttons kept for keyboard / accessibility.
 - **Registry merge** — "Merge this skill/role into…" rewrites every reference
-  and deletes the source.
+  and deletes the source. Role merges also rewrite linked employments
+  (`WorkExperience.role_id`) alongside `project.roles[].role_id`.
+- **Registry management** — Skill and Role lists carry an "Unused / Missing
+  translation" filter bar; each card shows its usage breakdown as
+  "N projects | M categor(y|ies)" (skills) or "N projects | M employments"
+  (roles), and a per-card expansion lists the actual referencing items with
+  click-to-jump. Project / tech-category skill chips are added through an
+  **autocomplete** (existing skill OR auto-create from typed text); clicking
+  an already-attached chip opens a `DualField` popover that edits the
+  **registry** entry's translation (so the change propagates to every
+  reference). Same autocomplete pattern links an employment to a registry
+  Role and a reference to a project / employment.
 - **React error boundary** around the editor so a crashed view never traps the
   user.
 - **Downloadable desktop build** — a portable folder (bundled Node + esbuild'd
@@ -151,7 +162,8 @@ src/
 │   ├── importer.ts             ← CVpartner JSON → ResumeStore
 │   ├── localCache.ts           ← Per-id localStorage fallback (saveCache(id, data) etc.); clearAllCaches(); dropLegacyCache()
 │   ├── locales.ts              ← LOCALE_LABELS, resolve(), fmt*(), fmtRelativeTime(), detectLocalesInData(), sortLocales()
-│   ├── merge.ts                ← mergeSkills / mergeRoles + reference counts
+│   ├── merge.ts                ← mergeSkills / mergeRoles + reference counts (role merges rewrite work_experiences[].role_id too)
+│   ├── usage.ts                ← PURE: usageOfSkill / usageOfRole — enumerate referencing projects, employments, tech-categories; isSkillUnused / isRoleUnused for the "Unused" registry filter
 │   ├── router.ts               ← Hand-rolled History API router: useRoute(), navigate(), <Link>, parseRoute()
 │   ├── sections.ts             ← Sidebar section definitions and groups
 │   ├── translateClient.ts      ← PURE: app→service locale map, canDraftBetween(), memoized availability probe
@@ -183,6 +195,7 @@ src/
 │   │   ├── DualField.tsx       ← THE KEY COMPONENT — side-by-side localized input
 │   │   ├── EditorCard.tsx      ← Collapsible card; drag handle + up/down arrows (via `sortable` prop)
 │   │   ├── Fields.tsx          ← TextField, DateField, TagField (plain inputs)
+│   │   ├── Autocomplete.tsx    ← Generic typeahead picker with optional "Add new" path. Used to attach skills to projects/tech-cats, roles to employments, and projects/employments to references.
 │   │   └── SortableList.tsx    ← DndContext + SortableContext wrapper (calls store.moveItem on drop)
 │   └── editor/
 │       ├── Overview.tsx        ← Dashboard with stats + translation %

@@ -12,7 +12,7 @@
  *    `long_description`, leaving roles as registry links only.
  */
 
-import type { ResumeStore, LocalizedString, ProjectRole, KeyCompetency, KeyPoint } from '../types'
+import type { ResumeStore, LocalizedString, ProjectRole, KeyCompetency, KeyPoint, WorkExperience } from '../types'
 import { v4 as uuidv4 } from 'uuid'
 
 /**
@@ -132,6 +132,25 @@ export function foldRoleDescriptions(store: ResumeStore): ResumeStore {
 function pointHasText(p: KeyPoint): boolean {
   const any = (ls: LocalizedString | undefined) => !!ls && Object.values(ls).some((v) => (v ?? '').trim())
   return any(p.name) || any(p.long_description)
+}
+
+// ─── Default WorkExperience.role_id ──────────────────────────────────────────
+//
+// `role_id` (an optional registry link, parallel to Project.roles[].role_id)
+// was added after launch. Older persisted data omits the field entirely; this
+// migration backfills it as null so downstream code can treat it as a known
+// shape. Idempotent — once present (even as null), the field is preserved.
+
+export function defaultEmploymentRoleLinks(store: ResumeStore): ResumeStore {
+  let changed = false
+  const work_experiences = store.work_experiences.map((w) => {
+    if ('role_id' in w) return w
+    changed = true
+    const copy: WorkExperience = { ...(w as WorkExperience), role_id: null }
+    return copy
+  })
+  if (!changed) return store
+  return { ...store, work_experiences }
 }
 
 export function extractKeyPointsToCompetencies(store: ResumeStore): ResumeStore {

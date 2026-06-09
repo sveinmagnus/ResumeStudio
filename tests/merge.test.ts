@@ -4,7 +4,7 @@ import {
   countSkillReferences, countRoleReferences,
 } from '../src/lib/merge'
 import {
-  emptyStore, makeSkill, makeRole, makeProject, makeTechCategory,
+  emptyStore, makeSkill, makeRole, makeProject, makeTechCategory, makeWork,
 } from './fixtures'
 
 // ─── mergeSkills ────────────────────────────────────────────────────────────
@@ -104,6 +104,24 @@ describe('mergeRoles()', () => {
     expect(out.projects[0].roles[0].name).toEqual({ en: 'Solution Architect' })
   })
 
+  it('rewrites work_experiences[].role_id and refreshes their role_title snapshot', () => {
+    const store = emptyStore()
+    store.roles.push(makeRole({ id: 'src', name: { en: 'Architect' } }))
+    store.roles.push(makeRole({ id: 'tgt', name: { en: 'Solution Architect' } }))
+    store.work_experiences.push(makeWork({
+      id: 'w1', role_id: 'src', role_title: { en: 'Architect (old)' },
+    }))
+    // An employment with a different role link is left alone.
+    store.work_experiences.push(makeWork({
+      id: 'w2', role_id: null, role_title: { en: 'Engineer' },
+    }))
+    const out = mergeRoles(store, 'src', 'tgt')
+    expect(out.work_experiences[0].role_id).toBe('tgt')
+    expect(out.work_experiences[0].role_title).toEqual({ en: 'Solution Architect' })
+    expect(out.work_experiences[1].role_id).toBe(null)
+    expect(out.work_experiences[1].role_title).toEqual({ en: 'Engineer' })
+  })
+
   it('is a no-op when either id is missing', () => {
     const store = emptyStore()
     store.roles.push(makeRole({ id: 'only' }))
@@ -140,7 +158,7 @@ describe('countSkillReferences()', () => {
 })
 
 describe('countRoleReferences()', () => {
-  it('counts references across projects', () => {
+  it('counts references across projects and work_experiences', () => {
     const store = emptyStore()
     store.roles.push(makeRole({ id: 'r' }))
     store.projects.push(makeProject({
@@ -153,6 +171,7 @@ describe('countRoleReferences()', () => {
         { id: 'b', role_id: 'r', name: {}, sort_order: 0, disabled: false },
       ],
     }))
-    expect(countRoleReferences(store, 'r')).toBe(2)
+    store.work_experiences.push(makeWork({ role_id: 'r' }))
+    expect(countRoleReferences(store, 'r')).toBe(3)
   })
 })

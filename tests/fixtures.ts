@@ -89,6 +89,7 @@ export function makeWork(over: Partial<WorkExperience> = {}): WorkExperience {
     company_url: null,
     start: { year: 2020, month: 1 },
     end: null,
+    role_id: null,
     skill_tags: [],
     sort_order: 0,
     starred: false,
