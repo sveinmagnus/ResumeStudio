@@ -111,7 +111,14 @@ security property explicit: descriptors return *data*, the two adapters own
 escaping (`escapeHtml` / `renderRichHtml`), so the escape boundary stays in
 one reviewed place per pipeline.
 
-### A6. End-to-end smoke layer
+### A6. End-to-end smoke layer — ✅ done (June 2026)
+
+*Status: `e2e/smoke.spec.ts` (Playwright, `npm run test:e2e`, own CI job)
+covers create → edit/auto-save/reload → view preview → unknown-id bounce.
+It immediately caught a real bug: `base: './'` in vite.config.ts broke every
+hard load of a deep route (bookmark/reload of `/r/:id`) with a strict-MIME
+asset failure — fixed to `base: '/'`. Also surfaced: TextField labels lack
+htmlFor/id association (folded into the A8 accessibility item).*
 930 unit/component/route tests, but nothing exercises the integrated app:
 real server + built client + browser. One thin Playwright suite (3–5
 flows): boot → create resume → edit a field in two locales → reload

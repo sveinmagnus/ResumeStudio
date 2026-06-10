@@ -4,7 +4,12 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
-  base: './',
+  // Asset URLs must be absolute: with a relative base, a hard load of a deep
+  // route (/r/:id — bookmark or reload) resolves ./assets/* against /r/, the
+  // SPA catch-all answers HTML, and strict MIME checking refuses to boot the
+  // app. Both the VPS and desktop builds serve the client at the origin root,
+  // so '/' is correct everywhere. (Caught by e2e/smoke.spec.ts.)
+  base: '/',
   server: {
     proxy: {
       '/api': {

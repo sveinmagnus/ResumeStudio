@@ -632,6 +632,13 @@ npm run test:coverage     # v8 coverage in coverage/
   round-trip) via **supertest** against `createApp()` with
   `RESUME_DB_PATH=':memory:'`.
 - **Test fixtures** — `tests/fixtures.ts` exports `emptyStore()` + `makeProject()`, `makeWork()`, etc. Use these instead of constructing entities inline so future shape changes are one-place fixes.
+- **E2E smoke (Playwright)** — `e2e/smoke.spec.ts` boots the REAL production
+  server (built client + Express + in-memory DB, see `playwright.config.ts`)
+  and drives a browser through create → edit/auto-save/reload → view preview →
+  unknown-id bounce. Run with `npm run test:e2e` (builds first); CI runs it as
+  its own job. Keep it thin — happy paths only, the integration class of
+  regression (wiring, routing, CSP, lazy chunks); behavior detail belongs in
+  Vitest. The `webapp-testing` skill covers ad-hoc Playwright driving.
 
 ### What's NOT covered
 - The **live LibreTranslate round-trip** — the proxy's validation/error paths
@@ -666,6 +673,7 @@ npm run dev:server       # just Express (tsx watch)
 npm run build            # production build to dist/
 npm run preview          # serve dist/ to verify the prod build works
 npm test                 # vitest run
+npm run test:e2e         # build + Playwright smoke suite (e2e/, real server)
 npm run typecheck        # client + server tsc
 npm start                # production server (NODE_ENV=production)
 npm run desktop          # build client + run the desktop launcher from source (tsx)

@@ -2,6 +2,10 @@ node_modules/
 dist/
 coverage/
 
+# Playwright e2e artifacts
+test-results/
+playwright-report/
+
 # Portable desktop build output (assembled by scripts/build-desktop.mjs)
 release/
 release-dist/

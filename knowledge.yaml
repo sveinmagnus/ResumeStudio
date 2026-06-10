@@ -146,6 +146,51 @@ units:
     hints:
       token_estimate: 1200
 
+  # ── Vendored third-party skills (Apache-2.0 / openly distributed) ─────────
+  - id: skill-webapp-testing
+    path: .claude/skills/webapp-testing/SKILL.md
+    intent: "How to drive and verify the running web app with Playwright — E2E checks, screenshots, browser logs?"
+    scope: project
+    audience: [agent]
+    validated: "2026-06-10"
+    depends_on: [skill-software-testing]
+    triggers: [e2e, playwright, browser, smoke-test, screenshot, live-verification]
+    hints:
+      token_estimate: 1000
+
+  - id: skill-web-design-guidelines
+    path: .claude/skills/web-design-guidelines/SKILL.md
+    intent: "How to audit UI code against Web Interface Guidelines — accessibility, focus, interaction states?"
+    scope: project
+    audience: [agent]
+    validated: "2026-06-10"
+    depends_on: [skill-cartavio-brand]
+    triggers: [accessibility, a11y, ui-audit, ux-review, wcag]
+    hints:
+      token_estimate: 300
+
+  - id: skill-github-actions-docs
+    path: .claude/skills/github-actions-docs/SKILL.md
+    intent: "How to ground GitHub Actions workflow changes in official documentation instead of stale memory?"
+    scope: project
+    audience: [agent]
+    validated: "2026-06-10"
+    depends_on: [ci-policy, release-policy]
+    triggers: [github-actions, workflow, ci-config, runners, release-pipeline]
+    hints:
+      token_estimate: 3350   # SKILL.md + references/topic-map.md
+
+  - id: external-skills-pointer
+    path: .claude/skills/external-skills.md
+    intent: "Which proprietary skills (docx/pdf export QA) live outside this repo, where, and when to use them?"
+    scope: project
+    audience: [agent]
+    validated: "2026-06-10"
+    depends_on: [skill-export-pipeline]
+    triggers: [docx-inspection, pdf-inspection, export-qa, external-skills, ooxml]
+    hints:
+      token_estimate: 400
+
   # ── Plans (design rationale; the first is live, the others shipped) ──────
   - id: plan-roadmap
     path: plans/improvement-roadmap.md
@@ -225,7 +270,7 @@ units:
   - id: ci-policy
     kind: policy
     path: .github/workflows/ci.yml
-    intent: "What checks must pass on every push and PR? (typecheck + test + build)"
+    intent: "What checks must pass on every push and PR? (typecheck + test + build, plus the Playwright e2e smoke job)"
     format: yaml
     scope: project
     audience: [developer, agent]
