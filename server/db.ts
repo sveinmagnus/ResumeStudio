@@ -16,6 +16,40 @@ const DATA_DIR = path.join(__dirname, '..', 'data')
 /** How many recent snapshots to retain per resume. Older ones are pruned on each save. */
 export const MAX_SNAPSHOTS = 50
 
+/**
+ * Snapshots are *content* history — embedded base64 images (profile photo,
+ * company logo, per-view overrides) would otherwise be duplicated into up to
+ * MAX_SNAPSHOTS rows per resume (hundreds of kB each) and make image-only
+ * edits churn history. Strip them from the snapshot copy; the live `resumes`
+ * row always keeps the images, and the client re-attaches the current images
+ * on restore (`src/lib/snapshotImages.ts`). Shallow-copies only the mutated
+ * paths so the caller's object is never modified.
+ */
+function stripSnapshotImages(data: unknown): unknown {
+  if (typeof data !== 'object' || data === null || Array.isArray(data)) return data
+  const d = { ...(data as Record<string, unknown>) }
+  if (d.resume && typeof d.resume === 'object' && !Array.isArray(d.resume)) {
+    const r = { ...(d.resume as Record<string, unknown>) }
+    delete r.profile_photo
+    delete r.company_logo
+    d.resume = r
+  }
+  if (Array.isArray(d.views)) {
+    d.views = d.views.map((v) => {
+      if (typeof v !== 'object' || v === null || Array.isArray(v)) return v
+      const view = { ...(v as Record<string, unknown>) }
+      if (view.header && typeof view.header === 'object' && !Array.isArray(view.header)) {
+        const h = { ...(view.header as Record<string, unknown>) }
+        delete h.photo_override
+        delete h.logo_override
+        view.header = h
+      }
+      return view
+    })
+  }
+  return d
+}
+
 export interface ResumeMeta {
   id: string
   name: string
@@ -351,6 +385,9 @@ export function createResumeDb(dbPath: string): ResumeDb {
     }
     const saved_at = new Date().toISOString()
     const json = JSON.stringify(data)
+    // Image-free copy for history. Comparing on the stripped JSON also means
+    // an image-only change updates the live row without minting a snapshot.
+    const snapJson = JSON.stringify(stripSnapshotImages(data))
     const newVersion = row.version + 1 // single synchronous connection → exact
     const tx = db.transaction(() => {
       if (locales) {
@@ -361,8 +398,8 @@ export function createResumeDb(dbPath: string): ResumeDb {
         updateResumeData.run(json, saved_at, id)
       }
       const last = lastSnapshotData.get(id) as { data: string } | undefined
-      if (!last || last.data !== json) {
-        insertSnapshot.run(id, json, saved_at)
+      if (!last || last.data !== snapJson) {
+        insertSnapshot.run(id, snapJson, saved_at)
         pruneSnapshots.run(id, id, MAX_SNAPSHOTS)
       }
     })
@@ -421,11 +458,12 @@ export function createResumeDb(dbPath: string): ResumeDb {
       for (const e of entries) {
         const existing = selectResumeFull.get(e.id) as FullRow | undefined
         const json = JSON.stringify(e.data)
+        const snapJson = JSON.stringify(stripSnapshotImages(e.data))
         if (!existing) {
           insertResumeWithId.run(
             e.id, e.name, json, e.primary_locale, e.secondary_locale, e.saved_at, e.created_at,
           )
-          snapshot(e.id, json, e.saved_at)
+          snapshot(e.id, snapJson, e.saved_at)
           summary.inserted++
           continue
         }
@@ -439,7 +477,7 @@ export function createResumeDb(dbPath: string): ResumeDb {
         updateResumeFromRestore.run(
           e.name, json, e.primary_locale, e.secondary_locale, e.saved_at, e.id,
         )
-        snapshot(e.id, json, e.saved_at)
+        snapshot(e.id, snapJson, e.saved_at)
         summary.updated++
       }
       if (opts?.mode === 'replace') {

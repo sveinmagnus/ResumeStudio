@@ -349,6 +349,87 @@ describe('createResumeDb — snapshot history', () => {
   })
 })
 
+describe('createResumeDb — snapshots strip embedded images', () => {
+  // A store shaped like the client's, with every image field populated.
+  const imageStore = (photo: string) => ({
+    resume: { full_name: 'Kari', profile_photo: photo, company_logo: 'data:image/png;base64,LOGO' },
+    projects: [{ id: 'p1', customer: { en: 'Acme' } }],
+    views: [
+      {
+        id: 'v1',
+        name: 'Board CV',
+        header: { photo_override: 'data:image/jpeg;base64,OVR', logo_override: 'data:image/png;base64,LOVR', separator: ' | ' },
+      },
+    ],
+  })
+
+  it('the live row keeps images; the snapshot copy drops them, other fields intact', () => {
+    const db = freshDb()
+    const meta = db.createResume({ name: 'Mine' })
+    db.saveResume(meta.id, imageStore('data:image/jpeg;base64,AAA'))
+
+    // Live row: untouched, images included.
+    const live = db.getResume(meta.id)!.data as ReturnType<typeof imageStore>
+    expect(live.resume.profile_photo).toBe('data:image/jpeg;base64,AAA')
+    expect(live.views[0].header.photo_override).toBe('data:image/jpeg;base64,OVR')
+
+    // Snapshot: image fields absent, everything else preserved.
+    const [snap] = db.listSnapshots(meta.id)
+    const data = db.getSnapshot(meta.id, snap.id) as ReturnType<typeof imageStore>
+    expect(data.resume.full_name).toBe('Kari')
+    expect(data.projects).toEqual([{ id: 'p1', customer: { en: 'Acme' } }])
+    expect(data.views[0].header.separator).toBe(' | ')
+    expect('profile_photo' in data.resume).toBe(false)
+    expect('company_logo' in data.resume).toBe(false)
+    expect('photo_override' in data.views[0].header).toBe(false)
+    expect('logo_override' in data.views[0].header).toBe(false)
+  })
+
+  it('an image-only change saves the live row without minting a snapshot', () => {
+    const db = freshDb()
+    const meta = db.createResume({ name: 'Mine' })
+    db.saveResume(meta.id, imageStore('data:image/jpeg;base64,AAA'))
+    db.saveResume(meta.id, imageStore('data:image/jpeg;base64,BBB')) // only the photo differs
+
+    expect(db.listSnapshots(meta.id)).toHaveLength(1)
+    const live = db.getResume(meta.id)!.data as ReturnType<typeof imageStore>
+    expect(live.resume.profile_photo).toBe('data:image/jpeg;base64,BBB') // live row did update
+  })
+
+  it('does not mutate the caller’s data object', () => {
+    const db = freshDb()
+    const meta = db.createResume({ name: 'Mine' })
+    const store = imageStore('data:image/jpeg;base64,AAA')
+    db.saveResume(meta.id, store)
+    expect(store.resume.profile_photo).toBe('data:image/jpeg;base64,AAA')
+    expect(store.views[0].header.logo_override).toBe('data:image/png;base64,LOVR')
+  })
+
+  it('restoreResumes also stores image-free snapshots (live rows keep images)', () => {
+    const source = freshDb()
+    const meta = source.createResume({ name: 'Synced' })
+    source.saveResume(meta.id, imageStore('data:image/jpeg;base64,AAA'))
+
+    const target = freshDb()
+    target.restoreResumes(source.dumpResumes())
+
+    const live = target.getResume(meta.id)!.data as ReturnType<typeof imageStore>
+    expect(live.resume.profile_photo).toBe('data:image/jpeg;base64,AAA')
+    const [snap] = target.listSnapshots(meta.id)
+    const data = target.getSnapshot(meta.id, snap.id) as ReturnType<typeof imageStore>
+    expect('profile_photo' in data.resume).toBe(false)
+    expect('photo_override' in data.views[0].header).toBe(false)
+  })
+
+  it('handles malformed shapes gracefully (no resume / odd views)', () => {
+    const db = freshDb()
+    const meta = db.createResume({ name: 'Odd' })
+    db.saveResume(meta.id, { resume: null, views: [null, 42, { id: 'x' }] })
+    const [snap] = db.listSnapshots(meta.id)
+    expect(db.getSnapshot(meta.id, snap.id)).toEqual({ resume: null, views: [null, 42, { id: 'x' }] })
+  })
+})
+
 describe('createResumeDb — dumpResumes / restoreResumes (store sync)', () => {
   it('dumpResumes returns portable entries for every resume', () => {
     const db = freshDb()
