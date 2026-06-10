@@ -35,10 +35,11 @@ import { startTranslate } from '../translateDocker.js'
 import { findFreePort } from './freePort.js'
 import { openBrowser } from './openBrowser.js'
 import { startTray, type TrayHandle } from './tray.js'
-import { notify } from './notify.js'
+import { notify, confirmInstall } from './notify.js'
 import { APP_VERSION } from '../version.js'
 import {
-  initUpdateRuntime, setTrayRefresher, runCheck, handleUpdateClick,
+  initUpdateRuntime, setTrayRefresher, runCheck, trayView,
+  handleCheckClick, handleInstallClick,
 } from './updateRuntime.js'
 
 const HOST = '127.0.0.1' // loopback only — never expose a personal CV store to the LAN
@@ -201,18 +202,22 @@ async function main(): Promise<void> {
       // Native popup so a manual tray "Check for updates" always gives feedback
       // (the tray has no browser to show an "up to date" message in).
       notify: (title, message) => notify(title, message, log),
+      // Interactive Install/Cancel dialog when an update is found.
+      confirmInstall: (title, message) => confirmInstall(title, message, log),
     })
     log(`  updates    : enabled (install dir: ${installDir})`)
   }
 
-  // ── System-tray icon (Open / Updates / Quit) ─────────────────────────────
+  // ── System-tray icon (version • Open • Check/Install • Quit) ──────────────
   // Non-blocking + best-effort: a tray failure never stops the server, and the
   // launcher window / Ctrl-C remains a working way to quit. With the tray, the
   // no-window (.vbs) launcher is fully usable — Quit lives in the tray.
   void startTray({
     onOpen: () => openBrowser(url),
     onQuit: () => shutdown('tray'),
-    onUpdate: () => handleUpdateClick(),
+    onCheck: () => handleCheckClick(),
+    onInstall: () => handleInstallClick(),
+    initialView: trayView(),
     log,
   }).then((h) => {
     trayHandle = h

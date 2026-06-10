@@ -1,6 +1,6 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { pngIcon, icoFromPng, trayIconBase64 } from '../../server/desktop/trayIcon'
-import { routeClick, TRAY_OPEN, TRAY_QUIT } from '../../server/desktop/tray'
+// routeClick dispatch is covered in tray.test.ts.
 
 const PNG_SIG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
 
@@ -55,22 +55,5 @@ describe('trayIconBase64 — per platform', () => {
   it('returns PNG bytes elsewhere', () => {
     expect(Buffer.from(trayIconBase64('linux'), 'base64').subarray(0, 8).equals(PNG_SIG)).toBe(true)
     expect(Buffer.from(trayIconBase64('darwin'), 'base64').subarray(0, 8).equals(PNG_SIG)).toBe(true)
-  })
-})
-
-describe('routeClick — menu dispatch', () => {
-  it('routes Open and Quit to their handlers', () => {
-    const onOpen = vi.fn(); const onQuit = vi.fn()
-    routeClick(TRAY_OPEN, { onOpen, onQuit })
-    expect(onOpen).toHaveBeenCalledOnce(); expect(onQuit).not.toHaveBeenCalled()
-    routeClick(TRAY_QUIT, { onOpen, onQuit })
-    expect(onQuit).toHaveBeenCalledOnce()
-  })
-
-  it('ignores unknown / separator clicks', () => {
-    const onOpen = vi.fn(); const onQuit = vi.fn()
-    routeClick(undefined, { onOpen, onQuit })
-    routeClick('something else', { onOpen, onQuit })
-    expect(onOpen).not.toHaveBeenCalled(); expect(onQuit).not.toHaveBeenCalled()
   })
 })

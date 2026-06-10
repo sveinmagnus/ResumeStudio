@@ -205,30 +205,35 @@ installer and no app store — the same self-contained portable folder, swapped 
 place.
 
 **How it checks.** The app checks for a newer release **once shortly after
-launch and then daily**, and you can check on demand. There are two places to
-do it:
+launch and then daily**, and you can check on demand. The tray menu shows the
+**installed version** in its header, then:
 
-- **System tray** — right-click the Resume Studio tray icon. The middle item
-  reads **"Check for updates"**; click it to check now. A small native popup
-  reports the result either way — "you're on the latest version" or that a new
-  version is available — and when a newer version is found the item changes to
-  **"Install update (vX.Y.Z)"**.
+- **System tray** — right-click the Resume Studio tray icon. **"Check for
+  updates"** is always available; click it to check now (a native popup reports
+  "you're on the latest version" if there's nothing new). **"Install update"**
+  sits below it and is greyed out until an update is ready.
+- **When an update is found** (by the manual or the daily check) a pop-up
+  appears — *"New version X available"* with **Install** / **Cancel**. Cancel
+  just dismisses it; the update stays available via the tray's **Install update**
+  item and the in-app banner.
 - **In the app** — the resume picker shows an **"Update available"** banner with
-  an **Install update** button (and a *Release notes* link), and **Settings →
-  Updates** shows your current version with a **Check for updates** button (with
-  an inline result message).
+  an **Install update** button (and a *Release notes* link); **Settings →
+  Updates** shows your current version with a **Check for updates** button; and
+  the picker footer always shows the installed version.
 
-**How it installs.** Click **Install update** (tray or banner). The app
-downloads the new build for your OS from the release, then restarts itself onto
-the new version. Your data is untouched — it lives in the per-user folder (§3),
-not inside the app folder that gets replaced.
+**How it installs.** Click **Install** (the pop-up), or **Install update** (tray
+or banner). The app downloads the new build for your OS, then a small **updater
+window opens and shows a progress bar** while it swaps the files and restarts
+onto the new version. Your data is untouched — it lives in the per-user folder
+(§3), not inside the app folder that gets replaced.
 
 **Cross-platform, by design.** This works on Windows, macOS and Linux without
 Electron. Because a running program can't overwrite its own files (especially
 the Node binary on Windows, which is locked while running), the install hands
-off to a tiny helper script that waits for the app to exit, swaps the folder
-contents, and relaunches. The downloaded asset is a `.tar.gz` (extracted with
-the system `tar`, present on Windows 10+/macOS/Linux).
+off to a tiny helper script (a visible PowerShell window on Windows) that waits
+for the app to exit, copies the new files with a progress bar, and relaunches.
+The downloaded asset is a `.tar.gz` (extracted with the system `tar`, present on
+Windows 10+/macOS/Linux).
 
 > The desktop build is **not code-signed**. The updater swaps files inside the
 > app folder you already trust and relaunches directly, which avoids the

@@ -36,6 +36,9 @@ export function ResumeList({ onUnauthorized }: ResumeListProps) {
   // Ids with unsynced local edits — read once on mount (the queue only changes
   // from the editor, which isn't mounted while the picker is shown).
   const [dirtyIds] = useState<Set<string>>(() => new Set(listDirty().map((d) => d.id)))
+  // The running app version, shown in the footer. From the update status
+  // endpoint (never throws); hidden when unknown ('0.0.0').
+  const [appVersion, setAppVersion] = useState<string | null>(null)
 
   const reload = useCallback(() => {
     setError(null)
@@ -49,6 +52,12 @@ export function ResumeList({ onUnauthorized }: ResumeListProps) {
   }, [onUnauthorized])
 
   useEffect(() => { reload() }, [reload])
+
+  useEffect(() => {
+    api.updateStatus()
+      .then((s) => setAppVersion(s.currentVersion && s.currentVersion !== '0.0.0' ? s.currentVersion : null))
+      .catch(() => setAppVersion(null))
+  }, [])
 
   // ── Create flow: store → API → navigate ────────────────────────────────
   const create = useCallback(async (name: string, data: ResumeStore) => {
@@ -301,6 +310,12 @@ export function ResumeList({ onUnauthorized }: ResumeListProps) {
         <span>© {YEAR} Cartavio AS</span>
         <span className="rl-footer-dot">·</span>
         <a href="https://cartavio.no" target="_blank" rel="noopener noreferrer">cartavio.no</a>
+        {appVersion && (
+          <>
+            <span className="rl-footer-dot">·</span>
+            <span title="Installed version">v{appVersion}</span>
+          </>
+        )}
       </footer>
 
       <style>{`

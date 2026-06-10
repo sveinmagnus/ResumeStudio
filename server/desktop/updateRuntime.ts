@@ -37,17 +37,28 @@ export interface UpdateRuntimeConfig {
   /** Begin the launcher's graceful shutdown (so the swap script can take over). */
   requestShutdown: () => void
   /**
-   * Show a native popup with the result of a MANUAL check (the tray has no
-   * browser to show feedback in). Optional + best-effort; omitted on headless.
+   * Show a native info popup (e.g. a manual check's "up to date" result — the
+   * tray has no browser to show feedback in). Optional + best-effort.
    */
   notify?: (title: string, message: string) => void
+  /**
+   * Show an interactive Install/Cancel dialog when an update is found; resolves
+   * true if the user chose Install. Optional + best-effort (false if no GUI).
+   */
+  confirmInstall?: (title: string, message: string) => Promise<boolean>
 }
 
-/** What the tray needs to render the update menu item. */
+/**
+ * What the tray needs to render the update controls: a disabled version header
+ * plus two separate items — "Check for updates" (always available) and "Install
+ * update" (enabled only when an update is ready).
+ */
 export interface UpdateTrayView {
-  title: string
-  tooltip: string
-  enabled: boolean
+  versionLabel: string
+  checkTitle: string
+  checkEnabled: boolean
+  installTitle: string
+  installEnabled: boolean
 }
 
 /** The JSON the `/api/update/status` route returns. */
@@ -98,40 +109,47 @@ function setState(next: UpdateState): void {
   trayRefresher?.(trayView())
 }
 
-/** Map the current state to the tray menu item's title/tooltip/enabled. */
+/**
+ * Map the current state to the two tray items + version header. "Check for
+ * updates" is always enabled (except mid-operation); "Install update" is enabled
+ * only when an installable update is ready. Both items always exist in the menu.
+ */
 export function trayView(): UpdateTrayView {
+  const version = cfg?.appVersion ?? process.env.RESUME_APP_VERSION ?? '0.0.0'
+  const view: UpdateTrayView = {
+    versionLabel: `Cartavio Resume Studio v${version}`,
+    checkTitle: 'Check for updates',
+    checkEnabled: true,
+    installTitle: 'Install update',
+    installEnabled: false,
+  }
   switch (state) {
     case 'checking':
-      return { title: 'Checking for updates…', tooltip: 'Contacting GitHub', enabled: false }
+      view.checkTitle = 'Checking for updates…'
+      view.checkEnabled = false
+      break
+    case 'downloading':
+      view.checkEnabled = false
+      view.installTitle = `Downloading… ${Math.round(progress * 100)}%`
+      break
+    case 'applying':
+      view.checkEnabled = false
+      view.installTitle = 'Installing — restarting…'
+      break
     case 'available':
     case 'staged':
-      // Available but no per-platform asset → can't install in place; point at
-      // the release page (disabled so the click doesn't dead-end).
-      if (info && !info.assetUrl) {
-        return {
-          title: `Update v${info.latestVersion} available`,
-          tooltip: 'No auto-install build for this platform — download it from the release page',
-          enabled: false,
-        }
+      if (info?.assetUrl) {
+        view.installTitle = `Install update (v${info.latestVersion})`
+        view.installEnabled = true
+      } else if (info) {
+        // Newer version exists but no installable asset for this platform.
+        view.installTitle = `Update v${info.latestVersion} (download manually)`
+        view.installEnabled = false
       }
-      return {
-        title: `Install update (v${info?.latestVersion ?? '?'})`,
-        tooltip: 'Download and install the new version, then restart',
-        enabled: true,
-      }
-    case 'downloading':
-      return {
-        title: `Downloading… ${Math.round(progress * 100)}%`,
-        tooltip: 'Downloading the update',
-        enabled: false,
-      }
-    case 'applying':
-      return { title: 'Installing — restarting…', tooltip: 'Applying the update', enabled: false }
-    case 'error':
-      return { title: 'Update check failed — retry', tooltip: errorMsg ?? 'Try again', enabled: true }
-    default:
-      return { title: 'Check for updates', tooltip: 'Check GitHub for a newer version', enabled: true }
+      break
+    // uptodate / error / idle → defaults (Check enabled, Install disabled)
   }
+  return view
 }
 
 /** Snapshot for the status route. */
@@ -175,22 +193,51 @@ export async function runCheck(announce = false): Promise<UpdateStatusView> {
     setState('error')
     cfg.log(`  update     : check failed — ${(err as Error).message}`)
   }
-  if (announce) announceResult()
+  // When an update is found, offer to install it (manual check OR daily check).
+  // Otherwise, a MANUAL check pops an info result ("up to date" / "error").
+  if (state === 'available') void offerInstall(announce)
+  else if (announce) announceResult()
   return getUpdateStatus()
 }
 
-/** Pop a native result popup after a manual check (best-effort). */
+const POPUP_TITLE = 'Cartavio Resume Studio'
+
+/** Info popup for a manual check that found no update (best-effort). */
 function announceResult(): void {
   if (!cfg?.notify) return
-  const title = 'Resume Studio'
   if (state === 'uptodate') {
-    cfg.notify(title, `You're already on the latest version (v${cfg.appVersion}).`)
-  } else if (state === 'available' && info) {
-    cfg.notify(title, info.assetUrl
-      ? `Update available: v${info.latestVersion}. Open the tray menu and choose Install update to update now.`
-      : `Version v${info.latestVersion} is available — there is no automatic install for this platform; download it from the release page.`)
+    cfg.notify(POPUP_TITLE, `You're already on the latest version (v${cfg.appVersion}).`)
   } else if (state === 'error') {
-    cfg.notify(title, 'Could not check for updates. Please check your internet connection and try again.')
+    cfg.notify(POPUP_TITLE, 'Could not check for updates. Please check your internet connection and try again.')
+  }
+}
+
+/** Version we've already auto-prompted for this session (de-dup the daily check). */
+let autoOfferedVersion: string | null = null
+
+/**
+ * An update was found. Offer an Install/Cancel dialog; install on confirm.
+ * `manual` (a tray "Check for updates" click) always prompts; the background
+ * daily check prompts at most once per version per session. On Cancel the
+ * update stays available (the tray Install item remains enabled).
+ */
+async function offerInstall(manual: boolean): Promise<void> {
+  if (!cfg || !info) return
+  if (!info.assetUrl) {
+    // Newer version exists but nothing to auto-install for this platform.
+    cfg.notify?.(POPUP_TITLE, `Version ${info.latestVersion} is available, but there is no automatic install for this platform. Download it from the release page.`)
+    return
+  }
+  if (!manual) {
+    if (autoOfferedVersion === info.latestVersion) return
+    autoOfferedVersion = info.latestVersion
+  }
+  const message = `New version ${info.latestVersion} available`
+  if (cfg.confirmInstall) {
+    const ok = await cfg.confirmInstall(POPUP_TITLE, message)
+    if (ok) void runInstall()
+  } else {
+    cfg.notify?.(POPUP_TITLE, `${message}. Use the tray menu's Install update option to install it.`)
   }
 }
 
@@ -228,11 +275,14 @@ export async function runInstall(): Promise<void> {
   }
 }
 
-/** Tray click dispatch: install when ready, otherwise run a MANUAL check
- *  (announce=true → native result popup, since the tray has no browser). */
-export function handleUpdateClick(): void {
+/** Tray "Check for updates" click → a MANUAL check (announce=true). */
+export function handleCheckClick(): void {
+  if (!BUSY.includes(state)) void runCheck(true)
+}
+
+/** Tray "Install update" click → install if one is ready (else a no-op). */
+export function handleInstallClick(): void {
   if (state === 'available' || state === 'staged') void runInstall()
-  else if (!BUSY.includes(state)) void runCheck(true)
 }
 
 /** Write the swap script, spawn it detached, then ask the launcher to shut down. */
@@ -288,28 +338,66 @@ export function buildSwapScript(input: SwapScriptInput): SwapScript {
   const scriptDir = stagingVersionDir
 
   if (platform === 'win32') {
-    const scriptPath = path.join(scriptDir, 'apply-update.cmd')
-    const launcher = path.join(installDir, 'Resume Studio.cmd')
-    // `ping` is the redirect-safe sleep (timeout fails with redirected stdin).
+    // A PowerShell script run in a VISIBLE window. Why not the old detached
+    // `cmd /c` approach: it ran with no console, so tasklist/find/ping each
+    // popped their own window, and the relaunch used `start "" "X.cmd"` which
+    // goes through file association (a text editor on dev machines). PowerShell
+    // gives a clean Wait-Process (no tasklist|find), a real ascii progress bar,
+    // and an association-proof relaunch via `cmd /c`.
+    const scriptPath = path.join(scriptDir, 'apply-update.ps1')
+    const psLit = (s: string) => `'${s.replace(/'/g, "''")}'` // single-quoted PS literal
     const contents = [
-      '@echo off',
-      'setlocal',
-      ':waitloop',
-      `tasklist /FI "PID eq ${pid}" 2>nul | find "${pid}" >nul`,
-      'if not errorlevel 1 (',
-      '  ping 127.0.0.1 -n 2 >nul',
-      '  goto waitloop',
-      ')',
-      `robocopy "${stagedDir}" "${installDir}" /MIR /NFL /NDL /NJH /NJS /NP /R:2 /W:1 >nul`,
-      `start "" "${launcher}"`,
-      `rmdir /s /q "${stagingVersionDir}" >nul 2>&1`,
-      'del "%~f0"',
+      `$ErrorActionPreference = 'SilentlyContinue'`,
+      `$Host.UI.RawUI.WindowTitle = 'Cartavio Resume Studio Updater'`,
+      `$src = ${psLit(stagedDir)}`,
+      `$dst = ${psLit(installDir)}`,
+      `$stage = ${psLit(stagingVersionDir)}`,
+      `Write-Host ''`,
+      `Write-Host '  Cartavio Resume Studio - installing update'`,
+      `Write-Host '  ==========================================='`,
+      `Write-Host ''`,
+      `Write-Host '  Waiting for the app to close...'`,
+      // Reliable wait for OUR process to exit so node.exe unlocks (no tasklist).
+      `Wait-Process -Id ${pid} -Timeout 60 -ErrorAction SilentlyContinue`,
+      `Start-Sleep -Milliseconds 400`,
+      `Write-Host '  Copying files...'`,
+      `$files = @(Get-ChildItem -LiteralPath $src -Recurse -File)`,
+      `$total = [Math]::Max($files.Count, 1)`,
+      `$i = 0`,
+      `foreach ($f in $files) {`,
+      `  $i++`,
+      `  $rel = $f.FullName.Substring($src.Length).TrimStart([char]92)`,
+      `  $target = Join-Path $dst $rel`,
+      `  $tdir = Split-Path -Parent $target`,
+      `  if (-not (Test-Path -LiteralPath $tdir)) { New-Item -ItemType Directory -Path $tdir -Force | Out-Null }`,
+      // Retry per file in case a handle lingers briefly after exit.
+      `  for ($t = 0; $t -lt 40; $t++) {`,
+      `    try { Copy-Item -LiteralPath $f.FullName -Destination $target -Force -ErrorAction Stop; break }`,
+      `    catch { Start-Sleep -Milliseconds 500 }`,
+      `  }`,
+      `  $fill = [int](40 * $i / $total)`,
+      `  $bar = ('#' * $fill) + ('-' * (40 - $fill))`,
+      `  Write-Host ([char]13 + ('  [' + $bar + '] ' + [int](100 * $i / $total) + '%  ' + $i + '/' + $total + ' files')) -NoNewline`,
+      `}`,
+      `Write-Host ''`,
+      `Write-Host ''`,
+      `Write-Host '  Update installed. Restarting Resume Studio...'`,
+      `Start-Sleep -Milliseconds 800`,
+      // Relaunch the shim via cmd /c (executes it; never opens it by association).
+      `Start-Process -FilePath $env:ComSpec -ArgumentList '/c', ('"' + (Join-Path $dst 'Resume Studio.cmd') + '"') -WorkingDirectory $dst`,
+      `Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue`,
+      `Start-Sleep -Milliseconds 1200`,
       '',
     ].join('\r\n')
     return {
       path: scriptPath,
       contents,
-      spawn: { cmd: 'cmd.exe', args: ['/c', scriptPath] },
+      // `start ""` opens the PowerShell script in its own VISIBLE console window
+      // (powershell.exe invoked by name → no file-association detour).
+      spawn: {
+        cmd: 'cmd.exe',
+        args: ['/c', 'start', '', 'powershell.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath],
+      },
     }
   }
 
@@ -347,4 +435,5 @@ export function __resetUpdateRuntimeForTests(): void {
   lastCheckedAt = null
   errorMsg = null
   trayRefresher = null
+  autoOfferedVersion = null
 }

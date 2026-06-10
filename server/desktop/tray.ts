@@ -3,10 +3,16 @@
  *
  * Built on `systray2`, which drives a tiny per-platform helper binary over
  * stdio — so menu clicks arrive back here as ordinary in-process events (no
- * Electron, no native addon). The tray gives the user a clean way to **quit**
- * the app (closing the browser tab leaves the local server running) and to
- * **check for / install updates** (the title toggles between "Check for
- * updates" and "Install update (vX.Y.Z)" as the updater runtime reports state).
+ * Electron, no native addon). The menu:
+ *
+ *   Cartavio Resume Studio vX.Y.Z   (disabled header — shows the current version)
+ *   ───────────────
+ *   Open Resume Studio
+ *   ───────────────
+ *   Check for updates               (always enabled; disabled only mid-operation)
+ *   Install update                  (enabled only when an update is ready)
+ *   ───────────────
+ *   Quit Resume Studio
  *
  * Everything here is best-effort and MUST NOT be fatal: on a headless box, a
  * Linux session without a StatusNotifier, or if the helper can't start, we log
@@ -31,48 +37,56 @@ const SysTray: SysTrayCtor = (() => {
 
 export const TRAY_OPEN = 'Open Resume Studio'
 export const TRAY_QUIT = 'Quit Resume Studio'
-export const TRAY_UPDATE_DEFAULT = 'Check for updates'
+export const TRAY_CHECK_DEFAULT = 'Check for updates'
+export const TRAY_INSTALL_DEFAULT = 'Install update'
 
 export interface TrayHandlers {
   /** Re-open the app in the browser. */
   onOpen: () => void
   /** Begin a graceful shutdown. */
   onQuit: () => void
-  /** Check for / install an update (dispatch depends on the updater state). */
-  onUpdate: () => void
+  /** Manually check for updates. */
+  onCheck: () => void
+  /** Install the available update. */
+  onInstall: () => void
 }
 
-/** How the update menu item should currently render. */
+/** How the version header + the two update items should currently render. */
 export interface TrayUpdateView {
-  title: string
-  tooltip: string
-  enabled: boolean
+  versionLabel: string
+  checkTitle: string
+  checkEnabled: boolean
+  installTitle: string
+  installEnabled: boolean
 }
 
 /**
  * Pure dispatch: map a clicked menu-item title to the right handler. The update
- * item's title changes over time (Check → Install → Downloading…), so the
- * caller passes its CURRENT title for a robust match. Exported so the routing is
- * unit-tested without spawning the helper binary.
+ * items' titles change over time (Check → Checking…, Install → Downloading…),
+ * so the caller passes the CURRENT titles for a robust match. Exported so the
+ * routing is unit-tested without spawning the helper binary.
  */
 export function routeClick(
   title: string | undefined,
   handlers: TrayHandlers,
-  updateTitle: string,
+  titles: { check: string; install: string },
 ): void {
   if (title === TRAY_OPEN) handlers.onOpen()
   else if (title === TRAY_QUIT) handlers.onQuit()
-  else if (title && title === updateTitle) handlers.onUpdate()
+  else if (title && title === titles.check) handlers.onCheck()
+  else if (title && title === titles.install) handlers.onInstall()
 }
 
 export interface TrayHandle {
   kill: () => void
-  /** Update the title/tooltip/enabled of the update menu item live. */
+  /** Update the version header + the two update items live. */
   setUpdate: (view: TrayUpdateView) => void
 }
 
 export interface TrayOptions extends TrayHandlers {
   log: (msg: string) => void
+  /** Initial version header + item state (so the menu shows the version at once). */
+  initialView: TrayUpdateView
 }
 
 /**
@@ -82,14 +96,13 @@ export interface TrayOptions extends TrayHandlers {
  */
 export async function startTray(opts: TrayOptions): Promise<TrayHandle | null> {
   try {
-    const updateItem = {
-      title: TRAY_UPDATE_DEFAULT,
-      tooltip: 'Check GitHub for a newer version',
-      enabled: true,
-    }
-    // The update item's current title — kept in sync with updateItem.title so
-    // routeClick can match clicks even after the title changes.
-    let updateTitle = updateItem.title
+    const versionItem = { title: opts.initialView.versionLabel, tooltip: 'Installed version', enabled: false }
+    const checkItem = { title: opts.initialView.checkTitle, tooltip: 'Check GitHub for a newer version', enabled: opts.initialView.checkEnabled }
+    const installItem = { title: opts.initialView.installTitle, tooltip: 'Install the available update', enabled: opts.initialView.installEnabled }
+    // Current titles for routeClick — kept in sync with the items so clicks
+    // match even after the titles change.
+    let checkTitle = checkItem.title
+    let installTitle = installItem.title
 
     const systray = new SysTray({
       menu: {
@@ -100,9 +113,12 @@ export async function startTray(opts: TrayOptions): Promise<TrayHandle | null> {
         title: 'Resume Studio',
         tooltip: 'Resume Studio',
         items: [
+          versionItem,
+          SysTray.separator,
           { title: TRAY_OPEN, tooltip: 'Open Resume Studio in your browser', enabled: true },
           SysTray.separator,
-          updateItem,
+          checkItem,
+          installItem,
           SysTray.separator,
           { title: TRAY_QUIT, tooltip: 'Stop Resume Studio', enabled: true },
         ],
@@ -115,22 +131,27 @@ export async function startTray(opts: TrayOptions): Promise<TrayHandle | null> {
     // ready() resolves. Registering onClick/onError before that dereferences
     // null (systray2's onError does `this._process.on(...)`). So wait first.
     await systray.ready()
-    await systray.onClick((action) => routeClick(action.item?.title, opts, updateTitle))
+    await systray.onClick((action) => routeClick(action.item?.title, opts, { check: checkTitle, install: installTitle }))
     systray.onError((err) => opts.log(`  tray       : error — ${err.message}`))
     opts.log('  tray       : ready (right-click the tray icon for Open / Updates / Quit)')
+
+    const push = (item: { title: string }) => {
+      try { void systray.sendAction({ type: 'update-item', item: item as never }) } catch { /* best-effort */ }
+    }
 
     return {
       // kill(false): tear down the helper WITHOUT exiting node — the launcher's
       // own shutdown sequence owns the exit so the DB/backup are flushed first.
       kill: () => { try { void systray.kill(false) } catch { /* ignore */ } },
       setUpdate: (view: TrayUpdateView) => {
-        updateItem.title = view.title
-        updateItem.tooltip = view.tooltip
-        updateItem.enabled = view.enabled
-        updateTitle = view.title
-        try {
-          void systray.sendAction({ type: 'update-item', item: updateItem })
-        } catch { /* best-effort — a dead tray just won't reflect the change */ }
+        versionItem.title = view.versionLabel
+        checkItem.title = view.checkTitle
+        checkItem.enabled = view.checkEnabled
+        installItem.title = view.installTitle
+        installItem.enabled = view.installEnabled
+        checkTitle = view.checkTitle
+        installTitle = view.installTitle
+        push(versionItem); push(checkItem); push(installItem)
       },
     }
   } catch (err) {
