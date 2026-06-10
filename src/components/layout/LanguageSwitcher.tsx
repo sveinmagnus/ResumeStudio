@@ -86,6 +86,9 @@ export function LanguageSwitcher() {
           padding: 10px 14px; background: var(--paper-raised);
           border: 1px solid var(--line); border-radius: var(--r-md);
           box-shadow: var(--shadow-sm);
+          /* Wrap so a narrow control cluster can stack the language blocks
+             vertically rather than overflowing the header row. */
+          flex-wrap: wrap; max-width: 100%;
         }
         .lang-block { display: flex; flex-direction: column; gap: 4px; }
         .lang-role { font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
@@ -118,6 +121,13 @@ export function LanguageSwitcher() {
           transition: all .15s;
         }
         .lang-detect:hover { color: var(--accent); background: var(--accent-wash); }
+
+        /* Make each block's <select> shrink to fit when the cluster wraps,
+           so two stacked rows never blow out of the header on a phone. */
+        @media (max-width: 560px) {
+          .lang-switch { padding: 8px 10px; gap: 8px; }
+          .lang-sel { font-size: 12px; padding: 5px 8px; }
+        }
       `}</style>
     </div>
   )

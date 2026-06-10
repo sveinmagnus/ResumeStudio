@@ -74,6 +74,26 @@ function EditorRoute({ resumeId, onUnauthorized }: { resumeId: string; onUnautho
   const [conflictDismissed, setConflictDismissed] = useState(false)
   useEffect(() => { if (conflict) setConflictDismissed(false) }, [conflict])
 
+  // Sidebar drawer open state for narrow viewports. The Sidebar itself uses
+  // CSS to decide whether to render as inline or as a drawer; this state only
+  // matters when the breakpoint is active. Closes automatically when the user
+  // picks a new section (Sidebar fires onClose for us).
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+  // Auto-close if the viewport grows past the drawer breakpoint while the
+  // drawer was open — otherwise the backdrop's display:none would be hiding
+  // it but the React state would still say "open", which surfaces as a stuck
+  // `is-open` class. Cheap MQ subscription, no resize-throttle needed.
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return
+    const mq = window.matchMedia('(min-width: 881px)')
+    const onChange = (e: MediaQueryListEvent) => { if (e.matches) setSidebarOpen(false) }
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [])
+  // Switching sections from elsewhere (e.g. Overview deep link) should also
+  // dismiss the drawer so the user lands on the new section without it.
+  useEffect(() => { setSidebarOpen(false) }, [activeSection])
+
   // Bubble up auth state — the parent shows the modal.
   useEffect(() => {
     if (loadState === 'auth') onUnauthorized()
@@ -115,7 +135,7 @@ function EditorRoute({ resumeId, onUnauthorized }: { resumeId: string; onUnautho
 
   return (
     <div className="app-shell">
-      <Sidebar />
+      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <main className="app-main">
         <AppHeader
           resumeId={resumeId}
@@ -126,6 +146,7 @@ function EditorRoute({ resumeId, onUnauthorized }: { resumeId: string; onUnautho
           onRetry={retry}
           onUnauthorized={onUnauthorized}
           onResolveConflict={() => setConflictDismissed(false)}
+          onOpenSidebar={() => setSidebarOpen(true)}
         />
 
         {conflict && !conflictDismissed && (
@@ -170,6 +191,14 @@ function EditorRoute({ resumeId, onUnauthorized }: { resumeId: string; onUnautho
         .app-content { padding: 28px 36px 80px; max-width: 1000px; width: 100%; }
         /* Resume Views uses the side-by-side preview — let it span the viewport. */
         .app-content-wide { max-width: none; }
+        /* Narrow viewports: pull the content padding in so editor cards have
+           room to breathe once the sidebar has folded into a drawer. */
+        @media (max-width: 880px) {
+          .app-content { padding: 20px 16px 60px; }
+        }
+        @media (max-width: 560px) {
+          .app-content { padding: 16px 12px 48px; }
+        }
       `}</style>
     </div>
   )
