@@ -167,8 +167,19 @@ export function ImageCropperModal({
   }, [img])
 
   // ── Render ────────────────────────────────────────────────────────────────
+  // The image is anchored at (50%, 50%) of the frame and centred by the
+  // leading `translate(-50%, -50%)` (which uses the element's intrinsic
+  // box size — naturalWidth × naturalHeight — for the percentage). We
+  // then translate by the user's pan and scale by baseScale × zoom. ALL
+  // three functions share the default `transform-origin: center`, which
+  // is what computeCropRect's math assumes (zoom pivots around the box
+  // centre, viewport centre maps to source-pixel naturalW/2 − pan.x/s).
+  // The earlier version split centring into the logical `translate`
+  // property + a `transform-origin: 0 0`, which put the scale pivot at
+  // the top-left and made the visible image drift off-frame, breaking
+  // both the pan clamp and the final crop.
   const imgTransform = img
-    ? `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${baseScale * zoom})`
+    ? `translate(-50%, -50%) translate(${pan.x}px, ${pan.y}px) scale(${baseScale * zoom})`
     : undefined
 
   return (
@@ -317,9 +328,10 @@ export function ImageCropperModal({
         .imgcrop-frame:active { cursor: grabbing; }
         .imgcrop-img {
           position: absolute; top: 50%; left: 50%;
-          transform-origin: 0 0;
-          margin-left: 0; margin-top: 0;
-          translate: -50% -50%;
+          /* No transform-origin override — default is center, which is what
+             both the visual layout and computeCropRect assume. The centring
+             (-50%, -50%) is part of the same transform chain set inline so
+             it shares the centre origin with the pan + scale. */
           pointer-events: none;
         }
         .imgcrop-loading {
