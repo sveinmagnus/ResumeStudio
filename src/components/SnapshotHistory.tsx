@@ -3,6 +3,7 @@ import { History, RotateCcw, X, Loader2 } from 'lucide-react'
 import { useStore } from '../store/useStore'
 import { api, type SnapshotMeta, UnauthorizedError } from '../lib/api'
 import { fmtRelativeTime } from '../lib/locales'
+import { reattachImages } from '../lib/snapshotImages'
 
 interface SnapshotHistoryProps {
   resumeId: string
@@ -46,7 +47,9 @@ export function SnapshotHistory({ resumeId, onClose, onUnauthorized }: SnapshotH
     setError(null)
     try {
       const data = await api.getSnapshot(resumeId, snap.id)
-      replaceData(data)
+      // Snapshots are stored image-free (see server/db.ts) — carry the current
+      // images over so restoring content never silently deletes the photo/logo.
+      replaceData(reattachImages(data, useStore.getState().data))
       onClose()
     } catch (e) {
       if (e instanceof UnauthorizedError) { onUnauthorized?.(); onClose(); return }

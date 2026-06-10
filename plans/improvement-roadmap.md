@@ -72,7 +72,12 @@ Existing RTL tests should pass unchanged — that's the acceptance gate.
 candidates but each is several related editors by design; only split if
 they grow further.
 
-### A4. Embedded base64 images: payload + snapshot weight (investigate, then fix)
+### A4. Embedded base64 images: payload + snapshot weight — 🔶 Phase 1 done (June 2026)
+
+*Status: snapshots are now stored image-free (strip in `server/db.ts`,
+restore re-attach in `src/lib/snapshotImages.ts`), eliminating the ×50
+duplication. Still open: the auto-save PUT payload weight, the localStorage
+quota exposure, and the Phase 2 asset table if measurement warrants it.*
 `profile_photo`, `company_logo`, and per-view `photo_override` /
 `logo_override` live as data URLs **inside the resume JSON**. Consequences:
 

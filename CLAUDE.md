@@ -547,6 +547,12 @@ than calling `set()` directly. Return `null` from the updater for a no-op
   short-circuits to a `conflict` result (nothing written, no snapshot).
 - Identical-to-last-snapshot saves are deduped per resume. Pruning keeps the
   newest **50** per resume — not global.
+- **Snapshots are stored image-free**: `db.ts → stripSnapshotImages` drops the
+  base64 `profile_photo`/`company_logo` and per-view header overrides from the
+  snapshot copy (the live `resumes` row keeps them), and dedupe compares the
+  stripped JSON — so an image-only edit doesn't mint a snapshot. On restore the
+  client re-attaches the *current* images (`lib/snapshotImages.ts →
+  reattachImages`); a pre-strip snapshot that still carries images keeps its own.
 - The **History** modal (`SnapshotHistory.tsx`, takes `resumeId`) restores
   via **`replaceData`** (not `loadStore`) so a restore is itself a user
   mutation: it lands in the undo stack and is re-saved. Reversible.
