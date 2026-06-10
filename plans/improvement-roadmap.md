@@ -133,7 +133,16 @@ routing, CSP, lazy-chunk loading) the current pyramid can't catch — the
 preview-tool port quirk in CLAUDE.md §11 is exactly the kind of thing it
 would have flagged.
 
-### A7. Data-shape versioning for the live store (small, preventive)
+### A7. Data-shape versioning for the live store — ✅ done (June 2026)
+
+*Status: implemented per the resolved design — `shape_version` on
+`ResumeStore` (client-only; server blob stays opaque), `CURRENT_SHAPE_VERSION
+= 2` with the three existing sniffers as the 1→2 chain, `migrateStore()`
+choke point in `loadStore` + the snapshot-restore site, lazy migration (no
+write-back), stamp carried through the backup envelope, and newer-than-app
+data loading best-effort with a dismissible editor warning
+(`NewerDataNotice`). Decision (June 2026): best-effort load chosen over
+hard-block/read-only for newer data.*
 `backup.ts` has a versioned envelope + `migrateBackup()`, but the **DB
 rows** have no shape version — new required-ish fields (`view.style`,
 `header`, `footer`) rely on consumers tolerating `undefined` via

@@ -513,6 +513,15 @@ export interface ResumeView {
 // ─── Full resume store ────────────────────────────────────────────────────────
 
 export interface ResumeStore {
+  /**
+   * Data-shape version stamp (see `lib/migrate.ts`). Absent on data written
+   * before versioning existed (treated as 1). Bumped only for STRUCTURAL
+   * migrations — additive optional fields stay covered by render-boundary
+   * defaults (`with*Defaults`) and do not bump it. An older app may load data
+   * carrying a higher version (best-effort, with an editor warning) and must
+   * never downgrade the stamp.
+   */
+  shape_version?: number
   resume: Resume | null
   skills: Skill[]
   roles: Role[]
@@ -536,7 +545,12 @@ export interface ResumeStore {
 
 // ─── UI state ────────────────────────────────────────────────────────────────
 
-export type SectionKey = keyof Omit<ResumeStore, 'resume'>
+/**
+ * The item-array sections of the store — everything except the singular
+ * `resume` object and non-content metadata like `shape_version`. This is the
+ * canonical "all sections" type; generic CRUD and sortable components alias it.
+ */
+export type SectionKey = Exclude<keyof ResumeStore, 'resume' | 'shape_version'>
 
 export interface UIState {
   activeSection: string

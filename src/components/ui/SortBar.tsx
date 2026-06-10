@@ -1,9 +1,9 @@
 import { ArrowDownUp } from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import { availableSortModes, SORT_LABELS, type SortMode } from '../../lib/sectionSort'
-import type { ResumeStore } from '../../types'
+import type { SectionKey } from '../../types'
 
-type ArraySection = Exclude<keyof ResumeStore, 'resume'>
+type ArraySection = SectionKey
 
 /**
  * Per-section sort selector shown above a section's item list. Switches the

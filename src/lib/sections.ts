@@ -1,9 +1,9 @@
-import type { ResumeStore } from '../types'
+import type { SectionKey } from '../types'
 
 export interface SectionDef {
   key: string
   label: string
-  storeKey?: Exclude<keyof ResumeStore, 'resume'>
+  storeKey?: SectionKey
   icon: string  // lucide icon name
   group: 'profile' | 'experience' | 'credentials' | 'extras' | 'registry' | 'export'
   /**

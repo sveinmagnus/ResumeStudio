@@ -6,9 +6,11 @@ import type {
 } from '../src/types'
 import { DEFAULT_VIEW_STYLE } from '../src/lib/viewStyle'
 import { DEFAULT_VIEW_HEADER, DEFAULT_VIEW_FOOTER, defaultHeaderFields } from '../src/lib/viewHeader'
+import { CURRENT_SHAPE_VERSION } from '../src/lib/migrate'
 
 export function emptyStore(): ResumeStore {
   return {
+    shape_version: CURRENT_SHAPE_VERSION,
     resume: makeResume(),
     skills: [], roles: [], key_qualifications: [], key_competencies: [],
     recommendations: [], projects: [],

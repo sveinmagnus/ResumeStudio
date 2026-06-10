@@ -1,9 +1,9 @@
 import { useCallback } from 'react'
 import { useStore } from './useStore'
 import { SORT_LABELS } from '../lib/sectionSort'
-import type { ResumeStore } from '../types'
+import type { SectionKey } from '../types'
 
-type ArraySection = Exclude<keyof ResumeStore, 'resume'>
+type ArraySection = SectionKey
 
 /**
  * Guard a manual reorder (drag or arrow) against a non-custom sort mode.

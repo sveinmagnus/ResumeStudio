@@ -12,9 +12,9 @@ import { DndContext, PointerSensor, KeyboardSensor, useSensor, useSensors, close
 import { SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { useStore } from '../../store/useStore'
 import { useReorderGuard } from '../../store/useReorderGuard'
-import type { ResumeStore } from '../../types'
+import type { SectionKey } from '../../types'
 
-type ArraySection = Exclude<keyof ResumeStore, 'resume'>
+type ArraySection = SectionKey
 
 interface Props {
   section: ArraySection

@@ -1,8 +1,8 @@
 import { useStore } from './useStore'
 import { sortItems } from '../lib/sectionSort'
-import type { ResumeStore } from '../types'
+import type { ResumeStore, SectionKey } from '../types'
 
-type ArraySection = Exclude<keyof ResumeStore, 'resume'>
+type ArraySection = SectionKey
 type ItemOf<K extends ArraySection> = ResumeStore[K] extends Array<infer T> ? T : never
 
 /**

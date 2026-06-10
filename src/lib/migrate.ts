@@ -1,19 +1,71 @@
 /**
  * Resume Studio — in-memory data migrations.
  *
- * These run on EVERY load path (server, local cache, backup file) via
- * `loadStore` in the store, so an older saved resume is silently brought up
- * to the current shape. They are pure functions over `ResumeStore` and must
- * be idempotent — running them twice is a no-op.
+ * These run on EVERY path where data enters the running app from outside —
+ * server load, the localStorage offline queue, backup files, snapshot
+ * restores — via `migrateStore()` below. They are pure functions over
+ * `ResumeStore` and must be idempotent — running them twice is a no-op.
+ * (Idempotence is load-bearing: data written before versioning existed is
+ * unstamped, so the only safe dispatch for it is shape-sniffing.)
  *
- * Current migrations:
+ * Current migrations (all part of shape v1 → v2):
  *  - foldRoleDescriptions: collapse the old per-role free text
  *    (ProjectRole.long_description / .summary) into the project's single
  *    `long_description`, leaving roles as registry links only.
+ *  - extractKeyPointsToCompetencies: promote per-KQ key_points to the
+ *    standalone key_competencies section.
+ *  - defaultEmploymentRoleLinks: backfill WorkExperience.role_id as null.
  */
 
 import type { ResumeStore, LocalizedString, ProjectRole, KeyCompetency, KeyPoint, WorkExperience } from '../types'
 import { v4 as uuidv4 } from 'uuid'
+
+// ─── Shape versioning ─────────────────────────────────────────────────────────
+
+/**
+ * The data-shape version this build reads and writes.
+ *
+ *  - absent / 1 — everything written before versioning existed.
+ *  - 2          — the three structural migrations above have been applied.
+ *
+ * Bump this ONLY for structural changes that need a migration (moving or
+ * reshaping data). Additive optional fields are handled by render-boundary
+ * defaults (`with*Defaults`) and must NOT bump it — a bump makes every other
+ * install consider its data outdated.
+ */
+export const CURRENT_SHAPE_VERSION = 2
+
+/**
+ * True when `store` was written by a build with a NEWER shape than this one
+ * (e.g. the cloud-folder sync carried data from an auto-updated machine to a
+ * stale one). The store loads best-effort — unknown fields survive in memory
+ * because the store only spreads/shallow-merges — but a save from this build
+ * may still lose details a newer shape moved. The editor shows a warning.
+ */
+export function isNewerShape(store: ResumeStore): boolean {
+  return (store.shape_version ?? 1) > CURRENT_SHAPE_VERSION
+}
+
+/**
+ * Bring external data up to the current shape and stamp it. The single
+ * migration choke point: `loadStore` runs it on every load, and any UI that
+ * feeds outside data through `replaceData` (snapshot restore) must call it
+ * first. In-app computed data (undo snapshots, registry merges) is current by
+ * construction and skips it.
+ *
+ *  - already current → returned as-is (same reference, zero work);
+ *  - newer than this build → returned as-is, stamp untouched (never
+ *    downgrade — see `isNewerShape`);
+ *  - older / unstamped → idempotent migration chain, then stamped.
+ */
+export function migrateStore(store: ResumeStore): ResumeStore {
+  const stored = store.shape_version ?? 1
+  if (stored >= CURRENT_SHAPE_VERSION) return store
+  const migrated = defaultEmploymentRoleLinks(
+    extractKeyPointsToCompetencies(foldRoleDescriptions(store)),
+  )
+  return { ...migrated, shape_version: CURRENT_SHAPE_VERSION }
+}
 
 /**
  * Merge localized `addition` into `base`, joining non-empty values per-locale

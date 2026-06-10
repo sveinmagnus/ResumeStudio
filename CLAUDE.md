@@ -170,6 +170,7 @@ src/
 │   ├── localCache.ts           ← Per-id localStorage fallback (saveCache(id, data) etc.); clearAllCaches(); dropLegacyCache()
 │   ├── locales.ts              ← LOCALE_LABELS, resolve(), fmt*(), fmtRelativeTime(), detectLocalesInData(), sortLocales()
 │   ├── merge.ts                ← mergeSkills / mergeRoles + reference counts (role merges rewrite work_experiences[].role_id too)
+│   ├── migrate.ts              ← PURE: data-shape migrations + CURRENT_SHAPE_VERSION; migrateStore() is the single choke point for data entering the app (loadStore + snapshot restore)
 │   ├── usage.ts                ← PURE: usageOfSkill / usageOfRole — enumerate referencing projects, employments, tech-categories; isSkillUnused / isRoleUnused for the "Unused" registry filter
 │   ├── router.ts               ← Hand-rolled History API router: useRoute(), navigate(), <Link>, parseRoute()
 │   ├── sections.ts             ← Sidebar section definitions and groups
@@ -191,6 +192,7 @@ src/
 │   ├── AuthGate.tsx            ← Token-entry modal shown on 401 (onSubmit → App-level handler)
 │   ├── SnapshotHistory.tsx     ← Per-resume version-history modal: takes resumeId; restore via replaceData
 │   ├── ConflictModal.tsx       ← Non-blocking 409 conflict UI: diffResume summary + keep-mine / discard-mine
+│   ├── NewerDataNotice.tsx     ← Dismissible editor warning when the loaded resume was saved by a newer build (dataFromNewerApp — see lib/migrate.ts)
 │   ├── SyncPanel.tsx           ← Picker "Sync & backup" panel (desktop build only): status + Back up now / Restore from folder. Renders null when no sync folder is configured
 │   ├── SettingsModal.tsx       ← Picker gear → Settings: translation mode (off / Docker-managed / remote URL) + sync folder + Updates (version + check). Read-only note when server reports managed:false
 │   ├── UpdateBanner.tsx        ← Picker "Update available → Install" banner (desktop build); polls /api/update/status; renders null when unsupported/up-to-date
@@ -556,6 +558,24 @@ than calling `set()` directly. Return `null` from the updater for a no-op
 - The **History** modal (`SnapshotHistory.tsx`, takes `resumeId`) restores
   via **`replaceData`** (not `loadStore`) so a restore is itself a user
   mutation: it lands in the undo stack and is re-saved. Reversible.
+
+### Data-shape versioning (`lib/migrate.ts`)
+- `ResumeStore.shape_version` stamps the content shape (absent = pre-versioning
+  = 1; `CURRENT_SHAPE_VERSION` = 2). **Bump only for structural migrations** —
+  additive optional fields stay covered by `with*Defaults` render tolerance.
+- `migrateStore()` is the single choke point for data entering the app from
+  outside: `loadStore` runs it on every load; the snapshot-restore site calls
+  it before `replaceData`. `replaceData` itself never migrates — in-app
+  computed data (undo, merges) is current by construction.
+- Migrations are **idempotent shape-sniffers** (unstamped legacy data is the
+  norm in the wild); the stamp short-circuits the chain when current.
+- Data from a NEWER build loads **best-effort**: stamp is never downgraded
+  (unknown fields survive — the store only spreads/shallow-merges) and the
+  editor shows a dismissible warning (`dataFromNewerApp` →
+  `NewerDataNotice`). Real scenario: cloud-folder sync between an
+  auto-updated machine and a stale one.
+- The per-resume backup envelope carries `shape_version` alongside its own
+  `format_version` (envelope vs. content versioning — don't conflate).
 
 ### Translation assist (server-side proxy)
 - The client never calls a translation backend directly. `POST /api/translate`

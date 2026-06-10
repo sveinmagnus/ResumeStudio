@@ -4,11 +4,11 @@ import { useReorderGuard } from '../../store/useReorderGuard'
 import {
   ChevronDown, Star, Eye, EyeOff, ArrowUp, ArrowDown, Trash2, GripVertical,
 } from 'lucide-react'
-import type { ResumeStore } from '../../types'
+import type { SectionKey } from '../../types'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 
-type ArraySection = Exclude<keyof ResumeStore, 'resume'>
+type ArraySection = SectionKey
 
 interface EditorCardProps {
   section: ArraySection

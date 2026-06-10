@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid'
 import type { ResumeStore, Resume, LocalizedString } from '../types'
 import { importFromCVPartner } from '../lib/importer'
 import { detectLocalesInData, sortLocales } from '../lib/locales'
-import { foldRoleDescriptions, extractKeyPointsToCompetencies, defaultEmploymentRoleLinks } from '../lib/migrate'
+import { migrateStore, isNewerShape } from '../lib/migrate'
 import { emptyStore as makeEmpty, freshStore as makeFresh } from '../lib/freshStore'
 import { sortItems, type SortMode } from '../lib/sectionSort'
 
@@ -19,6 +19,12 @@ interface AppState {
   secondaryLocale: string | null
   expandedItemId: string | null
   hasData: boolean
+  /**
+   * True when the loaded resume was last saved by a build with a NEWER data
+   * shape than this one (see `lib/migrate.ts → isNewerShape`). The editor
+   * shows a best-effort warning; editing stays enabled. Reset on unload.
+   */
+  dataFromNewerApp: boolean
   /**
    * Per-section display sort mode (UI-only, NOT persisted). 'custom' (the
    * default for any unset section) renders by `sort_order`; the other modes
@@ -136,28 +142,29 @@ export const useStore = create<AppState>((set, get) => {
     secondaryLocale: 'no',
     expandedItemId: null,
     hasData: false,
+    dataFromNewerApp: false,
     sectionSort: {},
     mutationCount: 0,
 
     // ── Loads ──────────────────────────────────────────────────────────────
 
     loadFromCVPartner: (raw) => {
-      const data = importFromCVPartner(raw)
+      // Importer output is current-shape by construction; migrateStore just
+      // stamps it (and is a no-op if the importer starts stamping itself).
+      const data = migrateStore(importFromCVPartner(raw))
       const { primary, secondary } = pickLocales(data.resume?.supported_locales ?? ['en'])
       set({
-        data, hasData: true, mutationCount: 0,
+        data, hasData: true, mutationCount: 0, dataFromNewerApp: false,
         activeSection: 'overview', activeViewId: null, sectionSort: {},
         primaryLocale: primary, secondaryLocale: secondary,
       })
     },
 
     loadStore: (store, localesArg) => {
-      // Bring older persisted data up to the current shape before it enters
-      // the store (e.g. fold legacy per-role descriptions into the project,
-      // promote per-KQ key_points up to standalone key_competencies).
-      const migrated = defaultEmploymentRoleLinks(
-        extractKeyPointsToCompetencies(foldRoleDescriptions(store)),
-      )
+      // Bring older persisted data up to the current shape (and stamp it)
+      // before it enters the store. Data from a NEWER build passes through
+      // untouched — flagged so the editor can warn (see dataFromNewerApp).
+      const migrated = migrateStore(store)
       const supported = migrated.resume?.supported_locales ?? ['en']
       // Prefer caller-supplied locales (server-persisted per-resume choice).
       // Fall back to first/second of supported_locales otherwise.
@@ -167,12 +174,13 @@ export const useStore = create<AppState>((set, get) => {
         : (supported[1] ?? null)
       set({
         data: migrated, hasData: true, mutationCount: 0, sectionSort: {}, activeViewId: null,
+        dataFromNewerApp: isNewerShape(migrated),
         primaryLocale: primary, secondaryLocale: secondary,
       })
     },
 
     unloadStore: () => set({
-      data: emptyStore, hasData: false, mutationCount: 0,
+      data: emptyStore, hasData: false, mutationCount: 0, dataFromNewerApp: false,
       currentResumeId: null, expandedItemId: null, activeViewId: null, sectionSort: {},
     }),
 
@@ -180,7 +188,7 @@ export const useStore = create<AppState>((set, get) => {
 
     startFresh: () => {
       set({
-        data: makeFresh(), hasData: true, mutationCount: 0,
+        data: makeFresh(), hasData: true, mutationCount: 0, dataFromNewerApp: false,
         activeSection: 'header', expandedItemId: null, activeViewId: null, sectionSort: {},
         primaryLocale: 'en', secondaryLocale: null,
       })

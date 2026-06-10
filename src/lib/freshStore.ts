@@ -10,9 +10,11 @@
  */
 import { v4 as uuidv4 } from 'uuid'
 import type { ResumeStore } from '../types'
+import { CURRENT_SHAPE_VERSION } from './migrate'
 
 export function emptyStore(): ResumeStore {
   return {
+    shape_version: CURRENT_SHAPE_VERSION,
     resume: null,
     skills: [], roles: [], key_qualifications: [], key_competencies: [],
     recommendations: [], projects: [],

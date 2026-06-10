@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { useStore, emptyLocalized, newId } from '../src/store/useStore'
-import { makeProject, makeWork, makeRole } from './fixtures'
+import { CURRENT_SHAPE_VERSION } from '../src/lib/migrate'
+import { emptyStore, makeProject, makeWork, makeRole } from './fixtures'
 
 // Convenience — the store is a real Zustand singleton; reset between tests.
 const reset = () => {
@@ -27,6 +28,7 @@ const reset = () => {
     secondaryLocale: null,
     expandedItemId: null,
     hasData: true,
+    dataFromNewerApp: false,
     currentResumeId: null,
     sectionSort: {},
     mutationCount: 0,
@@ -506,6 +508,42 @@ describe('loadStore() & startFresh()', () => {
     expect(useStore.getState().data.resume).not.toBeNull()
     expect(useStore.getState().data.resume!.full_name).toBe('')
     expect(useStore.getState().activeSection).toBe('header')
+  })
+})
+
+// ─── Shape versioning on load ───────────────────────────────────────────────
+
+describe('loadStore() shape versioning', () => {
+  it('stamps unversioned (legacy) data with the current shape version', () => {
+    const legacy = emptyStore()
+    delete legacy.shape_version
+    useStore.getState().loadStore(legacy)
+    expect(useStore.getState().data.shape_version).toBe(CURRENT_SHAPE_VERSION)
+    expect(useStore.getState().dataFromNewerApp).toBe(false)
+  })
+
+  it('flags data saved by a newer build and preserves its higher stamp', () => {
+    const newer = emptyStore()
+    newer.shape_version = CURRENT_SHAPE_VERSION + 1
+    useStore.getState().loadStore(newer)
+    expect(useStore.getState().dataFromNewerApp).toBe(true)
+    // Never downgrade: a later save must carry the newer build's stamp.
+    expect(useStore.getState().data.shape_version).toBe(CURRENT_SHAPE_VERSION + 1)
+  })
+
+  it('unloadStore clears the newer-data flag', () => {
+    const newer = emptyStore()
+    newer.shape_version = CURRENT_SHAPE_VERSION + 1
+    useStore.getState().loadStore(newer)
+    expect(useStore.getState().dataFromNewerApp).toBe(true)
+    useStore.getState().unloadStore()
+    expect(useStore.getState().dataFromNewerApp).toBe(false)
+  })
+
+  it('startFresh produces current-shape data with the flag off', () => {
+    useStore.getState().startFresh()
+    expect(useStore.getState().data.shape_version).toBe(CURRENT_SHAPE_VERSION)
+    expect(useStore.getState().dataFromNewerApp).toBe(false)
   })
 })
 

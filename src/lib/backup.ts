@@ -30,6 +30,13 @@ export interface BackupV1 {
   $schema: 'resumestudio/v1'
   format_version: 1
   exported_at: string
+  /**
+   * The CONTENT's data-shape stamp (`ResumeStore.shape_version`) — distinct
+   * from `format_version`, which versions this envelope. Carried through so a
+   * backup written by a newer build keeps warning older builds on import.
+   * Additive + optional: backups from before versioning simply omit it.
+   */
+  shape_version?: number
   profile: Resume | null
   registries: {
     skills: Skill[]
@@ -119,6 +126,7 @@ export function exportToBackup(store: ResumeStore): BackupV1 {
     $schema: 'resumestudio/v1',
     format_version: 1,
     exported_at: new Date().toISOString(),
+    shape_version: store.shape_version,
     profile: store.resume,
     registries: {
       skills: store.skills,
@@ -156,6 +164,7 @@ export function exportToBackup(store: ResumeStore): BackupV1 {
 export function importFromBackup(backup: AnyBackup): ResumeStore {
   const v1 = migrateBackup(backup)
   return {
+    shape_version:           v1.shape_version,
     resume:                  v1.profile,
     skills:                  v1.registries.skills,
     roles:                   v1.registries.roles,

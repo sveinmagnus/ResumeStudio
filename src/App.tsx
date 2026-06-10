@@ -18,6 +18,7 @@ import {
 import { SkillsEditor, RolesEditor, ReferencesEditor, TechCategoriesEditor } from './components/editor/RegistryEditors'
 import { ResumeViewsEditor } from './components/editor/ResumeViewsEditor'
 import { ConflictModal } from './components/ConflictModal'
+import { NewerDataNotice } from './components/NewerDataNotice'
 import { useRoute, navigate, Link } from './lib/router'
 import { dropLegacyCache } from './lib/localCache'
 import { api } from './lib/api'
@@ -148,6 +149,8 @@ function EditorRoute({ resumeId, onUnauthorized }: { resumeId: string; onUnautho
           onResolveConflict={() => setConflictDismissed(false)}
           onOpenSidebar={() => setSidebarOpen(true)}
         />
+
+        <NewerDataNotice />
 
         {conflict && !conflictDismissed && (
           <ConflictModal

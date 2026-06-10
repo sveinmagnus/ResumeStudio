@@ -54,11 +54,11 @@ units:
   - id: data-model
     kind: schema
     path: src/types/index.ts
-    intent: "What is the resume data model? Single source of truth for every entity, localized field, and view-config type."
+    intent: "What is the resume data model? Single source of truth for every entity, localized field, view-config type, and the shape_version stamp."
     format: text
     scope: global
     audience: [developer, agent]
-    validated: "2026-06-10"
+    validated: "2026-06-11"
     update_frequency: monthly
     triggers: [types, entities, LocalizedString, ResumeStore, ResumeView, schema]
     hints:

@@ -4,6 +4,7 @@ import { useStore } from '../store/useStore'
 import { api, type SnapshotMeta, UnauthorizedError } from '../lib/api'
 import { fmtRelativeTime } from '../lib/locales'
 import { reattachImages } from '../lib/snapshotImages'
+import { migrateStore } from '../lib/migrate'
 
 interface SnapshotHistoryProps {
   resumeId: string
@@ -49,7 +50,10 @@ export function SnapshotHistory({ resumeId, onClose, onUnauthorized }: SnapshotH
       const data = await api.getSnapshot(resumeId, snap.id)
       // Snapshots are stored image-free (see server/db.ts) — carry the current
       // images over so restoring content never silently deletes the photo/logo.
-      replaceData(reattachImages(data, useStore.getState().data))
+      // Old snapshots may predate a shape migration, so bring them current too:
+      // replaceData itself never migrates (in-app data is current by
+      // construction), making this restore site responsible.
+      replaceData(migrateStore(reattachImages(data, useStore.getState().data)))
       onClose()
     } catch (e) {
       if (e instanceof UnauthorizedError) { onUnauthorized?.(); onClose(); return }

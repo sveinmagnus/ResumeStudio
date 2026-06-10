@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   appendLocalized, buildRoleParagraph, foldRoleDescriptions,
   extractKeyPointsToCompetencies, defaultEmploymentRoleLinks,
+  migrateStore, isNewerShape, CURRENT_SHAPE_VERSION,
 } from '../src/lib/migrate'
 import { emptyStore, makeProject, makeWork } from './fixtures'
 import type { ProjectRole, KeyQualification, KeyPoint, WorkExperience } from '../src/types'
@@ -224,5 +225,61 @@ describe('defaultEmploymentRoleLinks()', () => {
     const store = emptyStore()
     store.work_experiences.push(makeWork({ role_id: null }))
     expect(defaultEmploymentRoleLinks(store)).toBe(store)
+  })
+})
+
+// ─── migrateStore / shape versioning ─────────────────────────────────────────
+
+describe('migrateStore() / isNewerShape()', () => {
+  /** A store as an older (pre-versioning) build would have written it. */
+  function legacyStore() {
+    const store = emptyStore()
+    delete store.shape_version // unstamped = shape v1
+    store.projects.push(makeProject({
+      long_description: {},
+      roles: [legacyRole({ name: { en: 'Lead' }, long_description: { en: 'Ran the team.' } })],
+    }))
+    return store
+  }
+
+  it('runs the migration chain on unstamped data and stamps the result', () => {
+    const out = migrateStore(legacyStore())
+    expect(out.shape_version).toBe(CURRENT_SHAPE_VERSION)
+    // The v1→v2 structural work actually happened.
+    expect(out.projects[0].long_description.en).toBe('Lead: Ran the team.')
+    expect('long_description' in out.projects[0].roles[0]).toBe(false)
+  })
+
+  it('returns the same reference for already-current data (zero work)', () => {
+    const store = emptyStore() // fixtures stamp CURRENT_SHAPE_VERSION
+    expect(migrateStore(store)).toBe(store)
+  })
+
+  it('never downgrades data stamped by a newer build — content and stamp untouched', () => {
+    const store = emptyStore()
+    store.shape_version = CURRENT_SHAPE_VERSION + 1
+    const out = migrateStore(store)
+    expect(out).toBe(store)
+    expect(out.shape_version).toBe(CURRENT_SHAPE_VERSION + 1)
+  })
+
+  it('isNewerShape flags only versions above CURRENT', () => {
+    const current = emptyStore()
+    expect(isNewerShape(current)).toBe(false)
+
+    const legacy = emptyStore()
+    delete legacy.shape_version
+    expect(isNewerShape(legacy)).toBe(false)
+
+    const newer = emptyStore()
+    newer.shape_version = CURRENT_SHAPE_VERSION + 1
+    expect(isNewerShape(newer)).toBe(true)
+  })
+
+  it('does not mutate the input store', () => {
+    const store = legacyStore()
+    const before = JSON.stringify(store)
+    migrateStore(store)
+    expect(JSON.stringify(store)).toBe(before)
   })
 })
