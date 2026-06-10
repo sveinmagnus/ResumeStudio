@@ -248,7 +248,7 @@ server/                         ← Express API + SQLite persistence
 
 scripts/build-desktop.mjs       ← Assembles the portable release/ folder (esbuild bundle + dist + native deps + Node runtime + launcher shims). Run per target OS
 
-tests/                          ← Vitest specs (~660 tests at last count)
+tests/                          ← Vitest specs (see CI for the live count)
 ├── fixtures.ts                 ← Shared makeProject() / makeRole() / ... factories
 ├── setup-rtl.ts                ← jest-dom matchers + afterEach(cleanup) for component tests
 ├── helpers/store-reset.ts      ← resetStore() — restores the singleton store between component tests

@@ -31,8 +31,7 @@ units:
     intent: "What is Resume Studio and how do I install, run, and configure it?"
     scope: global
     audience: [human, agent]
-    # No `validated` date on purpose: known stale (claims single-resume schema,
-    # old test count, missing env vars). See plan-roadmap item A1 before trusting.
+    validated: "2026-06-10"
     update_frequency: monthly
     triggers: [overview, quickstart, install, configuration, env]
     hints:
@@ -283,9 +282,6 @@ relationships:
   - from: skill-security-review
     to: ai-import-schema
     type: governs
-  - from: plan-roadmap
-    to: readme
-    type: contradicts   # roadmap A1 documents README's stale claims
   - from: desktop-guide
     to: release-policy
     type: enables

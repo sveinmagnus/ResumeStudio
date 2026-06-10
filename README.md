@@ -54,45 +54,47 @@ run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once.
 
 ## What's in the box
 
-### Editing
+The full feature tour lives on the
+[documentation site](https://sveinmagnus.github.io/resumestudio/features.html)
+— this is the short version:
+
+- **Multi-resume.** One instance holds any number of master CVs; the picker is
+  the home screen, each CV has its own URL, history, and language pair.
 - **Dual-language side-by-side editing.** Every translatable field renders as
-  two inputs at once — pick any two of your supported locales, swap with one
-  click, hide the secondary column when you want focus.
-- **Translation assist.** Each secondary input gets a **Copy** button (seed it
-  from the primary text) and, if you point the server at a self-hosted
-  [LibreTranslate](https://libretranslate.com/) instance, a **Draft** button
-  that pre-fills a machine translation for you to review. Nothing leaves your
-  deployment — the browser talks only to your own server, which proxies the
-  request. Optional; off unless `LIBRETRANSLATE_URL` is set.
-- **Re-detect languages.** A refresh button in the language switcher scans
-  the content and adds any new locale it finds to your supported list.
-- **Drag-and-drop reordering** on every section that has a sort order, with
-  keyboard up/down buttons retained for accessibility.
-- **Undo / Redo** (Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z) with debounced history.
-- **Skill / role registry merge** — the "Løsningarkitekt" vs
-  "Løsningsarkitekt" problem: pick one as the canonical entry, the other
-  gets rewritten into it and removed.
-
-### Persistence
-- **Auto-save to a SQLite-backed Express server** (debounced 1 s).
-- **localStorage fallback** so a server outage doesn't cost you work — your
-  edits flush to the server the moment it returns.
-- **Status visible in the header**: Saving / Saved / Save failed (with
-  Retry) / Local only.
-- **Version history** — every save is snapshotted on the server (the last 50,
-  duplicates skipped). The header's **History** button lists them and restores
-  any version in one click; a restore is itself undoable.
-- **Portable JSON backup** — "Save to file" downloads a versioned backup;
-  "Load file" restores from a backup *or* imports a CVpartner JSON export.
-
-### Export
-- **Resume Views** — curated subsets of the master CV. Pick which sections
-  to include, exclude individual items, toggle "starred only", add a custom
-  introduction, with a **live preview pane** that re-renders as you tune the
-  view (and estimates the page count against your page limit).
-- **PDF** via the browser's print pipeline.
-- **DOCX** (.docx) via the [`docx`](https://docx.js.org/) library, lazy-loaded
-  so it only downloads when you actually click Export.
+  two inputs at once — pick any two locales, swap with one click, hide the
+  secondary column when you want focus.
+- **Translation assist.** Per-field **Copy from primary** (no network) and an
+  optional **Draft translation** button proxied through your own server.
+  Providers: self-hosted [LibreTranslate](https://libretranslate.com/)
+  (Docker-managed or remote), DeepL, Google Cloud Translation, or Azure
+  Translator.
+- **Resume Views — targeted exports.** Curated subsets of the master CV:
+  per-section detail levels (off / summary / full), item exclusions,
+  starred-only, custom intro, per-view styling (density, fonts, accent color,
+  tag style), a configurable header/footer (contact fields, photo + logo
+  placement), and a **live preview pane** with a page-count estimate. Export
+  as **PDF** (browser print pipeline) or **DOCX** (lazy-loaded
+  [`docx`](https://docx.js.org/)).
+- **Rich content.** Limited rich text (bold/italic/underline/lists) in
+  descriptions, uploaded profile photo with cropper, company logo, key
+  competencies, recommendations.
+- **Import.** CVpartner JSON, portable JSON backups, and an **AI-assisted
+  import** from any PDF/Word CV — a bring-your-own-LLM flow with no external
+  service or API key.
+- **Offline-tolerant persistence.** Auto-save (debounced ~1 s) to SQLite via
+  Express, a per-resume localStorage queue that survives outages, reconnect
+  draining, and optimistic concurrency with a keep-mine / discard-mine
+  conflict dialog. Server-side **version history** (last 50 snapshots per
+  resume) restorable from the header.
+- **Editing comfort.** Undo/redo, drag-and-drop reordering everywhere (with
+  keyboard fallback), skill/role registries with merge ("Løsningarkitekt" vs
+  "Løsningsarkitekt" — pick one, the other is rewritten everywhere), usage
+  breakdowns, and autocomplete linking.
+- **Desktop build.** A portable folder with bundled Node — unzip,
+  double-click, edit. System-tray icon, automatic updates from GitHub
+  Releases, in-app Settings, and cross-computer sync via a JSON backup file
+  in your existing cloud folder (Drive/Dropbox/OneDrive). See
+  [DESKTOP.md](./DESKTOP.md).
 
 ---
 
@@ -100,9 +102,9 @@ run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once.
 
 ```
 React 18 + TypeScript + Vite
-  ├── Zustand store (single source of in-memory state)
-  ├── Express + better-sqlite3 (single-row resume_store table)
-  └── localStorage cache (fallback)
+  ├── Zustand store (one resume in memory at a time)
+  ├── Express + better-sqlite3 (multi-row `resumes` + per-resume `resume_snapshots`)
+  └── localStorage offline queue (per-resume fallback + reconnect outbox)
 ```
 
 Detailed conventions live in [CLAUDE.md](./CLAUDE.md) — read that before
@@ -118,9 +120,11 @@ src/
 ├── components/  React UI (layout, ui primitives, per-section editors)
 └── App.tsx      routes the active section to the right editor
 
-server/          Express API + SQLite persistence (resume CRUD, snapshots, translate proxy)
-tests/           Vitest specs (349 tests, all green) — pure libs, store, every React
-                 component (RTL), and server suites (db, auth, translate, supertest routes)
+server/          Express API + SQLite persistence (resume CRUD, snapshots,
+                 translate proxy, settings, backup, updater) + desktop launcher
+tests/           Vitest specs (see CI for the live count) — pure libs, store, every
+                 React component (RTL), and server suites (db, auth, translate,
+                 supertest routes)
 ```
 
 ---
@@ -137,6 +141,9 @@ tests/           Vitest specs (349 tests, all green) — pure libs, store, every
 | `npm run test:watch` | Watch mode |
 | `npm run test:coverage` | v8 coverage report (HTML in `coverage/`) |
 | `npm run typecheck` | `tsc --noEmit` for both client and server |
+| `npm run desktop` | Build the client and run the desktop launcher from source |
+| `npm run build:desktop` | Assemble the portable desktop `release/` folder (per target OS) |
+| `npm run dev:translate` | Start the bundled LibreTranslate Docker service (`translate:down` stops it) |
 
 CI (`.github/workflows/ci.yml`) runs typecheck + test + build on every push
 and PR.
@@ -145,23 +152,36 @@ and PR.
 
 ## Configuration
 
-`.env` (copy from `.env.example`):
+`.env` (copy from `.env.example` — that file documents every variable in
+detail; this is the overview). On the **desktop build** you don't edit `.env`
+at all: the in-app Settings screen (gear icon on the picker) manages
+translation, sync, and updates.
 
 | Variable | Default | Meaning |
 |---|---|---|
 | `RESUME_API_TOKEN` | empty | Bearer token required by the API. Empty = auth disabled (local dev). |
-| `PORT` | `3001` | Express listen port. |
-| `LIBRETRANSLATE_URL` | empty | Base URL of a self-hosted LibreTranslate instance. Empty = the Draft-translation button is hidden. |
-| `LIBRETRANSLATE_API_KEY` | empty | API key, if your LibreTranslate instance requires one. |
+| `PORT` | `3001` | Express listen port (the desktop launcher picks a free port itself). |
+| `TRANSLATE_PROVIDER` | empty | Translation backend: `off` / `libretranslate` / `deepl` / `google` / `azure`. Unset + `LIBRETRANSLATE_URL` set = `libretranslate` (back-compat). |
+| `LIBRETRANSLATE_URL` / `LIBRETRANSLATE_API_KEY` | empty | Self-hosted LibreTranslate base URL + optional key. |
+| `DEEPL_API_KEY` | empty | DeepL key (Free vs Pro auto-detected from the `:fx` suffix). |
+| `GOOGLE_TRANSLATE_API_KEY` | empty | Google Cloud Translation v2 key. |
+| `AZURE_TRANSLATOR_KEY` / `AZURE_TRANSLATOR_REGION` | empty | Azure Translator key + resource region. |
+| `RESUME_RATE_LIMIT_MAX` / `RESUME_RATE_LIMIT_WINDOW_MS` | `50` / `900000` | Failure-focused API rate limiter (only ≥400 responses count, so auto-save is never throttled). |
+| `RESUME_DATA_DIR` | per-user OS folder | Desktop build: where the live SQLite DB + log live. |
+| `RESUME_BACKUP_DIR` | empty | Desktop build: cloud-synced folder for the whole-store JSON backup (cross-computer sync). |
+| `RESUME_BACKUP_INTERVAL_MS` | `60000` | Desktop build: backup refresh cadence. |
+| `RESUME_DB_JOURNAL` | `WAL` | SQLite journal mode (`TRUNCATE` escape hatch if the DB must live in a synced folder). |
 
-The SQLite database lives at `data/resume.db` (gitignored), holding the single
-resume row plus a `resume_snapshots` history table (last 50 saves). WAL mode is on.
+In dev/VPS mode the SQLite database lives at `data/resume.db` (gitignored):
+one row per resume in `resumes`, plus per-resume snapshot history in
+`resume_snapshots` (last 50 saves each, duplicates skipped). WAL mode is on.
+The desktop build keeps the same schema in `RESUME_DATA_DIR` instead.
 
 ### Enabling draft translations (optional)
 
-The "Draft translation" button is powered by a self-hosted
-[LibreTranslate](https://libretranslate.com/) instance. A `docker-compose.yml`
-is bundled to run it alongside the app:
+The "Draft translation" button needs a configured provider. The zero-key
+option is a self-hosted [LibreTranslate](https://libretranslate.com/)
+instance — a `docker-compose.yml` is bundled to run it alongside the app:
 
 ```bash
 npm run dev:translate     # docker compose up -d libretranslate (first boot pulls models)
@@ -172,10 +192,14 @@ npm run translate:down    # stop the service when you're done
 ```
 
 It loads only the `en, nb, sv, da` models (English + Norwegian/Swedish/Danish)
-to stay light, and caches them in a named Docker volume. Translation is
-entirely optional — without it, "Copy from primary" still works and the Draft
-button stays hidden. CV text only travels browser → app server → this
-container; nothing leaves the host.
+to stay light, and caches them in a named Docker volume. Key-based providers
+(DeepL, Google, Azure) are configured via `TRANSLATE_PROVIDER` + the matching
+key instead — see `.env.example`. On the desktop build, all of this lives in
+Settings, which can also start/stop the Docker service for you.
+
+Translation is entirely optional — without it, "Copy from primary" still works
+and the Draft button stays hidden. CV text only travels browser → app server →
+the provider you configured; there is no third-party middleman.
 
 ---
 

@@ -18,7 +18,7 @@ firefighting.
 Ordered by value-for-effort. Items A1–A3 are cheap and overdue; A4–A6 are
 real engineering chunks; A7+ are watchlist.
 
-### A1. Fix README drift (small, do first)
+### A1. Fix README drift (small, do first) — ✅ done (June 2026)
 `README.md` describes a much older build. Concretely stale:
 - "Express + better-sqlite3 (single-row resume_store table)" in the
   architecture diagram and "the single resume row" under Configuration —
@@ -45,7 +45,7 @@ The `docs/` GitHub Pages site (index/features/how-to/download) was found
 current — keep it as the model and make README defer to it for the feature
 tour instead of duplicating it.
 
-### A2. Decide the fate of `template_id` (tiny decision, unblocks 12.1)
+### A2. Decide the fate of `template_id` — ✅ decided (June 2026): keep, committed to F1
 `ResumeView.template_id` exists in `types/index.ts` and is set to `null` in
 one place; nothing reads it. Either commit to **Export templates** (Part B,
 F1 — recommended) or remove the field. A reserved-but-dead field on the
