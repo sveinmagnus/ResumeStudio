@@ -60,6 +60,8 @@ export interface ResumeMeta {
   created_at: string
   /** Optimistic-concurrency token. Starts at 1, bumps by 1 on every save. */
   version: number
+  /** Who last saved (named-token attribution, F10). Null = anonymous token / never saved. */
+  saved_by: string | null
 }
 
 export interface ResumeFull {
@@ -118,6 +120,8 @@ export interface SnapshotMeta {
   id: number
   saved_at: string
   size: number
+  /** Who made this save (named-token attribution, F10). */
+  saved_by: string | null
 }
 
 /** Per-resume payload weight — the A4 "measure first" readout. */
@@ -168,6 +172,7 @@ export interface ResumeDb {
     data: unknown,
     locales?: LocaleUpdate,
     expectedVersion?: number,
+    savedBy?: string | null,
   ): SaveResult
   deleteResume(id: string): boolean
   renameResume(id: string, name: string): boolean
@@ -247,13 +252,15 @@ export function createResumeDb(dbPath: string): ResumeDb {
       secondary_locale TEXT,
       saved_at         TEXT NOT NULL,
       created_at       TEXT NOT NULL,
-      version          INTEGER NOT NULL DEFAULT 1
+      version          INTEGER NOT NULL DEFAULT 1,
+      saved_by         TEXT
     );
     CREATE TABLE IF NOT EXISTS resume_snapshots (
       id         INTEGER PRIMARY KEY AUTOINCREMENT,
       resume_id  TEXT    NOT NULL REFERENCES resumes(id) ON DELETE CASCADE,
       data       TEXT    NOT NULL,
-      saved_at   TEXT    NOT NULL
+      saved_at   TEXT    NOT NULL,
+      saved_by   TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_snapshots_resume
       ON resume_snapshots(resume_id, id DESC);
@@ -268,16 +275,24 @@ export function createResumeDb(dbPath: string): ResumeDb {
   if (!columns.some((c) => c.name === 'version')) {
     db.exec('ALTER TABLE resumes ADD COLUMN version INTEGER NOT NULL DEFAULT 1')
   }
+  // Additive migration (F10): saved_by attribution on rows + snapshots.
+  if (!columns.some((c) => c.name === 'saved_by')) {
+    db.exec('ALTER TABLE resumes ADD COLUMN saved_by TEXT')
+  }
+  const snapColumns = db.prepare('PRAGMA table_info(resume_snapshots)').all() as { name: string }[]
+  if (!snapColumns.some((c) => c.name === 'saved_by')) {
+    db.exec('ALTER TABLE resume_snapshots ADD COLUMN saved_by TEXT')
+  }
 
   // ─── Prepared statements ───────────────────────────────────────────────────
   const selectResumes = db.prepare(`
-    SELECT id, name, primary_locale, secondary_locale, saved_at, created_at, version
+    SELECT id, name, primary_locale, secondary_locale, saved_at, created_at, version, saved_by
     FROM resumes
     ORDER BY saved_at DESC
   `)
   const selectResumeVersion = db.prepare('SELECT version FROM resumes WHERE id = ?')
   const selectResumeFull = db.prepare(`
-    SELECT id, name, data, primary_locale, secondary_locale, saved_at, created_at, version
+    SELECT id, name, data, primary_locale, secondary_locale, saved_at, created_at, version, saved_by
     FROM resumes WHERE id = ?
   `)
   const insertResume = db.prepare(`
@@ -285,11 +300,11 @@ export function createResumeDb(dbPath: string): ResumeDb {
     VALUES (?, ?, ?, ?, ?, ?, ?, 1)
   `)
   const updateResumeData = db.prepare(`
-    UPDATE resumes SET data = ?, saved_at = ?, version = version + 1 WHERE id = ?
+    UPDATE resumes SET data = ?, saved_at = ?, saved_by = ?, version = version + 1 WHERE id = ?
   `)
   const updateResumeDataAndLocales = db.prepare(`
     UPDATE resumes
-    SET data = ?, primary_locale = ?, secondary_locale = ?, saved_at = ?, version = version + 1
+    SET data = ?, primary_locale = ?, secondary_locale = ?, saved_at = ?, saved_by = ?, version = version + 1
     WHERE id = ?
   `)
   const renameResumeStmt = db.prepare(`
@@ -310,9 +325,11 @@ export function createResumeDb(dbPath: string): ResumeDb {
     INSERT INTO resumes (id, name, data, primary_locale, secondary_locale, saved_at, created_at, version)
     VALUES (?, ?, ?, ?, ?, ?, ?, 1)
   `)
+  // saved_by is cleared on a restore-update: the content now comes from the
+  // backup, not from whoever made the previous local edit.
   const updateResumeFromRestore = db.prepare(`
     UPDATE resumes
-    SET name = ?, data = ?, primary_locale = ?, secondary_locale = ?, saved_at = ?, version = version + 1
+    SET name = ?, data = ?, primary_locale = ?, secondary_locale = ?, saved_at = ?, saved_by = NULL, version = version + 1
     WHERE id = ?
   `)
 
@@ -321,7 +338,7 @@ export function createResumeDb(dbPath: string): ResumeDb {
     WHERE resume_id = ? ORDER BY id DESC LIMIT 1
   `)
   const insertSnapshot = db.prepare(`
-    INSERT INTO resume_snapshots (resume_id, data, saved_at) VALUES (?, ?, ?)
+    INSERT INTO resume_snapshots (resume_id, data, saved_at, saved_by) VALUES (?, ?, ?, ?)
   `)
   const pruneSnapshots = db.prepare(`
     DELETE FROM resume_snapshots
@@ -333,7 +350,7 @@ export function createResumeDb(dbPath: string): ResumeDb {
       )
   `)
   const selectSnapshotList = db.prepare(`
-    SELECT id, saved_at, LENGTH(data) AS size
+    SELECT id, saved_at, LENGTH(data) AS size, saved_by
     FROM resume_snapshots WHERE resume_id = ?
     ORDER BY id DESC
   `)
@@ -358,6 +375,7 @@ export function createResumeDb(dbPath: string): ResumeDb {
     saved_at: string
     created_at: string
     version: number
+    saved_by: string | null
   }
   interface FullRow extends MetaRow { data: string }
 
@@ -379,6 +397,7 @@ export function createResumeDb(dbPath: string): ResumeDb {
       saved_at: now,
       created_at: now,
       version: 1,
+      saved_by: null,
     }
   }
 
@@ -394,6 +413,7 @@ export function createResumeDb(dbPath: string): ResumeDb {
         saved_at: row.saved_at,
         created_at: row.created_at,
         version: row.version,
+        saved_by: row.saved_by,
       },
       data: JSON.parse(row.data) as Record<string, unknown>,
     }
@@ -409,6 +429,7 @@ export function createResumeDb(dbPath: string): ResumeDb {
     data: unknown,
     locales?: LocaleUpdate,
     expectedVersion?: number,
+    savedBy?: string | null,
   ): SaveResult => {
     const row = selectResumeVersion.get(id) as { version: number } | undefined
     if (!row) return { status: 'not-found' }
@@ -418,6 +439,7 @@ export function createResumeDb(dbPath: string): ResumeDb {
       return { status: 'conflict', current: getResume(id)! }
     }
     const saved_at = new Date().toISOString()
+    const by = savedBy ?? null
     const json = JSON.stringify(data)
     // Image-free copy for history. Comparing on the stripped JSON also means
     // an image-only change updates the live row without minting a snapshot.
@@ -426,14 +448,14 @@ export function createResumeDb(dbPath: string): ResumeDb {
     const tx = db.transaction(() => {
       if (locales) {
         updateResumeDataAndLocales.run(
-          json, locales.primary_locale, locales.secondary_locale, saved_at, id,
+          json, locales.primary_locale, locales.secondary_locale, saved_at, by, id,
         )
       } else {
-        updateResumeData.run(json, saved_at, id)
+        updateResumeData.run(json, saved_at, by, id)
       }
       const last = lastSnapshotData.get(id) as { data: string } | undefined
       if (!last || last.data !== snapJson) {
-        insertSnapshot.run(id, snapJson, saved_at)
+        insertSnapshot.run(id, snapJson, saved_at, by)
         pruneSnapshots.run(id, id, MAX_SNAPSHOTS)
       }
     })
@@ -504,10 +526,10 @@ export function createResumeDb(dbPath: string): ResumeDb {
     const incomingIds = new Set(entries.map((e) => e.id))
     const snapshot = (id: string, json: string, savedAt: string) => {
       // Mirror saveResume's per-resume dedupe so an identical restore doesn't
-      // pile up history.
+      // pile up history. Restores carry no author → saved_by null.
       const last = lastSnapshotData.get(id) as { data: string } | undefined
       if (!last || last.data !== json) {
-        insertSnapshot.run(id, json, savedAt)
+        insertSnapshot.run(id, json, savedAt, null)
         pruneSnapshots.run(id, id, MAX_SNAPSHOTS)
       }
     }
@@ -600,8 +622,8 @@ export const listResumes = (): ResumeMeta[] => defaultDb().listResumes()
 export const createResume = (input: CreateResumeInput): ResumeMeta => defaultDb().createResume(input)
 export const getResume = (id: string): ResumeFull | null => defaultDb().getResume(id)
 export const saveResume = (
-  id: string, data: unknown, locales?: LocaleUpdate, expectedVersion?: number,
-): SaveResult => defaultDb().saveResume(id, data, locales, expectedVersion)
+  id: string, data: unknown, locales?: LocaleUpdate, expectedVersion?: number, savedBy?: string | null,
+): SaveResult => defaultDb().saveResume(id, data, locales, expectedVersion, savedBy)
 export const deleteResume = (id: string): boolean => defaultDb().deleteResume(id)
 export const renameResume = (id: string, name: string): boolean => defaultDb().renameResume(id, name)
 export const listSnapshots = (resumeId: string): SnapshotMeta[] => defaultDb().listSnapshots(resumeId)

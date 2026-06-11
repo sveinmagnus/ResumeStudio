@@ -149,7 +149,10 @@ router.put('/:id', (req: Request<IdParams>, res: Response): void => {
     expectedVersion = v
   }
 
-  const result = saveResume(req.params.id, data, locales, expectedVersion)
+  // Attribution from the auth middleware (named tokens, F10) — null for the
+  // anonymous single token or when auth is disabled.
+  const savedBy = (res.locals as { userName?: string | null }).userName ?? null
+  const result = saveResume(req.params.id, data, locales, expectedVersion, savedBy)
   if (result.status === 'not-found') {
     res.status(404).json({ error: 'Resume not found' })
     return

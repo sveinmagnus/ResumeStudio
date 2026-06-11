@@ -369,3 +369,35 @@ describe('storage readout', () => {
     expect(res.body).toHaveProperty('resumes')
   })
 })
+
+describe('saved_by attribution over the API (named tokens)', () => {
+  afterEach(() => vi.unstubAllEnvs())
+
+  it('a PUT with a named token stamps saved_by; list + load return it', async () => {
+    const id = await createResume('Team CV')
+    vi.stubEnv('RESUME_API_TOKENS', 'kari:tok-kari')
+    const put = await request(app)
+      .put(`/api/resumes/${id}`)
+      .set('Authorization', 'Bearer tok-kari')
+      .send({ data: { v: 1 } })
+    expect(put.status).toBe(200)
+
+    const list = await request(app).get('/api/resumes').set('Authorization', 'Bearer tok-kari')
+    const row = list.body.resumes.find((r: { id: string }) => r.id === id)
+    expect(row.saved_by).toBe('kari')
+
+    const snaps = await request(app)
+      .get(`/api/resumes/${id}/snapshots`)
+      .set('Authorization', 'Bearer tok-kari')
+    expect(snaps.body.snapshots[0].saved_by).toBe('kari')
+  })
+
+  it('a PUT without auth configured stays anonymous', async () => {
+    const id = await createResume('Solo CV')
+    const put = await request(app).put(`/api/resumes/${id}`).send({ data: { v: 1 } })
+    expect(put.status).toBe(200)
+    const list = await request(app).get('/api/resumes')
+    const row = list.body.resumes.find((r: { id: string }) => r.id === id)
+    expect(row.saved_by).toBeNull()
+  })
+})

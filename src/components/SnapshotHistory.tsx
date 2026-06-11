@@ -90,6 +90,7 @@ export function SnapshotHistory({ resumeId, onClose, onUnauthorized }: SnapshotH
                   <div className="sh-info">
                     <span className="sh-when">
                       {fmtRelativeTime(s.saved_at)}
+                      {s.saved_by && <span className="sh-by">by {s.saved_by}</span>}
                       {i === 0 && <span className="sh-badge">latest</span>}
                     </span>
                     <span className="sh-abs">{new Date(s.saved_at).toLocaleString()}</span>
@@ -144,6 +145,7 @@ export function SnapshotHistory({ resumeId, onClose, onUnauthorized }: SnapshotH
           font-size: 9px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
           background: var(--accent-wash); color: var(--accent); padding: 1px 6px; border-radius: 8px;
         }
+        .sh-by { font-size: 11px; color: var(--ink-faint); font-weight: 400; }
         .sh-abs { font-size: 11px; color: var(--ink-faint); }
         .sh-restore {
           display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0;

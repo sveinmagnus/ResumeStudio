@@ -16,9 +16,36 @@ function configuredToken(): Buffer | null {
   return tok ? Buffer.from(tok, 'utf8') : null
 }
 
-/** Whether this deployment requires auth (a token is configured). */
+interface NamedToken {
+  name: string
+  token: Buffer
+}
+
+/**
+ * Named tokens for small-team attribution (roadmap F10):
+ * `RESUME_API_TOKENS="kari:s3cret1,ola:s3cret2"`. The name is stamped as
+ * `saved_by` on saves/snapshots — attribution only, NOT a permissions model
+ * (every valid token can do everything). Coexists with the single
+ * RESUME_API_TOKEN, which authenticates anonymously (saved_by stays null).
+ * Malformed pairs (no colon, empty name/token) are skipped.
+ */
+function configuredNamedTokens(): NamedToken[] {
+  const raw = process.env.RESUME_API_TOKENS?.trim()
+  if (!raw) return []
+  const out: NamedToken[] = []
+  for (const pair of raw.split(',')) {
+    const i = pair.indexOf(':')
+    if (i <= 0) continue
+    const name = pair.slice(0, i).trim()
+    const token = pair.slice(i + 1).trim()
+    if (name && token) out.push({ name, token: Buffer.from(token, 'utf8') })
+  }
+  return out
+}
+
+/** Whether this deployment requires auth (any token is configured). */
 export function isAuthRequired(): boolean {
-  return configuredToken() !== null
+  return configuredToken() !== null || configuredNamedTokens().length > 0
 }
 
 /**
@@ -34,15 +61,34 @@ function safeCompare(a: string, b: Buffer): boolean {
 }
 
 /**
- * Validate a presented token against the configured one (constant-time). When
- * no token is configured (auth disabled — local dev / desktop), everything is
- * accepted.
+ * Validate a presented token against the configured single token AND every
+ * named token (constant-time per comparison). When nothing is configured
+ * (auth disabled — local dev / desktop), everything is accepted.
  */
 export function tokenIsValid(provided: string | null | undefined): boolean {
-  const tok = configuredToken()
-  if (!tok) return true
+  if (!isAuthRequired()) return true
   if (!provided) return false
-  return safeCompare(provided, tok)
+  const single = configuredToken()
+  // Deliberately evaluate every candidate (no early return) so response time
+  // doesn't reveal which configured token half-matched.
+  let ok = single ? safeCompare(provided, single) : false
+  for (const nt of configuredNamedTokens()) {
+    if (safeCompare(provided, nt.token)) ok = true
+  }
+  return ok
+}
+
+/**
+ * The display name behind a presented token: the matching named token's name,
+ * or null for the anonymous single token / disabled auth. Call only after
+ * tokenIsValid — this is attribution, not authentication.
+ */
+export function identifyToken(provided: string | null | undefined): string | null {
+  if (!provided) return null
+  for (const nt of configuredNamedTokens()) {
+    if (safeCompare(provided, nt.token)) return nt.name
+  }
+  return null
 }
 
 /** Minimal cookie-header parser — avoids pulling in a cookie-parser dependency. */
@@ -84,7 +130,11 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction):
     next()
     return
   }
-  if (tokenIsValid(presentedToken(req))) {
+  const provided = presentedToken(req)
+  if (tokenIsValid(provided)) {
+    // Attribution for downstream routes (saved_by stamping). Null for the
+    // anonymous single token.
+    res.locals.userName = identifyToken(provided)
     next()
     return
   }

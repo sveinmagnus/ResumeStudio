@@ -301,7 +301,7 @@ export function ResumeList({ onUnauthorized }: ResumeListProps) {
                     <div className="rl-meta">
                       {dirtyIds.has(r.id)
                         ? 'Unsynced changes'
-                        : `Last saved ${fmtRelativeTime(r.saved_at)}`}
+                        : `Last saved ${fmtRelativeTime(r.saved_at)}${r.saved_by ? ` by ${r.saved_by}` : ''}`}
                       {' · '}
                       {r.primary_locale.toUpperCase()}
                       {r.secondary_locale && ` / ${r.secondary_locale.toUpperCase()}`}

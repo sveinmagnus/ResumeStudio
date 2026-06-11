@@ -74,6 +74,42 @@ describe('createResumeDb — storageStats', () => {
   })
 })
 
+describe('createResumeDb — saved_by attribution (F10)', () => {
+  it('stamps saved_by on the row and the snapshot', () => {
+    const db = freshDb()
+    const meta = db.createResume({ name: 'Team CV' })
+    expect(meta.saved_by).toBeNull()
+    db.saveResume(meta.id, { v: 1 }, undefined, undefined, 'kari')
+    expect(db.getResume(meta.id)!.meta.saved_by).toBe('kari')
+    expect(db.listResumes()[0].saved_by).toBe('kari')
+    expect(db.listSnapshots(meta.id)[0].saved_by).toBe('kari')
+  })
+
+  it('an anonymous save (no name) clears the previous attribution', () => {
+    const db = freshDb()
+    const meta = db.createResume({ name: 'Team CV' })
+    db.saveResume(meta.id, { v: 1 }, undefined, undefined, 'kari')
+    db.saveResume(meta.id, { v: 2 })
+    expect(db.getResume(meta.id)!.meta.saved_by).toBeNull()
+    // History keeps each save's own author.
+    const snaps = db.listSnapshots(meta.id)
+    expect(snaps.map((s) => s.saved_by)).toEqual([null, 'kari'])
+  })
+
+  it('a restore-update clears saved_by (content now comes from the backup)', () => {
+    const db = freshDb()
+    const meta = db.createResume({ name: 'Synced CV' })
+    db.saveResume(meta.id, { v: 1 }, undefined, undefined, 'kari')
+    db.restoreResumes([{
+      id: meta.id, name: 'Synced CV',
+      primary_locale: 'en', secondary_locale: null,
+      saved_at: '2099-01-01T00:00:00.000Z', created_at: meta.created_at,
+      data: { v: 2 },
+    }])
+    expect(db.getResume(meta.id)!.meta.saved_by).toBeNull()
+  })
+})
+
 describe('createResumeDb — resume CRUD', () => {
   it('lists no resumes on a fresh DB', () => {
     const db = freshDb()

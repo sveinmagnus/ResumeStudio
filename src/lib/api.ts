@@ -89,12 +89,16 @@ export interface ResumeMeta {
   created_at: string
   /** Optimistic-concurrency token; echo it back as `baseVersion` on save. */
   version: number
+  /** Who last saved (named-token attribution). Absent/null on older servers or the anonymous token. */
+  saved_by?: string | null
 }
 
 export interface SnapshotMeta {
   id: number
   saved_at: string
   size: number
+  /** Who made this save (named-token attribution). */
+  saved_by?: string | null
 }
 
 export interface CreateResumeInput {

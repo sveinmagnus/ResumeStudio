@@ -11,6 +11,7 @@ function makeReq(headers: Record<string, string> = {}): Request {
 function makeRes() {
   const state = { statusCode: 0, body: undefined as unknown }
   const res = {
+    locals: {} as Record<string, unknown>,
     status(code: number) { state.statusCode = code; return this },
     json(payload: unknown) { state.body = payload; return this },
   } as unknown as Response
@@ -52,6 +53,68 @@ describe('authMiddleware', () => {
     authMiddleware(makeReq({ authorization: 'Bearer nope' }), res, next)
     expect(next).not.toHaveBeenCalled()
     expect(state.statusCode).toBe(401)
+  })
+
+  // ── Named tokens (F10: RESUME_API_TOKENS=name:token,…) ────────────────────
+
+  it('accepts a named token and exposes the name for attribution', () => {
+    vi.stubEnv('RESUME_API_TOKEN', '')
+    vi.stubEnv('RESUME_API_TOKENS', 'kari:tok-kari,ola:tok-ola')
+    const { res } = makeRes()
+    const next = vi.fn() as unknown as NextFunction
+    authMiddleware(makeReq({ authorization: 'Bearer tok-ola' }), res, next)
+    expect(next).toHaveBeenCalledOnce()
+    expect((res.locals as { userName?: string | null }).userName).toBe('ola')
+  })
+
+  it('requires auth when only named tokens are configured', () => {
+    vi.stubEnv('RESUME_API_TOKEN', '')
+    vi.stubEnv('RESUME_API_TOKENS', 'kari:tok-kari')
+    const { res, state } = makeRes()
+    const next = vi.fn() as unknown as NextFunction
+    authMiddleware(makeReq(), res, next)
+    expect(next).not.toHaveBeenCalled()
+    expect(state.statusCode).toBe(401)
+  })
+
+  it('the single token still works beside named tokens, anonymously', () => {
+    vi.stubEnv('RESUME_API_TOKEN', 's3kret')
+    vi.stubEnv('RESUME_API_TOKENS', 'kari:tok-kari')
+    const { res } = makeRes()
+    const next = vi.fn() as unknown as NextFunction
+    authMiddleware(makeReq({ authorization: 'Bearer s3kret' }), res, next)
+    expect(next).toHaveBeenCalledOnce()
+    expect((res.locals as { userName?: string | null }).userName).toBeNull()
+  })
+
+  it('rejects a wrong token against named tokens', () => {
+    vi.stubEnv('RESUME_API_TOKEN', '')
+    vi.stubEnv('RESUME_API_TOKENS', 'kari:tok-kari')
+    const { res, state } = makeRes()
+    const next = vi.fn() as unknown as NextFunction
+    authMiddleware(makeReq({ authorization: 'Bearer tok-nope' }), res, next)
+    expect(state.statusCode).toBe(401)
+    expect(next).not.toHaveBeenCalled()
+  })
+
+  it('skips malformed name:token pairs without breaking valid ones', () => {
+    vi.stubEnv('RESUME_API_TOKEN', '')
+    vi.stubEnv('RESUME_API_TOKENS', 'no-colon-here,:empty-name,empty-token:,kari:tok-kari')
+    const { res } = makeRes()
+    const next = vi.fn() as unknown as NextFunction
+    authMiddleware(makeReq({ authorization: 'Bearer tok-kari' }), res, next)
+    expect(next).toHaveBeenCalledOnce()
+    expect((res.locals as { userName?: string | null }).userName).toBe('kari')
+  })
+
+  it('a malformed pair value is not accepted as a token', () => {
+    vi.stubEnv('RESUME_API_TOKEN', '')
+    vi.stubEnv('RESUME_API_TOKENS', 'kari:tok-kari')
+    const { res, state } = makeRes()
+    const next = vi.fn() as unknown as NextFunction
+    authMiddleware(makeReq({ authorization: 'Bearer kari:tok-kari' }), res, next)
+    expect(state.statusCode).toBe(401)
+    expect(next).not.toHaveBeenCalled()
   })
 
   it('rejects a malformed (non-Bearer) header', () => {
