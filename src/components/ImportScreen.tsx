@@ -5,6 +5,10 @@ import { importFromCVPartner } from '../lib/importer'
 import {
   isAIImportFormat, validateAIImport, importFromAIDraft, InvalidAIImportError,
 } from '../lib/aiImport'
+import { isLinkedInExport, importFromLinkedIn } from '../lib/importerLinkedIn'
+import {
+  isEuropassJson, isEuropassXml, importFromEuropassJson, importFromEuropassXml,
+} from '../lib/importerEuropass'
 import { AIImportModal } from './AIImportModal'
 import type { ResumeStore } from '../types'
 
@@ -33,10 +37,39 @@ export function ImportScreen({ compact = false, onStartFresh, onImported }: Impo
   const handleFile = async (file: File) => {
     setError(null)
     try {
+      // LinkedIn data export: a ZIP of CSVs. fflate is lazy-loaded so the
+      // unzip code only ships when someone actually drops a .zip.
+      if (/\.zip$/i.test(file.name)) {
+        const { unzipSync, strFromU8 } = await import('fflate')
+        const entries = unzipSync(new Uint8Array(await file.arrayBuffer()))
+        const files: Record<string, string> = {}
+        for (const [name, bytes] of Object.entries(entries)) {
+          if (/\.csv$/i.test(name)) files[name] = strFromU8(bytes)
+        }
+        if (!isLinkedInExport(files)) {
+          setError('That ZIP doesn’t look like a LinkedIn data export (no Profile/Positions/Skills CSVs found).')
+          return
+        }
+        const store = importFromLinkedIn(files)
+        await onImported(store, deriveName(store, 'LinkedIn import'))
+        return
+      }
+
       const text = await file.text()
+
+      // Europass XML (SkillsPassport) — the classic europa.eu CV download.
+      if (/\.xml$/i.test(file.name) || isEuropassXml(text)) {
+        const store = importFromEuropassXml(text)
+        await onImported(store, deriveName(store, 'Europass import'))
+        return
+      }
+
       const json = JSON.parse(text) as unknown
 
-      if (isAIImportFormat(json)) {
+      if (isEuropassJson(json)) {
+        const store = importFromEuropassJson(json)
+        await onImported(store, deriveName(store, 'Europass import'))
+      } else if (isAIImportFormat(json)) {
         // AI-import drafts get validated up-front; the field-pathed message is
         // far more useful than a generic parse failure. (The guided AI modal
         // shows the full issue list — here we surface the first problem.)
@@ -89,11 +122,11 @@ export function ImportScreen({ compact = false, onStartFresh, onImported }: Impo
         >
           <div className="is-drop-icon"><Upload size={28} /></div>
           <div className="is-drop-title">Drop your resume file here</div>
-          <div className="is-drop-sub">or click to browse — Resume Studio backups, CVpartner exports, or AI import files</div>
+          <div className="is-drop-sub">or click to browse — Resume Studio backups, CVpartner exports, LinkedIn data exports (.zip), Europass (.xml/.json), or AI import files</div>
           <input
             ref={inputRef}
             type="file"
-            accept=".json,application/json"
+            accept=".json,application/json,.zip,application/zip,.xml,text/xml"
             hidden
             onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleFile(f) }}
           />
@@ -105,6 +138,7 @@ export function ImportScreen({ compact = false, onStartFresh, onImported }: Impo
           <div className="is-features">
             <div className="is-feat"><FileJson size={16} /> Resume Studio backup (.json) — restore a previous session</div>
             <div className="is-feat"><FileJson size={16} /> CVpartner export (.json) — import projects, employment, education, skills &amp; more</div>
+            <div className="is-feat"><FileJson size={16} /> LinkedIn data export (.zip) and Europass CV (.xml / .json)</div>
             <div className="is-feat"><Wand2 size={16} /> Start from a PDF/Word CV with your own AI — no account or API key needed</div>
             <div className="is-feat"><Sparkles size={16} /> Side-by-side dual-language editing in any two locales</div>
           </div>
