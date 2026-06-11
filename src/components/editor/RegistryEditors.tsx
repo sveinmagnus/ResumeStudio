@@ -1,6 +1,7 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
 import { useStore, newId } from '../../store/useStore'
 import { useSortedItems } from '../../store/useSortedItems'
+import { suggestSkillNames } from '../../lib/skillTaxonomy'
 import { DualField } from '../ui/DualField'
 import { TextField } from '../ui/Fields'
 import { EditorCard, AddButton, FieldRow } from '../ui/EditorCard'
@@ -753,6 +754,9 @@ export function TechCategoriesEditor() {
               onAddNew={(text) => createSkillAndLink(cat.id, text)}
               addLabel="skill"
               placeholder="Search or add a skill…"
+              suggestExtra={suggestSkillNames(() =>
+                useStore.getState().data.skills.map((s) => resolve(s.name, primaryLocale)),
+              )}
             />
           </div>
         </EditorCard>

@@ -92,6 +92,50 @@ describe('<Autocomplete>', () => {
     expect(onAddNew).toHaveBeenCalledWith('Kotlin')
   })
 
+  it('shows debounced library suggestions and adds the picked name', async () => {
+    const user = userEvent.setup()
+    const onAddNew = vi.fn()
+    const suggest = vi.fn().mockResolvedValue(['Kubernetes Operations'])
+    render(
+      <Autocomplete
+        options={OPTIONS}
+        onPick={() => {}}
+        onAddNew={onAddNew}
+        addLabel="skill"
+        suggestExtra={suggest}
+      />,
+    )
+    const input = screen.getByRole('textbox')
+    await user.click(input)
+    await user.type(input, 'kube')
+    // Debounce (150 ms) then the async resolve.
+    const row = await screen.findByText('Kubernetes Operations')
+    expect(screen.getByText('Skill library')).toBeInTheDocument()
+    expect(suggest).toHaveBeenCalledWith('kube')
+    await user.click(row)
+    expect(onAddNew).toHaveBeenCalledWith('Kubernetes Operations')
+  })
+
+  it('hides a library suggestion that duplicates a registry row', async () => {
+    const user = userEvent.setup()
+    const suggest = vi.fn().mockResolvedValue(['TypeScript', 'Type Theory'])
+    render(
+      <Autocomplete
+        options={OPTIONS}
+        onPick={() => {}}
+        onAddNew={() => {}}
+        addLabel="skill"
+        suggestExtra={suggest}
+      />,
+    )
+    const input = screen.getByRole('textbox')
+    await user.click(input)
+    await user.type(input, 'type')
+    await screen.findByText('Type Theory')
+    // 'TypeScript' appears once (the registry row), not twice.
+    expect(screen.getAllByText('TypeScript')).toHaveLength(1)
+  })
+
   it('does not call onAddNew when no handler is provided', async () => {
     const user = userEvent.setup()
     const onPick = vi.fn()

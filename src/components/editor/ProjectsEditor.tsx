@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useStore, newId } from '../../store/useStore'
 import { useSortedItems } from '../../store/useSortedItems'
+import { suggestSkillNames } from '../../lib/skillTaxonomy'
 import { DualField } from '../ui/DualField'
 import { RichField } from '../ui/RichField'
 import { TextField, DateField, TagField } from '../ui/Fields'
@@ -218,6 +219,9 @@ function ProjectSkillsEditor({ project }: { project: Project }) {
         onAddNew={createAndLink}
         addLabel="skill"
         placeholder="Search or add a skill…"
+        suggestExtra={suggestSkillNames(() =>
+          useStore.getState().data.skills.map((s) => resolve(s.name, primaryLocale)),
+        )}
       />
     </div>
   )

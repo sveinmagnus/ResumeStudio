@@ -36,6 +36,15 @@ interface AutocompleteProps {
   ariaLabel?: string
   /** Optional starting query (rarely useful — mostly for tests). */
   initialQuery?: string
+  /**
+   * Async extra suggestions (e.g. the skill-taxonomy library) shown under the
+   * registry matches. Picking one behaves like Add-new with that text, so it
+   * requires `onAddNew`. Debounced; results that duplicate a registry option
+   * label are dropped.
+   */
+  suggestExtra?: (query: string) => Promise<string[]>
+  /** Row sublabel for extra suggestions (default 'Skill library'). */
+  suggestLabel?: string
 }
 
 /**
@@ -62,12 +71,28 @@ export function Autocomplete({
   clearOnPick = true,
   ariaLabel,
   initialQuery = '',
+  suggestExtra,
+  suggestLabel = 'Skill library',
 }: AutocompleteProps) {
   const [query, setQuery] = useState(initialQuery)
   const [open, setOpen] = useState(false)
   const [highlight, setHighlight] = useState(0)
+  const [extras, setExtras] = useState<string[]>([])
   const wrapRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+
+  // Debounced async enrichment (taxonomy suggestions). A stale response is
+  // ignored via the cancelled flag; suggestions clear with the query.
+  useEffect(() => {
+    if (!suggestExtra || !query.trim()) { setExtras([]); return }
+    let cancelled = false
+    const t = window.setTimeout(() => {
+      void suggestExtra(query).then((names) => {
+        if (!cancelled) setExtras(names)
+      }).catch(() => { if (!cancelled) setExtras([]) })
+    }, 150)
+    return () => { cancelled = true; window.clearTimeout(t) }
+  }, [query, suggestExtra])
 
   // Close on outside click. Mousedown (not click) so a chip-click outside
   // doesn't bubble through this listener after the input lost focus.
@@ -127,6 +152,18 @@ export function Autocomplete({
     setOpen(false)
   }
 
+  // Library suggestions never duplicate a visible registry row, and picking
+  // one is the same as Add-new with that canonical text.
+  const visibleExtras = (onAddNew && !exactMatch)
+    ? extras.filter((name) => !results.some((r) => r.label.toLowerCase() === name.toLowerCase()))
+    : []
+  const pickExtra = (name: string) => {
+    if (!onAddNew) return
+    onAddNew(name)
+    if (clearOnPick) setQuery('')
+    setOpen(false)
+  }
+
   const onKey = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'ArrowDown') {
       e.preventDefault()
@@ -172,7 +209,7 @@ export function Autocomplete({
           </button>
         )}
       </div>
-      {open && (results.length > 0 || canAddNew) && (
+      {open && (results.length > 0 || canAddNew || visibleExtras.length > 0) && (
         <div className="ac-pop" role="listbox">
           {results.map((o, i) => (
             <button
@@ -186,6 +223,18 @@ export function Autocomplete({
             >
               <span className="ac-row-label">{o.label}</span>
               {o.sublabel && <span className="ac-row-sub">{o.sublabel}</span>}
+            </button>
+          ))}
+          {visibleExtras.map((name) => (
+            <button
+              key={`extra-${name}`}
+              type="button"
+              className="ac-row ac-row-extra"
+              title={`Add "${name}" from the ${suggestLabel.toLowerCase()}`}
+              onMouseDown={(e) => { e.preventDefault(); pickExtra(name) }}
+            >
+              <span className="ac-row-label">{name}</span>
+              <span className="ac-row-sub">{suggestLabel}</span>
             </button>
           ))}
           {canAddNew && (
@@ -239,6 +288,8 @@ export function Autocomplete({
           border-top: 1px solid var(--line); margin-top: 2px; padding-top: 8px;
           color: var(--accent); font-weight: 600; font-size: 12.5px;
         }
+        .ac-row-extra { border-top: 1px dashed var(--line); }
+        .ac-row-extra .ac-row-sub { color: var(--secondary-ink, var(--ink-faint)); }
         .ac-row-add em { font-style: normal; font-weight: 500; }
       `}</style>
     </div>
