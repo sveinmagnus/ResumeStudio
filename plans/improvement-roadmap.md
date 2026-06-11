@@ -51,7 +51,7 @@ one place; nothing reads it. Either commit to **Export templates** (Part B,
 F1 — recommended) or remove the field. A reserved-but-dead field on the
 most-exported type is a standing trap for contributors.
 
-### A3. Split `ResumeViewsEditor.tsx` (1,382 lines)
+### A3. Split `ResumeViewsEditor.tsx` (1,382 lines) — ✅ done (June 2026)
 The largest file in the repo by a wide margin, holding ~10 components
 (ViewList, ViewEditor, DetailToggle, ViewStyleControls, Select,
 ViewHeaderControls, HeaderTextStyleControl, ViewFooterControls,
@@ -72,12 +72,14 @@ Existing RTL tests should pass unchanged — that's the acceptance gate.
 candidates but each is several related editors by design; only split if
 they grow further.
 
-### A4. Embedded base64 images: payload + snapshot weight — 🔶 Phase 1 done (June 2026)
+### A4. Embedded base64 images: payload + snapshot weight — 🔶 Phases 1+measure done (June 2026)
 
-*Status: snapshots are now stored image-free (strip in `server/db.ts`,
-restore re-attach in `src/lib/snapshotImages.ts`), eliminating the ×50
-duplication. Still open: the auto-save PUT payload weight, the localStorage
-quota exposure, and the Phase 2 asset table if measurement warrants it.*
+*Status: snapshots are stored image-free (Phase 1), and the "measure
+first" step shipped June 2026 — `server/storage.ts` payloadStats +
+`db.storageStats()` + `GET /api/resumes/storage`, surfaced as per-card
+weight warnings (1 MB large / 2.5 MB quota-risk) and a DB-size footer on
+the picker. Still open: the Phase 2 content-addressed asset table, only if
+real-world measurements warrant it.*
 `profile_photo`, `company_logo`, and per-view `photo_override` /
 `logo_override` live as data URLs **inside the resume JSON**. Consequences:
 
@@ -101,7 +103,7 @@ Plan (phased):
   export for portability), and the localCache. Do only if Phase 1 +
   measurement shows it's warranted.
 
-### A5. Section catalog refactor — now justified (was §12.3 "maybe")
+### A5. Section catalog refactor — now justified (was §12.3 "maybe") — ✅ done (June 2026)
 The "don't bother for rare sections" caveat has expired: `viewFilter.ts`
 now carries **47 `case` labels** across `renderItem` / `getItemTitle` /
 `getItemSubtitle` (vs. 17 in `exporter.renderSection`), and sections keep
@@ -174,7 +176,7 @@ fully offline/local, must not add a runtime service or mandatory API key,
 and must deepen the core loop (master CV → curated views → polished export)
 rather than widen into a different product.
 
-### F1. Export templates (promote §12.1 — do first)
+### F1. Export templates (promote §12.1 — do first) — ✅ done (June 2026)
 Two or three named templates — *compact technical*, *formal management*,
 *minimal one-pager* — as styling deltas over the existing
 `ViewStyle`/`ViewHeaderConfig` machinery, selected via the already-reserved
@@ -185,7 +187,7 @@ that seeds* style/header/footer (user can still tweak after), not a fork of
 the render logic — keeps `buildViewHtml`/`exporter` untouched except for a
 preset table.
 
-### F2. BYO-LLM view tailoring ("paste the job posting")
+### F2. BYO-LLM view tailoring ("paste the job posting") — ✅ done (June 2026)
 The AI-import flow proved the pattern: a deliberately simple exchange
 schema, the user's own LLM, no keys, no service. Apply it to the *other*
 end of the pipeline:
@@ -223,7 +225,7 @@ editor, and a picker/Overview rollup ("3 open applications"). For a small
 team this doubles as lightweight pipeline tracking without becoming a CRM.
 Keep it deliberately flat — no statuses workflow engine.
 
-### F5. Per-view anonymization toggle
+### F5. Per-view anonymization toggle — ✅ done (June 2026)
 `Project.use_anonymized` + `customer_anonymized` exist per project, but
 anonymity is an *audience* property, not a master-data property — exactly
 what views are for. Add `ResumeView.force_anonymized: boolean`: when set,
@@ -232,7 +234,7 @@ name-redacted). Small change in `viewFilter.applyView` + both render paths
 + a checkbox; big deal for agency/broker submissions where client names
 must not leak.
 
-### F6. ATS-friendly exports: plain text & Markdown
+### F6. ATS-friendly exports: plain text & Markdown — ✅ done (June 2026)
 A third and fourth export format that are nearly free given
 `applyView()` already produces the filtered store: walk the same section
 order and emit clean UTF-8 text / Markdown (no tables, no columns — the
@@ -240,7 +242,7 @@ shapes ATS parsers and online application forms want). Also useful as the
 paste-into-LinkedIn/email format. Lives beside `buildViewHtml` as a pure
 `buildViewText`; trivially testable.
 
-### F7. More importers: LinkedIn + Europass
+### F7. More importers: LinkedIn + Europass — ✅ done (June 2026)
 CVpartner import works; the next most common "I already have my CV in…"
 sources are the **LinkedIn data export** (ZIP of CSVs — positions,
 educations, certifications, skills map cleanly onto the model) and
@@ -258,7 +260,7 @@ send letter + CV as a pair styled identically; today the letter is the one
 document still maintained outside the tool. Bonus: F2's tailoring schema
 can draft it from the job posting.
 
-### F9. Skill matrix export (consultancy bid format)
+### F9. Skill matrix export (consultancy bid format) — ✅ done (June 2026)
 Nordic tenders routinely demand a competency matrix: skill × years ×
 proficiency × last-used. All the data exists (`Skill`,
 `ProjectSkill.duration_in_years`, project dates). Add a synthetic view
@@ -266,7 +268,7 @@ section "Skill matrix" (like Promoted Projects) rendering a table in both
 HTML and DOCX paths, with per-view filters (highlighted-only, skill type).
 Medium-small; very high value for the target user.
 
-### F10. Small-team affordances (named users, not RBAC)
+### F10. Small-team affordances (named users, not RBAC) — ✅ done (June 2026)
 Today "small team" = one shared bearer token. The honest next step is
 modest: support **multiple named tokens** (`RESUME_API_TOKEN` →
 `RESUME_API_TOKENS=name:token,name:token` or a tokens table on desktop
@@ -283,7 +285,7 @@ English. Persist the chosen locale on the view (`export_locale: string |
 null`). Tiny, removes a recurring footgun (exporting the right view in the
 wrong language).
 
-### F12. Skill-taxonomy integration (Quadim Public Skill Library)
+### F12. Skill-taxonomy integration (Quadim Public Skill Library) — ✅ point 1 (autocomplete enrichment) done (June 2026); points 2–4 open
 A local, Apache-2.0-licensed taxonomy of **1,227 curated skill definitions**
 exists at `C:\Users\svein\Documents\Development\Public-SkillDefinitions`
 (canonical JSONs in `quadim-public-skilldefinitions/`, lean pre-built index
