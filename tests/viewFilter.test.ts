@@ -468,6 +468,66 @@ describe('buildViewHtml()', () => {
     expect(html).not.toContain('DisabledPoint')
   })
 
+  // ─── Per-view anonymization (F5) ──────────────────────────────────────────
+
+  describe('force_anonymized', () => {
+    function anonStore() {
+      const store = emptyStore()
+      store.projects.push(makeProject({
+        id: 'p1',
+        customer: { en: 'RealClientName' },
+        customer_anonymized: { en: 'NordicBankAlias' },
+        use_anonymized: false,
+        starred: true,
+      }))
+      store.references.push(makeReference({
+        id: 'r1', name: 'Kari Nordmann', include_in_exports: true,
+      }))
+      return store
+    }
+
+    it('renders every project anonymized even when the project does not ask for it', () => {
+      const html = buildViewHtml(anonStore(), makeView({ sections: buildViewSections(), force_anonymized: true }), 'en')
+      expect(html).toContain('NordicBankAlias')
+      expect(html).not.toContain('RealClientName')
+    })
+
+    it('redacts reference names to initials', () => {
+      const html = buildViewHtml(anonStore(), makeView({ sections: buildViewSections(), force_anonymized: true }), 'en')
+      expect(html).not.toContain('Kari Nordmann')
+      expect(html).toContain('K. N.')
+    })
+
+    it('applies to the promoted projects section too (bypasses applyView)', () => {
+      const sections = buildViewSections().map((s) =>
+        s.key === 'promoted_projects' ? { ...s, detail: 'full' as const } : s,
+      )
+      const html = buildViewHtml(anonStore(), makeView({ sections, force_anonymized: true }), 'en')
+      expect(html).not.toContain('RealClientName')
+    })
+
+    it('does not mutate the store and leaves normal views untouched', () => {
+      const store = anonStore()
+      buildViewHtml(store, makeView({ sections: buildViewSections(), force_anonymized: true }), 'en')
+      expect(store.projects[0].use_anonymized).toBe(false)
+      expect(store.references[0].name).toBe('Kari Nordmann')
+      const html = buildViewHtml(store, makeView({ sections: buildViewSections() }), 'en')
+      expect(html).toContain('RealClientName')
+      expect(html).toContain('Kari Nordmann')
+    })
+
+    it('a project without an alias falls back to its description, never the real name', () => {
+      const store = emptyStore()
+      store.projects.push(makeProject({
+        customer: { en: 'SecretCorp' }, customer_anonymized: {},
+        description: { en: 'A modernisation project' },
+      }))
+      const html = buildViewHtml(store, makeView({ sections: buildViewSections(), force_anonymized: true }), 'en')
+      expect(html).not.toContain('SecretCorp')
+      expect(html).toContain('A modernisation project')
+    })
+  })
+
   // ─── Per-section detail levels ──────────────────────────────────────────
 
   describe('section detail levels', () => {

@@ -496,6 +496,14 @@ export interface ResumeView {
   excluded_item_ids: string[]
   include_photo: boolean
   starred_only: boolean
+  /**
+   * Anonymize the whole export (roadmap F5): every project renders its
+   * anonymized customer alias and references render with initials only.
+   * Audience property, so it lives on the view — for agency/broker
+   * submissions where client names must not leak. Optional (additive field):
+   * older saved views simply lack it; consumers treat undefined as false.
+   */
+  force_anonymized?: boolean
   page_limit: number | null
   /** Last applied export template (lib/viewTemplates.ts), or null when fully custom. Informational — manual tweaks don't clear it. */
   template_id: string | null

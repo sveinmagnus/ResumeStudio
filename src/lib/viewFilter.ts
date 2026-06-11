@@ -44,9 +44,26 @@ function renderKeyFor(key: string): string {
  */
 export function promotedProjectItems(store: ResumeStore, view: ResumeView): unknown[] {
   const excluded = new Set(view.excluded_item_ids)
-  return store.projects.filter(
+  const items = store.projects.filter(
     (p) => !p.disabled && !excluded.has(p.id) && p.starred,
   )
+  // Promoted projects bypass applyView (they derive from the raw store), so
+  // the view-wide anonymization must be applied here too.
+  return view.force_anonymized ? items.map((p) => ({ ...p, use_anonymized: true })) : items
+}
+
+/**
+ * Redact a person's name to initials: "Kari Nordmann" → "K. N.". Used for
+ * references on force-anonymized views — enough to show a reference exists
+ * without identifying anyone. Empty input stays empty.
+ */
+export function redactPersonName(name: string | null | undefined): string {
+  if (!name) return ''
+  return name
+    .trim()
+    .split(/\s+/)
+    .map((part) => `${part.charAt(0).toUpperCase()}.`)
+    .join(' ')
 }
 
 /** Build default ViewSection[] for a new view — exportable sections in master order. */
@@ -134,6 +151,15 @@ export function applyView(store: ResumeStore, view: ResumeView): ResumeStore {
         return true
       })
     }
+  }
+
+  // View-wide anonymization (F5): rewrite the filtered COPIES so both render
+  // paths (and the live preview) pick it up without per-renderer logic. The
+  // catalog's projectCustomer() never falls back to the real name, so a
+  // project without an alias renders its description instead of leaking.
+  if (view.force_anonymized) {
+    filtered.projects = filtered.projects.map((p) => ({ ...p, use_anonymized: true }))
+    filtered.references = filtered.references.map((r) => ({ ...r, name: redactPersonName(r.name) }))
   }
 
   return filtered
