@@ -10,6 +10,7 @@ import {
 } from '../../../lib/viewFilter'
 import { DEFAULT_VIEW_STYLE } from '../../../lib/viewStyle'
 import { withHeaderDefaults, withFooterDefaults } from '../../../lib/viewHeader'
+import { VIEW_TEMPLATES, getTemplate, applyTemplate } from '../../../lib/viewTemplates'
 import type {
   ResumeView, ViewStyle, SectionStyle, SectionDetail,
   ViewHeaderConfig, ViewFooterConfig,
@@ -20,6 +21,7 @@ import {
   PanelRight, PanelRightClose, ExternalLink,
 } from 'lucide-react'
 import { DetailToggle, SectionStylePanel } from './SectionStylePanel'
+import { Select } from './Select'
 import { ViewStyleControls } from './ViewStyleControls'
 import { ViewHeaderControls } from './ViewHeaderControls'
 import { ViewFooterControls } from './ViewFooterControls'
@@ -269,8 +271,26 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
         <div className="rv-block-heading">View styling</div>
         <p className="rv-block-desc">
           Visual personality for the whole exported document. Per-section
-          overrides live on each section below.
+          overrides live on each section below. Picking a template seeds the
+          styling, header, footer and section detail — tweak freely afterwards.
         </p>
+        <div className="rv-vs-grid">
+          <Select<string>
+            label="Template"
+            value={getTemplate(view.template_id)?.id ?? ''}
+            options={[
+              ['', 'None (custom)'],
+              ...VIEW_TEMPLATES.map((t): [string, string] => [t.id, t.name]),
+            ]}
+            onChange={(id) => {
+              const patch = applyTemplate(view, id)
+              if (patch) onUpdate(patch)
+            }}
+          />
+        </div>
+        {getTemplate(view.template_id) && (
+          <p className="rv-block-desc">{getTemplate(view.template_id)!.description}</p>
+        )}
         <ViewStyleControls style={viewStyle} onChange={updateViewStyle} />
       </div>
 

@@ -86,6 +86,26 @@ describe('<ResumeViewsEditor>', () => {
     expect(useStore.getState().data.views[0].style.density).toBe('compact')
   })
 
+  it('applies an export template: seeds style/header/footer + records template_id', async () => {
+    seed()
+    render(<ResumeViewsEditor />)
+    await userEvent.click(screen.getByRole('button', { name: /new view/i }))
+
+    const templateSelect = screen.getByLabelText(/template/i)
+    await userEvent.selectOptions(templateSelect, 'minimal-one-pager')
+
+    const view = useStore.getState().data.views[0]
+    expect(view.template_id).toBe('minimal-one-pager')
+    expect(view.style.density).toBe('compact')
+    expect(view.header.photo_placement).toBe('none')
+    expect(view.footer.separator).toBe('none')
+    // Section detail got seeded (recommendations off on the one-pager).
+    expect(view.sections.find((s) => s.key === 'recommendations')?.detail).toBe('off')
+    // Style stays user-tweakable after applying a template.
+    await userEvent.selectOptions(screen.getByLabelText(/density/i), 'spacious')
+    expect(useStore.getState().data.views[0].style.density).toBe('spacious')
+  })
+
   it('edits the introduction text', async () => {
     seed()
     render(<ResumeViewsEditor />)

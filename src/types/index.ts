@@ -497,7 +497,7 @@ export interface ResumeView {
   include_photo: boolean
   starred_only: boolean
   page_limit: number | null
-  /** Reserved for named export templates (roadmap F1) — always null until that ships. */
+  /** Last applied export template (lib/viewTemplates.ts), or null when fully custom. Informational — manual tweaks don't clear it. */
   template_id: string | null
   /** View-wide styling. Required on new views — older builds may not set it; consumers must tolerate undefined and use DEFAULT_VIEW_STYLE. */
   style: ViewStyle
