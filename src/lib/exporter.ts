@@ -29,6 +29,7 @@ import type {
 import { SECTIONS } from './sections'
 import { resolve } from './locales'
 import { SECTION_CATALOG, type AnyItem as CatalogItem, type CatalogCtx, type ItemView } from './sectionCatalog'
+import { skillMatrixRows, fmtLastUsed, fmtProficiency, type SkillMatrixRow } from './skillMatrix'
 import { applyView, isExportableSection, defaultViewDetail, promotedProjectItems } from './viewFilter'
 import { parseRichBlocks, type RichRun } from './richText'
 import { deriveTokens, resolveSectionStyle, withDefaults, resolveFontDocx, type ResolvedSectionStyle, type StyleTokens } from './viewStyle'
@@ -348,6 +349,16 @@ export async function exportDocx(store: ResumeStore, view: ResumeView, locale: s
 
   for (const def of enabledSections) {
     if (!def.storeKey) continue
+    // Synthetic skill matrix: a real Word table over the registry.
+    if (def.key === 'skill_matrix') {
+      const resolved = resolveSectionStyle(viewStyle, def.sectionStyle)
+      const rows = skillMatrixRows(store, view, locale, { highlightedOnly: def.detail === 'summary' })
+      if (!rows.length) continue
+      const tokens = deriveTokens(resolved)
+      if (!resolved.hide_heading) children.push(sectionHeading(def.label, tokens))
+      children.push(skillMatrixTable(rows, !resolved.hide_dates, tokens))
+      continue
+    }
     // Virtual promoted_projects derives from the starred projects; everything
     // else reads its filtered store array. The label stays "Promoted Projects"
     // but it renders through the project renderer.
@@ -529,6 +540,51 @@ function wrap(label: string, body: Paragraph[], ctx: ExportCtx): Paragraph[] {
   if (!body.length) return []
   if (ctx.resolved.hide_heading) return body
   return [sectionHeading(label, ctx.tokens), ...body]
+}
+
+// ─── Skill matrix table (F9) ──────────────────────────────────────────────────
+
+function matrixCell(text: string, tokens: StyleTokens, opts: { bold?: boolean; width: number }): TableCell {
+  return new TableCell({
+    width: { size: opts.width, type: WidthType.PERCENTAGE },
+    margins: { top: 40, bottom: 40, right: 120 },
+    children: [new Paragraph({
+      children: [new TextRun({
+        text,
+        bold: opts.bold,
+        size: tokens.smallFontSizePt * 2,
+        font: tokens.bodyFontDocx,
+        color: opts.bold ? tokens.accentHex : '374151',
+      })],
+    })],
+  })
+}
+
+/** The competency-matrix table: skill × experience × proficiency × last used. */
+function skillMatrixTable(rows: SkillMatrixRow[], showDates: boolean, tokens: StyleTokens): Table {
+  const widths = showDates ? [40, 20, 20, 20] : [50, 25, 25]
+  const header = new TableRow({
+    tableHeader: true,
+    children: [
+      matrixCell('Skill', tokens, { bold: true, width: widths[0] }),
+      matrixCell('Experience', tokens, { bold: true, width: widths[1] }),
+      matrixCell('Proficiency', tokens, { bold: true, width: widths[2] }),
+      ...(showDates ? [matrixCell('Last used', tokens, { bold: true, width: widths[3] })] : []),
+    ],
+  })
+  const body = rows.map((r) => new TableRow({
+    children: [
+      matrixCell(r.name, tokens, { width: widths[0] }),
+      matrixCell(r.years > 0 ? `${r.years} yrs` : '', tokens, { width: widths[1] }),
+      matrixCell(fmtProficiency(r.proficiency), tokens, { width: widths[2] }),
+      ...(showDates ? [matrixCell(fmtLastUsed(r), tokens, { width: widths[3] })] : []),
+    ],
+  }))
+  return new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    borders: TableBorders.NONE,
+    rows: [header, ...body],
+  })
 }
 
 // ─── Misc ─────────────────────────────────────────────────────────────────────

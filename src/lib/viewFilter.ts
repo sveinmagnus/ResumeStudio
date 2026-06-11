@@ -4,6 +4,7 @@ import type {
 import { SECTIONS } from './sections'
 import { resolve } from './locales'
 import { SECTION_CATALOG, type AnyItem, type CatalogCtx } from './sectionCatalog'
+import { skillMatrixRows, fmtLastUsed, fmtProficiency } from './skillMatrix'
 import { renderRichHtml } from './richText'
 import { DEFAULT_VIEW_STYLE, deriveTokens, resolveSectionStyle, withDefaults, resolveFontCss, type ResolvedSectionStyle, type StyleTokens } from './viewStyle'
 import { withHeaderDefaults, withFooterDefaults, buildHeaderLines, buildCopyrightLine } from './viewHeader'
@@ -24,16 +25,19 @@ export function isExportableSection(s: { key: string; storeKey?: unknown }): boo
 
 /**
  * Default detail for a section when a view doesn't explicitly list it. Most
- * sections default to 'full'; the synthetic `promoted_projects` defaults to
- * 'off' so existing and new views aren't changed until the user enables it.
+ * sections default to 'full'; the synthetic sections (`promoted_projects`,
+ * `skill_matrix`) default to 'off' so existing and new views aren't changed
+ * until the user enables them.
  */
 export function defaultViewDetail(key: string): SectionDetail {
-  return key === 'promoted_projects' ? 'off' : 'full'
+  return key === 'promoted_projects' || key === 'skill_matrix' ? 'off' : 'full'
 }
 
-/** The renderer/title key a section uses — promoted_projects reuses the project renderer. */
+/** The renderer/title key a section uses — synthetics reuse their source registry's titles. */
 function renderKeyFor(key: string): string {
-  return key === 'promoted_projects' ? 'projects' : key
+  if (key === 'promoted_projects') return 'projects'
+  if (key === 'skill_matrix') return 'skills'
+  return key
 }
 
 /**
@@ -329,6 +333,23 @@ export function buildViewHtml(store: ResumeStore, view: ResumeView, locale: stri
   const sectionsHtml = enabledSections
     .map((s) => {
       if (!s.storeKey) return ''
+      // Synthetic skill matrix: a table over the registry, not item markup.
+      // All cell values are escaped right here — keep it that way.
+      if (s.key === 'skill_matrix') {
+        const resolved = resolveSectionStyle(viewStyle, s.sectionStyle)
+        const rows = skillMatrixRows(store, view, locale, { highlightedOnly: s.detail === 'summary' })
+        if (!rows.length) return ''
+        const heading = resolved.hide_heading ? '' : `<h2>${escapeHtml(s.label)}</h2>`
+        const showDates = !resolved.hide_dates
+        const head = `<tr><th>Skill</th><th>Experience</th><th>Proficiency</th>${showDates ? '<th>Last used</th>' : ''}</tr>`
+        const body = rows.map((row) =>
+          `<tr><td>${escapeHtml(row.name)}</td><td>${row.years > 0 ? escapeHtml(`${row.years} yrs`) : ''}</td><td>${escapeHtml(fmtProficiency(row.proficiency))}</td>${showDates ? `<td>${escapeHtml(fmtLastUsed(row))}</td>` : ''}</tr>`,
+        ).join('\n')
+        return `<section class="ve-section ve-sec-skill_matrix">
+  ${heading}
+  <table class="ve-matrix"><thead>${head}</thead><tbody>${body}</tbody></table>
+</section>`
+      }
       // Virtual promoted_projects derives its items from the starred projects;
       // every other section reads its filtered store array.
       const items = s.key === 'promoted_projects'
@@ -492,6 +513,11 @@ export function buildViewHtml(store: ResumeStore, view: ResumeView, locale: stri
     .ve-rec-quote { font-style: italic; color: #374151; font-size: ${tokens.smallFontSizePt}pt;
                     border-left: 3px solid ${tokens.accentCss}33; padding-left: 12px; }
     .ve-rec-attrib { font-size: ${tokens.metaFontSizePt}pt; color: #6B7280; margin-top: 5px; padding-left: 12px; }
+    .ve-matrix { width: 100%; border-collapse: collapse; font-size: ${tokens.smallFontSizePt}pt; }
+    .ve-matrix th { text-align: left; color: ${tokens.accentCss}; font-weight: 600;
+                    border-bottom: 1.5px solid ${tokens.accentCss}55; padding: 3px 10px 3px 0; }
+    .ve-matrix td { border-bottom: 1px solid ${tokens.accentCss}1A; padding: 3px 10px 3px 0; color: #374151; }
+    .ve-matrix tr:last-child td { border-bottom: none; }
     ${perSectionCss.join('\n')}
     @media print {
       body { padding: 0; }
