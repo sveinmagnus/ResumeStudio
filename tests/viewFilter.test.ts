@@ -26,11 +26,14 @@ describe('buildViewSections()', () => {
       (s) => s.storeKey && !['views', 'skills', 'roles'].includes(s.key)
     )
     expect(sections).toHaveLength(exportable.length)
-    // Every content section defaults to 'full' except the synthetic
-    // promoted_projects, which defaults to 'off' so views are unchanged
-    // until the user opts in.
-    expect(sections.filter((s) => s.key !== 'promoted_projects').every((s) => s.detail === 'full')).toBe(true)
-    expect(sections.find((s) => s.key === 'promoted_projects')?.detail).toBe('off')
+    // Every content section defaults to 'full' except the synthetics
+    // (promoted_projects, skill_matrix), which default to 'off' so views are
+    // unchanged until the user opts in.
+    const synthetics = ['promoted_projects', 'skill_matrix']
+    expect(sections.filter((s) => !synthetics.includes(s.key)).every((s) => s.detail === 'full')).toBe(true)
+    for (const key of synthetics) {
+      expect(sections.find((s) => s.key === key)?.detail).toBe('off')
+    }
   })
 
   it('does not include the "views" section', () => {

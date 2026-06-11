@@ -17,6 +17,7 @@ import {
   applyView, isExportableSection, defaultViewDetail, promotedProjectItems,
 } from './viewFilter'
 import { SECTION_CATALOG, type CatalogCtx, type ItemView } from './sectionCatalog'
+import { skillMatrixRows, fmtLastUsed, fmtProficiency } from './skillMatrix'
 import { resolveSectionStyle, withDefaults } from './viewStyle'
 import { withHeaderDefaults, withFooterDefaults, buildHeaderLines, buildCopyrightLine } from './viewHeader'
 import { parseRichBlocks, type RichRun } from './richText'
@@ -125,6 +126,30 @@ function buildViewDoc(store: ResumeStore, view: ResumeView, locale: string, fmt:
 
   for (const s of enabled) {
     if (!s.storeKey) continue
+    // Synthetic skill matrix: rows, not items. Markdown gets a real table;
+    // plain text gets dash lines (ATS parsers dislike column art).
+    if (s.key === 'skill_matrix') {
+      const resolved = resolveSectionStyle(viewStyle, s.sectionStyle)
+      const rows = skillMatrixRows(store, view, locale, { highlightedOnly: s.detail === 'summary' })
+      if (!rows.length) continue
+      if (md) {
+        out.push(`## ${s.label}`)
+        out.push('| Skill | Experience | Proficiency | Last used |')
+        out.push('| --- | --- | --- | --- |')
+        for (const r of rows) {
+          out.push(`| ${r.name} | ${r.years > 0 ? `${r.years} yrs` : ''} | ${fmtProficiency(r.proficiency)} | ${resolved.hide_dates ? '' : fmtLastUsed(r)} |`)
+        }
+      } else {
+        out.push(s.label.toUpperCase())
+        out.push('-'.repeat(Math.max(4, s.label.length)))
+        for (const r of rows) {
+          out.push(['- ' + r.name, r.years > 0 ? `${r.years} yrs` : '', fmtProficiency(r.proficiency), resolved.hide_dates ? '' : fmtLastUsed(r)]
+            .filter(Boolean).join(' — '))
+        }
+      }
+      out.push('')
+      continue
+    }
     const items = s.key === 'promoted_projects'
       ? promotedProjectItems(store, view)
       : (filtered[s.storeKey] as unknown[])

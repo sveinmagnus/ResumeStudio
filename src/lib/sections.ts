@@ -48,6 +48,9 @@ export const SECTIONS: SectionDef[] = [
   { key: 'recommendations', label: 'Recommendations', storeKey: 'recommendations', icon: 'Quote', group: 'extras' },
   { key: 'references', label: 'References', storeKey: 'references', icon: 'Contact', group: 'extras' },
 
+  // View-only: renders the skill registry as a competency matrix table (F9).
+  { key: 'skill_matrix', label: 'Skill Matrix', storeKey: 'skills', icon: 'Table', group: 'extras', hidden: true, virtual: true },
+
   { key: 'skills', label: 'Skill Registry', storeKey: 'skills', icon: 'Tags', group: 'registry' },
   { key: 'roles', label: 'Role Registry', storeKey: 'roles', icon: 'SquareUser', group: 'registry' },
 
