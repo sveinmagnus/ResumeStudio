@@ -441,6 +441,33 @@ describe('buildViewHtml()', () => {
     })
   })
 
+  // ─── Anonymization parity (regression: HTML used to leak the real name) ──
+
+  it('renders the anonymized customer when use_anonymized is set', () => {
+    const store = emptyStore()
+    store.projects.push(makeProject({
+      customer: { en: 'RealClientName' },
+      customer_anonymized: { en: 'LargeNordicBank' },
+      use_anonymized: true,
+    }))
+    const html = buildViewHtml(store, makeView({ sections: buildViewSections() }), 'en')
+    expect(html).toContain('LargeNordicBank')
+    expect(html).not.toContain('RealClientName')
+  })
+
+  it('omits disabled key-qualification points (regression: HTML used to render them)', () => {
+    const store = emptyStore()
+    store.key_qualifications.push(makeKQ({
+      key_points: [
+        { id: 'k1', name: { en: 'VisiblePoint' }, long_description: { en: 'shown' }, sort_order: 0 },
+        { id: 'k2', name: { en: 'DisabledPoint' }, long_description: { en: 'hidden' }, sort_order: 1, disabled: true },
+      ] as never,
+    }))
+    const html = buildViewHtml(store, makeView({ sections: buildViewSections() }), 'en')
+    expect(html).toContain('VisiblePoint')
+    expect(html).not.toContain('DisabledPoint')
+  })
+
   // ─── Per-section detail levels ──────────────────────────────────────────
 
   describe('section detail levels', () => {

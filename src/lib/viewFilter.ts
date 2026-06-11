@@ -2,7 +2,8 @@ import type {
   ResumeStore, ResumeView, ViewSection, LocalizedString, SectionDetail,
 } from '../types'
 import { SECTIONS } from './sections'
-import { resolve, fmtRange, fmtDate } from './locales'
+import { resolve } from './locales'
+import { SECTION_CATALOG, type AnyItem, type CatalogCtx } from './sectionCatalog'
 import { renderRichHtml } from './richText'
 import { DEFAULT_VIEW_STYLE, deriveTokens, resolveSectionStyle, withDefaults, resolveFontCss, type ResolvedSectionStyle, type StyleTokens } from './viewStyle'
 import { withHeaderDefaults, withFooterDefaults, buildHeaderLines, buildCopyrightLine } from './viewHeader'
@@ -82,59 +83,18 @@ export function reorderViewSections(sections: ViewSection[], key: string, dir: '
 }
 
 // ─── Item display helpers ─────────────────────────────────────────────────────
-
-type AnyItem = Record<string, unknown>
-
-function ls(item: AnyItem, field: string, locale: string): string {
-  return resolve(item[field] as LocalizedString | undefined, locale)
-}
-
-type YM = { year: number; month: number | null } | null
-
-function range(item: AnyItem): string {
-  return fmtRange(item.start as YM, item.end as YM)
-}
+// Section knowledge lives in lib/sectionCatalog.ts (roadmap A5); these are
+// thin reads of the catalog so the View editor and both render paths agree.
 
 export function getItemTitle(sectionKey: string, item: unknown, locale: string): string {
   const it = item as AnyItem
-  switch (sectionKey) {
-    case 'promoted_projects':
-    case 'projects':           return ls(it, 'customer', locale) || ls(it, 'description', locale) || 'Untitled project'
-    case 'key_qualifications': return ls(it, 'label', locale) || 'Untitled profile'
-    case 'key_competencies':   return ls(it, 'title', locale) || 'Untitled competency'
-    case 'recommendations':    return (it.recommender_name as string) || 'Recommendation'
-    case 'work_experiences':   return ls(it, 'employer', locale) || 'Untitled employer'
-    case 'educations':         return ls(it, 'school', locale) || 'Untitled school'
-    case 'courses':            return ls(it, 'name', locale) || 'Untitled'
-    case 'certifications':     return ls(it, 'name', locale) || 'Untitled'
-    case 'positions':          return ls(it, 'name', locale) || 'Untitled'
-    case 'presentations':      return ls(it, 'title', locale) || 'Untitled'
-    case 'honor_awards':       return ls(it, 'name', locale) || 'Untitled'
-    case 'publications':       return ls(it, 'title', locale) || 'Untitled'
-    case 'technology_categories': return ls(it, 'name', locale) || 'Untitled'
-    case 'spoken_languages':   return ls(it, 'name', locale) || 'Untitled'
-    case 'references':         return (it.name as string) || 'Unnamed'
-    case 'skills':             return ls(it, 'name', locale) || 'Unnamed skill'
-    case 'roles':              return ls(it, 'name', locale) || 'Unnamed role'
-    default:                   return String(it.id || 'Item')
-  }
+  const desc = SECTION_CATALOG[renderKeyFor(sectionKey)]
+  return desc ? desc.title(it, locale) : String(it.id || 'Item')
 }
 
 export function getItemSubtitle(sectionKey: string, item: unknown, locale: string): string {
-  const it = item as AnyItem
-  switch (sectionKey) {
-    case 'promoted_projects':
-    case 'projects':         return range(it)
-    case 'recommendations':  return [it.recommender_title, it.recommender_company].filter(Boolean).join(', ')
-    case 'work_experiences': return `${ls(it, 'role_title', locale)}${range(it) ? ' · ' + range(it) : ''}`
-    case 'educations':       return `${ls(it, 'degree', locale)}${range(it) ? ' · ' + range(it) : ''}`
-    case 'positions':        return `${ls(it, 'organisation', locale)}${range(it) ? ' · ' + range(it) : ''}`
-    case 'presentations':    return ls(it, 'event', locale)
-    case 'publications':     return ls(it, 'publisher', locale)
-    case 'certifications':   return ls(it, 'organiser', locale)
-    case 'courses':          return ls(it, 'program', locale)
-    default:                 return ''
-  }
+  const desc = SECTION_CATALOG[renderKeyFor(sectionKey)]
+  return desc?.subtitle?.(item as AnyItem, locale) ?? ''
 }
 
 // ─── View detail / section helpers ──────────────────────────────────────────
@@ -221,197 +181,76 @@ export function isDataImage(src: string | null | undefined): src is string {
   return !!src && /^data:image\/(png|jpe?g|gif|bmp|webp)[;,]/i.test(src)
 }
 
-/**
- * Render the meta line (dates · role · industry · …) honouring the section
- * style's hide_dates flag.
- */
-function metaLine(parts: Array<string | null | undefined>): string {
-  return parts.filter(Boolean).join(' · ')
-}
-
 interface RenderCtx {
   locale: string
   detail: SectionDetail
   style: ResolvedSectionStyle
 }
 
+/**
+ * Skills are either chips (default) or an inline italic comma list.
+ * `names` are plain text from the catalog; escaping happens here.
+ */
+function renderTagsHtml(names: string[], style: ResolvedSectionStyle): string {
+  if (!names.length) return ''
+  if (style.tag_style === 'inline') {
+    return `<div class="ve-tags-inline">${escapeHtml(names.join(', '))}</div>`
+  }
+  return `<div class="ve-tags">${names.map((n) => `<span class="ve-tag">${escapeHtml(n)}</span>`).join('')}</div>`
+}
+
+/**
+ * The HTML render adapter (roadmap A5): turns a section descriptor's data view
+ * into markup. This function and renderTagsHtml are the ONLY places item data
+ * becomes HTML — every interpolation below goes through escapeHtml or
+ * renderRichHtml (which escapes via the same callback). Section semantics live
+ * in lib/sectionCatalog.ts; only layout lives here.
+ */
 function renderItem(sectionKey: string, item: unknown, ctx: RenderCtx): string {
-  const it = item as AnyItem
-  const { locale, detail, style } = ctx
-  const l = (field: string) => escapeHtml(ls(it, field, locale))
-  // Rich-text variant: preserves the allowed inline tags (b/i/u/ul/ol/li/p/br)
-  // for description-shaped fields. Plain values fall through to escapeHtml.
-  const rich = (field: string) => renderRichHtml(ls(it, field, locale), escapeHtml)
-  const r = style.hide_dates ? '' : escapeHtml(range(it))
-  const date = (field: string) => style.hide_dates ? '' : escapeHtml(fmtDate(it[field] as YM))
-  const isSummary = detail === 'summary'
+  const desc = SECTION_CATALOG[sectionKey]
+  if (!desc) return ''
+  const cctx: CatalogCtx = { locale: ctx.locale, hideDates: !!ctx.style.hide_dates, target: 'html' }
 
-  /**
-   * Skills are either chips (default) or an inline italic comma list.
-   * Suppressed entirely in summary mode.
-   */
-  const renderSkillTags = (skills: Array<{ name: LocalizedString }> | undefined): string => {
-    if (isSummary || !skills?.length) return ''
-    const names = skills.map((s) => resolve(s.name, locale)).filter(Boolean)
-    if (!names.length) return ''
-    if (style.tag_style === 'inline') {
-      return `<div class="ve-tags-inline">${escapeHtml(names.join(', '))}</div>`
-    }
-    return `<div class="ve-tags">${names.map((n) => `<span class="ve-tag">${escapeHtml(n)}</span>`).join('')}</div>`
+  if (ctx.detail === 'summary' && !desc.alwaysFull) {
+    const s = desc.summary?.(item as AnyItem, cctx)
+    if (!s) return ''
+    const metaTxt = s.meta.filter(Boolean).join(' · ')
+    const metaHtml = !metaTxt
+      ? ''
+      : s.sep === ':'
+        ? `: <span class="ve-meta-inline">${escapeHtml(metaTxt)}</span>`
+        : ` <span class="ve-meta-inline">— ${escapeHtml(metaTxt)}</span>`
+    return `<div class="ve-item ve-item-line"><strong>${escapeHtml(s.title)}</strong>${metaHtml}</div>`
   }
 
-  switch (sectionKey) {
-    case 'projects': {
-      const roleNames = (it.roles as Array<{ name: LocalizedString; disabled?: boolean }> ?? [])
-        .filter((role) => !role.disabled)
-        .map((role) => escapeHtml(resolve(role.name, locale)))
-        .filter(Boolean)
-      if (isSummary) {
-        return `<div class="ve-item ve-item-line"><strong>${l('customer')}</strong>${metaLine([r, roleNames.join(', ')]) ? ` <span class="ve-meta-inline">— ${metaLine([r, roleNames.join(', ')])}</span>` : ''}</div>`
-      }
-      return `<div class="ve-item">
-        <h3>${l('customer')}</h3>
-        <div class="ve-meta">${metaLine([r, l('industry'), roleNames.join(', ')])}</div>
-        <div class="ve-desc">${rich('long_description') || rich('description')}</div>
-        ${renderSkillTags(it.skills as Array<{ name: LocalizedString }> | undefined)}
-      </div>`
-    }
-    case 'key_qualifications': {
-      if (isSummary) {
-        return `<div class="ve-item ve-item-line"><strong>${l('label')}</strong>${l('tag_line') ? ` <span class="ve-meta-inline">— ${l('tag_line')}</span>` : ''}</div>`
-      }
-      const points = (it.key_points as Array<{ name: LocalizedString; long_description: LocalizedString }> ?? [])
-        .map((p) => `<li><strong>${escapeHtml(resolve(p.name, locale))}</strong>: ${renderRichHtml(resolve(p.long_description, locale), escapeHtml)}</li>`)
-        .join('')
-      return `<div class="ve-item">
-        <h3>${l('label')}</h3>
-        <div class="ve-desc">${rich('summary')}</div>
-        ${points ? `<ul class="ve-points">${points}</ul>` : ''}
-      </div>`
-    }
-    case 'work_experiences':
-      if (isSummary) {
-        return `<div class="ve-item ve-item-line"><strong>${l('employer')}</strong>${metaLine([l('role_title'), r]) ? ` <span class="ve-meta-inline">— ${metaLine([l('role_title'), r])}</span>` : ''}</div>`
-      }
-      return `<div class="ve-item">
-        <h3>${l('employer')}</h3>
-        <div class="ve-meta">${metaLine([l('role_title'), r])}</div>
-        <div class="ve-desc">${rich('long_description') || rich('description')}</div>
-      </div>`
-    case 'educations':
-      if (isSummary) {
-        return `<div class="ve-item ve-item-line"><strong>${l('school')}</strong>${metaLine([l('degree'), r]) ? ` <span class="ve-meta-inline">— ${metaLine([l('degree'), r])}</span>` : ''}</div>`
-      }
-      return `<div class="ve-item">
-        <h3>${l('school')}</h3>
-        <div class="ve-meta">${metaLine([l('degree'), r])}</div>
-        <div class="ve-desc">${rich('description')}</div>
-      </div>`
-    case 'courses':
-      if (isSummary) {
-        return `<div class="ve-item ve-item-line"><strong>${l('name')}</strong>${metaLine([l('program'), date('completed')]) ? ` <span class="ve-meta-inline">— ${metaLine([l('program'), date('completed')])}</span>` : ''}</div>`
-      }
-      return `<div class="ve-item">
-        <h3>${l('name')}</h3>
-        <div class="ve-meta">${metaLine([l('program'), date('completed')])}</div>
-        <div class="ve-desc">${rich('description')}</div>
-      </div>`
-    case 'certifications':
-      if (isSummary) {
-        return `<div class="ve-item ve-item-line"><strong>${l('name')}</strong>${metaLine([l('organiser'), date('issued')]) ? ` <span class="ve-meta-inline">— ${metaLine([l('organiser'), date('issued')])}</span>` : ''}</div>`
-      }
-      return `<div class="ve-item">
-        <h3>${l('name')}</h3>
-        <div class="ve-meta">${metaLine([l('organiser'), date('issued')])}</div>
-        <div class="ve-desc">${rich('description')}</div>
-      </div>`
-    case 'positions':
-      if (isSummary) {
-        return `<div class="ve-item ve-item-line"><strong>${l('name')}</strong>${metaLine([l('organisation'), r]) ? ` <span class="ve-meta-inline">— ${metaLine([l('organisation'), r])}</span>` : ''}</div>`
-      }
-      return `<div class="ve-item">
-        <h3>${l('name')}</h3>
-        <div class="ve-meta">${metaLine([l('organisation'), r])}</div>
-        <div class="ve-desc">${rich('description')}</div>
-      </div>`
-    case 'spoken_languages':
-      return `<div class="ve-item ve-inline"><strong>${l('name')}</strong> — ${l('level')}</div>`
-    case 'technology_categories': {
-      if (isSummary) {
-        const skillNames = (it.skills as Array<{ name: LocalizedString }> ?? [])
-          .map((s) => resolve(s.name, locale))
-          .filter(Boolean)
-        return `<div class="ve-item ve-item-line"><strong>${l('name')}</strong>${skillNames.length ? `: <span class="ve-meta-inline">${escapeHtml(skillNames.join(', '))}</span>` : ''}</div>`
-      }
-      return `<div class="ve-item">
-        <h3>${l('name')}</h3>
-        ${renderSkillTags(it.skills as Array<{ name: LocalizedString }> | undefined)}
-      </div>`
-    }
-    case 'presentations':
-      if (isSummary) {
-        return `<div class="ve-item ve-item-line"><strong>${l('title')}</strong>${metaLine([l('event'), date('date')]) ? ` <span class="ve-meta-inline">— ${metaLine([l('event'), date('date')])}</span>` : ''}</div>`
-      }
-      return `<div class="ve-item">
-        <h3>${l('title')}</h3>
-        <div class="ve-meta">${metaLine([l('event'), date('date')])}</div>
-        <div class="ve-desc">${rich('description')}</div>
-      </div>`
-    case 'honor_awards':
-      if (isSummary) {
-        return `<div class="ve-item ve-item-line"><strong>${l('name')}</strong>${metaLine([l('issuer'), date('date')]) ? ` <span class="ve-meta-inline">— ${metaLine([l('issuer'), date('date')])}</span>` : ''}</div>`
-      }
-      return `<div class="ve-item">
-        <h3>${l('name')}</h3>
-        <div class="ve-meta">${metaLine([l('issuer'), date('date')])}</div>
-        <div class="ve-desc">${rich('description')}</div>
-      </div>`
-    case 'publications':
-      if (isSummary) {
-        return `<div class="ve-item ve-item-line"><strong>${l('title')}</strong>${metaLine([l('publisher'), date('date')]) ? ` <span class="ve-meta-inline">— ${metaLine([l('publisher'), date('date')])}</span>` : ''}</div>`
-      }
-      return `<div class="ve-item">
-        <h3>${l('title')}</h3>
-        <div class="ve-meta">${metaLine([l('publisher'), date('date')])}</div>
-        <div class="ve-desc">${rich('abstract')}</div>
-      </div>`
-    case 'key_competencies':
-      if (isSummary) {
-        return `<div class="ve-item ve-item-line"><strong>${l('title')}</strong></div>`
-      }
-      return `<div class="ve-item">
-        <h3>${l('title')}</h3>
-        <div class="ve-desc">${rich('description')}</div>
-      </div>`
-    case 'recommendations': {
-      const name = escapeHtml(it.recommender_name as string)
-      const attribBits = [
-        escapeHtml(it.recommender_title as string),
-        escapeHtml(it.recommender_company as string),
-      ].filter(Boolean).join(', ')
-      const d = date('date')
-      if (isSummary) {
-        return `<div class="ve-item ve-item-line"><strong>${name}</strong>${attribBits || d ? ` <span class="ve-meta-inline">— ${[attribBits, d].filter(Boolean).join(' · ')}</span>` : ''}</div>`
-      }
-      const attribLine = [name, attribBits].filter(Boolean).join(', ')
-      const rel = l('relationship')
-      return `<div class="ve-item ve-rec">
-        <div class="ve-rec-quote">${rich('text')}</div>
-        <div class="ve-rec-attrib">— ${attribLine}${rel ? ` <span class="ve-meta-inline">(${rel})</span>` : ''}${d ? ` <span class="ve-meta-inline">· ${d}</span>` : ''}</div>
-      </div>`
-    }
-    case 'references':
-      if (!it.include_in_exports) return ''
-      if (isSummary) {
-        return `<div class="ve-item ve-item-line"><strong>${escapeHtml(it.name as string)}</strong>${[escapeHtml(it.title as string), escapeHtml(it.company as string)].filter(Boolean).length ? ` <span class="ve-meta-inline">— ${[escapeHtml(it.title as string), escapeHtml(it.company as string)].filter(Boolean).join(', ')}</span>` : ''}</div>`
-      }
-      return `<div class="ve-item">
-        <h3>${escapeHtml(it.name as string)}</h3>
-        <div class="ve-meta">${metaLine([escapeHtml(it.title as string), escapeHtml(it.company as string)])}</div>
-      </div>`
-    default:
-      return ''
+  const v = desc.full?.(item as AnyItem, cctx)
+  if (!v) return ''
+
+  if (v.layout === 'inline') {
+    return `<div class="ve-item ve-inline"><strong>${escapeHtml(v.title)}</strong> — ${escapeHtml(v.meta.join(' · '))}</div>`
   }
+
+  if (v.layout === 'quote') {
+    const tail = v.attributionMeta.filter(Boolean).join(' · ')
+    return `<div class="ve-item ve-rec">
+        <div class="ve-rec-quote">${renderRichHtml(v.body, escapeHtml)}</div>
+        <div class="ve-rec-attrib">— ${escapeHtml(v.attribution)}${tail ? ` <span class="ve-meta-inline">${escapeHtml(tail)}</span>` : ''}</div>
+      </div>`
+  }
+
+  const metaTxt = v.meta.filter(Boolean).join(' · ')
+  const pointsHtml = v.points.length
+    ? `<ul class="ve-points">${v.points
+        .map((p) => `<li>${p.label ? `<strong>${escapeHtml(p.label)}</strong>: ` : ''}${renderRichHtml(p.body, escapeHtml)}</li>`)
+        .join('')}</ul>`
+    : ''
+  return `<div class="ve-item">
+        <h3>${escapeHtml(v.title)}</h3>
+        ${metaTxt ? `<div class="ve-meta">${escapeHtml(metaTxt)}</div>` : ''}
+        ${v.body ? `<div class="ve-desc">${renderRichHtml(v.body, escapeHtml)}</div>` : ''}
+        ${pointsHtml}
+        ${renderTagsHtml(v.tags, ctx.style)}
+      </div>`
 }
 
 /**
