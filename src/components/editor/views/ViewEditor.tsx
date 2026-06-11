@@ -11,13 +11,14 @@ import {
 import { DEFAULT_VIEW_STYLE } from '../../../lib/viewStyle'
 import { withHeaderDefaults, withFooterDefaults } from '../../../lib/viewHeader'
 import { VIEW_TEMPLATES, getTemplate, applyTemplate } from '../../../lib/viewTemplates'
+import { buildViewText, buildViewMarkdown } from '../../../lib/viewText'
 import type {
   ResumeView, ViewStyle, SectionStyle, SectionDetail,
   ViewHeaderConfig, ViewFooterConfig,
 } from '../../../types'
 import {
   Trash2, ChevronUp, ChevronDown,
-  ArrowLeft, Star, FileText, FileDown,
+  ArrowLeft, Star, FileText, FileDown, FileType, FileCode,
   PanelRight, PanelRightClose, ExternalLink,
 } from 'lucide-react'
 import { DetailToggle, SectionStylePanel } from './SectionStylePanel'
@@ -166,6 +167,23 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
     win.document.write(html)
     win.document.close()
     setTimeout(() => win.print(), 600)
+    onUpdate({ last_exported_at: new Date().toISOString() })
+  }
+
+  // ATS-friendly exports (F6): pure string builders, downloaded as files.
+  const handleExportTextual = (ext: 'txt' | 'md') => {
+    const content = ext === 'txt'
+      ? buildViewText(data, view, exportLocale)
+      : buildViewMarkdown(data, view, exportLocale)
+    const slugName = (data.resume?.full_name || 'resume').replace(/\s+/g, '_')
+    const slugView = view.name.replace(/\s+/g, '_')
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${slugName}_${slugView}.${ext}`
+    a.click()
+    setTimeout(() => URL.revokeObjectURL(url), 100)
     onUpdate({ last_exported_at: new Date().toISOString() })
   }
 
@@ -460,6 +478,20 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
             title="Generate a Microsoft Word (.docx) file"
           >
             <FileDown size={15} /> {docxBusy ? 'Building…' : 'Export DOCX'}
+          </button>
+          <button
+            className="rv-export-btn rv-export-ats"
+            onClick={() => handleExportTextual('txt')}
+            title="Plain text — for ATS systems and online application forms"
+          >
+            <FileType size={15} /> Text
+          </button>
+          <button
+            className="rv-export-btn rv-export-ats"
+            onClick={() => handleExportTextual('md')}
+            title="Markdown — for LinkedIn, email, or further editing"
+          >
+            <FileCode size={15} /> Markdown
           </button>
         </div>
         {view.last_exported_at && (
