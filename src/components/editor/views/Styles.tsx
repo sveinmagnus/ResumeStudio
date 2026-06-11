@@ -20,6 +20,9 @@ export function Styles() {
         font-weight: 600; font-size: 14px; white-space: nowrap; transition: background .15s; flex-shrink: 0;
       }
       .rv-create-btn:hover { background: var(--accent-bright); }
+      .rv-create-row { display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; }
+      .rv-tailor-btn { background: var(--paper-raised); color: var(--accent); border: 1px solid var(--accent); }
+      .rv-tailor-btn:hover { background: var(--accent-wash); }
 
       .rv-empty {
         text-align: center; padding: 60px 20px; color: var(--ink-faint);

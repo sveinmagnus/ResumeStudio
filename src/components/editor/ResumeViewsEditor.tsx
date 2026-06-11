@@ -1,10 +1,13 @@
+import { useState } from 'react'
 import { useStore, newId } from '../../store/useStore'
 import { buildViewSections } from '../../lib/viewFilter'
 import { DEFAULT_VIEW_STYLE } from '../../lib/viewStyle'
 import { DEFAULT_VIEW_HEADER, DEFAULT_VIEW_FOOTER, defaultHeaderFields } from '../../lib/viewHeader'
+import type { TailorResult } from '../../lib/viewTailor'
 import type { ResumeView } from '../../types'
-import { Plus, Pencil, Trash2, LayoutList } from 'lucide-react'
+import { Plus, Pencil, Trash2, LayoutList, Wand2 } from 'lucide-react'
 import { ViewEditor } from './views/ViewEditor'
+import { TailorViewModal } from './views/TailorViewModal'
 import { Styles } from './views/Styles'
 
 // ─── Main component ───────────────────────────────────────────────────────────
@@ -43,6 +46,13 @@ export function ResumeViewsEditor() {
     removeItem('views', id)
   }
 
+  const [showTailor, setShowTailor] = useState(false)
+  const applyTailored = (result: TailorResult) => {
+    addItem('views', result.view)
+    setShowTailor(false)
+    setActiveView(result.view.id)
+  }
+
   if (activeViewId !== null) {
     const view = views.find((v) => v.id === activeViewId)
     if (!view) { setActiveView(null); return null }
@@ -56,14 +66,26 @@ export function ResumeViewsEditor() {
     )
   }
 
-  return <ViewList views={views} onCreate={createView} onEdit={setActiveView} onDelete={deleteView} />
+  return (
+    <>
+      <ViewList
+        views={views}
+        onCreate={createView}
+        onTailor={() => setShowTailor(true)}
+        onEdit={setActiveView}
+        onDelete={deleteView}
+      />
+      {showTailor && <TailorViewModal onApply={applyTailored} onClose={() => setShowTailor(false)} />}
+    </>
+  )
 }
 
 // ─── View list ────────────────────────────────────────────────────────────────
 
-function ViewList({ views, onCreate, onEdit, onDelete }: {
+function ViewList({ views, onCreate, onTailor, onEdit, onDelete }: {
   views: ResumeView[]
   onCreate: () => void
+  onTailor: () => void
   onEdit: (id: string) => void
   onDelete: (id: string) => void
 }) {
@@ -76,9 +98,14 @@ function ViewList({ views, onCreate, onEdit, onDelete }: {
           Use views to produce a Board CV, a Consultant project CV, an Employment history,
           or any other variant from the same data.
         </p>
-        <button className="rv-create-btn" onClick={onCreate}>
-          <Plus size={15} /> New View
-        </button>
+        <div className="rv-create-row">
+          <button className="rv-create-btn" onClick={onCreate}>
+            <Plus size={15} /> New View
+          </button>
+          <button className="rv-create-btn rv-tailor-btn" onClick={onTailor} title="Paste a job posting, run a prompt in your own LLM, get a tailored view proposal">
+            <Wand2 size={15} /> Tailor from job posting
+          </button>
+        </div>
       </div>
 
       {views.length === 0 ? (

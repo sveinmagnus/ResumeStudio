@@ -86,6 +86,53 @@ describe('<ResumeViewsEditor>', () => {
     expect(useStore.getState().data.views[0].style.density).toBe('compact')
   })
 
+  it('tailors a view from a pasted LLM response (paste → review → create)', async () => {
+    seed()
+    const store = useStore.getState().data
+    useStore.setState({
+      data: {
+        ...store,
+        projects: [
+          ...store.projects,
+          {
+            ...((await import('../fixtures')).makeProject({ id: 'p-keep', customer: { en: 'KeepCo' } })),
+          },
+          {
+            ...((await import('../fixtures')).makeProject({ id: 'p-drop', customer: { en: 'DropCo' } })),
+          },
+        ],
+      },
+    })
+    render(<ResumeViewsEditor />)
+    await userEvent.click(screen.getByRole('button', { name: /tailor from job posting/i }))
+
+    const response = JSON.stringify({
+      $schema: 'resumestudio-tailor/v1',
+      view_name: 'Platform CV',
+      introduction: 'A strong fit.',
+      section_detail: { educations: 'off' },
+      exclude_item_ids: ['p-drop'],
+      gaps: ['Kubernetes'],
+    })
+    await userEvent.click(screen.getByPlaceholderText(/"\$schema": "resumestudio-tailor\/v1"/i))
+    await userEvent.paste(response)
+    await userEvent.click(screen.getByRole('button', { name: /review proposal/i }))
+
+    // Preview shows the diff: excluded item title + gap list.
+    expect(screen.getByText('DropCo')).toBeInTheDocument()
+    expect(screen.getByText('Kubernetes')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: /create this view/i }))
+    const views = useStore.getState().data.views
+    expect(views).toHaveLength(1)
+    expect(views[0].name).toBe('Platform CV')
+    expect(views[0].excluded_item_ids).toEqual(['p-drop'])
+    expect(views[0].introduction.en).toBe('A strong fit.')
+    expect(views[0].sections.find((s) => s.key === 'educations')?.detail).toBe('off')
+    // Applying opened the new view in the editor.
+    expect(screen.getByRole('button', { name: /all views/i })).toBeInTheDocument()
+  })
+
   it('applies an export template: seeds style/header/footer + records template_id', async () => {
     seed()
     render(<ResumeViewsEditor />)
