@@ -29,10 +29,27 @@ What works today:
   the token for an **HttpOnly session cookie** via `/api/auth/login` (so the
   token never lives in JS-readable storage); `Authorization: Bearer` still works
   for non-browser clients. Falls back to a local-only mode if unreachable.
+  **Named tokens** (`RESUME_API_TOKENS=name:token,…`) give a small team
+  per-person tokens whose names stamp `saved_by` on saves/snapshots — shown on
+  picker cards and in History. Attribution only, no permissions model.
+- **Storage readout** — `GET /api/resumes/storage` measures each resume's
+  payload (and embedded-image share); the picker warns at 1 MB / 2.5 MB
+  (localStorage-quota risk) and shows the DB size in the footer.
+- **Skill-taxonomy suggestions** — the skill autocompletes offer canonical
+  names from the Quadim Public Skill Library (committed slim JSON, lazy
+  chunk; `lib/skillTaxonomy.ts`) so new skills don't mint near-duplicates.
 - **Targeted exports via Resume Views** — pick sections, exclude items,
-  starred-only filter, custom intro, then export PDF (browser print pipeline)
-  or DOCX (lazy-loaded docx lib). A **live preview pane** in the view editor
-  re-renders the document as you tune it (iframe + page-count estimate).
+  starred-only filter, custom intro, then export PDF (browser print pipeline),
+  DOCX (lazy-loaded docx lib), or ATS-friendly **plain text / Markdown**
+  (`lib/viewText.ts`). A **live preview pane** in the view editor re-renders
+  the document as you tune it (iframe + page-count estimate). All render
+  paths share the **section-descriptor catalog** (`lib/sectionCatalog.ts`).
+- **View power features** — named **export templates** seeding
+  style/header/footer (`lib/viewTemplates.ts`), **BYO-LLM tailoring** from a
+  pasted job posting (`lib/viewTailor.ts`, no API key), a per-view
+  **anonymization toggle** (`force_anonymized` — anonymized customers +
+  initial-redacted references), and a synthetic **Skill Matrix** section
+  (skill × years × proficiency × last-used; `lib/skillMatrix.ts`).
 - **View customization** — per-view styling (density, body size, heading font,
   accent color, page margin, tag style; `lib/viewStyle.ts`), per-section detail
   levels (off / summary / full) and style overrides, a configurable
@@ -49,7 +66,10 @@ What works today:
 - **CVpartner JSON import** and **portable JSON backup** (export + load) with
   a versioned format and a migration scaffold. Loading either kind of file
   from the picker creates a new resume (the in-editor "load file" button is
-  gone — backup load is picker-only).
+  gone — backup load is picker-only). The picker also imports **LinkedIn data
+  exports** (.zip of CSVs, lazy fflate; `lib/importerLinkedIn.ts`) and
+  **Europass CVs** (SkillsPassport XML + profile JSON;
+  `lib/importerEuropass.ts`).
 - **AI-assisted import from PDF/Word** (`lib/aiImport.ts`,
   `components/AIImportModal.tsx`) — a *bring-your-own-LLM* flow, no external
   service or API key. The picker hands the user a downloadable template
@@ -184,7 +204,16 @@ src/
 │   ├── sectionSort.ts          ← PURE: per-section sort (custom / alphabetical / start / end / date)
 │   ├── image.ts                ← Profile-photo/logo helpers: canvas downscale → data URL (browser); imageInfoFromDataUrl (PURE, for DOCX). Rejects SVG
 │   ├── wipeLocale.ts           ← PURE: remove a locale's content across the store (language-config tool)
-│   └── viewFilter.ts           ← Apply a ResumeView (detail/exclusions/starred); buildViewHtml() for PDF/preview. escapeHtml. SECURITY-CRITICAL render path
+│   ├── sectionCatalog.ts       ← PURE: section-descriptor catalog (A5) — one descriptor per content section feeds editor titles + ALL render adapters. Returns data only; adapters own escaping
+│   ├── viewTemplates.ts        ← PURE: named export templates (F1) — presets seeding style/header/footer + section detail via template_id
+│   ├── viewTailor.ts           ← PURE: BYO-LLM view tailoring (F2) — prompt bundle, resumestudio-tailor/v1 validation (field-pathed), applyTailorResponse
+│   ├── viewText.ts             ← PURE: ATS plain-text + Markdown exports (F6) — third render adapter over the catalog
+│   ├── skillMatrix.ts          ← PURE: skill-matrix rows (F9) — registry + project usage → years/proficiency/last-used
+│   ├── skillTaxonomy.ts        ← Quadim skill-library suggestions (F12): lazy-loaded generated JSON + PURE matchTaxonomy (regen: scripts/build-skill-taxonomy.mjs)
+│   ├── importerLinkedIn.ts     ← PURE: LinkedIn data-export (CSV map) → ResumeStore; RFC4180 parseCsv. ZIP extraction lives in ImportScreen (lazy fflate)
+│   ├── importerEuropass.ts     ← Europass import: SkillsPassport XML (DOMParser) + profile JSON → ResumeStore
+│   ├── storage.ts (src/lib)    ← PURE: payload-weight thresholds + fmtBytes for the picker readout (server twin: server/storage.ts)
+│   └── viewFilter.ts           ← Apply a ResumeView (detail/exclusions/starred/force_anonymized); buildViewHtml() for PDF/preview. escapeHtml. SECURITY-CRITICAL render path
 ├── components/
 │   ├── ErrorBoundary.tsx       ← Wraps the editor; resets on activeSection change
 │   ├── ResumeList.tsx          ← Picker route (/): card list + "Add resume" panel + delete confirm
@@ -432,19 +461,19 @@ than calling `set()` directly. Return `null` from the updater for a no-op
 4. Add the icon import to `Sidebar.tsx`'s `ICON_MAP`.
 5. Create the editor component and wire it into `App.tsx`'s `EditorRoute` switch.
 6. If the section has `sort_order`, wrap its `<EditorCard>`s in a `<SortableList section="…" ids={items.map(x=>x.id)}>`. If it doesn't, pass `sortable={false}` to each `<EditorCard>` so the drag handle isn't shown.
-7. If it should appear in Resume View exports: add a `case` to both
-   `lib/viewFilter.ts → renderItem` (HTML/PDF path) and `lib/exporter.ts →
-   renderSection` (DOCX path). The `viewFilter` case must handle the
-   `summary` vs `full` `SectionDetail` (the `isSummary` branch) and route
-   description-shaped fields through `renderRichHtml(...)` (rich text) and all
-   other values through `escapeHtml(...)` — **never interpolate a raw value**.
-   Also extend `getItemTitle`/`getItemSubtitle` for the View-editor item list.
-   The section is picked up by the view automatically via `isExportableSection`
-   + `normalizeViewSections`; give it a `defaultViewDetail` if it shouldn't
-   default to `full`. The **export-pipeline skill**
-   (`.claude/skills/export-pipeline.md`) covers keeping the two render paths in
-   sync, the docx lazy-load discipline, and the escaping cross-check; the
-   **security skill** covers the escape/sanitise rules for the render pipeline.
+7. If it should appear in Resume View exports: add **one descriptor** to
+   `lib/sectionCatalog.ts` (title/subtitle for the View-editor item list,
+   `summary()` and `full()` data views — see the file header). Every render
+   path (HTML/PDF, DOCX, plain-text/Markdown) consumes the catalog through its
+   generic adapter, so there are no per-section switches left to extend.
+   Descriptors return **data only** — the adapters own escaping
+   (`escapeHtml`/`renderRichHtml` in `viewFilter`, `TextRun` in `exporter`);
+   never build markup in a descriptor. Per-path differences go behind
+   `ctx.target`. The section is picked up by views automatically via
+   `isExportableSection` + `normalizeViewSections`; give it a
+   `defaultViewDetail` if it shouldn't default to `full`. The
+   **export-pipeline skill** (`.claude/skills/export-pipeline.md`) and the
+   **security skill** still apply (lazy-load discipline, escaping cross-check).
 8. If you add a configurable **style/header field** to a view (not just a
    content section), it is untrusted-import surface — sanitise it at the render
    boundary (`lib/viewStyle.ts → deriveTokens` / `lib/viewHeader.ts →
@@ -768,23 +797,29 @@ also run through the security skill (`.claude/skills/security-review.md`).
 Ordered loosely by recommended priority. Each is a self-contained chunk.
 
 > **Recently shipped** (don't re-propose): live preview pane in the Resume View
-> editor, field-level translation assist (Copy + LibreTranslate-proxied Draft),
-> server-side snapshot history, **multi-resume support** (picker route +
-> per-id routing + per-resume snapshots/locales + delete-with-confirm), and
-> **offline editing + conflict safety** (durable per-resume queue, reconnect
-> drain, `version`-based optimistic concurrency with a keep/discard+diff
-> conflict modal), and the **downloadable desktop build + cross-computer JSON
-> sync** (portable folder, per-user data dir, Drive-folder store backup with
-> newest-wins boot-merge). See §1, §14, and `DESKTOP.md`.
+> editor, field-level translation assist (Copy + provider-proxied Draft),
+> server-side snapshot history, **multi-resume support**, **offline editing +
+> conflict safety**, the **downloadable desktop build + cross-computer JSON
+> sync**, and the June 2026 wave: **section-descriptor catalog**
+> (`lib/sectionCatalog.ts` — one descriptor feeds the editor titles + all
+> render adapters), **export templates** (`lib/viewTemplates.ts`, via
+> `template_id`), **BYO-LLM view tailoring** (`lib/viewTailor.ts`, paste a job
+> posting), **per-view anonymization** (`force_anonymized`), **ATS plain-text
+> + Markdown exports** (`lib/viewText.ts`), **LinkedIn + Europass importers**,
+> the **skill-matrix view section** (`lib/skillMatrix.ts`), **named tokens +
+> saved_by attribution** (`RESUME_API_TOKENS`), **skill-taxonomy autocomplete
+> enrichment** (`lib/skillTaxonomy.ts`, Quadim library), and the **storage
+> readout** (`server/storage.ts` + picker weight warnings). See §1, §14,
+> `plans/improvement-roadmap.md`, and `DESKTOP.md`.
 
-### 12.1 Export templates
-`ResumeView.template_id` is already on the type (see `types/index.ts`) and called out as "reserved" in `lib/exporter.ts`, but nothing reads it. Two or three named templates (compact technical / formal management / minimal one-pager) would make views visually differentiated — currently a Board CV and a Technical CV produce the same-looking document. Touches both `buildViewHtml` (HTML/CSS path) and `exporter.ts` (DOCX path); each template is a styling delta, not a fork of the render logic. Pairs naturally with the (now shipped) live preview pane — that's what makes template choice tunable without an export round-trip.
-
-### 12.2 Generic mergeRegistry
+### 12.1 Generic mergeRegistry
 `mergeSkills` and `mergeRoles` are near-identical. If a third registry kind ever appears (e.g. mergeable industries), refactor to a descriptor-table `mergeRegistry(store, kind, source, target)`. Not worth doing for two kinds today.
 
-### 12.3 Section catalog refactor
-Three switches enumerate the 13 content sections: `viewFilter.getItemTitle/getItemSubtitle`, `viewFilter.renderItem`, `exporter.renderSection`. A section-descriptor registry (one place per section declaring `{titleField, subtitleField, dateField, render}`) would collapse them. The CLAUDE.md "Adding a new section" step would shrink from 7 items to 3. Don't do this if new sections are rare — the duplication is bounded.
+### 12.2 Image asset table (A4 Phase 2)
+Snapshots are image-free and the picker now measures payload weight (`GET /api/resumes/storage`), but every auto-save PUT and localStorage pending record still carries the embedded base64 images. If real-world measurements show quota risk, move to a content-addressed `assets` table (`hash → bytes`) with `asset_id` references — touches exporter/viewFilter (resolve at render), the backup format (embed on export), and localCache.
+
+### 12.3 Remaining skill-taxonomy integrations (F12 points 2–4)
+Autocomplete enrichment shipped. Still open, in value order: import normalization (match free-text skills from CVpartner/AI/LinkedIn imports against library names), related-skill suggestions (the `relatesTo` graph), and authoritative wording for skill-matrix exports. Same rule: derive from the committed slim JSON, never fetch at runtime.
 
 ### 12.4 Offline-load (PWA / service worker) — *deferred Tier 3*
 Offline *editing* shipped (durable queue + reconnect drain + conflict safety —

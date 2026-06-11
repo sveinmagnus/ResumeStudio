@@ -71,16 +71,29 @@ The full feature tour lives on the
 - **Resume Views — targeted exports.** Curated subsets of the master CV:
   per-section detail levels (off / summary / full), item exclusions,
   starred-only, custom intro, per-view styling (density, fonts, accent color,
-  tag style), a configurable header/footer (contact fields, photo + logo
-  placement), and a **live preview pane** with a page-count estimate. Export
-  as **PDF** (browser print pipeline) or **DOCX** (lazy-loaded
-  [`docx`](https://docx.js.org/)).
+  tag style), **named templates** (compact technical / formal management /
+  minimal one-pager), a configurable header/footer (contact fields, photo +
+  logo placement), and a **live preview pane** with a page-count estimate.
+  Export as **PDF** (browser print pipeline), **DOCX** (lazy-loaded
+  [`docx`](https://docx.js.org/)), or ATS-friendly **plain text / Markdown**.
+- **Tailor a view to a job posting.** Paste the posting, run the generated
+  prompt in any LLM you trust, paste the JSON back — get a proposed view with
+  detail levels, exclusions, a drafted intro, and a gap list. No API key.
+- **Anonymized submissions.** A per-view toggle renders every project with
+  its anonymized customer alias and redacts reference names to initials —
+  for agency/broker submissions where client names must not leak.
+- **Skill matrix.** A view section rendering skill × years × proficiency ×
+  last-used (the competency-matrix format tenders ask for), derived from the
+  skill registry and project history.
 - **Rich content.** Limited rich text (bold/italic/underline/lists) in
   descriptions, uploaded profile photo with cropper, company logo, key
   competencies, recommendations.
-- **Import.** CVpartner JSON, portable JSON backups, and an **AI-assisted
-  import** from any PDF/Word CV — a bring-your-own-LLM flow with no external
-  service or API key.
+- **Import.** CVpartner JSON, **LinkedIn data exports** (.zip), **Europass**
+  (XML/JSON), portable JSON backups, and an **AI-assisted import** from any
+  PDF/Word CV — a bring-your-own-LLM flow with no external service or API key.
+- **Small-team attribution.** Optional named tokens
+  (`RESUME_API_TOKENS=kari:…,ola:…`) stamp who saved what — shown on picker
+  cards and in version history. No permissions model, just attribution.
 - **Offline-tolerant persistence.** Auto-save (debounced ~1 s) to SQLite via
   Express, a per-resume localStorage queue that survives outages, reconnect
   draining, and optimistic concurrency with a keep-mine / discard-mine

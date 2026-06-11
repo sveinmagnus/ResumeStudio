@@ -17,7 +17,7 @@ units:
     intent: "How must an agent work in this codebase? Architecture map, data model, store patterns, conventions, and what not to change."
     scope: global
     audience: [agent, developer]
-    validated: "2026-06-10"
+    validated: "2026-06-11"
     update_frequency: weekly
     triggers: [conventions, architecture, data-model, store, persistence, sections]
     hints:
@@ -31,7 +31,7 @@ units:
     intent: "What is Resume Studio and how do I install, run, and configure it?"
     scope: global
     audience: [human, agent]
-    validated: "2026-06-10"
+    validated: "2026-06-11"
     update_frequency: monthly
     triggers: [overview, quickstart, install, configuration, env]
     hints:
@@ -196,7 +196,7 @@ units:
     intent: "What improvements and new features are planned, in what order, and why? (Full-solution review, June 2026.)"
     scope: global
     audience: [human, developer, agent]
-    validated: "2026-06-10"
+    validated: "2026-06-11"
     update_frequency: monthly
     depends_on: [claude-instructions]
     triggers: [roadmap, future-work, refactor, features, priorities]
