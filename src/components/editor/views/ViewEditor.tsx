@@ -399,6 +399,14 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
             />
             Starred items only
           </label>
+          <label className="rv-opt-check" title="Render anonymized customer names on every project and redact reference names to initials — for agency/broker submissions.">
+            <input
+              type="checkbox"
+              checked={view.force_anonymized ?? false}
+              onChange={(e) => onUpdate({ force_anonymized: e.target.checked })}
+            />
+            Anonymize clients
+          </label>
           <label className="rv-opt-num">
             <span>Page limit</span>
             <input
