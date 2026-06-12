@@ -77,14 +77,22 @@ export function EditorCard({
             <GripVertical size={15} />
           </button>
         )}
-        <button className="ec-chev"><ChevronDown size={17} /></button>
-        <div className="ec-titles">
-          <div className="ec-title">
-            {starred && <Star size={13} className="ec-star-ind" fill="currentColor" />}
+        <span className="ec-chev" aria-hidden="true"><ChevronDown size={17} /></span>
+        {/* The title block is the keyboard/AT toggle: a real button carrying
+            aria-expanded. The head div's onClick stays as a pointer-only
+            convenience for the padding around it. */}
+        <button
+          type="button"
+          className="ec-titles"
+          aria-expanded={open}
+          onClick={(e) => { e.stopPropagation(); setExpandedItem(id) }}
+        >
+          <span className="ec-title">
+            {starred && <Star size={13} className="ec-star-ind" fill="currentColor" aria-hidden="true" />}
             {title || <span className="ec-untitled">Untitled</span>}
-          </div>
-          {subtitle && <div className="ec-subtitle">{subtitle}</div>}
-        </div>
+          </span>
+          {subtitle && <span className="ec-subtitle">{subtitle}</span>}
+        </button>
         {meta && <div className="ec-meta">{meta}</div>}
         <div className="ec-actions" onClick={(e) => e.stopPropagation()}>
           {canStar && (
@@ -137,14 +145,16 @@ export function EditorCard({
         .ec-grip:hover { color: var(--accent); }
         .ec-chev { color: var(--ink-faint); transition: transform .2s; display: grid; place-items: center; }
         .ec.open .ec-chev { transform: rotate(180deg); }
-        .ec-titles { flex: 1; min-width: 0; }
+        .ec-titles {
+          flex: 1; min-width: 0; text-align: left; padding: 0; cursor: pointer;
+        }
         .ec-title {
           font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 7px;
           overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
         }
         .ec-star-ind { color: var(--gold); flex-shrink: 0; }
         .ec-untitled { color: var(--ink-faint); font-weight: 400; font-style: italic; }
-        .ec-subtitle { font-size: 12.5px; color: var(--ink-faint); margin-top: 1px; }
+        .ec-subtitle { display: block; font-size: 12.5px; color: var(--ink-faint); margin-top: 1px; }
         .ec-meta { font-size: 12px; color: var(--ink-faint); white-space: nowrap; font-variant-numeric: tabular-nums; }
         .ec-actions { display: flex; gap: 1px; }
         .ec-act {

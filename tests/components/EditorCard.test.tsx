@@ -38,6 +38,16 @@ describe('<EditorCard>', () => {
     expect(screen.getByText('card body')).toBeInTheDocument()
   })
 
+  it('expands from the keyboard via the title toggle (aria-expanded)', async () => {
+    seedWithCourse()
+    render(card())
+    const toggle = screen.getByRole('button', { name: 'X', expanded: false })
+    toggle.focus()
+    await userEvent.keyboard('{Enter}')
+    expect(useStore.getState().expandedItemId).toBe('c1')
+    expect(screen.getByRole('button', { name: 'X', expanded: true })).toBeInTheDocument()
+  })
+
   it('toggles starred via the Feature action', async () => {
     seedWithCourse()
     render(card({ starred: false }))

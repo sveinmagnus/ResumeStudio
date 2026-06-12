@@ -111,6 +111,9 @@ export function ImportScreen({ compact = false, onStartFresh, onImported }: Impo
 
         <div
           className={`is-drop ${dragging ? 'drag' : ''}`}
+          role="button"
+          tabIndex={0}
+          aria-label="Choose a resume file to import (or drop one here)"
           onDragOver={(e) => { e.preventDefault(); setDragging(true) }}
           onDragLeave={() => setDragging(false)}
           onDrop={(e) => {
@@ -119,6 +122,14 @@ export function ImportScreen({ compact = false, onStartFresh, onImported }: Impo
             if (f) void handleFile(f)
           }}
           onClick={() => inputRef.current?.click()}
+          onKeyDown={(e) => {
+            // The hidden file input is unreachable by Tab — the zone itself is
+            // the keyboard affordance (WCAG 2.1.1).
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault()
+              inputRef.current?.click()
+            }
+          }}
         >
           <div className="is-drop-icon"><Upload size={28} /></div>
           <div className="is-drop-title">Drop your resume file here</div>
@@ -201,9 +212,12 @@ export function ImportScreen({ compact = false, onStartFresh, onImported }: Impo
           border: 2px dashed var(--line-strong); border-radius: var(--r-lg);
           padding: 40px 30px; cursor: pointer; transition: all .2s; background: var(--paper-raised);
         }
-        .is-drop:hover, .is-drop.drag {
+        .is-drop:hover, .is-drop.drag, .is-drop:focus-visible {
           border-color: var(--accent); background: var(--accent-wash);
           transform: translateY(-2px); box-shadow: var(--shadow-md);
+        }
+        .is-drop:focus-visible {
+          outline: 2px solid var(--accent); outline-offset: 2px;
         }
         .is-drop-icon {
           width: 56px; height: 56px; margin: 0 auto 14px; border-radius: 50%;

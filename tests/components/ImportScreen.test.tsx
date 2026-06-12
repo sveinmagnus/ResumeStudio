@@ -23,6 +23,16 @@ describe('<ImportScreen>', () => {
     expect(screen.getByText(/drop your resume file here/i)).toBeInTheDocument()
   })
 
+  it('the drop zone is keyboard-operable and opens the file browser', async () => {
+    render(<ImportScreen onStartFresh={() => {}} onImported={() => {}} />)
+    const zone = screen.getByRole('button', { name: /choose a resume file/i })
+    const clickSpy = vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(() => {})
+    zone.focus()
+    await userEvent.keyboard('{Enter}')
+    expect(clickSpy).toHaveBeenCalled()
+    clickSpy.mockRestore()
+  })
+
   it('"Start with an empty resume" calls onStartFresh', async () => {
     const onStartFresh = vi.fn()
     render(<ImportScreen onStartFresh={onStartFresh} onImported={() => {}} />)
