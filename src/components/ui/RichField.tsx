@@ -1,4 +1,4 @@
-import { useId, useState, useRef, useLayoutEffect } from 'react'
+import { useEffect, useId, useState, useRef, useLayoutEffect } from 'react'
 import { Copy, Languages, Loader2, Bold, Italic, Underline, List, ListOrdered } from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import type { LocalizedString } from '../../types'
@@ -181,6 +181,29 @@ interface RichColumnProps {
 
 function RichColumn({ variant, locale, fieldLabel, html, onCommit, placeholder, header }: RichColumnProps) {
   const editorRef = useRef<HTMLDivElement>(null)
+  const [fmt, setFmt] = useState({ bold: false, italic: false, underline: false })
+
+  // Track the inline-format state at the caret so the toolbar toggles can
+  // expose aria-pressed. queryCommandState is deprecated alongside
+  // execCommand, but it is the matching primitive; guarded for jsdom.
+  useEffect(() => {
+    const update = () => {
+      const el = editorRef.current
+      if (!el || document.activeElement !== el) return
+      if (typeof document.queryCommandState !== 'function') return
+      try {
+        setFmt({
+          bold: document.queryCommandState('bold'),
+          italic: document.queryCommandState('italic'),
+          underline: document.queryCommandState('underline'),
+        })
+      } catch {
+        // Some engines throw for unfocused selections — keep the last state.
+      }
+    }
+    document.addEventListener('selectionchange', update)
+    return () => document.removeEventListener('selectionchange', update)
+  }, [])
 
   /**
    * We treat the contentEditable as uncontrolled: we set innerHTML manually
@@ -243,7 +266,7 @@ function RichColumn({ variant, locale, fieldLabel, html, onCommit, placeholder, 
         </span>
         {header}
       </div>
-      <Toolbar onCmd={exec} />
+      <Toolbar onCmd={exec} active={fmt} />
       <div
         ref={editorRef}
         className={`rf-input rf-${variant} ${isEmpty ? 'rf-empty' : ''}`}
@@ -302,12 +325,14 @@ function RichColumn({ variant, locale, fieldLabel, html, onCommit, placeholder, 
 
 type Cmd = 'bold' | 'italic' | 'underline' | 'insertUnorderedList' | 'insertOrderedList'
 
-function Toolbar({ onCmd }: { onCmd: (c: Cmd) => void }) {
+interface ToolbarActive { bold: boolean; italic: boolean; underline: boolean }
+
+function Toolbar({ onCmd, active }: { onCmd: (c: Cmd) => void; active: ToolbarActive }) {
   return (
     <div className="rf-toolbar" role="toolbar" aria-label="Formatting">
-      <ToolBtn label="Bold (Ctrl+B)" onClick={() => onCmd('bold')}><Bold size={13} /></ToolBtn>
-      <ToolBtn label="Italic (Ctrl+I)" onClick={() => onCmd('italic')}><Italic size={13} /></ToolBtn>
-      <ToolBtn label="Underline (Ctrl+U)" onClick={() => onCmd('underline')}><Underline size={13} /></ToolBtn>
+      <ToolBtn label="Bold (Ctrl+B)" pressed={active.bold} onClick={() => onCmd('bold')}><Bold size={13} /></ToolBtn>
+      <ToolBtn label="Italic (Ctrl+I)" pressed={active.italic} onClick={() => onCmd('italic')}><Italic size={13} /></ToolBtn>
+      <ToolBtn label="Underline (Ctrl+U)" pressed={active.underline} onClick={() => onCmd('underline')}><Underline size={13} /></ToolBtn>
       <span className="rf-tb-sep" />
       <ToolBtn label="Bulleted list" onClick={() => onCmd('insertUnorderedList')}><List size={13} /></ToolBtn>
       <ToolBtn label="Numbered list" onClick={() => onCmd('insertOrderedList')}><ListOrdered size={13} /></ToolBtn>
@@ -327,13 +352,16 @@ function Toolbar({ onCmd }: { onCmd: (c: Cmd) => void }) {
   )
 }
 
-function ToolBtn({ label, onClick, children }: { label: string; onClick: () => void; children: React.ReactNode }) {
+function ToolBtn({ label, pressed, onClick, children }: {
+  label: string; pressed?: boolean; onClick: () => void; children: React.ReactNode
+}) {
   return (
     <button
       type="button"
-      className="rf-tb-btn"
+      className={pressed ? 'rf-tb-btn rf-tb-on' : 'rf-tb-btn'}
       title={label}
       aria-label={label}
+      aria-pressed={pressed}
       // Prevent the click from stealing focus from the editor — execCommand
       // needs the contentEditable to remain the active element.
       onMouseDown={(e) => e.preventDefault()}
@@ -347,6 +375,7 @@ function ToolBtn({ label, onClick, children }: { label: string; onClick: () => v
         }
         .rf-tb-btn:hover { background: var(--paper-raised); color: var(--accent); }
         .rf-tb-btn:active { background: var(--accent-wash); }
+        .rf-tb-on { background: var(--accent-wash); color: var(--accent); }
       `}</style>
     </button>
   )
