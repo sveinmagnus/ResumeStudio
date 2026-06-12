@@ -57,7 +57,7 @@ function FilterBar({
           padding: 5px 10px; font-size: 12.5px; font-weight: 600;
           color: var(--ink-soft); background: transparent;
           border: 1px solid transparent; border-radius: var(--r-sm);
-          transition: all .12s; cursor: pointer;
+          transition: color .12s, background .12s, border-color .12s, box-shadow .12s; cursor: pointer;
         }
         .fb-btn:hover { background: var(--paper-raised); }
         .fb-btn.active {
@@ -887,7 +887,7 @@ function RegistryStyles() {
         display: flex; align-items: center; gap: 8px;
         width: 100%; text-align: left; padding: 6px 8px;
         border-radius: var(--r-sm); background: var(--paper-raised);
-        border: 1px solid transparent; transition: all .12s;
+        border: 1px solid transparent; transition: color .12s, background .12s, border-color .12s, box-shadow .12s;
         font-size: 13px; color: var(--ink); margin-bottom: 4px;
       }
       .ur-row:hover { border-color: var(--accent); color: var(--accent); }

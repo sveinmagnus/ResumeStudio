@@ -48,13 +48,13 @@ export function Styles() {
       .rv-btn-edit {
         display: inline-flex; align-items: center; gap: 6px; padding: 7px 13px;
         background: var(--accent-wash); color: var(--accent); border-radius: var(--r-sm);
-        font-size: 13px; font-weight: 600; transition: all .13s;
+        font-size: 13px; font-weight: 600; transition: color .13s, background .13s, border-color .13s, box-shadow .13s;
       }
       .rv-btn-edit:hover { background: var(--accent); color: #fff; }
       .rv-btn-del {
         display: inline-flex; align-items: center; justify-content: center;
         padding: 7px; border-radius: var(--r-sm); color: var(--ink-faint);
-        transition: all .13s; font-size: 13px;
+        transition: color .13s, background .13s, border-color .13s, box-shadow .13s; font-size: 13px;
       }
       .rv-btn-del:hover { background: #fee2e2; color: #b91c1c; }
 
@@ -66,7 +66,7 @@ export function Styles() {
       .rv-back-btn {
         display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px;
         background: var(--paper-sunken); border-radius: var(--r-sm);
-        font-size: 13px; color: var(--ink-soft); transition: all .13s;
+        font-size: 13px; color: var(--ink-soft); transition: color .13s, background .13s, border-color .13s, box-shadow .13s;
       }
       .rv-back-btn:hover { color: var(--accent); }
       .rv-editor-stats { flex: 1; font-size: 13px; color: var(--ink-faint); }
@@ -75,7 +75,7 @@ export function Styles() {
       .rv-prev-ctrl {
         display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px;
         background: var(--paper-sunken); border: 1px solid var(--line); border-radius: var(--r-sm);
-        font-size: 12.5px; font-weight: 600; color: var(--ink-soft); transition: all .13s;
+        font-size: 12.5px; font-weight: 600; color: var(--ink-soft); transition: color .13s, background .13s, border-color .13s, box-shadow .13s;
       }
       .rv-prev-ctrl:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-wash); }
 
@@ -116,7 +116,7 @@ export function Styles() {
       .rv-ord-btn {
         display: flex; align-items: center; justify-content: center;
         width: 22px; height: 22px; border-radius: var(--r-sm);
-        color: var(--ink-faint); transition: all .13s;
+        color: var(--ink-faint); transition: color .13s, background .13s, border-color .13s, box-shadow .13s;
       }
       .rv-ord-btn:hover:not(:disabled) { background: var(--paper-sunken); color: var(--ink); }
       .rv-ord-btn:disabled { opacity: .25; cursor: default; }
@@ -142,7 +142,7 @@ export function Styles() {
       .rv-detail-opt {
         padding: 4px 10px; font-size: 11px; font-weight: 600; letter-spacing: .04em;
         text-transform: uppercase; color: var(--ink-faint);
-        border-radius: 3px; transition: all .13s; min-width: 56px; text-align: center;
+        border-radius: 3px; transition: color .13s, background .13s, border-color .13s, box-shadow .13s; min-width: 56px; text-align: center;
       }
       .rv-detail-opt:hover { color: var(--accent); }
       .rv-detail-opt.is-active {
@@ -215,7 +215,7 @@ export function Styles() {
         display: inline-flex; align-items: center; gap: 6px;
         padding: 7px 12px; border-radius: var(--r-sm);
         background: var(--paper-sunken); color: var(--ink-soft);
-        font-size: 12px; font-weight: 600; transition: all .13s; margin-top: 10px;
+        font-size: 12px; font-weight: 600; transition: color .13s, background .13s, border-color .13s, box-shadow .13s; margin-top: 10px;
       }
       .rv-vs-reset:hover { color: var(--accent); background: var(--accent-wash); }
 
@@ -364,7 +364,7 @@ export function Styles() {
       .rv-preview-pages + .rv-preview-head-actions { margin-left: 10px; }
       .rv-preview-iconbtn {
         width: 28px; height: 26px; display: grid; place-items: center;
-        border-radius: var(--r-sm); color: var(--ink-faint); transition: all .13s;
+        border-radius: var(--r-sm); color: var(--ink-faint); transition: color .13s, background .13s, border-color .13s, box-shadow .13s;
       }
       .rv-preview-iconbtn:hover { background: var(--accent-wash); color: var(--accent); }
       .rv-preview-frame {

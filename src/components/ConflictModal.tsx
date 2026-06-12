@@ -129,7 +129,7 @@ export function ConflictModal({ mine, theirs, onResolve, onClose }: ConflictModa
         }
         .cm-head { display: flex; align-items: center; justify-content: space-between; }
         .cm-title { display: flex; align-items: center; gap: 8px; font-size: 18px; font-weight: 600; }
-        .cm-close { color: var(--ink-faint); padding: 4px; border-radius: var(--r-sm); transition: all .12s; }
+        .cm-close { color: var(--ink-faint); padding: 4px; border-radius: var(--r-sm); transition: color .12s, background .12s, border-color .12s, box-shadow .12s; }
         .cm-close:hover { background: var(--paper-sunken); color: var(--ink); }
         .cm-sub { font-size: 12.5px; color: var(--ink-soft); margin: 8px 0 16px; line-height: 1.5; }
         .cm-body { overflow-y: auto; overscroll-behavior: contain; }
@@ -174,7 +174,7 @@ export function ConflictModal({ mine, theirs, onResolve, onClose }: ConflictModa
         .cm-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
         .cm-discard {
           padding: 9px 16px; border-radius: var(--r-md); font-size: 13px; font-weight: 600;
-          border: 1.5px solid var(--line-strong); color: var(--ink-soft); transition: all .13s;
+          border: 1.5px solid var(--line-strong); color: var(--ink-soft); transition: color .13s, background .13s, border-color .13s, box-shadow .13s;
         }
         .cm-discard:hover { border-color: var(--err-ink); color: var(--err-ink); }
         .cm-keep {

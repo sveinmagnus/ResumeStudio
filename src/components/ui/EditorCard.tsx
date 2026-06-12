@@ -159,7 +159,7 @@ export function EditorCard({
         .ec-actions { display: flex; gap: 1px; }
         .ec-act {
           width: 30px; height: 30px; display: grid; place-items: center; border-radius: var(--r-sm);
-          color: var(--ink-faint); transition: all .13s;
+          color: var(--ink-faint); transition: color .13s, background .13s, border-color .13s, box-shadow .13s;
         }
         .ec-act:hover { background: var(--paper); color: var(--ink); }
         .ec-act.on { color: var(--gold); }
@@ -190,7 +190,7 @@ export function AddButton({ label, onClick }: { label: string; onClick: () => vo
         .add-btn {
           width: 100%; padding: 13px; border: 1.5px dashed var(--line-strong);
           border-radius: var(--r-md); color: var(--ink-soft); font-weight: 600; font-size: 14px;
-          transition: all .15s; background: transparent;
+          transition: color .15s, background .15s, border-color .15s, box-shadow .15s; background: transparent;
         }
         .add-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-wash); }
       `}</style>

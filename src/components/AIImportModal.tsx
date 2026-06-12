@@ -238,7 +238,7 @@ export function AIImportModal({ onImported, onClose }: AIImportModalProps) {
         .aim-head { display: flex; align-items: center; justify-content: space-between; }
         .aim-title { display: flex; align-items: center; gap: 8px; font-size: 18px; font-weight: 600; }
         .aim-title svg { color: var(--accent); }
-        .aim-close { color: var(--ink-faint); padding: 4px; border-radius: var(--r-sm); transition: all .12s; }
+        .aim-close { color: var(--ink-faint); padding: 4px; border-radius: var(--r-sm); transition: color .12s, background .12s, border-color .12s, box-shadow .12s; }
         .aim-close:hover { background: var(--paper-sunken); color: var(--ink); }
         .aim-body { overflow-y: auto; margin-top: 8px; }
         .aim-lede { font-size: 13px; color: var(--ink-soft); line-height: 1.55; margin-bottom: 16px; }
@@ -259,7 +259,7 @@ export function AIImportModal({ onImported, onClose }: AIImportModalProps) {
           display: inline-flex; align-items: center; gap: 6px;
           padding: 7px 13px; border-radius: var(--r-md);
           border: 1.5px solid var(--line-strong); color: var(--ink-soft);
-          font-size: 12.5px; font-weight: 600; transition: all .13s;
+          font-size: 12.5px; font-weight: 600; transition: color .13s, background .13s, border-color .13s, box-shadow .13s;
         }
         .aim-chip:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-wash); }
 
@@ -319,7 +319,7 @@ export function AIImportModal({ onImported, onClose }: AIImportModalProps) {
         .aim-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
         .aim-secondary {
           padding: 9px 16px; border-radius: var(--r-md); font-size: 13px; font-weight: 600;
-          border: 1.5px solid var(--line-strong); color: var(--ink-soft); transition: all .13s;
+          border: 1.5px solid var(--line-strong); color: var(--ink-soft); transition: color .13s, background .13s, border-color .13s, box-shadow .13s;
         }
         .aim-secondary:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
         .aim-secondary:disabled { opacity: .5; cursor: default; }

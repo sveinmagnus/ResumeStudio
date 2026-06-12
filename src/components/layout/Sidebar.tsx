@@ -212,7 +212,7 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps = {}) {
             display: none; width: 32px; height: 32px; place-items: center;
             border-radius: var(--r-sm);
             background: rgba(244,241,234,0.06); color: rgba(244,241,234,0.75);
-            transition: all .13s;
+            transition: color .13s, background .13s, border-color .13s, box-shadow .13s;
           }
           .sb-close:hover { background: rgba(244,241,234,0.14); color: #fff; }
 
@@ -226,7 +226,7 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps = {}) {
           .sb-item {
             display: flex; align-items: center; gap: 11px; width: 100%;
             padding: 8px 10px; border-radius: var(--r-sm); color: rgba(244,241,234,0.72);
-            font-size: 13.5px; font-weight: 500; text-align: left; transition: all .13s;
+            font-size: 13.5px; font-weight: 500; text-align: left; transition: color .13s, background .13s, border-color .13s, box-shadow .13s;
             margin-bottom: 1px;
           }
           .sb-item:hover { background: rgba(244,241,234,0.07); color: var(--paper); }
@@ -248,7 +248,7 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps = {}) {
             display: flex; align-items: center; gap: 9px; width: 100%;
             padding: 6px 10px; border-radius: var(--r-sm);
             color: rgba(244,241,234,0.62); font-size: 12.5px; font-weight: 500;
-            text-align: left; transition: all .13s; margin-bottom: 1px;
+            text-align: left; transition: color .13s, background .13s, border-color .13s, box-shadow .13s; margin-bottom: 1px;
           }
           .sb-subitem:hover { background: rgba(244,241,234,0.07); color: var(--paper); }
           .sb-subitem.active { background: var(--accent); color: #fff; }

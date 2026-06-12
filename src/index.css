@@ -105,6 +105,19 @@ h1,h2,h3,h4 { font-family: var(--serif); font-weight: 300; line-height: 1.1; }
 }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
+/* ── Reduced motion (WCAG 2.3.3) ──────────────────────────────────────────
+   Collapse every animation/transition to a near-zero tick rather than
+   `none`, so animationend/transitionend handlers still fire. Spinners
+   freeze to a static icon — each has a text sibling ("Saving…"). */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 /* ── Shared form widgets ─────────────────────────────────────────────── */
 
 /* Inline checkbox-with-label row used in several editors. */

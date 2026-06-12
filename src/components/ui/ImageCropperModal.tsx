@@ -306,7 +306,7 @@ export function ImageCropperModal({
         .imgcrop-sub   { font-size: 12px; color: var(--ink-soft); margin-top: 2px; }
         .imgcrop-x {
           background: transparent; padding: 4px; border-radius: var(--r-sm);
-          color: var(--ink-faint); transition: all .13s;
+          color: var(--ink-faint); transition: color .13s, background .13s, border-color .13s, box-shadow .13s;
         }
         .imgcrop-x:hover { background: var(--paper-sunken); color: var(--ink); }
         .imgcrop-error {
@@ -361,7 +361,7 @@ export function ImageCropperModal({
           display: inline-grid; place-items: center;
           width: 28px; height: 28px;
           background: var(--paper-sunken); color: var(--ink);
-          border-radius: var(--r-sm); transition: all .13s;
+          border-radius: var(--r-sm); transition: color .13s, background .13s, border-color .13s, box-shadow .13s;
         }
         .imgcrop-iconbtn:hover:not(:disabled) { background: var(--accent-wash); color: var(--accent); }
         .imgcrop-iconbtn:disabled { opacity: .4; cursor: not-allowed; }
@@ -374,7 +374,7 @@ export function ImageCropperModal({
         .imgcrop-btn {
           display: inline-flex; align-items: center; gap: 6px;
           padding: 8px 14px; border-radius: var(--r-sm);
-          font-size: 13px; font-weight: 600; transition: all .13s;
+          font-size: 13px; font-weight: 600; transition: color .13s, background .13s, border-color .13s, box-shadow .13s;
         }
         .imgcrop-cancel { background: var(--paper-sunken); color: var(--ink); }
         .imgcrop-cancel:hover:not(:disabled) { background: var(--line); }

@@ -150,7 +150,7 @@ export function RichField({ label, value, onChange, placeholder }: RichFieldProp
           padding: 2px 7px; border-radius: var(--r-sm);
           font-size: 11px; font-weight: 600; color: var(--ink-soft);
           background: var(--paper-sunken); border: 1px solid var(--line);
-          transition: all .12s; cursor: pointer;
+          transition: color .12s, background .12s, border-color .12s, box-shadow .12s; cursor: pointer;
         }
         .rf-assist-btn:hover:not(:disabled) { border-color: var(--secondary-ink); color: var(--secondary-ink-text); }
         .rf-assist-btn:disabled { opacity: .4; cursor: default; }
@@ -343,7 +343,7 @@ function ToolBtn({ label, onClick, children }: { label: string; onClick: () => v
       <style>{`
         .rf-tb-btn {
           width: 26px; height: 24px; display: grid; place-items: center;
-          color: var(--ink-soft); border-radius: 3px; transition: all .12s;
+          color: var(--ink-soft); border-radius: 3px; transition: color .12s, background .12s, border-color .12s, box-shadow .12s;
         }
         .rf-tb-btn:hover { background: var(--paper-raised); color: var(--accent); }
         .rf-tb-btn:active { background: var(--accent-wash); }

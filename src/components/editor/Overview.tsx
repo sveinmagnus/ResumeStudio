@@ -184,7 +184,7 @@ export function Overview() {
         .ov-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin-bottom: 14px; }
         .ov-stat {
           background: var(--paper-raised); border: 1px solid var(--line); border-radius: var(--r-md);
-          padding: 18px; text-align: left; transition: all .15s;
+          padding: 18px; text-align: left; transition: color .15s, background .15s, border-color .15s, box-shadow .15s, transform .15s;
         }
         .ov-stat:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: var(--shadow-md); }
         .ov-stat-count { font-family: var(--serif); font-size: 36px; color: var(--accent); line-height: 1; }
@@ -243,7 +243,7 @@ export function Overview() {
           display: flex; align-items: baseline; gap: 8px;
           width: 100%; padding: 4px 12px; border-radius: var(--r-sm);
           background: transparent; text-align: left; font-size: 13px;
-          color: var(--ink-soft); transition: all .12s;
+          color: var(--ink-soft); transition: color .12s, background .12s, border-color .12s, box-shadow .12s;
         }
         .ov-missing-row:hover { background: var(--accent-wash); color: var(--accent); }
         .ov-missing-item { font-weight: 500; color: var(--ink); }
@@ -312,7 +312,7 @@ function LocaleMenu({ locale, open, setOpen, onWipe, onShowCoverage }: LocaleMen
         .ov-menu-wrap { position: relative; flex-shrink: 0; }
         .ov-menu-trigger {
           width: 28px; height: 28px; display: grid; place-items: center;
-          border-radius: var(--r-sm); color: var(--ink-faint); transition: all .12s;
+          border-radius: var(--r-sm); color: var(--ink-faint); transition: color .12s, background .12s, border-color .12s, box-shadow .12s;
         }
         .ov-menu-trigger:hover { background: var(--paper-sunken); color: var(--accent); }
         .ov-menu {
@@ -486,7 +486,7 @@ function SectionCoverageModal({ locale, rows, onClose, onGo }: CoverageProps) {
         .ov-cov-sub { font-size: 12.5px; color: var(--ink-faint); margin-top: 4px; }
         .ov-cov-close {
           width: 30px; height: 30px; display: grid; place-items: center;
-          border-radius: var(--r-sm); color: var(--ink-faint); transition: all .12s;
+          border-radius: var(--r-sm); color: var(--ink-faint); transition: color .12s, background .12s, border-color .12s, box-shadow .12s;
         }
         .ov-cov-close:hover { background: var(--paper-sunken); color: var(--accent); }
       `}</style>

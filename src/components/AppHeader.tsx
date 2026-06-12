@@ -145,7 +145,7 @@ export function AppHeader({
           border-radius: var(--r-sm);
           border: 1px solid var(--line); background: var(--paper-raised);
           color: var(--ink-soft); margin-bottom: 6px;
-          transition: all .13s;
+          transition: color .13s, background .13s, border-color .13s, box-shadow .13s;
         }
         .ah-menu:hover { color: var(--accent); border-color: var(--accent); }
 
@@ -164,20 +164,20 @@ export function AppHeader({
         }
         .ah-hist-btn {
           width: 30px; height: 32px; display: grid; place-items: center;
-          color: var(--ink-soft); transition: all .13s;
+          color: var(--ink-soft); transition: color .13s, background .13s, border-color .13s, box-shadow .13s;
         }
         .ah-hist-btn:hover:not(:disabled) { background: var(--accent-wash); color: var(--accent); }
         .ah-hist-btn:disabled { opacity: .3; cursor: default; }
         .ah-btn-secondary {
           display: inline-flex; align-items: center; gap: 7px; padding: 9px 14px;
           border: 1.5px solid var(--line-strong); border-radius: var(--r-md);
-          font-weight: 600; font-size: 13px; color: var(--ink-soft); transition: all .15s;
+          font-weight: 600; font-size: 13px; color: var(--ink-soft); transition: color .15s, background .15s, border-color .15s, box-shadow .15s;
         }
         .ah-btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
         .ah-export {
           display: inline-flex; align-items: center; gap: 7px; padding: 11px 18px;
           background: var(--ink); color: var(--paper); border-radius: var(--r-md);
-          font-weight: 600; font-size: 14px; transition: all .15s;
+          font-weight: 600; font-size: 14px; transition: color .15s, background .15s, border-color .15s, box-shadow .15s;
         }
         .ah-export:hover { background: var(--accent); }
 
@@ -296,7 +296,7 @@ function ResumeSwitcher({ resumeId, onUnauthorized }: ResumeSwitcherProps) {
           padding: 4px 10px; border-radius: var(--r-sm);
           color: var(--ink-soft); font-size: 12px; font-weight: 600;
           background: var(--paper-raised); border: 1px solid var(--line);
-          transition: all .13s; max-width: 240px;
+          transition: color .13s, background .13s, border-color .13s, box-shadow .13s; max-width: 240px;
         }
         .rsw-trigger:hover { border-color: var(--accent); color: var(--accent); }
         .rsw-current {

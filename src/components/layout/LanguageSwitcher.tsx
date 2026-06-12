@@ -109,7 +109,7 @@ export function LanguageSwitcher() {
         .lang-swap {
           width: 32px; height: 32px; display: grid; place-items: center; margin-bottom: 1px;
           border-radius: var(--r-sm); background: var(--paper-sunken); color: var(--ink-soft);
-          transition: all .15s;
+          transition: color .15s, background .15s, border-color .15s, box-shadow .15s;
         }
         .lang-swap:hover:not(:disabled) { background: var(--accent); color: var(--paper-raised); }
         .lang-swap:disabled { opacity: .3; cursor: default; }
@@ -122,7 +122,7 @@ export function LanguageSwitcher() {
         .lang-detect {
           width: 32px; height: 32px; display: grid; place-items: center; margin-bottom: 1px;
           border-radius: var(--r-sm); background: var(--paper-sunken); color: var(--ink-soft);
-          transition: all .15s;
+          transition: color .15s, background .15s, border-color .15s, box-shadow .15s;
         }
         .lang-detect:hover { color: var(--accent); background: var(--accent-wash); }
 

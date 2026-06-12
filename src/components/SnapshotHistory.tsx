@@ -127,7 +127,7 @@ export function SnapshotHistory({ resumeId, onClose, onUnauthorized }: SnapshotH
         }
         .sh-head { display: flex; align-items: center; justify-content: space-between; }
         .sh-title { display: flex; align-items: center; gap: 8px; font-size: 18px; font-weight: 600; }
-        .sh-close { color: var(--ink-faint); padding: 4px; border-radius: var(--r-sm); transition: all .12s; }
+        .sh-close { color: var(--ink-faint); padding: 4px; border-radius: var(--r-sm); transition: color .12s, background .12s, border-color .12s, box-shadow .12s; }
         .sh-close:hover { background: var(--paper-sunken); color: var(--ink); }
         .sh-sub { font-size: 12.5px; color: var(--ink-soft); margin: 8px 0 16px; line-height: 1.5; }
         .sh-body { overflow-y: auto; overscroll-behavior: contain; }
@@ -152,7 +152,7 @@ export function SnapshotHistory({ resumeId, onClose, onUnauthorized }: SnapshotH
         .sh-restore {
           display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0;
           padding: 7px 13px; background: var(--accent-wash); color: var(--accent);
-          border-radius: var(--r-sm); font-size: 13px; font-weight: 600; transition: all .13s;
+          border-radius: var(--r-sm); font-size: 13px; font-weight: 600; transition: color .13s, background .13s, border-color .13s, box-shadow .13s;
         }
         .sh-restore:hover:not(:disabled) { background: var(--accent); color: #fff; }
         .sh-restore:disabled { opacity: .5; cursor: default; }

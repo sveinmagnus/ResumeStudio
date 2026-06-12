@@ -125,7 +125,7 @@ export function ImageField({
         .imgf-btn {
           display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px;
           background: var(--accent-wash); color: var(--accent); border-radius: var(--r-sm);
-          font-size: 12.5px; font-weight: 600; transition: all .13s;
+          font-size: 12.5px; font-weight: 600; transition: color .13s, background .13s, border-color .13s, box-shadow .13s;
         }
         .imgf-btn:hover:not(:disabled) { background: var(--accent); color: #fff; }
         .imgf-btn:disabled { opacity: .6; cursor: progress; }

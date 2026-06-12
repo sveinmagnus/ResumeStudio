@@ -236,7 +236,7 @@ export function DualField({ label, value, onChange, multiline, rows = 3, placeho
           padding: 2px 7px; border-radius: var(--r-sm);
           font-size: 11px; font-weight: 600; color: var(--ink-soft);
           background: var(--paper-sunken); border: 1px solid var(--line);
-          transition: all .12s; cursor: pointer;
+          transition: color .12s, background .12s, border-color .12s, box-shadow .12s; cursor: pointer;
         }
         .df-assist-btn:hover:not(:disabled) { border-color: var(--secondary-ink); color: var(--secondary-ink-text); }
         .df-assist-btn:disabled { opacity: .4; cursor: default; }

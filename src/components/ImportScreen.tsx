@@ -210,7 +210,7 @@ export function ImportScreen({ compact = false, onStartFresh, onImported }: Impo
         /* Drop zone */
         .is-drop {
           border: 2px dashed var(--line-strong); border-radius: var(--r-lg);
-          padding: 40px 30px; cursor: pointer; transition: all .2s; background: var(--paper-raised);
+          padding: 40px 30px; cursor: pointer; transition: color .2s, background .2s, border-color .2s, box-shadow .2s, transform .2s; background: var(--paper-raised);
         }
         .is-drop:hover, .is-drop.drag, .is-drop:focus-visible {
           border-color: var(--accent); background: var(--accent-wash);
@@ -257,7 +257,7 @@ export function ImportScreen({ compact = false, onStartFresh, onImported }: Impo
           justify-content: center; padding: 11px 22px; border-radius: var(--r-md);
           border: 1.5px solid var(--accent); background: var(--accent-wash);
           font-size: 14px; font-weight: 600; color: var(--accent);
-          transition: all .15s; margin-bottom: 10px;
+          transition: color .15s, background .15s, border-color .15s, box-shadow .15s; margin-bottom: 10px;
         }
         .is-ai:hover { background: var(--accent); color: #fff; }
         .is-ai svg { flex-shrink: 0; }
@@ -268,7 +268,7 @@ export function ImportScreen({ compact = false, onStartFresh, onImported }: Impo
           justify-content: center; padding: 11px 22px; border-radius: var(--r-md);
           border: 1.5px solid var(--line-strong);
           font-size: 14px; font-weight: 600; color: var(--ink-soft);
-          transition: all .15s;
+          transition: color .15s, background .15s, border-color .15s, box-shadow .15s;
         }
         .is-fresh:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-wash); }
         .is-fresh svg { flex-shrink: 0; }
