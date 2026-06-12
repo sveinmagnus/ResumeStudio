@@ -1,8 +1,8 @@
-import { useState, useLayoutEffect, useRef } from 'react'
+import { useId, useState, useLayoutEffect, useRef } from 'react'
 import { Copy, Languages, Loader2 } from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import type { LocalizedString } from '../../types'
-import { LOCALE_LABELS } from '../../lib/locales'
+import { LOCALE_LABELS, bcp47 } from '../../lib/locales'
 import { api } from '../../lib/api'
 import { canDraftBetween } from '../../lib/translateClient'
 import { useTranslationAvailable } from '../../store/useTranslation'
@@ -21,12 +21,15 @@ function autoSize(el: HTMLTextAreaElement | null) {
 }
 
 function AutoTextarea({
-  value, rows, placeholder, className, onChange,
+  id, value, rows, placeholder, className, lang, ariaLabel, onChange,
 }: {
+  id?: string
   value: string
   rows: number
   placeholder: string
   className: string
+  lang?: string
+  ariaLabel?: string
   onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void
 }) {
   const ref = useRef<HTMLTextAreaElement>(null)
@@ -36,10 +39,13 @@ function AutoTextarea({
   return (
     <textarea
       ref={ref}
+      id={id}
       value={value}
       rows={rows}
       placeholder={placeholder}
       className={className}
+      lang={lang}
+      aria-label={ariaLabel}
       onChange={(e) => { onChange(e); autoSize(e.currentTarget) }}
       style={{ overflow: 'hidden', resize: 'none' }}
     />
@@ -71,6 +77,7 @@ export function DualField({ label, value, onChange, multiline, rows = 3, placeho
   const primary = useStore((s) => s.primaryLocale)
   const secondary = useStore((s) => s.secondaryLocale)
   const translationAvailable = useTranslationAvailable()
+  const fieldId = useId()
 
   const [busy, setBusy] = useState(false)
   const [drafted, setDrafted] = useState(false)
@@ -121,23 +128,35 @@ export function DualField({ label, value, onChange, multiline, rows = 3, placeho
     const v = value[locale] || ''
     const ph = placeholder || `${LOCALE_LABELS[locale]?.name || locale}…`
     const cls = `df-input df-${variant}`
+    // Each input gets its own accessible name ("Job title (Norsk)") since the
+    // visual label is shared by two inputs, plus a `lang` so screen readers
+    // and the browser spell-checker switch language per column (WCAG 3.1.2).
+    const inputId = `${fieldId}-${variant}`
+    const localeName = LOCALE_LABELS[locale]?.name || locale
+    const ariaLabel = `${label} (${localeName})`
     if (multiline) {
       return (
         <AutoTextarea
+          id={inputId}
           value={v}
           rows={rows}
           placeholder={ph}
           className={cls}
+          lang={bcp47(locale)}
+          ariaLabel={ariaLabel}
           onChange={(e) => handleChange(locale, variant, e.target.value)}
         />
       )
     }
     return (
       <input
+        id={inputId}
         type="text"
         value={v}
         placeholder={ph}
         className={cls}
+        lang={bcp47(locale)}
+        aria-label={ariaLabel}
         onChange={(e) => handleChange(locale, variant, e.target.value)}
       />
     )
@@ -147,7 +166,7 @@ export function DualField({ label, value, onChange, multiline, rows = 3, placeho
 
   return (
     <div className="df-wrap">
-      <label className="df-label">{label}</label>
+      <label className="df-label" htmlFor={`${fieldId}-primary`}>{label}</label>
       <div className={`df-grid ${secondary ? 'df-dual' : 'df-single'}`}>
         <div className="df-col">
           <div className="df-col-head">

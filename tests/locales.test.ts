@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { resolve, fmtDate, fmtRange, fmtRelativeTime, LOCALE_LABELS, detectLocalesInData, sortLocales } from '../src/lib/locales'
+import { resolve, fmtDate, fmtRange, fmtRelativeTime, LOCALE_LABELS, detectLocalesInData, sortLocales, bcp47 } from '../src/lib/locales'
 import { emptyStore, makeProject, makeWork } from './fixtures'
 
 describe('fmtRelativeTime()', () => {
@@ -24,6 +24,19 @@ describe('fmtRelativeTime()', () => {
   it('handles future timestamps and invalid input gracefully', () => {
     expect(fmtRelativeTime('2026-06-01T12:00:00Z', now)).toBe('just now')
     expect(fmtRelativeTime('not-a-date', now)).toBe('')
+  })
+})
+
+describe('bcp47()', () => {
+  it('maps the CVpartner country-style codes to language tags', () => {
+    expect(bcp47('se')).toBe('sv') // BCP-47 `se` would be Northern Sami
+    expect(bcp47('dk')).toBe('da')
+  })
+
+  it('passes valid ISO 639-1 codes through untouched', () => {
+    expect(bcp47('en')).toBe('en')
+    expect(bcp47('no')).toBe('no')
+    expect(bcp47('de')).toBe('de')
   })
 })
 

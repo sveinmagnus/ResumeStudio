@@ -22,6 +22,20 @@ export const LOCALE_LABELS: Record<string, { name: string; flag: string }> = {
   hi: { name: 'हिन्दी', flag: '🇮🇳' },
 }
 
+/**
+ * App locale code → BCP-47 language tag for HTML `lang` attributes.
+ * The CVpartner-derived codes `se`/`dk` are *country* codes, not language
+ * codes (BCP-47 `se` is Northern Sami; `dk` is unassigned) — map them to
+ * Swedish/Danish so screen readers pick the right voice and the browser
+ * spell-checker picks the right dictionary. Everything else in
+ * LOCALE_LABELS is already a valid ISO 639-1 code.
+ */
+export function bcp47(locale: string): string {
+  if (locale === 'se') return 'sv'
+  if (locale === 'dk') return 'da'
+  return locale
+}
+
 /** Resolve a localized string for display with fallback chain. */
 export function resolve(ls: LocalizedString | undefined, locale: string, fallback = 'en'): string {
   if (!ls) return ''

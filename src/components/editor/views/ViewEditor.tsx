@@ -246,8 +246,9 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
 
       {/* ── Name ── */}
       <div className="rv-section-block">
-        <label className="rv-field-label">View name</label>
+        <label className="rv-field-label" htmlFor="rv-name-input">View name</label>
         <input
+          id="rv-name-input"
           className="rv-name-input"
           value={view.name}
           onChange={(e) => onUpdate({ name: e.target.value })}
@@ -336,10 +337,10 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
             return (
               <div key={vs.key} className={`rv-sec-row ${off ? 'rv-sec-off' : 'rv-sec-on'}`}>
                 <div className="rv-sec-controls">
-                  <button className="rv-ord-btn" onClick={() => moveSection(vs.key, 'up')} disabled={idx === 0}>
+                  <button className="rv-ord-btn" aria-label={`Move ${def.label} up`} onClick={() => moveSection(vs.key, 'up')} disabled={idx === 0}>
                     <ChevronUp size={14} />
                   </button>
-                  <button className="rv-ord-btn" onClick={() => moveSection(vs.key, 'down')} disabled={idx === sections.length - 1}>
+                  <button className="rv-ord-btn" aria-label={`Move ${def.label} down`} onClick={() => moveSection(vs.key, 'down')} disabled={idx === sections.length - 1}>
                     <ChevronDown size={14} />
                   </button>
                 </div>
@@ -459,6 +460,7 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
         <div className="rv-export-row">
           <select
             className="rv-locale-select"
+            aria-label="Export language"
             value={exportLocale}
             onChange={(e) => setExportLocale(e.target.value)}
           >

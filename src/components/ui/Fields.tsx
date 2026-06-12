@@ -1,3 +1,4 @@
+import { useId } from 'react'
 import type { YearMonth } from '../../types'
 
 // ─── Plain text field (not localized) ─────────────────────────────────────────
@@ -5,10 +6,11 @@ import type { YearMonth } from '../../types'
 export function TextField({ label, value, onChange, placeholder, type = 'text' }: {
   label: string; value: string; onChange: (v: string) => void; placeholder?: string; type?: string
 }) {
+  const id = useId()
   return (
     <div className="pf-wrap">
-      <label className="pf-label">{label}</label>
-      <input className="pf-input" type={type} value={value} placeholder={placeholder}
+      <label className="pf-label" htmlFor={id}>{label}</label>
+      <input id={id} className="pf-input" type={type} value={value} placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)} />
       <PlainStyles />
     </div>
@@ -21,17 +23,20 @@ export function DateField({ label, value, onChange, allowOngoing }: {
   label: string; value: YearMonth | null; onChange: (v: YearMonth | null) => void; allowOngoing?: boolean
 }) {
   const months = ['—','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+  const yearId = useId()
   return (
     <div className="pf-wrap">
-      <label className="pf-label">{label}</label>
+      <label className="pf-label" htmlFor={yearId}>{label}</label>
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-        <input className="pf-input" type="number" placeholder="Year" style={{ width: 80 }}
+        <input id={yearId} className="pf-input" type="number" placeholder="Year" style={{ width: 80 }}
+          aria-label={`${label} — year`}
           value={value?.year || ''} onChange={(e) => {
             const y = parseInt(e.target.value)
             if (!y) { if (allowOngoing) onChange(null); return }
             onChange({ year: y, month: value?.month ?? null })
           }} />
         <select className="pf-input" style={{ width: 90 }} value={value?.month ?? 0}
+          aria-label={`${label} — month`}
           onChange={(e) => {
             const m = parseInt(e.target.value)
             if (value?.year) onChange({ year: value.year, month: m || null })
@@ -60,17 +65,18 @@ export function TagField({ label, tags, onChange, suggestions = [] }: {
     const v = t.trim().toLowerCase()
     if (v && !tags.includes(v)) onChange([...tags, v])
   }
+  const inputId = useId()
   return (
     <div className="pf-wrap">
-      <label className="pf-label">{label}</label>
+      <label className="pf-label" htmlFor={inputId}>{label}</label>
       <div className="tag-box">
         {tags.map((t) => (
           <span key={t} className="tag-chip">
             {t}
-            <button onClick={() => onChange(tags.filter((x) => x !== t))}>×</button>
+            <button aria-label={`Remove ${t}`} onClick={() => onChange(tags.filter((x) => x !== t))}>×</button>
           </span>
         ))}
-        <input className="tag-input" placeholder="add tag…"
+        <input id={inputId} className="tag-input" placeholder="add tag…"
           list="tag-suggestions"
           onKeyDown={(e) => {
             if (e.key === 'Enter' || e.key === ',') {

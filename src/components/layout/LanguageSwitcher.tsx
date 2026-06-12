@@ -16,8 +16,8 @@ export function LanguageSwitcher() {
   return (
     <div className="lang-switch">
       <div className="lang-block">
-        <span className="lang-role">Primary</span>
-        <select value={primaryLocale} onChange={(e) => setPrimaryLocale(e.target.value)} className="lang-sel lang-sel-primary">
+        <label className="lang-role" htmlFor="lang-sel-primary">Primary</label>
+        <select id="lang-sel-primary" value={primaryLocale} onChange={(e) => setPrimaryLocale(e.target.value)} className="lang-sel lang-sel-primary">
           {locales.map((l) => (
             <option key={l} value={l} disabled={l === secondaryLocale}>
               {LOCALE_LABELS[l]?.flag} {LOCALE_LABELS[l]?.name || l}
@@ -26,14 +26,15 @@ export function LanguageSwitcher() {
         </select>
       </div>
 
-      <button className="lang-swap" onClick={swap} disabled={!secondaryLocale} title="Swap languages">
+      <button className="lang-swap" onClick={swap} disabled={!secondaryLocale} title="Swap languages" aria-label="Swap primary and secondary languages">
         <ArrowLeftRight size={15} />
       </button>
 
       <div className="lang-block">
-        <span className="lang-role lang-role-sec">Secondary</span>
+        <label className="lang-role lang-role-sec" htmlFor="lang-sel-secondary">Secondary</label>
         <div style={{ display: 'flex', gap: 4 }}>
           <select
+            id="lang-sel-secondary"
             value={secondaryLocale || ''}
             onChange={(e) => setSecondaryLocale(e.target.value || null)}
             className="lang-sel lang-sel-secondary">
@@ -47,7 +48,8 @@ export function LanguageSwitcher() {
           <button
             className="lang-toggle"
             onClick={() => setSecondaryLocale(secondaryLocale ? null : (locales.find((l) => l !== primaryLocale) || null))}
-            title={secondaryLocale ? 'Hide secondary column' : 'Show secondary column'}>
+            title={secondaryLocale ? 'Hide secondary column' : 'Show secondary column'}
+            aria-label={secondaryLocale ? 'Hide secondary column' : 'Show secondary column'}>
             {secondaryLocale ? <Eye size={14} /> : <EyeOff size={14} />}
           </button>
         </div>
@@ -55,8 +57,9 @@ export function LanguageSwitcher() {
 
       {addable.length > 0 && (
         <div className="lang-block">
-          <span className="lang-role lang-role-add">Add</span>
+          <label className="lang-role lang-role-add" htmlFor="lang-sel-add">Add</label>
           <select
+            id="lang-sel-add"
             className="lang-sel lang-add"
             value=""
             onChange={(e) => { if (e.target.value) addSupportedLocale(e.target.value) }}
@@ -76,6 +79,7 @@ export function LanguageSwitcher() {
         className="lang-detect"
         onClick={detectAndSetLocales}
         title="Re-scan content for languages and update the list"
+        aria-label="Re-detect languages from content"
       >
         <RefreshCw size={13} />
       </button>

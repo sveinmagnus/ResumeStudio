@@ -46,23 +46,29 @@ export function AuthGate({ onSubmit }: AuthGateProps) {
           This instance is protected. Enter your API token to continue.
         </p>
 
-        <input
-          className="auth-input"
-          type="password"
-          placeholder="Paste token here…"
-          value={tokenInput}
-          onChange={(e) => setTokenInput(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') void handleSubmit() }}
-          autoFocus
-        />
-        {authError && <div className="auth-error">{authError}</div>}
-        <button
-          className="auth-submit"
-          onClick={() => void handleSubmit()}
-          disabled={!tokenInput.trim()}
+        <form
+          onSubmit={(e) => { e.preventDefault(); void handleSubmit() }}
         >
-          Connect
-        </button>
+          <input
+            className="auth-input"
+            type="password"
+            placeholder="Paste token here…"
+            aria-label="API token"
+            autoComplete="off"
+            spellCheck={false}
+            value={tokenInput}
+            onChange={(e) => setTokenInput(e.target.value)}
+            autoFocus
+          />
+          {authError && <div className="auth-error">{authError}</div>}
+          <button
+            type="submit"
+            className="auth-submit"
+            disabled={!tokenInput.trim()}
+          >
+            Connect
+          </button>
+        </form>
         <button
           className="auth-clear"
           onClick={() => {
