@@ -43,7 +43,7 @@ units:
     intent: "How does the portable desktop build work — building, data dirs, cloud-folder sync, tray, and auto-update?"
     scope: project
     audience: [human, developer, agent]
-    validated: "2026-06-10"
+    validated: "2026-06-12"
     update_frequency: monthly
     depends_on: [readme]
     triggers: [desktop, launcher, portable, tray, auto-update, sync, backup-folder]

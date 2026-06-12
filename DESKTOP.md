@@ -232,8 +232,11 @@ Electron. Because a running program can't overwrite its own files (especially
 the Node binary on Windows, which is locked while running), the install hands
 off to a tiny helper script (a visible PowerShell window on Windows) that waits
 for the app to exit, copies the new files with a progress bar, and relaunches.
-The downloaded asset is a `.tar.gz` (extracted with the system `tar`, present on
-Windows 10+/macOS/Linux).
+On Windows the relaunch uses the **no-window launcher** (`Resume Studio
+(no window).vbs`), so after an update the app runs without a console window —
+exactly as if you had started it windowless yourself; quit it from the tray
+icon as usual. The downloaded asset is a `.tar.gz` (extracted with the system
+`tar`, present on Windows 10+/macOS/Linux).
 
 > The desktop build is **not code-signed**. The updater swaps files inside the
 > app folder you already trust and relaunches directly, which avoids the
