@@ -65,3 +65,14 @@ export const GROUP_LABELS: Record<string, string> = {
   registry: 'Reusable Registries',
   export: 'Export',
 }
+
+/**
+ * Sidebar display order for the groups. Export-first: once a resume exists,
+ * extracting a targeted CV (Resume Views) is the most frequent task, so it
+ * sits at the top of the nav. Deliberately decoupled from SECTIONS array
+ * order — that order feeds the view editor's default section sequence and
+ * must stay content-shaped.
+ */
+export const GROUP_ORDER: Array<SectionDef['group']> = [
+  'export', 'profile', 'experience', 'credentials', 'extras', 'registry',
+]

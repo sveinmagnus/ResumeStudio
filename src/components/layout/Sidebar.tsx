@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { useStore } from '../../store/useStore'
-import { SECTIONS, GROUP_LABELS } from '../../lib/sections'
+import { SECTIONS, GROUP_LABELS, GROUP_ORDER } from '../../lib/sections'
 import {
   LayoutDashboard, User, FileText, Briefcase, Building2, Users,
   GraduationCap, BookOpen, Award, Layers, Languages, Presentation,
@@ -58,6 +58,11 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps = {}) {
     (acc[s.group] ||= []).push(s)
     return acc
   }, {})
+  // Render groups in GROUP_ORDER (export-first), not SECTIONS order.
+  const groupedEntries = GROUP_ORDER.flatMap((g) => {
+    const items = grouped[g]
+    return items && items.length > 0 ? [[g, items] as const] : []
+  })
 
   // Wrap navigation handlers so a click closes the drawer on mobile. On
   // desktop onClose is still called but the sidebar is always visible, so it's
@@ -105,7 +110,7 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps = {}) {
 
         {/* ── Section navigation ───────────────────────────────────────── */}
         <nav className="sb-nav">
-          {Object.entries(grouped).map(([group, items]) => (
+          {groupedEntries.map(([group, items]) => (
             <div key={group} className="sb-group">
               <div className="sb-group-label">{GROUP_LABELS[group]}</div>
               {items.map((s) => {

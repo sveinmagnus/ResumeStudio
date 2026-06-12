@@ -26,6 +26,16 @@ describe('<Sidebar>', () => {
     expect(screen.getByRole('button', { name: /Projects\s*2/ })).toBeInTheDocument()
   })
 
+  it('renders the Export group first (Resume Views at the top of the nav)', () => {
+    seed()
+    render(<Sidebar />)
+    const labels = Array.from(document.querySelectorAll('.sb-group-label')).map((el) => el.textContent)
+    expect(labels[0]).toBe('Export')
+    // The first nav item inside the first group is Resume Views.
+    const firstGroup = document.querySelector('.sb-group')
+    expect(firstGroup?.textContent).toContain('Resume Views')
+  })
+
   it('navigates on click', async () => {
     seed()
     render(<Sidebar />)
