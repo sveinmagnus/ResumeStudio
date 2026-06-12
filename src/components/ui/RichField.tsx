@@ -135,7 +135,7 @@ export function RichField({ label, value, onChange, placeholder }: RichFieldProp
       </div>
 
       <style>{`
-        .rf-wrap { margin-bottom: 18px; animation: fadeIn .3s ease; }
+        .rf-wrap { margin-bottom: 18px; animation: fadeIn .3s ease; container-type: inline-size; }
         .rf-label {
           display: block; font-size: 11px; font-weight: 600; letter-spacing: .08em;
           text-transform: uppercase; color: var(--ink-faint); margin-bottom: 7px;
@@ -143,6 +143,11 @@ export function RichField({ label, value, onChange, placeholder }: RichFieldProp
         .rf-grid { display: grid; gap: 12px; }
         .rf-dual { grid-template-columns: 1fr 1fr; }
         .rf-single { grid-template-columns: 1fr; }
+        /* Reflow (WCAG 1.4.10): stack the locale columns when the field is
+           narrow — same container query as DualField. */
+        @container (max-width: 560px) {
+          .rf-dual { grid-template-columns: 1fr; }
+        }
         .rf-sec-col { display: flex; flex-direction: column; gap: 4px; }
         .rf-actions { display: flex; align-items: center; gap: 4px; }
         .rf-assist-btn {

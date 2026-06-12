@@ -212,7 +212,7 @@ export function DualField({ label, value, onChange, multiline, rows = 3, placeho
       </div>
 
       <style>{`
-        .df-wrap { margin-bottom: 18px; animation: fadeIn .3s ease; }
+        .df-wrap { margin-bottom: 18px; animation: fadeIn .3s ease; container-type: inline-size; }
         .df-label {
           display: block; font-size: 11px; font-weight: 600; letter-spacing: .08em;
           text-transform: uppercase; color: var(--ink-faint); margin-bottom: 7px;
@@ -220,6 +220,14 @@ export function DualField({ label, value, onChange, multiline, rows = 3, placeho
         .df-grid { display: grid; gap: 12px; }
         .df-dual { grid-template-columns: 1fr 1fr; }
         .df-single { grid-template-columns: 1fr; }
+        /* Reflow (WCAG 1.4.10): below ~560px of available width — a phone, or
+           a laptop at 200% zoom — the two locale columns stack vertically
+           instead of squeezing side by side. Container query, so it also
+           applies when the field sits in a narrow pane (e.g. the view editor
+           next to its preview). */
+        @container (max-width: 560px) {
+          .df-dual { grid-template-columns: 1fr; }
+        }
         .df-col { display: flex; flex-direction: column; gap: 4px; position: relative; }
         .df-col-head {
           display: flex; align-items: center; justify-content: space-between;
