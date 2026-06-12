@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo, KeyboardEvent } from 'react'
+import { useId, useState, useRef, useEffect, useMemo, KeyboardEvent } from 'react'
 import { Plus } from 'lucide-react'
 
 /**
@@ -80,6 +80,7 @@ export function Autocomplete({
   const [extras, setExtras] = useState<string[]>([])
   const wrapRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const listId = useId()
 
   // Debounced async enrichment (taxonomy suggestions). A stale response is
   // ignored via the cancelled flag; suggestions clear with the query.
@@ -194,6 +195,17 @@ export function Autocomplete({
           value={query}
           placeholder={placeholder || `Search ${addLabel}…`}
           aria-label={ariaLabel || `Search ${addLabel}`}
+          role="combobox"
+          aria-expanded={open && (results.length > 0 || canAddNew || visibleExtras.length > 0)}
+          aria-controls={listId}
+          aria-autocomplete="list"
+          aria-activedescendant={
+            open
+              ? highlight < results.length && results.length > 0
+                ? `${listId}-opt-${highlight}`
+                : canAddNew ? `${listId}-add` : undefined
+              : undefined
+          }
           onChange={(e) => { setQuery(e.target.value); setOpen(true); setHighlight(0) }}
           onFocus={() => setOpen(true)}
           onKeyDown={onKey}
@@ -210,10 +222,11 @@ export function Autocomplete({
         )}
       </div>
       {open && (results.length > 0 || canAddNew || visibleExtras.length > 0) && (
-        <div className="ac-pop" role="listbox">
+        <div className="ac-pop" role="listbox" id={listId}>
           {results.map((o, i) => (
             <button
               key={o.id}
+              id={`${listId}-opt-${i}`}
               type="button"
               role="option"
               aria-selected={i === highlight}
@@ -229,6 +242,8 @@ export function Autocomplete({
             <button
               key={`extra-${name}`}
               type="button"
+              role="option"
+              aria-selected={false}
               className="ac-row ac-row-extra"
               title={`Add "${name}" from the ${suggestLabel.toLowerCase()}`}
               onMouseDown={(e) => { e.preventDefault(); pickExtra(name) }}
@@ -240,7 +255,10 @@ export function Autocomplete({
           {canAddNew && (
             <button
               type="button"
-              className="ac-row ac-row-add"
+              id={`${listId}-add`}
+              role="option"
+              aria-selected={highlight >= results.length}
+              className={`ac-row ac-row-add ${highlight >= results.length ? 'is-hl' : ''}`}
               onMouseDown={(e) => { e.preventDefault(); addNewResult() }}
             >
               <Plus size={12} />

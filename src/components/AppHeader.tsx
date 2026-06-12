@@ -222,15 +222,26 @@ function ResumeSwitcher({ resumeId, onUnauthorized }: ResumeSwitcherProps) {
   const [open, setOpen] = useState(false)
   const [items, setItems] = useState<ResumeMeta[] | null>(null)
   const ref = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
 
-  // Close on outside click.
+  // Close on outside click; Escape closes and returns focus to the trigger.
   useEffect(() => {
     if (!open) return
     const onClick = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
     }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setOpen(false)
+        triggerRef.current?.focus()
+      }
+    }
     document.addEventListener('mousedown', onClick)
-    return () => document.removeEventListener('mousedown', onClick)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onClick)
+      document.removeEventListener('keydown', onKey)
+    }
   }, [open])
 
   // Preload the list on mount so the trigger shows the current resume's name
@@ -252,10 +263,13 @@ function ResumeSwitcher({ resumeId, onUnauthorized }: ResumeSwitcherProps) {
 
   return (
     <div className="rsw" ref={ref}>
+      {/* Disclosure, not an ARIA menu: the popup is plain buttons + a link
+          reached with Tab, so menu roles (which promise arrow-key navigation)
+          would over-promise. aria-expanded carries the state. */}
       <button
+        ref={triggerRef}
         className="rsw-trigger"
         onClick={() => setOpen((v) => !v)}
-        aria-haspopup="menu"
         aria-expanded={open}
       >
         <FileText size={13} />
@@ -264,7 +278,7 @@ function ResumeSwitcher({ resumeId, onUnauthorized }: ResumeSwitcherProps) {
       </button>
 
       {open && (
-        <div className="rsw-menu" role="menu">
+        <div className="rsw-menu">
           {items === null && <div className="rsw-state">Loading…</div>}
           {items !== null && others.length === 0 && (
             <div className="rsw-state">No other resumes yet.</div>
@@ -277,7 +291,6 @@ function ResumeSwitcher({ resumeId, onUnauthorized }: ResumeSwitcherProps) {
                 setOpen(false)
                 navigate({ name: 'editor', id: r.id })
               }}
-              role="menuitem"
             >
               <FileText size={13} />
               <span className="rsw-name">{r.name}</span>
