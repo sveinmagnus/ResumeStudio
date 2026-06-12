@@ -64,6 +64,14 @@ describe('<AppHeader>', () => {
     expect(screen.getByRole('button', { name: 'Redo' })).toBeDisabled()
   })
 
+  it('opens the settings modal from the header cogwheel', async () => {
+    seed()
+    vi.spyOn(api, 'getSettings').mockRejectedValue(new Error('offline'))
+    renderHeader()
+    await userEvent.click(screen.getByRole('button', { name: 'Settings' }))
+    expect(await screen.findByRole('dialog', { name: 'Settings' })).toBeInTheDocument()
+  })
+
   it('opens the version-history modal', async () => {
     seed()
     vi.spyOn(api, 'listSnapshots').mockResolvedValue([])

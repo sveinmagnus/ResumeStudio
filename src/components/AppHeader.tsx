@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
-import { Download, Undo2, Redo2, History, ChevronDown, FileText, Menu } from 'lucide-react'
+import { Download, Undo2, Redo2, History, ChevronDown, FileText, Menu, Settings } from 'lucide-react'
 import { useStore } from '../store/useStore'
 import { useUndoRedo } from '../store/useUndoRedo'
 import { SaveStatus, type SaveState } from './layout/SaveStatus'
 import { LanguageSwitcher } from './layout/LanguageSwitcher'
 import { SnapshotHistory } from './SnapshotHistory'
+import { SettingsModal } from './SettingsModal'
 import { downloadBackup } from '../lib/backup'
 import { api, type ResumeMeta, UnauthorizedError } from '../lib/api'
 import { Link, navigate } from '../lib/router'
@@ -42,6 +43,7 @@ export function AppHeader({
 }: AppHeaderProps) {
   const { undo, redo, canUndo, canRedo } = useUndoRedo()
   const [showHistory, setShowHistory] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
 
   return (
     <header className="app-header">
@@ -49,6 +51,15 @@ export function AppHeader({
         <SnapshotHistory
           resumeId={resumeId}
           onClose={() => setShowHistory(false)}
+          onUnauthorized={onUnauthorized}
+        />
+      )}
+      {showSettings && (
+        <SettingsModal
+          onClose={() => setShowSettings(false)}
+          // Translation availability is re-probed by the modal itself on save;
+          // nothing else in the editor needs a refresh signal.
+          onChanged={() => {}}
           onUnauthorized={onUnauthorized}
         />
       )}
@@ -116,6 +127,15 @@ export function AppHeader({
         >
           <Download size={16} /> <span className="ah-btn-text">Save to file</span>
         </button>
+
+        <button
+          className="ah-settings"
+          onClick={() => setShowSettings(true)}
+          title="Settings"
+          aria-label="Settings"
+        >
+          <Settings size={16} />
+        </button>
       </div>
 
       <style>{`
@@ -180,6 +200,13 @@ export function AppHeader({
           font-weight: 600; font-size: 14px; transition: color .15s, background .15s, border-color .15s, box-shadow .15s;
         }
         .ah-export:hover { background: var(--accent); }
+        .ah-settings {
+          width: 38px; height: 38px; display: grid; place-items: center;
+          border: 1.5px solid var(--line-strong); border-radius: var(--r-md);
+          color: var(--ink-soft);
+          transition: color .15s, border-color .15s;
+        }
+        .ah-settings:hover { color: var(--accent); border-color: var(--accent); }
 
         /* ── Mid-width: tighter chrome, hamburger appears ─────────────── */
         @media (max-width: 880px) {
