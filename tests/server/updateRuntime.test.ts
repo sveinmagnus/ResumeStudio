@@ -24,17 +24,28 @@ describe('buildSwapScript (Windows)', () => {
     expect(s.spawn.args[s.spawn.args.length - 1]).toBe(s.path)
   })
 
-  it('waits via Wait-Process (not tasklist|find/ping), copies with a progress bar, relaunches via cmd /c', () => {
+  it('waits via Wait-Process (not tasklist|find/ping) and copies with a progress bar', () => {
     expect(s.contents).toContain('Wait-Process -Id 4321')
     expect(s.contents).not.toContain('tasklist')
     expect(s.contents).not.toContain('robocopy')
     expect(s.contents).toContain('Copy-Item')
     expect(s.contents).toContain("'#' * $fill") // ascii progress bar
-    // Relaunch through cmd /c so a .cmd association can't open it in an editor.
-    expect(s.contents).toContain('$env:ComSpec')
-    expect(s.contents).toContain('Resume Studio.cmd')
     // Paths embedded as single-quoted PS literals.
     expect(s.contents).toContain(`$dst = '/opt/Resume Studio'`)
+  })
+
+  it('relaunches WINDOWLESS via wscript.exe + the no-window .vbs shim', () => {
+    // wscript invoked by name (not by file association — the "text editor"
+    // bug class), running the .vbs shim that starts node.exe hidden. A
+    // tray-initiated update must not leave the app behind a console window.
+    expect(s.contents).toContain(`Join-Path $dst 'Resume Studio (no window).vbs'`)
+    expect(s.contents).toContain(`Start-Process -FilePath 'wscript.exe' -ArgumentList ('"' + $vbs + '"')`)
+  })
+
+  it('falls back to the console .cmd via cmd /c when the .vbs is missing', () => {
+    expect(s.contents).toContain('if (Test-Path -LiteralPath $vbs)')
+    expect(s.contents).toContain('$env:ComSpec')
+    expect(s.contents).toContain('Resume Studio.cmd')
   })
 })
 

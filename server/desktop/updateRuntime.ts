@@ -342,8 +342,11 @@ export function buildSwapScript(input: SwapScriptInput): SwapScript {
     // `cmd /c` approach: it ran with no console, so tasklist/find/ping each
     // popped their own window, and the relaunch used `start "" "X.cmd"` which
     // goes through file association (a text editor on dev machines). PowerShell
-    // gives a clean Wait-Process (no tasklist|find), a real ascii progress bar,
-    // and an association-proof relaunch via `cmd /c`.
+    // gives a clean Wait-Process (no tasklist|find) and a real ascii progress
+    // bar. The updater window itself is intentionally visible (progress
+    // feedback) and closes when done; the RELAUNCH is windowless — wscript.exe
+    // runs the no-window .vbs shim so the updated app doesn't sit behind a
+    // console window it was never started from.
     const scriptPath = path.join(scriptDir, 'apply-update.ps1')
     const psLit = (s: string) => `'${s.replace(/'/g, "''")}'` // single-quoted PS literal
     const contents = [
@@ -383,8 +386,18 @@ export function buildSwapScript(input: SwapScriptInput): SwapScript {
       `Write-Host ''`,
       `Write-Host '  Update installed. Restarting Resume Studio...'`,
       `Start-Sleep -Milliseconds 800`,
-      // Relaunch the shim via cmd /c (executes it; never opens it by association).
-      `Start-Process -FilePath $env:ComSpec -ArgumentList '/c', ('"' + (Join-Path $dst 'Resume Studio.cmd') + '"') -WorkingDirectory $dst`,
+      // Relaunch WINDOWLESS: wscript.exe (invoked by name — never by file
+      // association) runs the no-window .vbs shim, which starts node.exe
+      // hidden. The old .cmd relaunch left a console window open for the
+      // app's whole lifetime after a tray-initiated update. The .vbs ships
+      // in every release (build-desktop.mjs), so it exists right after the
+      // copy above; the .cmd via cmd /c stays as a belt-and-braces fallback.
+      `$vbs = Join-Path $dst 'Resume Studio (no window).vbs'`,
+      `if (Test-Path -LiteralPath $vbs) {`,
+      `  Start-Process -FilePath 'wscript.exe' -ArgumentList ('"' + $vbs + '"') -WorkingDirectory $dst`,
+      `} else {`,
+      `  Start-Process -FilePath $env:ComSpec -ArgumentList '/c', ('"' + (Join-Path $dst 'Resume Studio.cmd') + '"') -WorkingDirectory $dst`,
+      `}`,
       `Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue`,
       `Start-Sleep -Milliseconds 1200`,
       '',

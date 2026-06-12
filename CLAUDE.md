@@ -1025,6 +1025,9 @@ Full end-user + build docs live in **`DESKTOP.md`**. Key facts for working here:
   version per session). A manual no-update check pops an info popup (`notify`).
   **The Windows swap is a VISIBLE PowerShell window** (`buildSwapScript`) with an
   ascii progress bar: `Wait-Process` (not `tasklist|find`/`ping`), file-by-file
-  `Copy-Item`, and relaunch via `cmd /c "<shim>"` (NOT `start "X.cmd"`, which
-  goes through file association — that opened a text editor on dev boxes and was
-  the original install bug). POSIX stays a detached `sh` script.
+  `Copy-Item`. The **relaunch is windowless**: `wscript.exe` (invoked by name —
+  never launch a script by file association; that opened a text editor on dev
+  boxes and was the original install bug) runs `Resume Studio (no window).vbs`,
+  so a tray-initiated update doesn't leave the app behind a console window. The
+  console `.cmd` via `cmd /c` remains only as the missing-vbs fallback. POSIX
+  stays a detached `sh` script.
