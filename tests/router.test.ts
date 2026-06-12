@@ -12,7 +12,12 @@ describe('parseRoute', () => {
     ['/nope',                  { name: 'not-found', path: '/nope' }],
     ['/r',                     { name: 'not-found', path: '/r' }],
     ['/r/',                    { name: 'not-found', path: '/r/' }],   // empty id segment
-    ['/r/a/b',                 { name: 'not-found', path: '/r/a/b' }], // nested not matched
+    // Section + view deep links
+    ['/r/abc/projects',        { name: 'editor', id: 'abc', section: 'projects' }],
+    ['/r/abc/projects/',       { name: 'editor', id: 'abc', section: 'projects' }],
+    ['/r/abc/views',           { name: 'editor', id: 'abc', section: 'views' }],
+    ['/r/abc/views/v1',        { name: 'editor', id: 'abc', section: 'views', viewId: 'v1' }],
+    ['/r/abc/projects/x',      { name: 'not-found', path: '/r/abc/projects/x' }], // 3rd segment only under /views/
   ]
 
   it.each(cases)('parses %j', (path, expected) => {
@@ -41,6 +46,13 @@ describe('pathFor', () => {
     expect(pathFor({ name: 'editor', id: 'a b' })).toBe('/r/a%20b')
   })
 
+  it('builds section and view paths; overview stays canonical (no suffix)', () => {
+    expect(pathFor({ name: 'editor', id: 'abc', section: 'overview' })).toBe('/r/abc')
+    expect(pathFor({ name: 'editor', id: 'abc', section: 'projects' })).toBe('/r/abc/projects')
+    expect(pathFor({ name: 'editor', id: 'abc', section: 'views' })).toBe('/r/abc/views')
+    expect(pathFor({ name: 'editor', id: 'abc', section: 'views', viewId: 'v1' })).toBe('/r/abc/views/v1')
+  })
+
   it('passes a not-found path through', () => {
     expect(pathFor({ name: 'not-found', path: '/whatever' })).toBe('/whatever')
   })
@@ -54,4 +66,11 @@ describe('parseRoute ∘ pathFor round-trip', () => {
       expect(parseRoute(pathFor(route))).toEqual(route)
     },
   )
+
+  it('section and view routes survive a round-trip', () => {
+    const section: Route = { name: 'editor', id: 'abc', section: 'projects' }
+    expect(parseRoute(pathFor(section))).toEqual(section)
+    const view: Route = { name: 'editor', id: 'abc', section: 'views', viewId: 'v 1' }
+    expect(parseRoute(pathFor(view))).toEqual(view)
+  })
 })

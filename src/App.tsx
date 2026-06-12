@@ -52,7 +52,15 @@ export default function App() {
   }
 
   if (route.name === 'editor') {
-    return <EditorRoute key={`${route.id}:${authEpoch}`} resumeId={route.id} onUnauthorized={onUnauthorized} />
+    return (
+      <EditorRoute
+        key={`${route.id}:${authEpoch}`}
+        resumeId={route.id}
+        routeSection={route.section}
+        routeViewId={route.viewId}
+        onUnauthorized={onUnauthorized}
+      />
+    )
   }
 
   if (route.name === 'not-found') {
@@ -64,11 +72,60 @@ export default function App() {
 
 // ── Editor route ─────────────────────────────────────────────────────────────
 
-function EditorRoute({ resumeId, onUnauthorized }: { resumeId: string; onUnauthorized: () => void }) {
+function EditorRoute({ resumeId, routeSection, routeViewId, onUnauthorized }: {
+  resumeId: string
+  routeSection?: string
+  routeViewId?: string
+  onUnauthorized: () => void
+}) {
   const activeSection = useStore((s) => s.activeSection)
+  const activeViewId = useStore((s) => s.activeViewId)
   const hasData = useStore((s) => s.hasData)
   const data = useStore((s) => s.data)
   const { loadState, saveState, cacheSavedAt, unsyncedCount, conflict, resolveConflict, retry } = useResumePersistence(resumeId)
+
+  // ── URL ⇄ section sync ───────────────────────────────────────────────────
+  // The URL is canonical (/r/:id[/:section | /views/:viewId]) so a refresh
+  // keeps your place, sections are bookmarkable, and the browser Back button
+  // walks section history instead of leaving the editor.
+  //
+  // Effect ORDER is load-bearing: URL→store runs first and updates Zustand
+  // synchronously, so the store→URL effect (which reads fresh state via
+  // getState) never pushes a stale path in the same commit — including right
+  // after boot, when loadStore has reset activeViewId.
+  useEffect(() => {
+    if (!hasData) return // reconcile once the resume is in memory
+    const st = useStore.getState()
+    const section = routeSection ?? 'overview'
+    if (!SECTIONS.some((s) => s.key === section)) {
+      navigate({ name: 'editor', id: resumeId }, { replace: true })
+      return
+    }
+    if (section === 'views') {
+      // An unknown view id (deleted elsewhere, mistyped link) falls back to
+      // the view list rather than rendering a broken editor.
+      if (routeViewId && !st.data.views.some((v) => v.id === routeViewId)) {
+        navigate({ name: 'editor', id: resumeId, section: 'views' }, { replace: true })
+        return
+      }
+      if (st.activeSection !== 'views' || st.activeViewId !== (routeViewId ?? null)) {
+        st.setActiveView(routeViewId ?? null)
+      }
+    } else if (st.activeSection !== section) {
+      st.setActiveSection(section)
+    }
+  }, [hasData, resumeId, routeSection, routeViewId])
+
+  useEffect(() => {
+    const st = useStore.getState()
+    if (!st.hasData) return
+    navigate({
+      name: 'editor',
+      id: resumeId,
+      section: st.activeSection,
+      viewId: st.activeSection === 'views' ? (st.activeViewId ?? undefined) : undefined,
+    })
+  }, [activeSection, activeViewId, hasData, resumeId])
 
   // The conflict modal can be dismissed (keep editing); the SaveStatus badge
   // re-opens it. A fresh conflict re-opens automatically.

@@ -2,16 +2,19 @@
  * Tiny History API router — only what this app actually needs.
  *
  * Routes:
- *   /          → picker (ResumeList)
- *   /r/:id     → editor shell for one resume
+ *   /                     → picker (ResumeList)
+ *   /r/:id                → editor shell for one resume (Overview)
+ *   /r/:id/:section       → editor with a section selected
+ *   /r/:id/views/:viewId  → the Resume Views section with one view open
  *
  * Provides:
  *   - useRoute()  — re-renders subscribers on every URL change.
  *   - navigate(to) — programmatic navigation (pushState + emit).
  *   - <Link>      — anchor with onClick wired to navigate().
  *
- * No dep. If we ever need nested routes (e.g. shareable view links) the same
- * hook extends — just add another match arm to `parseRoute`.
+ * The router does NOT validate section/view tokens — it parses any segment
+ * and the editor route reconciles (unknown section → redirect to the resume
+ * root). Keeps the router dependency-free.
  */
 
 import {
@@ -24,21 +27,27 @@ import {
 
 export type Route =
   | { name: 'picker' }
-  | { name: 'editor'; id: string }
+  | { name: 'editor'; id: string; section?: string; viewId?: string }
   | { name: 'not-found'; path: string }
 
 // ─── URL ↔ Route ─────────────────────────────────────────────────────────────
 
 export function parseRoute(pathname: string): Route {
   if (pathname === '/' || pathname === '') return { name: 'picker' }
-  const m = /^\/r\/([^/]+)\/?$/.exec(pathname)
+  const m = /^\/r\/([^/]+)(?:\/([^/]+))?(?:\/([^/]+))?\/?$/.exec(pathname)
   if (m) {
     // decodeURIComponent throws URIError on malformed escapes (e.g. "/r/%").
     // parseRoute runs in useRoute()'s render path, which is NOT inside the
     // editor's ErrorBoundary — an unhandled throw here white-screens the whole
     // app. Treat an undecodable id as "no such route" rather than crashing.
     try {
-      return { name: 'editor', id: decodeURIComponent(m[1]) }
+      const id = decodeURIComponent(m[1])
+      if (m[2] === 'views' && m[3]) {
+        return { name: 'editor', id, section: 'views', viewId: decodeURIComponent(m[3]) }
+      }
+      if (m[3]) return { name: 'not-found', path: pathname } // third segment only valid under /views/
+      if (m[2]) return { name: 'editor', id, section: decodeURIComponent(m[2]) }
+      return { name: 'editor', id }
     } catch {
       return { name: 'not-found', path: pathname }
     }
@@ -49,7 +58,17 @@ export function parseRoute(pathname: string): Route {
 export function pathFor(route: Route): string {
   switch (route.name) {
     case 'picker': return '/'
-    case 'editor': return `/r/${encodeURIComponent(route.id)}`
+    case 'editor': {
+      const base = `/r/${encodeURIComponent(route.id)}`
+      if (route.section === 'views' && route.viewId) {
+        return `${base}/views/${encodeURIComponent(route.viewId)}`
+      }
+      // Overview is the editor's default — keep its URL canonical (no suffix).
+      if (route.section && route.section !== 'overview') {
+        return `${base}/${encodeURIComponent(route.section)}`
+      }
+      return base
+    }
     case 'not-found': return route.path
   }
 }

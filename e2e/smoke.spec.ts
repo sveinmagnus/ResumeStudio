@@ -41,13 +41,16 @@ const fullName = (page: Page) =>
 test('an edit auto-saves to the server and survives a reload', async ({ page }) => {
   await createResume(page)
 
-  await page.getByText('Personal Details').click()
+  // Scope to the nav button — once a section is active its name also shows
+  // as the page <h1> (and the URL now keeps the section across reloads).
+  await page.getByRole('button', { name: 'Personal Details' }).click()
+  await expect(page).toHaveURL(/\/r\/[0-9a-f-]{36}\/header/)
   await fullName(page).fill('Kari Nordmann')
   // Auto-save: 1s debounce + PUT round-trip → header shows "Saved".
   await expect(page.getByText('Saved', { exact: true })).toBeVisible({ timeout: 10_000 })
 
+  // The URL carries the section — a reload lands straight back on it.
   await page.reload()
-  await page.getByText('Personal Details').click()
   await expect(fullName(page)).toHaveValue('Kari Nordmann')
 })
 
@@ -55,11 +58,11 @@ test('a Resume View renders the live preview from saved content', async ({ page 
   await createResume(page)
 
   // Give the CV some content the preview can show.
-  await page.getByText('Personal Details').click()
+  await page.getByRole('button', { name: 'Personal Details' }).click()
   await fullName(page).fill('Preview Person')
   await expect(page.getByText('Saved', { exact: true })).toBeVisible({ timeout: 10_000 })
 
-  await page.getByText('Resume Views').click()
+  await page.getByRole('button', { name: /Resume Views/ }).click()
   await page.getByRole('button', { name: 'New View' }).click()
 
   // The live preview iframe re-renders (250ms debounce) with the CV content.

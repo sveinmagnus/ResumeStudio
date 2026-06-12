@@ -66,7 +66,9 @@ export function SaveStatus({ state, cacheSavedAt, unsyncedCount = 0, onRetry, on
       {v && Icon && (
         <span className={`ss ${v.className}`} title={v.tooltip(cacheNote)}>
           <Icon size={13} className={v.spin ? 'ss-spin' : undefined} />
-          {v.label}{others}
+          {/* The visible label is its own element so text-based queries (and
+              tools) can match it exactly, separate from the sr-only detail. */}
+          <span>{v.label}{others}</span>
           {/* The tooltip explanation, minus the changing timestamp (so the
               live region doesn't re-announce every save), for keyboard/touch
               and screen-reader users who never see `title`. */}
