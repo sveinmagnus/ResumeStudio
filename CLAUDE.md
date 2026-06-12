@@ -124,9 +124,13 @@ What works today:
   Electron, no code signing. See §14 and `DESKTOP.md` §6.
 
 What's intentionally simple:
-- The **router** is a hand-rolled ~120-line History API hook
-  (`src/lib/router.ts`) — no dep. Two routes (`/` picker, `/r/:id` editor)
-  plus a 404. Express prod has a catch-all so bookmarked URLs work.
+- The **router** is a hand-rolled ~150-line History API hook
+  (`src/lib/router.ts`) — no dep. Routes: `/` picker, `/r/:id` editor,
+  `/r/:id/:section` (active section in the URL — refresh keeps your place,
+  Back walks sections), `/r/:id/views/:viewId` (one view open), plus a 404.
+  The URL is canonical: `EditorRoute` two-way-syncs it with the store
+  (URL→store first, store→URL second — order is load-bearing). Express prod
+  has a catch-all so bookmarked URLs work.
 - Styling is **inline `<style>` blocks per component** + CSS custom properties
   in `src/index.css`. No Tailwind, no CSS-in-JS lib.
 
@@ -154,7 +158,23 @@ What's still on the wishlist: see section 12.
 - **TypeScript strict mode.** `npm run typecheck` covers client + server.
 - **No `any`** unless interfacing with truly unknown shapes (e.g. raw imported JSON). Use `unknown` then narrow.
 - **No default exports** for components — use named exports. (`main.tsx` and `App.tsx` are the only existing default exports; new components are named.)
-- **Inline styles via `<style>` tag inside the component.** Each component owns its CSS. Tokens come from `src/index.css` (see section 6). The only utility classes in `index.css` are widely-shared widgets (currently just `.check-row`).
+- **Inline styles via `<style>` tag inside the component.** Each component owns its CSS. Tokens come from `src/index.css` (see section 6). The only utility classes in `index.css` are widely-shared widgets: `.check-row`, `.skip-link`, `.sr-only`.
+- **Accessibility conventions (v0.3.1)** — hold these invariants when touching UI:
+  - Every form control gets a programmatic name (`htmlFor`/`useId`, or
+    `aria-label`). `DualField`/`RichField` name each column
+    `"<label> (<locale name>)"` and set `lang={bcp47(locale)}` (WCAG 3.1.2).
+  - Async status/errors are live regions: `role="status"` for ok/progress,
+    `role="alert"` for failures. `SaveStatus` renders a *persistent* status
+    wrapper — don't conditionally unmount a live region.
+  - Modals go through `components/ui/useDialog.ts` (initial focus, Tab trap,
+    Esc, focus restore) + `aria-modal` + `overscroll-behavior: contain`.
+  - No `transition: all` — list properties. Reduced-motion is handled
+    globally in `index.css`; never add a per-component override.
+  - Focus: global `:focus-visible` ring; inputs that draw a box-shadow ring
+    keep it, but `forced-colors` falls back to a real outline (global rule).
+  - Text colors come from the AA-verified tokens (see §6) — never use
+    `--secondary-ink` (cyan) for text; that's what `--secondary-ink-text`
+    is for. Status text uses the `--ok/warn/err-ink` + `-wash` pairs.
 - **Lucide icons must be imported by name**, e.g. `import { Star, ChevronDown } from 'lucide-react'`. Do not import `* as Icons` — it breaks tree-shaking and bloats the bundle by ~700 kB.
 - **No `process.env` at runtime in the client.** This is a pure browser app once it leaves Vite. The Express server is the only place that reads env vars.
 - **Run `npm run build` after substantial changes** — Vite's prod build catches issues `tsc --noEmit` misses (missing exports from third-party packages, dynamic import problems).
@@ -188,12 +208,12 @@ src/
 │   ├── freshStore.ts           ← emptyStore() / freshStore() factories (used by Zustand startFresh + the picker create flow)
 │   ├── importer.ts             ← CVpartner JSON → ResumeStore
 │   ├── localCache.ts           ← Per-id localStorage fallback (saveCache(id, data) etc.); clearAllCaches(); dropLegacyCache()
-│   ├── locales.ts              ← LOCALE_LABELS, resolve(), fmt*(), fmtRelativeTime(), detectLocalesInData(), sortLocales()
+│   ├── locales.ts              ← LOCALE_LABELS, resolve(), bcp47() (app code → lang attr; se→sv, dk→da), fmt*(), fmtRelativeTime(), detectLocalesInData(), sortLocales()
 │   ├── merge.ts                ← mergeSkills / mergeRoles + reference counts (role merges rewrite work_experiences[].role_id too)
 │   ├── migrate.ts              ← PURE: data-shape migrations + CURRENT_SHAPE_VERSION; migrateStore() is the single choke point for data entering the app (loadStore + snapshot restore)
 │   ├── usage.ts                ← PURE: usageOfSkill / usageOfRole — enumerate referencing projects, employments, tech-categories; isSkillUnused / isRoleUnused for the "Unused" registry filter
 │   ├── router.ts               ← Hand-rolled History API router: useRoute(), navigate(), <Link>, parseRoute()
-│   ├── sections.ts             ← Sidebar section definitions and groups
+│   ├── sections.ts             ← Section definitions + groups; GROUP_ORDER (sidebar renders export-first, decoupled from SECTIONS order); canonicalSectionKey() folds key_qualifications/key_competencies into the profile_competencies page
 │   ├── translateClient.ts      ← PURE: app→service locale map, canDraftBetween(), memoized availability probe
 │   ├── connectivity.ts         ← navigator.onLine + health-poll confirmation; subscribeOnline() drives the reconnect drain
 │   ├── syncEngine.ts           ← PURE sync decisions (decideBoot/selectDrainTargets) — boot/drain matrix, unit-tested w/o timers
@@ -223,29 +243,31 @@ src/
 │   ├── ConflictModal.tsx       ← Non-blocking 409 conflict UI: diffResume summary + keep-mine / discard-mine
 │   ├── NewerDataNotice.tsx     ← Dismissible editor warning when the loaded resume was saved by a newer build (dataFromNewerApp — see lib/migrate.ts)
 │   ├── SyncPanel.tsx           ← Picker "Sync & backup" panel (desktop build only): status + Back up now / Restore from folder. Renders null when no sync folder is configured
-│   ├── SettingsModal.tsx       ← Picker gear → Settings: translation mode (off / Docker-managed / remote URL) + sync folder + Updates (version + check). Read-only note when server reports managed:false
+│   ├── SettingsModal.tsx       ← Settings dialog (opened from the picker gear AND the editor-header cogwheel): translation mode (off / Docker-managed / remote URL) + sync folder + Updates (version + check). Read-only note when server reports managed:false
 │   ├── UpdateBanner.tsx        ← Picker "Update available → Install" banner (desktop build); polls /api/update/status; renders null when unsupported/up-to-date
-│   ├── AppHeader.tsx           ← Editor top bar: ResumeSwitcher + SaveStatus + undo/redo + LanguageSwitcher + History + backup-export
+│   ├── AppHeader.tsx           ← Editor top bar: ResumeSwitcher (disclosure) + SaveStatus + undo/redo + LanguageSwitcher + History + backup-export + Settings cogwheel
 │   ├── layout/
-│   │   ├── Sidebar.tsx         ← Section navigation
-│   │   ├── LanguageSwitcher.tsx ← Primary/secondary locale + "re-detect" button
-│   │   └── SaveStatus.tsx      ← Saving / Saved / Save failed / Local only / idle
+│   │   ├── Sidebar.tsx         ← Section navigation (groups render in GROUP_ORDER — export first; active item is canonicalSectionKey-aware)
+│   │   ├── LanguageSwitcher.tsx ← Compact disclosure: one "EN / NO" trigger opens a popover with the primary/secondary/add selects, swap and re-detect
+│   │   └── SaveStatus.tsx      ← Saving / Saved / Save failed / Local only / idle — persistent role=status live region
 │   ├── ui/
 │   │   ├── DualField.tsx       ← THE KEY COMPONENT — side-by-side localized input
 │   │   ├── EditorCard.tsx      ← Collapsible card; drag handle + up/down arrows (via `sortable` prop)
 │   │   ├── Fields.tsx          ← TextField, DateField, TagField (plain inputs)
-│   │   ├── Autocomplete.tsx    ← Generic typeahead picker with optional "Add new" path. Used to attach skills to projects/tech-cats, roles to employments, and projects/employments to references.
-│   │   └── SortableList.tsx    ← DndContext + SortableContext wrapper (calls store.moveItem on drop)
+│   │   ├── Autocomplete.tsx    ← Generic typeahead picker (full ARIA combobox) with optional "Add new" path. Used to attach skills to projects/tech-cats, roles to employments, and projects/employments to references.
+│   │   ├── SortableList.tsx    ← DndContext + SortableContext wrapper (calls store.moveItem on drop)
+│   │   └── useDialog.ts        ← Shared modal behaviour: initial focus, Tab trap, Esc close, focus restore — every overlay dialog uses it
 │   └── editor/
 │       ├── Overview.tsx        ← Dashboard with stats + translation %
-│       ├── HeaderEditor.tsx    ← Personal details
+│       ├── HeaderEditor.tsx    ← Personal Details — identity fields only (name/contact/title/links/photo/company); no tabs
+│       ├── ProfileCompetenciesEditor.tsx ← "Profile & Competencies" page: ProfileEditor + KeyCompetenciesEditor under headings (replaces the old Personal Details sub-tabs)
 │       ├── ProjectsEditor.tsx  ← Edit mode for projects (the richest editor)
 │       ├── SimpleEditors.tsx   ← Work/Education/Courses/Certs/Positions/Presentations/Publications/Awards/Languages/Profile
 │       ├── RegistryEditors.tsx ← Skill/Role/Reference/TechCat editors + Merge UI
 │       └── ResumeViewsEditor.tsx ← View list + view editor (sections, items, options, Export PDF / Export DOCX)
-├── App.tsx                     ← Route table: AuthGate / ResumeList (/) / EditorRoute (/r/:id) / NotFound
+├── App.tsx                     ← Route table: AuthGate / ResumeList (/) / EditorRoute (/r/:id[/:section|/views/:viewId]) / NotFound; URL⇄store section sync
 ├── main.tsx                    ← React entry
-└── index.css                   ← Design tokens + body/scrollbar/animations + .check-row utility
+└── index.css                   ← Self-hosted @font-face + design tokens + focus-visible/forced-colors/reduced-motion globals + .check-row/.skip-link/.sr-only utilities
 
 server/                         ← Express API + SQLite persistence
 ├── index.ts                    ← Bootstrap (VPS/dev entry): createApp() + app.listen() on a fixed port
@@ -342,7 +364,12 @@ The single most important UX requirement: **every translatable field renders as 
 - Pick which two locales are visible (independent of which locales the master resume supports).
 - Swap them with one click.
 - Hide the secondary column to focus on one language.
-- **Re-detect locales** from the data — `LanguageSwitcher`'s refresh button calls `detectAndSetLocales()` which scans every `LocalizedString` and merges any new locales into `resume.supported_locales`.
+- **Re-detect locales** from the data — `LanguageSwitcher`'s re-detect button calls `detectAndSetLocales()` which scans every `LocalizedString` and merges any new locales into `resume.supported_locales`.
+
+All of these controls live behind ONE compact header button (the
+`LanguageSwitcher` trigger shows the current pair, e.g. "EN / NO", and opens a
+popover) — language choice is a set-once setting and doesn't earn permanent
+header space.
 
 **Implementation:**
 - `useStore().primaryLocale` and `useStore().secondaryLocale` (the latter can be `null` to mean "single column mode").
@@ -368,7 +395,9 @@ CSS custom properties in `src/index.css` are the design system:
 --ink, --ink-soft, --ink-faint             /* text */
 --line, --line-strong                      /* borders */
 --accent (#002E6E), --accent-bright, --accent-wash  /* Cartavio navy (verified from live site) */
---secondary-tint, --secondary-line, --secondary-ink /* Cartavio cyan #00B8DE, for secondary locale */
+--secondary-tint, --secondary-line, --secondary-ink /* Cartavio cyan #00B8DE — borders/washes/icons ONLY (2.4:1 on white) */
+--secondary-ink-text (#007696)             /* the TEXT-safe cyan twin (≥4.5:1) — all cyan-family text uses this */
+--ok-ink/--ok-wash, --warn-ink/--warn-wash, --err-ink/--err-wash  /* status pairs, every ink ≥4.5:1 on its wash AND on paper */
 --gold (#9a7b3f)                           /* star/featured indicator */
 --serif: 'Open Sans Condensed' weight 300  /* heading font — matches cartavio.no */
 --sans: 'Ubuntu' + system                  /* body font — matches cartavio.no */
@@ -378,8 +407,22 @@ CSS custom properties in `src/index.css` are the design system:
 
 **Aesthetic:** Cartavio brand — pure white backgrounds, Cartavio navy (#002E6E) as the primary accent, cyan (#00B8DE) as the secondary/highlight. Open Sans Condensed (weight 300) for headings, Ubuntu for body. Colors and fonts verified directly from cartavio.no CSS. No warm/sepia tones, no oxblood. Brand skill: `.claude/skills/cartavio-brand.md`.
 
+**Fonts are self-hosted** (`public/fonts/*.woff2` + `@font-face` in
+`index.css`, preloaded from `index.html`) — no Google Fonts CDN request
+(GDPR), works offline in the desktop build, and the CSP is `font-src 'self'`.
+Don't reintroduce a fonts CDN.
+
+**Minimum text size is 11px.** The 9–10px micro-labels were bumped in v0.3.1;
+don't add new text below 11px.
+
 **Utility classes in `index.css`** (use these instead of redefining inline):
 - `.check-row` — inline checkbox + label row.
+- `.skip-link` — visually hidden until keyboard-focused (first Tab stop in the editor).
+- `.sr-only` — visually hidden, available to assistive tech.
+
+`index.css` also owns the global `:focus-visible` ring, the `forced-colors`
+outline fallback, and the `prefers-reduced-motion` collapse — don't duplicate
+those per component (see the accessibility conventions in §2).
 
 When adding a component, copy the inline `<style>` pattern from an existing one (e.g. `DualField.tsx`). Use the tokens, don't introduce new colors casually.
 
@@ -457,9 +500,15 @@ than calling `set()` directly. Return `null` from the updater for a no-op
 ### Adding a new section
 1. Add the array to `ResumeStore` in `types/index.ts`.
 2. Add the empty array to both `emptyStore()` and `freshStore()` in `lib/freshStore.ts`.
-3. Add an entry to `SECTIONS` in `lib/sections.ts`.
+3. Add an entry to `SECTIONS` in `lib/sections.ts`. The sidebar's *group*
+   order comes from `GROUP_ORDER` (export-first), not from SECTIONS order —
+   SECTIONS order still drives the view editor's default section sequence.
+   If the section is edited on another section's page, extend
+   `canonicalSectionKey()` so chrome + sidebar highlighting resolve.
 4. Add the icon import to `Sidebar.tsx`'s `ICON_MAP`.
-5. Create the editor component and wire it into `App.tsx`'s `EditorRoute` switch.
+5. Create the editor component and wire it into `App.tsx`'s `EditorRoute`
+   switch. The section key is automatically a valid URL segment
+   (`/r/:id/<key>`) — EditorRoute validates against SECTIONS.
 6. If the section has `sort_order`, wrap its `<EditorCard>`s in a `<SortableList section="…" ids={items.map(x=>x.id)}>`. If it doesn't, pass `sortable={false}` to each `<EditorCard>` so the drag handle isn't shown.
 7. If it should appear in Resume View exports: add **one descriptor** to
    `lib/sectionCatalog.ts` (title/subtitle for the View-editor item list,
@@ -760,8 +809,9 @@ also run through the security skill (`.claude/skills/security-review.md`).
 - **Hardening (`server/app.ts`):** a `Content-Security-Policy` plus the
   existing `X-Content-Type-Options`/`X-Frame-Options`/`Referrer-Policy`/
   `Permissions-Policy` headers ride on every response (the CSP is inert on
-  JSON, active on the prod-served shell — allows `'self'` scripts, inline
-  styles, and Google Fonts; see the comment in `app.ts`). The auth-gated API
+  JSON, active on the prod-served shell — `'self'` scripts/fonts + inline
+  styles; fonts are self-hosted since v0.3.1, no Google Fonts hosts; see the
+  comment in `app.ts`). The auth-gated API
   is rate-limited with a **failure-focused** limiter (`skipSuccessfulRequests`
   — only ≥400 responses count, so brute-force/floods get 429'd but auto-save
   doesn't), tunable via `RESUME_RATE_LIMIT_MAX` / `RESUME_RATE_LIMIT_WINDOW_MS`.
@@ -811,6 +861,19 @@ Ordered loosely by recommended priority. Each is a self-contained chunk.
 > enrichment** (`lib/skillTaxonomy.ts`, Quadim library), and the **storage
 > readout** (`server/storage.ts` + picker weight warnings). See §1, §14,
 > `plans/improvement-roadmap.md`, and `DESKTOP.md`.
+>
+> The **v0.3.1 UX/accessibility wave** (12 `ux/*` branches) also shipped:
+> programmatic labels + per-locale `lang` everywhere (`bcp47()`), live
+> regions for save status/errors, keyboard paths (import drop zone,
+> EditorCard toggle), shared modal focus management (`ui/useDialog.ts`),
+> WCAG-AA contrast tokens (`--secondary-ink-text`, `--ok/warn/err-*`),
+> global focus-visible/forced-colors/reduced-motion handling, responsive
+> DualField stacking, **URL-carried sections** (`/r/:id/:section`), full
+> combobox ARIA, **self-hosted fonts**, skip link, and meta polish. The
+> follow-up wave: **export-first sidebar** (`GROUP_ORDER`), the **compact
+> language-switcher popover**, a **global settings cogwheel** (editor
+> header), and the **Profile & Competencies page** replacing the Personal
+> Details sub-tabs (`canonicalSectionKey()` keeps old deep links working).
 
 ### 12.1 Generic mergeRegistry
 `mergeSkills` and `mergeRoles` are near-identical. If a third registry kind ever appears (e.g. mergeable industries), refactor to a descriptor-table `mergeRegistry(store, kind, source, target)`. Not worth doing for two kinds today.

@@ -14,14 +14,14 @@ units:
   # ── Instruction layer (eager — Claude Code auto-loads CLAUDE.md) ──────────
   - id: claude-instructions
     path: CLAUDE.md
-    intent: "How must an agent work in this codebase? Architecture map, data model, store patterns, conventions, and what not to change."
+    intent: "How must an agent work in this codebase? Architecture map, data model, store patterns, conventions (incl. the v0.3.1 accessibility invariants), and what not to change."
     scope: global
     audience: [agent, developer]
-    validated: "2026-06-11"
+    validated: "2026-06-12"
     update_frequency: weekly
-    triggers: [conventions, architecture, data-model, store, persistence, sections]
+    triggers: [conventions, architecture, data-model, store, persistence, sections, accessibility, routing]
     hints:
-      token_estimate: 16700
+      token_estimate: 17600
       load_strategy: eager
       priority: critical
 
@@ -137,13 +137,13 @@ units:
 
   - id: skill-cartavio-brand
     path: .claude/skills/cartavio-brand.md
-    intent: "What are the Cartavio brand colors, fonts, and design tokens all UI must follow?"
+    intent: "What are the Cartavio brand colors, fonts, and design tokens all UI must follow? Includes the WCAG-AA text-safe variants and self-hosted font setup."
     scope: project
     audience: [agent]
-    validated: "2026-06-10"
-    triggers: [brand, design, colors, fonts, tokens, styling]
+    validated: "2026-06-12"
+    triggers: [brand, design, colors, fonts, tokens, styling, contrast]
     hints:
-      token_estimate: 1200
+      token_estimate: 1400
 
   # ── Vendored third-party skills (Apache-2.0 / openly distributed) ─────────
   - id: skill-webapp-testing
