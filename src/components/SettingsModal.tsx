@@ -168,7 +168,7 @@ export function SettingsModal({ onClose, onChanged, onUnauthorized }: SettingsMo
         {!status && !loadErr && (
           <div className="sm-loading"><Loader2 size={18} className="sm-spin" /> Loading…</div>
         )}
-        {loadErr && <div className="sm-msg sm-err">{loadErr}</div>}
+        {loadErr && <div className="sm-msg sm-err" role="alert">{loadErr}</div>}
 
         {status && !managed && (
           <div className="sm-body">
@@ -358,7 +358,7 @@ export function SettingsModal({ onClose, onChanged, onUnauthorized }: SettingsMo
               </section>
             )}
 
-            {saveMsg && <div className={`sm-msg ${saveMsg.ok ? 'sm-ok-box' : 'sm-err'}`}>{saveMsg.text}</div>}
+            {saveMsg && <div className={`sm-msg ${saveMsg.ok ? 'sm-ok-box' : 'sm-err'}`} role={saveMsg.ok ? 'status' : 'alert'}>{saveMsg.text}</div>}
 
             <div className="sm-foot">
               <button className="sm-btn sm-ghost" onClick={onClose}>Close</button>

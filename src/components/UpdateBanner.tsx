@@ -74,7 +74,7 @@ export function UpdateBanner({ onUnauthorized }: UpdateBannerProps) {
             <span className="ub-cur">You have v{status.currentVersion}.</span>
           </>
         )}
-        {err && <div className="ub-err"><AlertCircle size={12} /> {err}</div>}
+        {err && <div className="ub-err" role="alert"><AlertCircle size={12} /> {err}</div>}
       </div>
 
       {!busy && (

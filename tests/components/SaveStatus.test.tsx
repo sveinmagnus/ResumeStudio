@@ -7,9 +7,20 @@ import userEvent from '@testing-library/user-event'
 import { SaveStatus } from '../../src/components/layout/SaveStatus'
 
 describe('<SaveStatus>', () => {
-  it('renders nothing when idle', () => {
-    const { container } = render(<SaveStatus state="idle" />)
-    expect(container).toBeEmptyDOMElement()
+  it('renders an empty live region when idle (no visible pill)', () => {
+    render(<SaveStatus state="idle" />)
+    expect(screen.getByRole('status')).toBeEmptyDOMElement()
+  })
+
+  it('announces state transitions through the persistent role=status region', () => {
+    // The live region must exist BEFORE content changes (WCAG 4.1.3) — it is
+    // the same element across rerenders, only its content swaps.
+    const { rerender } = render(<SaveStatus state="idle" />)
+    const region = screen.getByRole('status')
+    rerender(<SaveStatus state="saving" />)
+    expect(region).toHaveTextContent('Saving…')
+    rerender(<SaveStatus state="error" />)
+    expect(region).toHaveTextContent('Save failed')
   })
 
   it('shows the right label per state', () => {

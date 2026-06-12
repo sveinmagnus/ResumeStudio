@@ -193,7 +193,7 @@ export function AIImportModal({ onImported, onClose }: AIImportModalProps) {
               </li>
             </ol>
 
-            {parseError && <div className="aim-error">{parseError}</div>}
+            {parseError && <div className="aim-error" role="alert">{parseError}</div>}
             {issues.length > 0 && (
               <div className="aim-issues">
                 <div className="aim-issues-title">

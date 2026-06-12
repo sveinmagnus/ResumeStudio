@@ -242,14 +242,14 @@ export function ResumeList({ onUnauthorized }: ResumeListProps) {
           </button>
         </header>
 
-        {error && <div className="rl-error">{error}</div>}
+        {error && <div className="rl-error" role="alert">{error}</div>}
 
         <UpdateBanner onUnauthorized={onUnauthorized} />
 
         <SyncPanel key={syncRefreshKey} onRestored={reload} onUnauthorized={onUnauthorized} />
 
         {dirtyIds.size > 0 && (
-          <div className="rl-unsynced-note">
+          <div className="rl-unsynced-note" role="status">
             {dirtyIds.size} resume{dirtyIds.size > 1 ? 's have' : ' has'} unsynced changes —
             they'll sync next time you open {dirtyIds.size > 1 ? 'them' : 'it'} online.
           </div>

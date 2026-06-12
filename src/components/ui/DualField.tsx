@@ -204,9 +204,9 @@ export function DualField({ label, value, onChange, multiline, rows = 3, placeho
             </div>
             {renderInput(secondary, 'secondary')}
             {drafted && !error && (
-              <span className="df-note df-note-draft">Machine draft — please review</span>
+              <span className="df-note df-note-draft" role="status">Machine draft — please review</span>
             )}
-            {error && <span className="df-note df-note-error">{error}</span>}
+            {error && <span className="df-note df-note-error" role="alert">{error}</span>}
           </div>
         )}
       </div>

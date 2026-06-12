@@ -127,9 +127,9 @@ export function RichField({ label, value, onChange, placeholder }: RichFieldProp
               }
             />
             {drafted && !error && (
-              <span className="rf-note rf-note-draft">Machine draft — please review</span>
+              <span className="rf-note rf-note-draft" role="status">Machine draft — please review</span>
             )}
-            {error && <span className="rf-note rf-note-error">{error}</span>}
+            {error && <span className="rf-note rf-note-error" role="alert">{error}</span>}
           </div>
         )}
       </div>

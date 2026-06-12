@@ -105,7 +105,7 @@ export function SyncPanel({ onRestored, onUnauthorized, standalone }: SyncPanelP
       </div>
 
       {msg && (
-        <div className={`sp-msg ${msg.kind === 'ok' ? 'sp-msg-ok' : 'sp-msg-err'}`}>{msg.text}</div>
+        <div className={`sp-msg ${msg.kind === 'ok' ? 'sp-msg-ok' : 'sp-msg-err'}`} role={msg.kind === 'ok' ? 'status' : 'alert'}>{msg.text}</div>
       )}
 
       <div className="sp-actions">

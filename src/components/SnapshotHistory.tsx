@@ -81,7 +81,7 @@ export function SnapshotHistory({ resumeId, onClose, onUnauthorized }: SnapshotH
           {snapshots !== null && snapshots.length === 0 && !error && (
             <div className="sh-state">No snapshots yet — they appear after your first save.</div>
           )}
-          {error && <div className="sh-error">{error}</div>}
+          {error && <div className="sh-error" role="alert">{error}</div>}
 
           {snapshots && snapshots.length > 0 && (
             <ul className="sh-list">
