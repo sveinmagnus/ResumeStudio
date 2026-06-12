@@ -16,7 +16,7 @@ describe('<Autocomplete>', () => {
   it('opens the dropdown on focus and shows all options when empty', async () => {
     const user = userEvent.setup()
     render(<Autocomplete options={OPTIONS} onPick={() => {}} addLabel="skill" />)
-    const input = screen.getByRole('textbox')
+    const input = screen.getByRole('combobox')
     await user.click(input)
     expect(screen.getByRole('option', { name: /TypeScript/ })).toBeInTheDocument()
     expect(screen.getByRole('option', { name: /JavaScript/ })).toBeInTheDocument()
@@ -26,7 +26,7 @@ describe('<Autocomplete>', () => {
   it('filters options by case-insensitive substring match', async () => {
     const user = userEvent.setup()
     render(<Autocomplete options={OPTIONS} onPick={() => {}} addLabel="skill" />)
-    const input = screen.getByRole('textbox')
+    const input = screen.getByRole('combobox')
     await user.click(input)
     await user.type(input, 'pt')  // matches "TypeScript"
     expect(screen.getByRole('option', { name: /TypeScript/ })).toBeInTheDocument()
@@ -37,7 +37,7 @@ describe('<Autocomplete>', () => {
     const user = userEvent.setup()
     const onPick = vi.fn()
     render(<Autocomplete options={OPTIONS} onPick={onPick} addLabel="skill" />)
-    const input = screen.getByRole('textbox')
+    const input = screen.getByRole('combobox')
     await user.click(input)
     await user.type(input, 'java{Enter}')
     expect(onPick).toHaveBeenCalledWith('js')
@@ -47,7 +47,7 @@ describe('<Autocomplete>', () => {
     const user = userEvent.setup()
     const onPick = vi.fn()
     render(<Autocomplete options={OPTIONS} onPick={onPick} addLabel="skill" />)
-    await user.click(screen.getByRole('textbox'))
+    await user.click(screen.getByRole('combobox'))
     await user.click(screen.getByRole('option', { name: /Python/ }))
     expect(onPick).toHaveBeenCalledWith('py')
   })
@@ -62,7 +62,7 @@ describe('<Autocomplete>', () => {
         addLabel="skill"
       />,
     )
-    const input = screen.getByRole('textbox')
+    const input = screen.getByRole('combobox')
     await user.click(input)
     // Typing a query with no exact match — Add button appears.
     await user.type(input, 'Rust')
@@ -86,7 +86,7 @@ describe('<Autocomplete>', () => {
         addLabel="skill"
       />,
     )
-    const input = screen.getByRole('textbox')
+    const input = screen.getByRole('combobox')
     await user.click(input)
     await user.type(input, '  Kotlin  {Enter}')
     expect(onAddNew).toHaveBeenCalledWith('Kotlin')
@@ -105,7 +105,7 @@ describe('<Autocomplete>', () => {
         suggestExtra={suggest}
       />,
     )
-    const input = screen.getByRole('textbox')
+    const input = screen.getByRole('combobox')
     await user.click(input)
     await user.type(input, 'kube')
     // Debounce (150 ms) then the async resolve.
@@ -128,7 +128,7 @@ describe('<Autocomplete>', () => {
         suggestExtra={suggest}
       />,
     )
-    const input = screen.getByRole('textbox')
+    const input = screen.getByRole('combobox')
     await user.click(input)
     await user.type(input, 'type')
     await screen.findByText('Type Theory')
@@ -140,10 +140,31 @@ describe('<Autocomplete>', () => {
     const user = userEvent.setup()
     const onPick = vi.fn()
     render(<Autocomplete options={OPTIONS} onPick={onPick} addLabel="skill" />)
-    const input = screen.getByRole('textbox')
+    const input = screen.getByRole('combobox')
     await user.click(input)
     await user.type(input, 'NoSuchThing{Enter}')
     // No exact / partial match and no onAddNew → Enter is a no-op.
     expect(onPick).not.toHaveBeenCalled()
+  })
+
+  // ── Combobox ARIA contract ────────────────────────────────────────────────
+
+  it('wires the combobox pattern: expanded state + active descendant follow the keyboard', async () => {
+    const user = userEvent.setup()
+    render(<Autocomplete options={OPTIONS} onPick={() => {}} addLabel="skill" />)
+    const input = screen.getByRole('combobox')
+    expect(input).toHaveAttribute('aria-expanded', 'false')
+
+    await user.click(input)
+    expect(input).toHaveAttribute('aria-expanded', 'true')
+    expect(input).toHaveAttribute('aria-controls')
+
+    // The highlighted option is exposed via aria-activedescendant and
+    // aria-selected so screen readers announce arrow-key movement.
+    await user.keyboard('{ArrowDown}')
+    const active = input.getAttribute('aria-activedescendant')
+    expect(active).toBeTruthy()
+    const activeEl = document.getElementById(active!)
+    expect(activeEl).toHaveAttribute('aria-selected', 'true')
   })
 })
