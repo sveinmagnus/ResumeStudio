@@ -67,6 +67,10 @@ export function SaveStatus({ state, cacheSavedAt, unsyncedCount = 0, onRetry, on
         <span className={`ss ${v.className}`} title={v.tooltip(cacheNote)}>
           <Icon size={13} className={v.spin ? 'ss-spin' : undefined} />
           {v.label}{others}
+          {/* The tooltip explanation, minus the changing timestamp (so the
+              live region doesn't re-announce every save), for keyboard/touch
+              and screen-reader users who never see `title`. */}
+          <span className="sr-only">{v.tooltip('').trim()}</span>
           {state === 'error' && onRetry && (
             <button className="ss-retry" onClick={onRetry} title="Retry save">
               <RefreshCw size={12} /> Retry

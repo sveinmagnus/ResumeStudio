@@ -97,23 +97,25 @@ export function EditorCard({
         <div className="ec-actions" onClick={(e) => e.stopPropagation()}>
           {canStar && (
             <button className={`ec-act ${starred ? 'on' : ''}`} title="Feature"
+              aria-label="Feature" aria-pressed={!!starred}
               onClick={() => updateItem(section, id, { starred: !starred } as never)}>
               <Star size={15} fill={starred ? 'currentColor' : 'none'} />
             </button>
           )}
           {canDisable && (
             <button className={`ec-act ${disabled ? 'on-off' : ''}`} title={disabled ? 'Hidden from exports' : 'Visible'}
+              aria-label="Hide from exports" aria-pressed={!!disabled}
               onClick={() => updateItem(section, id, { disabled: !disabled } as never)}>
               {disabled ? <EyeOff size={15} /> : <Eye size={15} />}
             </button>
           )}
           {sortable && (
             <>
-              <button className="ec-act" title="Move up" onClick={() => guard(() => reorderItem(section, id, 'up'))}><ArrowUp size={15} /></button>
-              <button className="ec-act" title="Move down" onClick={() => guard(() => reorderItem(section, id, 'down'))}><ArrowDown size={15} /></button>
+              <button className="ec-act" title="Move up" aria-label="Move up" onClick={() => guard(() => reorderItem(section, id, 'up'))}><ArrowUp size={15} /></button>
+              <button className="ec-act" title="Move down" aria-label="Move down" onClick={() => guard(() => reorderItem(section, id, 'down'))}><ArrowDown size={15} /></button>
             </>
           )}
-          <button className="ec-act ec-del" title="Delete"
+          <button className="ec-act ec-del" title="Delete" aria-label="Delete"
             onClick={() => { if (confirm('Delete this item?')) removeItem(section, id) }}>
             <Trash2 size={15} />
           </button>

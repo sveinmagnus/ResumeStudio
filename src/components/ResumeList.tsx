@@ -30,6 +30,8 @@ function WeightNote({ stat }: { stat: ResumeStorageStats | undefined }) {
   return (
     <span className={level === 'risk' ? 'rl-weight rl-weight-risk' : 'rl-weight'} title={title}>
       {' · '}≈{fmtBytes(stat.bytes)}{detail}
+      {/* The tooltip explanation, for keyboard/touch/AT users who never see `title`. */}
+      <span className="sr-only"> — {title}</span>
     </span>
   )
 }

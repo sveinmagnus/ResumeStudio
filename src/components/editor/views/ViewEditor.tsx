@@ -409,6 +409,11 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
       {/* ── Options ── */}
       <div className="rv-section-block">
         <div className="rv-block-heading">Options</div>
+        <p className="rv-block-desc">
+          <strong>Anonymize clients</strong> renders anonymized customer names on
+          every project and redacts reference names to initials — for
+          agency/broker submissions.
+        </p>
         <div className="rv-options-row">
           <label className="rv-opt-check">
             <input
