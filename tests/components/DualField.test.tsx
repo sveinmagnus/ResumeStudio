@@ -62,6 +62,30 @@ describe('<DualField>', () => {
     expect(onChange).toHaveBeenLastCalledWith({ no: 'b' })
   })
 
+  // ── Accessible names + language of parts ───────────────────────────────
+
+  it('gives each input an accessible name combining label and locale', () => {
+    useStore.setState({ primaryLocale: 'en', secondaryLocale: 'no' })
+    render(<DualField label="Title" value={{}} onChange={() => {}} />)
+    expect(screen.getByRole('textbox', { name: 'Title (English)' })).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Title (Norsk)' })).toBeInTheDocument()
+  })
+
+  it('associates the visible label with the primary input (click-to-focus)', () => {
+    useStore.setState({ primaryLocale: 'en', secondaryLocale: 'no' })
+    render(<DualField label="Title" value={{}} onChange={() => {}} />)
+    const primary = screen.getByRole('textbox', { name: 'Title (English)' })
+    expect(screen.getByText('Title')).toHaveAttribute('for', primary.id)
+  })
+
+  it('sets a BCP-47 lang per column (se → sv, dk → da)', () => {
+    useStore.setState({ primaryLocale: 'se', secondaryLocale: 'dk' })
+    render(<DualField label="Title" value={{}} onChange={() => {}} multiline />)
+    const [primary, secondary] = screen.getAllByRole('textbox')
+    expect(primary).toHaveAttribute('lang', 'sv')
+    expect(secondary).toHaveAttribute('lang', 'da')
+  })
+
   // ── Translation assist ──────────────────────────────────────────────────
 
   it('copies the primary value into the secondary locale on "Copy"', async () => {

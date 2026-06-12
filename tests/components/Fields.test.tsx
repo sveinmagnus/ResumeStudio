@@ -56,7 +56,7 @@ describe('<TagField>', () => {
     await userEvent.type(input, 'React{Enter}')
     expect(screen.getByText('react')).toBeInTheDocument()
 
-    await userEvent.click(screen.getByRole('button', { name: '×' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Remove react' }))
     expect(screen.queryByText('react')).not.toBeInTheDocument()
   })
 

@@ -1,8 +1,8 @@
-import { useState, useRef, useEffect, useLayoutEffect } from 'react'
+import { useId, useState, useRef, useLayoutEffect } from 'react'
 import { Copy, Languages, Loader2, Bold, Italic, Underline, List, ListOrdered } from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import type { LocalizedString } from '../../types'
-import { LOCALE_LABELS } from '../../lib/locales'
+import { LOCALE_LABELS, bcp47 } from '../../lib/locales'
 import { api } from '../../lib/api'
 import { canDraftBetween } from '../../lib/translateClient'
 import { useTranslationAvailable } from '../../store/useTranslation'
@@ -71,13 +71,18 @@ export function RichField({ label, value, onChange, placeholder }: RichFieldProp
 
   const canDraft = !!secondary && translationAvailable && canDraftBetween(primary, secondary)
 
+  const fieldId = useId()
+
   return (
     <div className="rf-wrap">
-      <label className="rf-label">{label}</label>
+      {/* contentEditable can't take htmlFor — the columns name themselves
+          via aria-label ("Description (Norsk)") built from this label. */}
+      <span className="rf-label" id={`${fieldId}-label`}>{label}</span>
       <div className={`rf-grid ${secondary ? 'rf-dual' : 'rf-single'}`}>
         <RichColumn
           variant="primary"
           locale={primary}
+          fieldLabel={label}
           html={value[primary] || ''}
           onCommit={(html) => set(primary, html)}
           placeholder={placeholder}
@@ -87,6 +92,7 @@ export function RichField({ label, value, onChange, placeholder }: RichFieldProp
             <RichColumn
               variant="secondary"
               locale={secondary}
+              fieldLabel={label}
               html={value[secondary] || ''}
               onCommit={(html) => {
                 set(secondary, html)
@@ -164,6 +170,8 @@ export function RichField({ label, value, onChange, placeholder }: RichFieldProp
 interface RichColumnProps {
   variant: 'primary' | 'secondary'
   locale: string
+  /** The field's visible label — combined with the locale name for the accessible name. */
+  fieldLabel: string
   html: string
   onCommit: (html: string) => void
   placeholder?: string
@@ -171,9 +179,8 @@ interface RichColumnProps {
   header?: React.ReactNode
 }
 
-function RichColumn({ variant, locale, html, onCommit, placeholder, header }: RichColumnProps) {
+function RichColumn({ variant, locale, fieldLabel, html, onCommit, placeholder, header }: RichColumnProps) {
   const editorRef = useRef<HTMLDivElement>(null)
-  const [hasFocus, setHasFocus] = useState(false)
 
   /**
    * We treat the contentEditable as uncontrolled: we set innerHTML manually
@@ -242,18 +249,19 @@ function RichColumn({ variant, locale, html, onCommit, placeholder, header }: Ri
         className={`rf-input rf-${variant} ${isEmpty ? 'rf-empty' : ''}`}
         contentEditable
         suppressContentEditableWarning
+        role="textbox"
+        aria-multiline="true"
+        aria-label={`${fieldLabel} (${LOCALE_LABELS[locale]?.name || locale})`}
+        lang={bcp47(locale)}
         data-placeholder={placeholder || `${LOCALE_LABELS[locale]?.name || locale}…`}
         onInput={onInput}
         onKeyDown={onKeyDown}
-        onFocus={() => setHasFocus(true)}
         onBlur={() => {
-          setHasFocus(false)
           // Re-sanitise on blur as a belt-and-braces step.
           const el = editorRef.current
           if (el) onCommit(el.innerHTML)
         }}
       />
-      <FocusGlow active={hasFocus} variant={variant} />
 
       <style>{`
         .rf-col { display: flex; flex-direction: column; gap: 4px; position: relative; }
@@ -288,12 +296,6 @@ function RichColumn({ variant, locale, html, onCommit, placeholder, header }: Ri
       `}</style>
     </div>
   )
-}
-
-/* Tiny presence-tracker used purely for accessibility (no visual effect). */
-function FocusGlow({ active, variant }: { active: boolean; variant: 'primary' | 'secondary' }) {
-  useEffect(() => { void active; void variant }, [active, variant])
-  return null
 }
 
 // ─── Toolbar ────────────────────────────────────────────────────────────────
