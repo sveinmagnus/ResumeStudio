@@ -71,6 +71,26 @@ input, textarea, select { font-family: inherit; font-size: inherit; color: inher
 
 ::selection { background: var(--accent); color: var(--paper-raised); }
 
+/* ── Keyboard focus ───────────────────────────────────────────────────────
+   One visible indicator for every keyboard-focusable element. Inputs that
+   draw their own box-shadow ring set `outline: none` on :focus and keep
+   doing so; everything else (buttons, links, selects, tabindex hosts)
+   inherits this. :focus-visible keeps the ring off pointer clicks. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Windows High Contrast / forced-colors strips box-shadows, which is what
+   all our input focus rings are made of — so EVERY focused element must
+   fall back to a real outline there (the system repaints its color). */
+@media (forced-colors: active) {
+  :focus {
+    outline: 2px solid CanvasText !important;
+    outline-offset: 1px;
+  }
+}
+
 h1,h2,h3,h4 { font-family: var(--serif); font-weight: 300; line-height: 1.1; }
 
 /* scrollbar */

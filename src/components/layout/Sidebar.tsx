@@ -184,6 +184,9 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps = {}) {
             background: var(--ink); color: var(--paper);
             display: flex; flex-direction: column; position: sticky; top: 0;
           }
+          /* The global navy focus ring is invisible on this dark surface —
+             swap it for the light cyan inside the sidebar. */
+          .sidebar :focus-visible { outline-color: var(--secondary-line); }
 
           /* ── Brand ── */
           .sb-brand {

@@ -95,13 +95,20 @@ export function TagField({ label, tags, onChange, suggestions = [] }: {
           display: flex; flex-wrap: wrap; gap: 6px; padding: 7px 9px;
           background: var(--paper-raised); border: 1px solid var(--line); border-radius: var(--r-sm);
           min-height: 40px; align-items: center;
+          transition: border-color .15s, box-shadow .15s;
+        }
+        /* Compound control: the box carries the focus ring for the inner
+           borderless input (:focus-within — see Web Interface Guidelines). */
+        .tag-box:focus-within {
+          border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-wash);
+          background: #fff;
         }
         .tag-chip {
           display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px;
           background: var(--accent-wash); color: var(--accent); border-radius: 20px;
           font-size: 12px; font-weight: 500;
         }
-        .tag-chip button { color: var(--accent); font-size: 14px; line-height: 1; opacity: .6; }
+        .tag-chip button { color: var(--accent); font-size: 14px; line-height: 1; opacity: .6; padding: 2px 4px; }
         .tag-chip button:hover { opacity: 1; }
         .tag-input { flex: 1; min-width: 80px; border: none; background: none; outline: none; }
       `}</style>
