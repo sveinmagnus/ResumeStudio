@@ -13,9 +13,6 @@ function seed() {
   useStore.setState({
     data: { ...emptyStore(), resume: makeResume({ full_name: 'Test Person', title: { en: 'Consultant' } }) },
     hasData: true,
-    // HeaderEditor renders the Identity tab only when activeSection !==
-    // 'key_qualifications' — pin it so the test never depends on the reset
-    // default (which previously left this implicit).
     activeSection: 'header',
     primaryLocale: 'en',
     secondaryLocale: null,

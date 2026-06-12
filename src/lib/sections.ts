@@ -25,9 +25,13 @@ export interface SectionDef {
 export const SECTIONS: SectionDef[] = [
   { key: 'overview', label: 'Overview', icon: 'LayoutDashboard', group: 'profile' },
   { key: 'header', label: 'Personal Details', icon: 'User', group: 'profile' },
-  // Kept here (hidden) so views/exports/coverage still discover it.
+  // The combined editor page for the two profile content sections below.
+  // No storeKey — it owns no array itself, so it can never leak into view
+  // configs (isExportableSection requires a storeKey).
+  { key: 'profile_competencies', label: 'Profile & Competencies', icon: 'FileText', group: 'profile' },
+  // Kept (hidden) so views/exports/coverage still discover the content
+  // sections; both are EDITED on the Profile & Competencies page.
   { key: 'key_qualifications', label: 'Profile & Summary', storeKey: 'key_qualifications', icon: 'FileText', group: 'profile', hidden: true },
-  // Edited under the Personal Details → Key Competencies tab; hidden from the sidebar.
   { key: 'key_competencies', label: 'Key Competencies', storeKey: 'key_competencies', icon: 'ListChecks', group: 'profile', hidden: true },
 
   { key: 'projects', label: 'Projects', storeKey: 'projects', icon: 'Briefcase', group: 'experience' },
@@ -76,3 +80,15 @@ export const GROUP_LABELS: Record<string, string> = {
 export const GROUP_ORDER: Array<SectionDef['group']> = [
   'export', 'profile', 'experience', 'credentials', 'extras', 'registry',
 ]
+
+/**
+ * Some section keys are *aliases* of a visible page: the two profile content
+ * sections are edited on the combined "Profile & Competencies" page, but
+ * deep links (Overview's missing-field drill-down, completeness coverage,
+ * old bookmarked URLs) still target the content keys. Chrome (breadcrumb,
+ * title) and the sidebar's active highlight normalise through this.
+ */
+export function canonicalSectionKey(key: string): string {
+  if (key === 'key_qualifications' || key === 'key_competencies') return 'profile_competencies'
+  return key
+}
