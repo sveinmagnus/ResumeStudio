@@ -95,8 +95,8 @@ export function LanguageSwitcher() {
           flex-wrap: wrap; max-width: 100%;
         }
         .lang-block { display: flex; flex-direction: column; gap: 4px; }
-        .lang-role { font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
-        .lang-role-sec { color: var(--secondary-ink); }
+        .lang-role { font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
+        .lang-role-sec { color: var(--secondary-ink-text); }
         .lang-role-add { color: var(--ink-faint); }
         .lang-add { border-style: dashed; color: var(--ink-soft); }
         .lang-add:hover { border-color: var(--accent); color: var(--accent); }

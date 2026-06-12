@@ -226,19 +226,19 @@ export function DualField({ label, value, onChange, multiline, rows = 3, placeho
           gap: 8px; min-height: 20px;
         }
         .df-locale-tag {
-          font-size: 10px; font-weight: 600; letter-spacing: .04em;
+          font-size: 11px; font-weight: 600; letter-spacing: .04em;
           color: var(--ink-faint); display: flex; align-items: center; gap: 4px;
         }
-        .df-tag-secondary { color: var(--secondary-ink); }
+        .df-tag-secondary { color: var(--secondary-ink-text); }
         .df-actions { display: flex; align-items: center; gap: 4px; }
         .df-assist-btn {
           display: inline-flex; align-items: center; gap: 4px;
           padding: 2px 7px; border-radius: var(--r-sm);
-          font-size: 10px; font-weight: 600; color: var(--ink-soft);
+          font-size: 11px; font-weight: 600; color: var(--ink-soft);
           background: var(--paper-sunken); border: 1px solid var(--line);
           transition: all .12s; cursor: pointer;
         }
-        .df-assist-btn:hover:not(:disabled) { border-color: var(--secondary-ink); color: var(--secondary-ink); }
+        .df-assist-btn:hover:not(:disabled) { border-color: var(--secondary-ink); color: var(--secondary-ink-text); }
         .df-assist-btn:disabled { opacity: .4; cursor: default; }
         .df-draft-btn:hover:not(:disabled) { background: var(--secondary-tint); }
         .df-spin { animation: df-spin 1s linear infinite; }
@@ -258,9 +258,9 @@ export function DualField({ label, value, onChange, multiline, rows = 3, placeho
           border-color: var(--secondary-ink);
           box-shadow: 0 0 0 3px rgba(58,71,80,0.10);
         }
-        .df-note { font-size: 10px; margin-top: 1px; }
-        .df-note-draft { color: var(--secondary-ink); }
-        .df-note-error { color: #b91c1c; }
+        .df-note { font-size: 11px; margin-top: 1px; }
+        .df-note-draft { color: var(--secondary-ink-text); }
+        .df-note-error { color: var(--err-ink); }
       `}</style>
     </div>
   )

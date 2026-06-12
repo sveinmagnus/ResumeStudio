@@ -144,7 +144,7 @@ export function SnapshotHistory({ resumeId, onClose, onUnauthorized }: SnapshotH
         .sh-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
         .sh-when { font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
         .sh-badge {
-          font-size: 9px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+          font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
           background: var(--accent-wash); color: var(--accent); padding: 1px 6px; border-radius: 8px;
         }
         .sh-by { font-size: 11px; color: var(--ink-faint); font-weight: 400; }

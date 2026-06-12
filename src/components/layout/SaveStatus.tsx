@@ -95,12 +95,12 @@ function Style() {
       }
       .ss-spin { animation: spin 1s linear infinite; }
       .ss-saving { color: var(--ink-soft); background: var(--paper-sunken); }
-      .ss-ok     { color: #27ae60; background: #e8f7ef; }
-      .ss-warn   { color: #b87900; background: #fff7e6; }
-      .ss-err    { color: #c0392b; background: #fdf0ef; }
+      .ss-ok     { color: var(--ok-ink); background: var(--ok-wash); }
+      .ss-warn   { color: var(--warn-ink); background: var(--warn-wash); }
+      .ss-err    { color: var(--err-ink); background: var(--err-wash); }
       .ss-retry {
         display: inline-flex; align-items: center; gap: 4px;
-        font-size: 11px; font-weight: 700; color: #c0392b;
+        font-size: 11px; font-weight: 700; color: var(--err-ink);
         text-decoration: underline; padding: 0 4px; margin-left: 4px;
       }
       .ss-retry:hover { color: #922b21; }

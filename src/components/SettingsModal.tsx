@@ -428,7 +428,7 @@ export function SettingsModal({ onClose, onChanged, onUnauthorized }: SettingsMo
         .sm-ghost { background: transparent; }
         .sm-inline { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; }
         .sm-ok { color: #18794e; }
-        .sm-warn { color: #b87900; }
+        .sm-warn { color: var(--warn-ink); }
         .sm-msg { margin: 6px 0 12px; padding: 9px 13px; border-radius: var(--r-sm); font-size: 13px; }
         .sm-ok-box { background: #e8f6ee; color: #18794e; }
         .sm-err { background: #fef2f2; color: #b91c1c; }

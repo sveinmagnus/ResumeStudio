@@ -224,10 +224,10 @@ export function TailorViewModal({ onApply, onClose }: TailorViewModalProps) {
           .tv-intro { font-size: 13px; color: var(--ink); background: var(--accent-wash); border-left: 3px solid var(--accent); padding: 9px 12px; border-radius: var(--r-sm); white-space: pre-line; }
           .tv-list { margin: 0; padding-left: 18px; font-size: 12.5px; color: var(--ink-soft); }
           .tv-list li { margin: 2px 0; }
-          .tv-gaps li { color: #b87900; }
+          .tv-gaps li { color: var(--warn-ink); }
           .tv-warn {
             display: flex; align-items: flex-start; gap: 7px;
-            font-size: 12.5px; color: #b87900; background: #fff7e6;
+            font-size: 12.5px; color: var(--warn-ink); background: var(--warn-wash);
             border-radius: var(--r-sm); padding: 9px 12px;
           }
           .tv-actions { display: flex; justify-content: flex-end; gap: 10px; }
