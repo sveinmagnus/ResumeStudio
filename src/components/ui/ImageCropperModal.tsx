@@ -196,7 +196,7 @@ export function ImageCropperModal({
         </div>
 
         {decodeError && (
-          <div className="imgcrop-error">{decodeError}</div>
+          <div className="imgcrop-error" role="alert">{decodeError}</div>
         )}
 
         <div

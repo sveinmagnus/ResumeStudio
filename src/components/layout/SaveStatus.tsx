@@ -48,9 +48,8 @@ const VARIANTS: Record<Exclude<SaveState, 'idle'>, Variant> = {
 }
 
 export function SaveStatus({ state, cacheSavedAt, unsyncedCount = 0, onRetry, onResolve }: Props) {
-  if (state === 'idle') return null
-  const v = VARIANTS[state]
-  const Icon = v.icon
+  const v = state === 'idle' ? null : VARIANTS[state]
+  const Icon = v?.icon
   const cacheNote = cacheSavedAt
     ? `Local backup saved ${new Date(cacheSavedAt).toLocaleTimeString()}.`
     : 'Local backup is up to date.'
@@ -59,21 +58,28 @@ export function SaveStatus({ state, cacheSavedAt, unsyncedCount = 0, onRetry, on
     ? ` (${unsyncedCount} resumes)`
     : ''
 
+  // The wrapper is a PERSISTENT polite live region (WCAG 4.1.3): it must
+  // exist before its content changes, or screen readers miss the transition.
+  // The visible pill mounts/unmounts inside it.
   return (
-    <span className={`ss ${v.className}`} title={v.tooltip(cacheNote)}>
-      <Icon size={13} className={v.spin ? 'ss-spin' : undefined} />
-      {v.label}{others}
-      {state === 'error' && onRetry && (
-        <button className="ss-retry" onClick={onRetry} title="Retry save">
-          <RefreshCw size={12} /> Retry
-        </button>
+    <span role="status">
+      {v && Icon && (
+        <span className={`ss ${v.className}`} title={v.tooltip(cacheNote)}>
+          <Icon size={13} className={v.spin ? 'ss-spin' : undefined} />
+          {v.label}{others}
+          {state === 'error' && onRetry && (
+            <button className="ss-retry" onClick={onRetry} title="Retry save">
+              <RefreshCw size={12} /> Retry
+            </button>
+          )}
+          {state === 'conflict' && onResolve && (
+            <button className="ss-retry" onClick={onResolve} title="Resolve conflict">
+              Resolve
+            </button>
+          )}
+          <Style />
+        </span>
       )}
-      {state === 'conflict' && onResolve && (
-        <button className="ss-retry" onClick={onResolve} title="Resolve conflict">
-          Resolve
-        </button>
-      )}
-      <Style />
     </span>
   )
 }

@@ -132,7 +132,7 @@ export function ImportScreen({ compact = false, onStartFresh, onImported }: Impo
           />
         </div>
 
-        {error && <div className="is-error">{error}</div>}
+        {error && <div className="is-error" role="alert">{error}</div>}
 
         {!compact && (
           <div className="is-features">

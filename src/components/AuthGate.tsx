@@ -60,7 +60,7 @@ export function AuthGate({ onSubmit }: AuthGateProps) {
             onChange={(e) => setTokenInput(e.target.value)}
             autoFocus
           />
-          {authError && <div className="auth-error">{authError}</div>}
+          {authError && <div className="auth-error" role="alert">{authError}</div>}
           <button
             type="submit"
             className="auth-submit"

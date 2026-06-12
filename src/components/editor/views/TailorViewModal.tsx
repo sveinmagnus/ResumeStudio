@@ -157,9 +157,9 @@ export function TailorViewModal({ onApply, onClose }: TailorViewModalProps) {
               <button className="tv-btn tv-btn-primary" onClick={() => validate(responseText)} disabled={!responseText.trim()}>
                 Review proposal
               </button>
-              {parseError && <div className="tv-error">{parseError}</div>}
+              {parseError && <div className="tv-error" role="alert">{parseError}</div>}
               {issues.length > 0 && (
-                <div className="tv-error">
+                <div className="tv-error" role="alert">
                   <div>The response has {issues.length} problem{issues.length !== 1 ? 's' : ''}:</div>
                   <ul className="tv-list">
                     {issues.slice(0, 8).map((iss, i) => <li key={i}><code>{iss.path}</code> — {iss.reason}</li>)}
