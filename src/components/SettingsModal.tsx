@@ -7,6 +7,7 @@ import {
   api, type SettingsStatus, type SettingsUpdate, type UpdateStatus, UnauthorizedError,
 } from '../lib/api'
 import { resetTranslationAvailability } from '../lib/translateClient'
+import { useDialog } from './ui/useDialog'
 
 /** UI-level provider choice. LibreTranslate splits into two entries (the
  *  underlying provider is the same; only translate_docker differs). */
@@ -26,6 +27,7 @@ interface SettingsModalProps {
  * reports `managed:false` and this renders a read-only explanation instead.
  */
 export function SettingsModal({ onClose, onChanged, onUnauthorized }: SettingsModalProps) {
+  const dialogRef = useDialog(onClose)
   const [status, setStatus] = useState<SettingsStatus | null>(null)
   const [loadErr, setLoadErr] = useState<string | null>(null)
 
@@ -158,7 +160,7 @@ export function SettingsModal({ onClose, onChanged, onUnauthorized }: SettingsMo
 
   return (
     <div className="sm-backdrop" onClick={onClose}>
-      <div className="sm-card" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Settings">
+      <div className="sm-card" ref={dialogRef} onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Settings">
         <header className="sm-head">
           <Settings size={18} />
           <h2 className="sm-title">Settings</h2>

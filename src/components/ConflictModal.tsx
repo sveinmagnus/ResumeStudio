@@ -1,6 +1,7 @@
 import { GitMerge, X, ArrowRight } from 'lucide-react'
 import type { ResumeStore } from '../types'
 import { diffStores } from '../lib/diffResume'
+import { useDialog } from './ui/useDialog'
 
 interface ConflictModalProps {
   /** The local (mine) store — the in-memory edits awaiting resolution. */
@@ -21,11 +22,12 @@ interface ConflictModalProps {
  * their version (overwrite the server) or discards it (take the server copy).
  */
 export function ConflictModal({ mine, theirs, onResolve, onClose }: ConflictModalProps) {
+  const dialogRef = useDialog(onClose)
   const diff = diffStores(mine, theirs)
 
   return (
     <div className="cm-overlay" role="dialog" aria-modal="true" aria-label="Resolve conflict" onClick={onClose}>
-      <div className="cm-modal" onClick={(e) => e.stopPropagation()}>
+      <div className="cm-modal" ref={dialogRef} onClick={(e) => e.stopPropagation()}>
         <div className="cm-head">
           <span className="cm-title"><GitMerge size={16} /> This resume changed elsewhere</span>
           <button className="cm-close" onClick={onClose} aria-label="Close"><X size={16} /></button>
@@ -130,7 +132,7 @@ export function ConflictModal({ mine, theirs, onResolve, onClose }: ConflictModa
         .cm-close { color: var(--ink-faint); padding: 4px; border-radius: var(--r-sm); transition: all .12s; }
         .cm-close:hover { background: var(--paper-sunken); color: var(--ink); }
         .cm-sub { font-size: 12.5px; color: var(--ink-soft); margin: 8px 0 16px; line-height: 1.5; }
-        .cm-body { overflow-y: auto; }
+        .cm-body { overflow-y: auto; overscroll-behavior: contain; }
         .cm-state { padding: 20px 8px; text-align: center; color: var(--ink-faint); font-size: 13.5px; line-height: 1.5; }
         .cm-group { margin-bottom: 16px; }
         .cm-group-title {

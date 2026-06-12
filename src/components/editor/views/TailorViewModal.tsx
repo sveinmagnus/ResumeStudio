@@ -5,6 +5,7 @@ import {
   buildTailorPrompt, validateTailorResponse, applyTailorResponse,
   InvalidTailorResponseError, type TailorIssue, type TailorResult,
 } from '../../../lib/viewTailor'
+import { useDialog } from '../../ui/useDialog'
 
 interface TailorViewModalProps {
   /** Add the tailored view to the store and open it. */
@@ -19,6 +20,7 @@ interface TailorViewModalProps {
  * drafted intro, gap list), then apply. Mirrors the AIImportModal pattern.
  */
 export function TailorViewModal({ onApply, onClose }: TailorViewModalProps) {
+  const dialogRef = useDialog(onClose)
   const { data, primaryLocale } = useStore()
   const [posting, setPosting] = useState('')
   const [copied, setCopied] = useState(false)
@@ -73,7 +75,7 @@ export function TailorViewModal({ onApply, onClose }: TailorViewModalProps) {
 
   return (
     <div className="tv-overlay" role="dialog" aria-modal="true" aria-label="Tailor view from job posting" onClick={onClose}>
-      <div className="tv-modal" onClick={(e) => e.stopPropagation()}>
+      <div className="tv-modal" ref={dialogRef} onClick={(e) => e.stopPropagation()}>
         <div className="tv-head">
           <span className="tv-title"><Wand2 size={16} /> Tailor a view to a job posting</span>
           <button className="tv-close" onClick={onClose} aria-label="Close"><X size={16} /></button>

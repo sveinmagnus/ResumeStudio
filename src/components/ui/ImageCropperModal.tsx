@@ -3,6 +3,7 @@ import { Check, RotateCcw, X, ZoomIn, ZoomOut } from 'lucide-react'
 import {
   cropImageToDataUrl, fileToImage, revokeImageObjectUrl, computeCropRect,
 } from '../../lib/image'
+import { useDialog } from './useDialog'
 
 /**
  * Modal that lets the user pan + zoom a freshly-picked image into the square
@@ -38,6 +39,7 @@ const NUDGE_PX = 12
 export function ImageCropperModal({
   file, label, outputSize = 600, quality = 0.82, onCancel, onConfirm,
 }: ImageCropperModalProps) {
+  const dialogRef = useDialog(onCancel)
   const [img, setImg] = useState<HTMLImageElement | null>(null)
   const [objectUrl, setObjectUrl] = useState<string | null>(null)
   const [decodeError, setDecodeError] = useState<string | null>(null)
@@ -184,7 +186,7 @@ export function ImageCropperModal({
 
   return (
     <div className="imgcrop-backdrop" role="dialog" aria-modal="true" aria-label={`Crop ${label}`}>
-      <div className="imgcrop-modal">
+      <div className="imgcrop-modal" ref={dialogRef}>
         <div className="imgcrop-head">
           <div>
             <div className="imgcrop-title">Crop {label.toLowerCase()}</div>

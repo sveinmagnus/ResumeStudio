@@ -5,6 +5,7 @@ import {
   InvalidAIImportError, type AIImportIssue, type ImportSummary,
 } from '../lib/aiImport'
 import type { ResumeStore } from '../types'
+import { useDialog } from './ui/useDialog'
 
 /** Public path the app serves the bundled template from (Vite copies public/ → dist/). */
 const TEMPLATE_PATH = '/ai-import-template.md'
@@ -34,6 +35,7 @@ function deriveName(summary: ImportSummary): string {
  * resume on confirm. No server, no API keys — the user's LLM does the work.
  */
 export function AIImportModal({ onImported, onClose }: AIImportModalProps) {
+  const dialogRef = useDialog(onClose)
   const [jsonText, setJsonText] = useState('')
   const [issues, setIssues] = useState<AIImportIssue[]>([])
   const [parseError, setParseError] = useState<string | null>(null)
@@ -104,7 +106,7 @@ export function AIImportModal({ onImported, onClose }: AIImportModalProps) {
 
   return (
     <div className="aim-overlay" role="dialog" aria-modal="true" aria-label="AI-assisted import" onClick={onClose}>
-      <div className="aim-modal" onClick={(e) => e.stopPropagation()}>
+      <div className="aim-modal" ref={dialogRef} onClick={(e) => e.stopPropagation()}>
         <div className="aim-head">
           <span className="aim-title"><Sparkles size={16} /> AI-assisted import</span>
           <button className="aim-close" onClick={onClose} aria-label="Close"><X size={16} /></button>

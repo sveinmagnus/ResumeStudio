@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { History, RotateCcw, X, Loader2 } from 'lucide-react'
+import { useDialog } from './ui/useDialog'
 import { useStore } from '../store/useStore'
 import { api, type SnapshotMeta, UnauthorizedError } from '../lib/api'
 import { fmtRelativeTime } from '../lib/locales'
@@ -21,6 +22,7 @@ interface SnapshotHistoryProps {
  * re-saved to the server. That makes "restore" itself reversible.
  */
 export function SnapshotHistory({ resumeId, onClose, onUnauthorized }: SnapshotHistoryProps) {
+  const dialogRef = useDialog(onClose)
   const replaceData = useStore((s) => s.replaceData)
   const [snapshots, setSnapshots] = useState<SnapshotMeta[] | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -64,7 +66,7 @@ export function SnapshotHistory({ resumeId, onClose, onUnauthorized }: SnapshotH
 
   return (
     <div className="sh-overlay" role="dialog" aria-modal="true" aria-label="Version history" onClick={onClose}>
-      <div className="sh-modal" onClick={(e) => e.stopPropagation()}>
+      <div className="sh-modal" ref={dialogRef} onClick={(e) => e.stopPropagation()}>
         <div className="sh-head">
           <span className="sh-title"><History size={16} /> Version history</span>
           <button className="sh-close" onClick={onClose} aria-label="Close"><X size={16} /></button>
@@ -128,7 +130,7 @@ export function SnapshotHistory({ resumeId, onClose, onUnauthorized }: SnapshotH
         .sh-close { color: var(--ink-faint); padding: 4px; border-radius: var(--r-sm); transition: all .12s; }
         .sh-close:hover { background: var(--paper-sunken); color: var(--ink); }
         .sh-sub { font-size: 12.5px; color: var(--ink-soft); margin: 8px 0 16px; line-height: 1.5; }
-        .sh-body { overflow-y: auto; }
+        .sh-body { overflow-y: auto; overscroll-behavior: contain; }
         .sh-state { padding: 28px 8px; text-align: center; color: var(--ink-faint); font-size: 14px;
           display: flex; align-items: center; justify-content: center; gap: 8px; }
         .sh-error { padding: 14px; background: #fef2f2; color: #b91c1c; border-radius: var(--r-sm); font-size: 13px; }

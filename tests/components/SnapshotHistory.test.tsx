@@ -26,6 +26,29 @@ describe('<SnapshotHistory>', () => {
     expect(screen.getByText('latest')).toBeInTheDocument()
   })
 
+  // ── Shared dialog behaviour (useDialog) ─────────────────────────────────
+
+  it('moves focus into the dialog on open and closes on Escape', async () => {
+    vi.spyOn(api, 'listSnapshots').mockResolvedValue(SNAPSHOTS)
+    const onClose = vi.fn()
+    render(<SnapshotHistory resumeId="r1" onClose={onClose} />)
+    // Initial focus lands on the first focusable element (the close button).
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Close' }))
+    await userEvent.keyboard('{Escape}')
+    expect(onClose).toHaveBeenCalled()
+  })
+
+  it('traps Tab inside the dialog', async () => {
+    vi.spyOn(api, 'listSnapshots').mockResolvedValue(SNAPSHOTS)
+    render(<SnapshotHistory resumeId="r1" onClose={() => {}} />)
+    await screen.findAllByRole('button', { name: /restore/i })
+    // Shift+Tab from the first focusable wraps to the last.
+    screen.getByRole('button', { name: 'Close' }).focus()
+    await userEvent.keyboard('{Shift>}{Tab}{/Shift}')
+    const restores = screen.getAllByRole('button', { name: /restore/i })
+    expect(document.activeElement).toBe(restores[restores.length - 1])
+  })
+
   it('restores a snapshot via replaceData and closes', async () => {
     const restored = { ...emptyStore(), resume: makeResume({ full_name: 'Restored Person' }) }
     vi.spyOn(api, 'listSnapshots').mockResolvedValue(SNAPSHOTS)

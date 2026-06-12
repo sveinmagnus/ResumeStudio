@@ -4,6 +4,7 @@ import { useStore } from '../../store/useStore'
 import { LOCALE_LABELS, resolve } from '../../lib/locales'
 import { computeCompleteness, computeSectionCoverage, type MissingField, type SectionCoverage } from '../../lib/completeness'
 import { wipeLocale } from '../../lib/wipeLocale'
+import { useDialog } from '../ui/useDialog'
 
 interface CoreStat { label: string; count: number; key: string }
 interface CompactStat { label: string; count: number; key: string }
@@ -345,10 +346,11 @@ interface ConfirmProps {
 }
 
 function ConfirmWipeModal({ locale, onCancel, onConfirm }: ConfirmProps) {
+  const dialogRef = useDialog(onCancel)
   const name = `${LOCALE_LABELS[locale]?.flag ?? ''} ${LOCALE_LABELS[locale]?.name || locale}`.trim()
   return (
     <div className="ov-modal-backdrop" onClick={onCancel} role="presentation">
-      <div className="ov-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="ov-modal-title">
+      <div className="ov-modal" ref={dialogRef} onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="ov-modal-title">
         <h3 id="ov-modal-title">Delete all {name} content?</h3>
         <p>
           This removes every <strong>{name}</strong> translation from your resume —
@@ -410,6 +412,8 @@ interface CoverageProps {
 }
 
 function SectionCoverageModal({ locale, rows, onClose, onGo }: CoverageProps) {
+  // Focus trap + Escape + focus restore (shared dialog behaviour).
+  const dialogRef = useDialog(onClose)
   const name = `${LOCALE_LABELS[locale]?.flag ?? ''} ${LOCALE_LABELS[locale]?.name || locale}`.trim()
 
   // Three buckets help the consultant scan: completely missing, partial, full.
@@ -419,16 +423,9 @@ function SectionCoverageModal({ locale, rows, onClose, onGo }: CoverageProps) {
   const complete = rows.filter((r) => r.total > 0 && r.populated === r.total)
   const empty = rows.filter((r) => r.total === 0)
 
-  // Close on Escape.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [onClose])
-
   return (
     <div className="ov-cov-backdrop" role="presentation" onClick={onClose}>
-      <div className="ov-cov" role="dialog" aria-modal="true" aria-labelledby="ov-cov-title" onClick={(e) => e.stopPropagation()}>
+      <div className="ov-cov" ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="ov-cov-title" onClick={(e) => e.stopPropagation()}>
         <div className="ov-cov-head">
           <div>
             <h3 id="ov-cov-title">Sections missing {name} content</h3>
