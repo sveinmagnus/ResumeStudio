@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { useStore } from '../../store/useStore'
-import { SECTIONS, GROUP_LABELS, GROUP_ORDER } from '../../lib/sections'
+import { SECTIONS, GROUP_LABELS, GROUP_ORDER, canonicalSectionKey } from '../../lib/sections'
 import {
   LayoutDashboard, User, FileText, Briefcase, Building2, Users,
   GraduationCap, BookOpen, Award, Layers, Languages, Presentation,
@@ -155,7 +155,9 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps = {}) {
                   )
                 }
 
-                const active = activeSection === s.key
+                // Alias-aware: the legacy profile content keys highlight the
+                // combined Profile & Competencies item.
+                const active = canonicalSectionKey(activeSection) === s.key
                 return (
                   <button
                     key={s.key}

@@ -6,9 +6,10 @@ import { ErrorBoundary } from './components/ErrorBoundary'
 import { AuthGate } from './components/AuthGate'
 import { AppHeader } from './components/AppHeader'
 import { Sidebar } from './components/layout/Sidebar'
-import { SECTIONS } from './lib/sections'
+import { SECTIONS, canonicalSectionKey } from './lib/sections'
 import { Overview } from './components/editor/Overview'
 import { HeaderEditor } from './components/editor/HeaderEditor'
+import { ProfileCompetenciesEditor } from './components/editor/ProfileCompetenciesEditor'
 import { ProjectsEditor } from './components/editor/ProjectsEditor'
 import {
   WorkEditor, EducationEditor, CoursesEditor, CertificationsEditor,
@@ -181,15 +182,11 @@ function EditorRoute({ resumeId, routeSection, routeViewId, onUnauthorized }: {
   }
 
   // ── Main editor shell ────────────────────────────────────────────────────
-  // 'key_qualifications' and 'key_competencies' fold into Personal Details
-  // (sub-tabs), so the breadcrumb/title still reads "Personal Details" while
-  // the section key may be one of those (Overview's missing-field deep link
-  // uses 'key_qualifications').
-  const sectionKeyForChrome =
-    activeSection === 'key_qualifications' || activeSection === 'key_competencies'
-      ? 'header'
-      : activeSection
-  const section = SECTIONS.find((s) => s.key === sectionKeyForChrome)
+  // 'key_qualifications' and 'key_competencies' are edited on the combined
+  // "Profile & Competencies" page, so the breadcrumb/title shows that page
+  // while the section key may be a content key (Overview's missing-field
+  // deep link uses 'key_qualifications').
+  const section = SECTIONS.find((s) => s.key === canonicalSectionKey(activeSection))
 
   return (
     <div className="app-shell">
@@ -225,9 +222,10 @@ function EditorRoute({ resumeId, routeSection, routeViewId, onUnauthorized }: {
           {/* Reset boundary on section change so a crashed view never traps the user. */}
           <ErrorBoundary resetKey={activeSection}>
             {activeSection === 'overview'              && <Overview />}
-            {(activeSection === 'header' ||
+            {activeSection === 'header'                && <HeaderEditor />}
+            {(activeSection === 'profile_competencies' ||
               activeSection === 'key_qualifications' ||
-              activeSection === 'key_competencies')    && <HeaderEditor />}
+              activeSection === 'key_competencies')    && <ProfileCompetenciesEditor />}
             {activeSection === 'projects'              && <ProjectsEditor />}
             {activeSection === 'work_experiences'      && <WorkEditor />}
             {activeSection === 'positions'             && <PositionsEditor />}
