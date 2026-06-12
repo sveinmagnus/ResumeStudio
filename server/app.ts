@@ -40,8 +40,8 @@ export function createApp(): Express {
   //   - style-src 'unsafe-inline'  → REQUIRED: every component ships an inline
   //                                   <style> block (the project's styling
   //                                   convention) + JSX style={{…}} attrs.
-  //   - *.googleapis / *.gstatic   → the Google Fonts stylesheet + font files
-  //                                   the prod index.html links.
+  //   - font-src 'self'            → fonts are self-hosted under /fonts/
+  //                                   (no Google Fonts CDN since v0.3.1).
   //   - img-src 'self' data: blob: → brand assets, data: URIs, and the
   //                                   blob: URLs that URL.createObjectURL
   //                                   produces for image uploads (ImageField
@@ -62,8 +62,8 @@ export function createApp(): Express {
   const csp = [
     "default-src 'self'",
     "script-src 'self'",
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-    "font-src 'self' https://fonts.gstatic.com",
+    "style-src 'self' 'unsafe-inline'",
+    "font-src 'self'",
     "img-src 'self' data: blob:",
     "connect-src 'self'",
     "object-src 'none'",

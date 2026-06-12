@@ -193,6 +193,9 @@ function EditorRoute({ resumeId, routeSection, routeViewId, onUnauthorized }: {
 
   return (
     <div className="app-shell">
+      {/* First Tab stop: skip the ~25 sidebar items straight to the editor
+          pane (WCAG 2.4.1). Visible only while focused — see index.css. */}
+      <a className="skip-link" href="#main-content">Skip to content</a>
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <main className="app-main">
         <AppHeader
@@ -218,7 +221,7 @@ function EditorRoute({ resumeId, routeSection, routeViewId, onUnauthorized }: {
           />
         )}
 
-        <div className={`app-content${activeSection === 'views' ? ' app-content-wide' : ''}`}>
+        <div id="main-content" tabIndex={-1} className={`app-content${activeSection === 'views' ? ' app-content-wide' : ''}`}>
           {/* Reset boundary on section change so a crashed view never traps the user. */}
           <ErrorBoundary resetKey={activeSection}>
             {activeSection === 'overview'              && <Overview />}

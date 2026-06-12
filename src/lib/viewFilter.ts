@@ -432,8 +432,11 @@ export function buildViewHtml(store: ResumeStore, view: ResumeView, locale: stri
   // parent window, not from a script inside the document.
   const csp = [
     "default-src 'none'",
-    "style-src 'unsafe-inline' https://fonts.googleapis.com",
-    "font-src https://fonts.gstatic.com",
+    "style-src 'unsafe-inline'",
+    // Fonts are self-hosted (/fonts/*). 'self' resolves to the app origin in
+    // every context this document renders in: the srcdoc preview iframe and
+    // the about:blank print/pop-out windows all inherit the opener's origin.
+    "font-src 'self'",
     "img-src 'self' data:",
     "base-uri 'none'",
     "form-action 'none'",
@@ -445,8 +448,26 @@ export function buildViewHtml(store: ResumeStore, view: ResumeView, locale: stri
   <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy" content="${csp}">
   <title>${escapeHtml(view.name)} — ${escapeHtml(r.full_name)}</title>
-  <link href="https://fonts.googleapis.com/css2?family=Open+Sans+Condensed:wght@300&family=Ubuntu:wght@400;500&display=swap" rel="stylesheet">
   <style>
+    /* Self-hosted brand fonts — same files the app shell uses. */
+    @font-face { font-family: 'Open Sans Condensed'; font-style: normal; font-weight: 300; font-display: swap;
+      src: url('/fonts/open-sans-condensed-300-latin.woff2') format('woff2');
+      unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+    @font-face { font-family: 'Open Sans Condensed'; font-style: normal; font-weight: 300; font-display: swap;
+      src: url('/fonts/open-sans-condensed-300-latin-ext.woff2') format('woff2');
+      unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+    @font-face { font-family: 'Ubuntu'; font-style: normal; font-weight: 400; font-display: swap;
+      src: url('/fonts/ubuntu-400-latin.woff2') format('woff2');
+      unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+    @font-face { font-family: 'Ubuntu'; font-style: normal; font-weight: 400; font-display: swap;
+      src: url('/fonts/ubuntu-400-latin-ext.woff2') format('woff2');
+      unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+    @font-face { font-family: 'Ubuntu'; font-style: normal; font-weight: 500; font-display: swap;
+      src: url('/fonts/ubuntu-500-latin.woff2') format('woff2');
+      unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+    @font-face { font-family: 'Ubuntu'; font-style: normal; font-weight: 500; font-display: swap;
+      src: url('/fonts/ubuntu-500-latin-ext.woff2') format('woff2');
+      unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: ${tokens.bodyFontCss}; font-size: ${tokens.bodyFontSizePt}pt; color: #111111; line-height: ${tokens.lineHeight};
            padding: ${tokens.pagePadCss}; max-width: 820px; margin: 0 auto; }

@@ -120,6 +120,7 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps = {}) {
                     <div key={s.key}>
                       <button
                         className={`sb-item ${onList ? 'active' : ''}`}
+                        aria-current={onList ? 'true' : undefined}
                         onClick={() => goView(null)}
                       >
                         <Icon size={16} />
@@ -134,6 +135,7 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps = {}) {
                               <button
                                 key={v.id}
                                 className={`sb-subitem ${vActive ? 'active' : ''}`}
+                                aria-current={vActive ? 'true' : undefined}
                                 onClick={() => goView(v.id)}
                                 title={v.name}
                               >
@@ -153,6 +155,7 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps = {}) {
                   <button
                     key={s.key}
                     className={`sb-item ${active ? 'active' : ''}`}
+                    aria-current={active ? 'true' : undefined}
                     onClick={() => goSection(s.key)}
                   >
                     <Icon size={16} />

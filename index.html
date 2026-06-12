@@ -3,11 +3,14 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#ffffff" />
+    <meta name="description" content="Maintain one master consultant resume across multiple languages and export targeted CV variants." />
     <title>Cartavio Resume Studio</title>
     <link rel="icon" type="image/png" href="/cartavio-favicon.png">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Open+Sans+Condensed:wght@300&family=Ubuntu:wght@400;500&display=swap" rel="stylesheet">
+    <!-- Fonts are self-hosted (public/fonts + @font-face in index.css):
+         no third-party request, works offline in the desktop build. -->
+    <link rel="preload" href="/fonts/ubuntu-400-latin.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="preload" href="/fonts/open-sans-condensed-300-latin.woff2" as="font" type="font/woff2" crossorigin>
   </head>
   <body>
     <div id="root"></div>

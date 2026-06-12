@@ -28,7 +28,9 @@ export function DateField({ label, value, onChange, allowOngoing }: {
     <div className="pf-wrap">
       <label className="pf-label" htmlFor={yearId}>{label}</label>
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-        <input id={yearId} className="pf-input" type="number" placeholder="Year" style={{ width: 80 }}
+        {/* text + inputmode rather than type=number: no spinner, no
+            accidental scroll-wheel mutation, numeric keypad on touch. */}
+        <input id={yearId} className="pf-input" type="text" inputMode="numeric" placeholder="Year" style={{ width: 80 }}
           aria-label={`${label} — year`}
           value={value?.year || ''} onChange={(e) => {
             const y = parseInt(e.target.value)
@@ -77,7 +79,7 @@ export function TagField({ label, tags, onChange, suggestions = [] }: {
           </span>
         ))}
         <input id={inputId} className="tag-input" placeholder="add tag…"
-          list="tag-suggestions"
+          list={`${inputId}-list`}
           onKeyDown={(e) => {
             if (e.key === 'Enter' || e.key === ',') {
               e.preventDefault()
@@ -85,7 +87,7 @@ export function TagField({ label, tags, onChange, suggestions = [] }: {
               ;(e.target as HTMLInputElement).value = ''
             }
           }} />
-        <datalist id="tag-suggestions">
+        <datalist id={`${inputId}-list`}>
           {suggestions.map((s) => <option key={s} value={s} />)}
         </datalist>
       </div>

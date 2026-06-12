@@ -40,7 +40,7 @@ describe('health (no auth)', () => {
 })
 
 describe('security headers', () => {
-  it('sets a Content-Security-Policy that allows the bundle, inline styles and Google Fonts', async () => {
+  it('sets a Content-Security-Policy that allows the bundle, inline styles and self-hosted fonts', async () => {
     const res = await request(app).get('/api/health')
     const csp = res.headers['content-security-policy']
     expect(csp).toBeDefined()
@@ -48,8 +48,10 @@ describe('security headers', () => {
     expect(csp).toContain("script-src 'self'")
     // Inline <style> blocks are the project's styling convention — must be allowed.
     expect(csp).toContain("'unsafe-inline'")
-    expect(csp).toContain('https://fonts.googleapis.com')
-    expect(csp).toContain('https://fonts.gstatic.com')
+    // Fonts are self-hosted since v0.3.1 — no third-party origins in the policy.
+    expect(csp).toContain("font-src 'self'")
+    expect(csp).not.toContain('googleapis.com')
+    expect(csp).not.toContain('gstatic.com')
     expect(csp).toContain("object-src 'none'")
     // blob: must be permitted for img-src so URL.createObjectURL(file) loads
     // inside the ImageField uploader's hidden <Image> probe (without this the
