@@ -140,7 +140,7 @@ export function SyncPanel({ onRestored, onUnauthorized, standalone }: SyncPanelP
           font-size: 11px; font-weight: 600;
         }
         .sp-badge-ok { background: #e8f6ee; color: #18794e; }
-        .sp-badge-stale { background: #fff7e6; color: #b87900; }
+        .sp-badge-stale { background: var(--warn-wash); color: var(--warn-ink); }
         .sp-folder { margin-top: 10px; font-size: 12.5px; color: var(--ink-soft); }
         .sp-folder code {
           font-size: 12px; color: var(--ink); background: var(--paper-sunken);
@@ -149,8 +149,8 @@ export function SyncPanel({ onRestored, onUnauthorized, standalone }: SyncPanelP
         }
         .sp-meta { margin-top: 5px; font-size: 12px; color: var(--ink-faint); }
         .sp-msg { margin-top: 10px; padding: 8px 12px; border-radius: var(--r-sm); font-size: 12.5px; }
-        .sp-msg-ok { background: #e8f6ee; color: #18794e; }
-        .sp-msg-err { background: #fef2f2; color: #b91c1c; }
+        .sp-msg-ok { background: var(--ok-wash); color: var(--ok-ink); }
+        .sp-msg-err { background: var(--err-wash); color: var(--err-ink); }
         .sp-actions { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
         .sp-btn {
           display: inline-flex; align-items: center; gap: 7px;

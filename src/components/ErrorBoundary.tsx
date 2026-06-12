@@ -69,12 +69,12 @@ export class ErrorBoundary extends Component<Props, State> {
           }
           .eb-icon {
             width: 56px; height: 56px; margin: 0 auto 16px; border-radius: 50%;
-            background: #fdf0ef; color: #c0392b; display: grid; place-items: center;
+            background: var(--err-wash); color: var(--err-ink); display: grid; place-items: center;
           }
           .eb-title { font-size: 20px; margin-bottom: 8px; }
           .eb-msg { color: var(--ink-soft); font-size: 14px; line-height: 1.55; margin-bottom: 16px; }
           .eb-err {
-            font-family: monospace; font-size: 12px; color: #c0392b;
+            font-family: monospace; font-size: 12px; color: var(--err-ink);
             background: #fdf0ef; padding: 10px 14px; border-radius: var(--r-sm);
             margin: 0 0 18px; white-space: pre-wrap; word-break: break-word;
             text-align: left;

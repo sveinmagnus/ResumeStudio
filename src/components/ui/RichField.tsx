@@ -148,18 +148,18 @@ export function RichField({ label, value, onChange, placeholder }: RichFieldProp
         .rf-assist-btn {
           display: inline-flex; align-items: center; gap: 4px;
           padding: 2px 7px; border-radius: var(--r-sm);
-          font-size: 10px; font-weight: 600; color: var(--ink-soft);
+          font-size: 11px; font-weight: 600; color: var(--ink-soft);
           background: var(--paper-sunken); border: 1px solid var(--line);
           transition: all .12s; cursor: pointer;
         }
-        .rf-assist-btn:hover:not(:disabled) { border-color: var(--secondary-ink); color: var(--secondary-ink); }
+        .rf-assist-btn:hover:not(:disabled) { border-color: var(--secondary-ink); color: var(--secondary-ink-text); }
         .rf-assist-btn:disabled { opacity: .4; cursor: default; }
         .rf-draft-btn:hover:not(:disabled) { background: var(--secondary-tint); }
         .rf-spin { animation: rf-spin 1s linear infinite; }
         @keyframes rf-spin { to { transform: rotate(360deg); } }
-        .rf-note { font-size: 10px; margin-top: 1px; }
-        .rf-note-draft { color: var(--secondary-ink); }
-        .rf-note-error { color: #b91c1c; }
+        .rf-note { font-size: 11px; margin-top: 1px; }
+        .rf-note-draft { color: var(--secondary-ink-text); }
+        .rf-note-error { color: var(--err-ink); }
       `}</style>
     </div>
   )
@@ -270,10 +270,10 @@ function RichColumn({ variant, locale, fieldLabel, html, onCommit, placeholder, 
           gap: 8px; min-height: 20px;
         }
         .rf-locale-tag {
-          font-size: 10px; font-weight: 600; letter-spacing: .04em;
+          font-size: 11px; font-weight: 600; letter-spacing: .04em;
           color: var(--ink-faint); display: flex; align-items: center; gap: 4px;
         }
-        .rf-tag-secondary { color: var(--secondary-ink); }
+        .rf-tag-secondary { color: var(--secondary-ink-text); }
         .rf-input {
           min-height: 72px; padding: 9px 11px;
           background: var(--paper-raised);

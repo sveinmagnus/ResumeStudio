@@ -156,9 +156,9 @@ export function ConflictModal({ mine, theirs, onResolve, onClose }: ConflictModa
           white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         }
         .cm-item-mark { font-weight: 700; width: 10px; text-align: center; flex-shrink: 0; }
-        .cm-item-added .cm-item-mark { color: #27ae60; }
-        .cm-item-removed .cm-item-mark { color: #c0392b; }
-        .cm-item-changed .cm-item-mark { color: #b87900; }
+        .cm-item-added .cm-item-mark { color: var(--ok-ink); }
+        .cm-item-removed .cm-item-mark { color: var(--err-ink); }
+        .cm-item-changed .cm-item-mark { color: var(--warn-ink); }
         .cm-item-more { color: var(--ink-faint); font-style: italic; }
         .cm-field-name, .cm-section-name { font-weight: 600; flex-shrink: 0; }
         .cm-field-vals { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
@@ -167,16 +167,16 @@ export function ConflictModal({ mine, theirs, onResolve, onClose }: ConflictModa
         .cm-theirs { color: var(--ink-soft); }
         .cm-arrow { color: var(--ink-faint); flex-shrink: 0; }
         .cm-counts { display: inline-flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
-        .cm-add { color: #27ae60; }
-        .cm-rem { color: #c0392b; }
-        .cm-chg { color: #b87900; }
+        .cm-add { color: var(--ok-ink); }
+        .cm-rem { color: var(--err-ink); }
+        .cm-chg { color: var(--warn-ink); }
         .cm-legend { font-size: 11px; color: var(--ink-faint); margin-top: 4px; }
         .cm-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
         .cm-discard {
           padding: 9px 16px; border-radius: var(--r-md); font-size: 13px; font-weight: 600;
           border: 1.5px solid var(--line-strong); color: var(--ink-soft); transition: all .13s;
         }
-        .cm-discard:hover { border-color: #c0392b; color: #c0392b; }
+        .cm-discard:hover { border-color: var(--err-ink); color: var(--err-ink); }
         .cm-keep {
           padding: 9px 16px; border-radius: var(--r-md); font-size: 13px; font-weight: 600;
           background: var(--accent); color: #fff; transition: background .13s;

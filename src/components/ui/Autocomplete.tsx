@@ -289,7 +289,7 @@ export function Autocomplete({
           color: var(--accent); font-weight: 600; font-size: 12.5px;
         }
         .ac-row-extra { border-top: 1px dashed var(--line); }
-        .ac-row-extra .ac-row-sub { color: var(--secondary-ink, var(--ink-faint)); }
+        .ac-row-extra .ac-row-sub { color: var(--secondary-ink-text, var(--ink-faint)); }
         .ac-row-add em { font-style: normal; font-weight: 500; }
       `}</style>
     </div>

@@ -14,10 +14,20 @@
   --accent-bright: #1B4A9A;
   --accent-wash: #e6ecf8;
 
-  /* secondary language tint: Cartavio cyan — exact value from cartavio.no */
+  /* secondary language tint: Cartavio cyan — exact value from cartavio.no.
+     IMPORTANT: --secondary-ink (#00B8DE) is 2.4:1 on white — fine for
+     borders/washes/icons, NEVER for text. Text in the cyan family must use
+     --secondary-ink-text (5.2:1 on white, 4.7:1 on the tint — WCAG AA). */
   --secondary-tint: #e0f8ff;
   --secondary-line: #7dd9f0;
   --secondary-ink: #00B8DE;
+  --secondary-ink-text: #007696;
+
+  /* Status colours — each ink is ≥4.5:1 on its wash AND on --paper/-raised,
+     so the pairs can be used for badges or bare text interchangeably. */
+  --ok-ink: #1d7d49;   --ok-wash: #e8f7ef;
+  --warn-ink: #8a5b00; --warn-wash: #fff7e6;
+  --err-ink: #b91c1c;  --err-wash: #fef2f2;
 
   --gold: #9a7b3f;
 

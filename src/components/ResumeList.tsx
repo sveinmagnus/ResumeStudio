@@ -393,7 +393,7 @@ export function ResumeList({ onUnauthorized }: ResumeListProps) {
 
         .rl-error {
           margin-bottom: 16px; padding: 10px 14px;
-          background: #fef2f2; color: #b91c1c;
+          background: var(--err-wash); color: var(--err-ink);
           border-radius: var(--r-sm); font-size: 13px;
         }
 
@@ -430,11 +430,11 @@ export function ResumeList({ onUnauthorized }: ResumeListProps) {
           border-radius: 50%; background: #b87900; flex-shrink: 0;
         }
         .rl-meta { font-size: 12px; color: var(--ink-faint); margin-top: 2px; }
-        .rl-weight { color: #b87900; }
-        .rl-weight-risk { color: #b91c1c; font-weight: 600; }
+        .rl-weight { color: var(--warn-ink); }
+        .rl-weight-risk { color: var(--err-ink); font-weight: 600; }
         .rl-unsynced-note {
           margin-bottom: 16px; padding: 9px 14px; font-size: 12.5px;
-          background: #fff7e6; color: #b87900; border-radius: var(--r-sm);
+          background: var(--warn-wash); color: var(--warn-ink); border-radius: var(--r-sm);
         }
         .rl-actions { display: flex; align-items: stretch; }
         .rl-icon-btn {

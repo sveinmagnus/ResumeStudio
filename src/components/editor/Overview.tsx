@@ -542,7 +542,7 @@ function CoverageBucket({ title, tone, rows, onGo, emptyMessage }: BucketProps) 
           margin-bottom: 4px;
         }
         .ov-cov-tone-warn { color: var(--accent); background: var(--accent-wash); }
-        .ov-cov-tone-ok { color: var(--secondary-ink); background: var(--secondary-tint); }
+        .ov-cov-tone-ok { color: var(--secondary-ink-text); background: var(--secondary-tint); }
         .ov-cov-tone-muted { color: var(--ink-faint); background: var(--paper-sunken); }
         .ov-cov-bucket-count { font-variant-numeric: tabular-nums; opacity: .8; }
         .ov-cov-empty {

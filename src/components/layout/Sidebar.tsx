@@ -201,7 +201,7 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps = {}) {
             font-family: var(--serif); font-size: 15px; line-height: 1.15;
             color: rgba(244,241,234,0.95); white-space: nowrap;
           }
-          .sb-sub { font-size: 11.5px; color: var(--ink-faint); margin-top: 2px;
+          .sb-sub { font-size: 11.5px; color: rgba(244,241,234,0.58); margin-top: 2px;
             white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
           /* The close button only shows in drawer mode (see media query). */
@@ -217,8 +217,8 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps = {}) {
           .sb-nav { flex: 1; padding: 14px 12px 20px; }
           .sb-group { margin-bottom: 18px; }
           .sb-group-label {
-            font-size: 10px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase;
-            color: var(--ink-faint); padding: 0 10px; margin-bottom: 6px;
+            font-size: 11px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase;
+            color: rgba(244,241,234,0.58); padding: 0 10px; margin-bottom: 6px;
           }
           .sb-item {
             display: flex; align-items: center; gap: 11px; width: 100%;
@@ -262,10 +262,10 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps = {}) {
             padding: 14px 18px;
             border-top: 1px solid rgba(244,241,234,0.08);
             display: flex; align-items: center; justify-content: space-between;
-            font-size: 11px; color: rgba(244,241,234,0.3);
+            font-size: 11px; color: rgba(244,241,234,0.55);
           }
           .sb-footer-link {
-            color: rgba(244,241,234,0.3); text-decoration: none; transition: color .15s;
+            color: rgba(244,241,234,0.55); text-decoration: none; transition: color .15s;
           }
           .sb-footer-link:hover { color: rgba(244,241,234,0.65); }
 

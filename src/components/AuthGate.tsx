@@ -127,7 +127,7 @@ export function AuthGate({ onSubmit }: AuthGateProps) {
 
         /* Error */
         .auth-error {
-          font-size: 13px; color: #c0392b; background: #fdf0ef;
+          font-size: 13px; color: var(--err-ink); background: var(--err-wash);
           padding: 8px 12px; border-radius: var(--r-sm); margin-bottom: 10px;
         }
 
