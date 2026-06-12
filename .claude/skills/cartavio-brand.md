@@ -95,7 +95,13 @@ description: Apply Cartavio AS brand styling to a web project. Use when asked to
 
   --secondary-tint: #e0f8ff;
   --secondary-line: #7dd9f0;
-  --secondary-ink: #00B8DE;
+  --secondary-ink: #00B8DE;       /* borders/washes/icons ONLY — 2.4:1 on white */
+  --secondary-ink-text: #007696;  /* the TEXT-safe cyan (5.2:1) — all cyan text */
+
+  /* Status pairs — every ink is >=4.5:1 on its wash and on white (WCAG AA) */
+  --ok-ink: #1d7d49;   --ok-wash: #e8f7ef;
+  --warn-ink: #8a5b00; --warn-wash: #fff7e6;
+  --err-ink: #b91c1c;  --err-wash: #fef2f2;
 
   --gold: #9a7b3f;
 
@@ -114,7 +120,15 @@ description: Apply Cartavio AS brand styling to a web project. Use when asked to
 h1,h2,h3,h4 { font-family: var(--serif); font-weight: 300; line-height: 1.1; }
 ```
 
-## Google Fonts Import
+## Fonts
+
+**Prefer self-hosting** (what Resume Studio does since v0.3.1): download the
+woff2 files (Open Sans Condensed 300, Ubuntu 400/500, latin + latin-ext) to
+`public/fonts/`, declare `@font-face` with `font-display: swap`, and preload
+the two latin files. No third-party request (GDPR), works offline, and CSP
+can stay `font-src 'self'`.
+
+Quick-start alternative (prototypes only — it leaks visitor IPs to Google):
 
 ```html
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -124,10 +138,14 @@ h1,h2,h3,h4 { font-family: var(--serif); font-weight: 300; line-height: 1.1; }
 
 ## Application Steps (for a new project)
 
-1. Add Google Fonts import to `<head>` (above)
+1. Add the fonts (self-hosted preferred, see above)
 2. Add CSS custom properties to `:root` (above)
 3. Set `h1,h2,h3,h4` to Open Sans Condensed 300
 4. Update page `<title>` to reference Cartavio
 5. Replace any warm/red accent usages with `var(--accent)` (navy #002E6E)
-6. Use `var(--secondary-ink)` (#00B8DE) for highlight/link/secondary elements
+6. Use `var(--secondary-ink)` (#00B8DE) for highlight borders/washes/icons —
+   but NEVER for text: it's 2.4:1 on white. Cyan-family **text** uses
+   `var(--secondary-ink-text)` (#007696, WCAG AA)
 7. Ensure backgrounds are pure white — not warm paper or blue-gray
+8. Status colours (ok/warn/err) come as ink+wash pairs (above) — keep the
+   pairs together so contrast stays AA
