@@ -98,7 +98,15 @@ export function AIImportModal({ onImported, onClose }: AIImportModalProps) {
     if (!parsed) return
     setCreating(true)
     try {
-      await onImported(parsed.store, deriveName(parsed.summary))
+      // Canonicalize skill names against the Quadim library (F12 pt2) before
+      // creating the resume. Best-effort — a taxonomy hiccup never blocks it.
+      let store = parsed.store
+      try {
+        const { loadSkillTaxonomy } = await import('../lib/skillTaxonomy')
+        const { normalizeImportedSkills } = await import('../lib/skillNormalize')
+        store = normalizeImportedSkills(store, await loadSkillTaxonomy()).store
+      } catch { /* keep the un-normalized store */ }
+      await onImported(store, deriveName(parsed.summary))
     } finally {
       setCreating(false)
     }

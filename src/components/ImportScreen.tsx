@@ -10,9 +10,24 @@ import {
   isEuropassJson, isEuropassXml, importFromEuropassJson, importFromEuropassXml,
 } from '../lib/importerEuropass'
 import { AIImportModal } from './AIImportModal'
+import { loadSkillTaxonomy } from '../lib/skillTaxonomy'
+import { normalizeImportedSkills } from '../lib/skillNormalize'
 import type { ResumeStore } from '../types'
 
 const YEAR = new Date().getFullYear()
+
+/**
+ * Canonicalize a freshly-imported store's skill names against the Quadim
+ * library (F12 pt2). Skipped for backups, whose names are intentional. The
+ * taxonomy is the same lazy-loaded list the autocomplete uses (memoized).
+ */
+async function normalizeImported(store: ResumeStore): Promise<ResumeStore> {
+  try {
+    return normalizeImportedSkills(store, await loadSkillTaxonomy()).store
+  } catch {
+    return store // never let a taxonomy hiccup block an import
+  }
+}
 
 export interface ImportScreenProps {
   /** Render in compact mode (inside the picker panel — no brand block, no footer). */
@@ -50,7 +65,7 @@ export function ImportScreen({ compact = false, onStartFresh, onImported }: Impo
           setError('That ZIP doesn’t look like a LinkedIn data export (no Profile/Positions/Skills CSVs found).')
           return
         }
-        const store = importFromLinkedIn(files)
+        const store = await normalizeImported(importFromLinkedIn(files))
         await onImported(store, deriveName(store, 'LinkedIn import'))
         return
       }
@@ -59,7 +74,7 @@ export function ImportScreen({ compact = false, onStartFresh, onImported }: Impo
 
       // Europass XML (SkillsPassport) — the classic europa.eu CV download.
       if (/\.xml$/i.test(file.name) || isEuropassXml(text)) {
-        const store = importFromEuropassXml(text)
+        const store = await normalizeImported(importFromEuropassXml(text))
         await onImported(store, deriveName(store, 'Europass import'))
         return
       }
@@ -67,19 +82,20 @@ export function ImportScreen({ compact = false, onStartFresh, onImported }: Impo
       const json = JSON.parse(text) as unknown
 
       if (isEuropassJson(json)) {
-        const store = importFromEuropassJson(json)
+        const store = await normalizeImported(importFromEuropassJson(json))
         await onImported(store, deriveName(store, 'Europass import'))
       } else if (isAIImportFormat(json)) {
         // AI-import drafts get validated up-front; the field-pathed message is
         // far more useful than a generic parse failure. (The guided AI modal
         // shows the full issue list — here we surface the first problem.)
-        const store = importFromAIDraft(validateAIImport(json))
+        const store = await normalizeImported(importFromAIDraft(validateAIImport(json)))
         await onImported(store, deriveName(store, 'AI-imported resume'))
       } else if (isBackupFormat(json)) {
+        // Backups carry intentional existing names — restore verbatim, no normalization.
         const store = importFromBackup(json)
         await onImported(store, deriveName(store, 'Imported resume'))
       } else {
-        const store = importFromCVPartner(json as Record<string, unknown>)
+        const store = await normalizeImported(importFromCVPartner(json as Record<string, unknown>))
         await onImported(store, deriveName(store, 'Imported CV'))
       }
     } catch (e) {
