@@ -216,14 +216,11 @@ pane. Medium effort; highest strategic fit of anything on this list.
 Pure `lib/` computation + dashboard cards, in the spirit of
 `completeness.ts`. Small effort, recurring real value for a consultant.
 
-### F4. Application / tender log per view
-A view already has `last_exported_at`. Extend to an export+application log:
-when exporting, optionally record *recipient, date, role/tender name,
-status (sent / interview / won / lost), notes*. A small top-level
-`applications` collection linked to `view_id`, a log panel in the view
-editor, and a picker/Overview rollup ("3 open applications"). For a small
-team this doubles as lightweight pipeline tracking without becoming a CRM.
-Keep it deliberately flat — no statuses workflow engine.
+### F4. Application / tender log per view — ❌ dropped (June 2026)
+Cut deliberately: an application/tender log (recipient, status, pipeline
+rollup) would pull the product toward **bid-management software**, which is
+out of scope. Resume Studio stays a *resume* tool — one master CV extracted
+into targeted views. Don't re-propose pipeline/CRM features.
 
 ### F5. Per-view anonymization toggle — ✅ done (June 2026)
 `Project.use_anonymized` + `customer_anonymized` exist per project, but
@@ -252,13 +249,11 @@ educations, certifications, skills map cleanly onto the model) and
 these are about *fidelity* (structured data, no LLM round-trip) for the
 two most structured sources.
 
-### F8. Cover-letter companion document
-A localized rich-text letter attached to a view, sharing the view's
-header/footer/branding config, exporting through the same PDF/DOCX
-pipeline (one more "section" with its own page). Consultants almost always
-send letter + CV as a pair styled identically; today the letter is the one
-document still maintained outside the tool. Bonus: F2's tailoring schema
-can draft it from the job posting.
+### F8. Cover-letter companion document — ❌ dropped (June 2026)
+Cut deliberately: maintaining cover letters drifts past the product's remit
+(one master CV → targeted resume views). A letter is a different document
+class with its own lifecycle; keep it in the user's word processor. Don't
+re-propose letter authoring/management.
 
 ### F9. Skill matrix export (consultancy bid format) — ✅ done (June 2026)
 Nordic tenders routinely demand a competency matrix: skill × years ×
@@ -310,29 +305,53 @@ exporter; never fetch the live site at runtime. Note: library descriptions
 are English-only, so suggested names enter the registry as `en` values with
 the normal translation workflow applying.
 
-### F13. Deferred / conditional
-- **PWA offline-load** (§12.4): only if "cold start with zero network"
-  becomes real — the desktop build already covers the practical case.
-- **Electron repackaging**: the per-user data dir was chosen to make this
-  cheap; pull the trigger only when tray/updater/browser-opening friction
-  on some OS outweighs the packaging cost.
-- **Career timeline / gap visualization** on Overview: nice, not core.
-- **Global content search**: becomes worth it when resumes are large
-  enough that the sidebar stops being enough; revisit after F2–F9.
+### F13. PWA offline-load — *deferred / conditional*
+Offline *editing* already shipped (durable queue + reconnect drain +
+conflict safety). What's missing is *loading* the app with no network: no
+service worker caches the shell/assets, so a cold start offline fails. A PWA
+layer (SW caching index.html/JS/CSS/fonts, an update-prompt for version
+skew, offline fallback for the lazy exporter chunk) would close that.
+Multi-day; only worth it if "open and edit with zero connectivity" becomes a
+real need — the desktop build already covers the practical case. See
+`plans/offline-editing.md` (Tier 3).
+
+### F14. Electron repackaging — *deferred / conditional*
+The portable desktop build (bundled Node + tray + auto-updater + browser
+opener) covers the practical case today. The per-user data dir was
+deliberately chosen to match `app.getPath('userData')`, so an Electron move
+is repackaging, not a rewrite. Pull the trigger only when tray / updater /
+browser-opening friction on some OS outweighs the packaging cost.
+
+### F15. Career timeline / gap visualization — *deferred / conditional*
+A visual timeline of employments + projects on the Overview, surfacing gaps
+and overlaps. Nice-to-have, not core to the master-CV → views loop. Pure
+`lib/` computation + an SVG/canvas card. Revisit if a user actually asks.
+
+### F16. Global content search — *deferred / conditional*
+A cross-section search ("find every item mentioning Kubernetes") becomes
+worth it once resumes are large enough that the sidebar stops being enough
+to navigate. Pure client-side index over the store. Revisit after the
+current feature wave settles and real CVs get big.
 
 ---
 
 ## Suggested sequencing
 
-| Wave | Items | Theme |
-|---|---|---|
-| 1 (days) | A1, A2, F3, F11 | Doc truth + two cheap user-visible wins |
-| 2 (1–2 wks) | F1, A3 | Templates (the flagship gap) + the refactor that makes view code workable |
-| 3 (1–2 wks) | A5, F5, F6, F9 | Section-descriptor registry, then the three export features it makes cheap |
-| 4 (2+ wks) | F2, F8 | BYO-LLM tailoring + cover letter (the "assisted curation" arc) |
-| 5 (as needed) | A4, A6, A7, F4, F7, F10 | Storage hygiene, e2e net, attribution, importers |
+| Wave | Items | Theme | Status |
+|---|---|---|---|
+| 1 (days) | A1, A2, F3, F11 | Doc truth + two cheap user-visible wins | A1/A2 done; F3/F11 next |
+| 2 (1–2 wks) | F1, A3 | Templates (the flagship gap) + the refactor that makes view code workable | ✅ done |
+| 3 (1–2 wks) | A5, F5, F6, F9 | Section-descriptor registry, then the three export features it makes cheap | ✅ done |
+| 4 (2+ wks) | F2 | BYO-LLM tailoring (the "assisted curation" arc; cover letter F8 dropped) | ✅ done |
+| 5 (as needed) | A4, A6, A7, F7, F10, F12 | Storage hygiene, e2e net, attribution, importers, taxonomy | mostly done; A4 Phase 2 + F12 pts 2–4 open |
 
 Rationale for the ordering: Wave 3's export features (anonymization, text
 export, skill matrix) each touch the same three switches A5 collapses — do
 the refactor first and each feature drops from "edit 3 files in sync" to
 "add one descriptor + one renderer".
+
+**Remaining open work** (June 2026, after the big wave shipped): F12 points
+2–4 (import normalization, related-skill suggestions, skill-matrix wording),
+A4 Phase 2 (content-addressed asset table — conditional on measured need),
+then the cheap wins F3 (freshness/expiry warnings) and F11 (per-view export
+locale). The watchlist (A8) and the deferred items (F13–F16) stay parked.
