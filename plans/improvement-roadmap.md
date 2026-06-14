@@ -72,14 +72,19 @@ Existing RTL tests should pass unchanged — that's the acceptance gate.
 candidates but each is several related editors by design; only split if
 they grow further.
 
-### A4. Embedded base64 images: payload + snapshot weight — 🔶 Phases 1+measure done (June 2026)
+### A4. Embedded base64 images: payload + snapshot weight — ✅ closed (June 2026): Phases 1+measure done; Phase 2 deferred by decision
 
 *Status: snapshots are stored image-free (Phase 1), and the "measure
 first" step shipped June 2026 — `server/storage.ts` payloadStats +
 `db.storageStats()` + `GET /api/resumes/storage`, surfaced as per-card
 weight warnings (1 MB large / 2.5 MB quota-risk) and a DB-size footer on
-the picker. Still open: the Phase 2 content-addressed asset table, only if
-real-world measurements warrant it.*
+the picker. **Decision (June 2026): Phase 2 (the content-addressed asset
+table) is deliberately NOT built — it's the most invasive change in the
+codebase (persistence + both render paths + backup + offline cache + every
+importer) and the benefit is unmeasured. The phased design exists precisely
+so the measurement infra triggers the table when real CVs get heavy; until
+the picker actually warns on production data, A4 is closed.** Phase 2 below
+stays as the documented plan for if/when that day comes.*
 `profile_photo`, `company_logo`, and per-view `photo_override` /
 `logo_override` live as data URLs **inside the resume JSON**. Consequences:
 
