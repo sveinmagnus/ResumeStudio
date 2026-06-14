@@ -274,7 +274,7 @@ first run, then overrides them.
 | `RESUME_NO_UPDATE` | Disable the auto-updater (background check + install) | unset (updates on) |
 | `RESUME_UPDATE_REPO` | GitHub `owner/repo` to check for releases | `sveinmagnus/resumestudio` |
 | `RESUME_INSTALL_DIR` | The portable build root to swap on update (set by the shim) | derived from `RESUME_CLIENT_DIR` |
-| `RESUME_APP_VERSION` | The running version (baked into the shim at build time) | from `package.json` under `tsx` |
+| `RESUME_APP_VERSION` | The running version. Baked into the shim at build time — from the **git tag** in a CI release (which must match `package.json`), or `package.json` for a local `build:desktop`/`tsx` run | from `package.json` |
 
 The server binds **loopback only** (`127.0.0.1`), so the app is never exposed to
 your local network.

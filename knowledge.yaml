@@ -14,10 +14,10 @@ units:
   # ── Instruction layer (eager — Claude Code auto-loads CLAUDE.md) ──────────
   - id: claude-instructions
     path: CLAUDE.md
-    intent: "How must an agent work in this codebase? Architecture map, data model, store patterns, conventions (incl. the v0.3.1 accessibility invariants), and what not to change."
+    intent: "How must an agent work in this codebase? Architecture map, data model, store patterns, conventions (incl. the v0.3.1 accessibility invariants + the version source-of-truth rule), and what not to change."
     scope: global
     audience: [agent, developer]
-    validated: "2026-06-12"
+    validated: "2026-06-15"
     update_frequency: weekly
     triggers: [conventions, architecture, data-model, store, persistence, sections, accessibility, routing]
     hints:
@@ -43,7 +43,7 @@ units:
     intent: "How does the portable desktop build work — building, data dirs, cloud-folder sync, tray, and auto-update?"
     scope: project
     audience: [human, developer, agent]
-    validated: "2026-06-12"
+    validated: "2026-06-15"
     update_frequency: monthly
     depends_on: [readme]
     triggers: [desktop, launcher, portable, tray, auto-update, sync, backup-folder]
@@ -282,14 +282,14 @@ units:
   - id: release-policy
     kind: policy
     path: .github/workflows/release.yml
-    intent: "How are desktop releases built and published to GitHub Releases?"
+    intent: "How are desktop releases built and published to GitHub Releases? Tag is the version source of truth; CI fails if package.json drifts from it."
     format: yaml
     scope: project
     audience: [developer, agent]
-    validated: "2026-06-10"
+    validated: "2026-06-15"
     update_frequency: rarely
     depends_on: [desktop-guide]
-    triggers: [release, publish, tarball, versioning]
+    triggers: [release, publish, tarball, versioning, version]
     hints:
       token_estimate: 900
 

@@ -1015,6 +1015,17 @@ Full end-user + build docs live in **`DESKTOP.md`**. Key facts for working here:
   `RESUME_APP_VERSION` into the shims and emits the `.tar.gz` to `release-dist/`;
   `.github/workflows/release.yml` publishes it. Keep `assetNameFor` in
   `updater.ts` and the duplicated copy in `build-desktop.mjs` in sync.
+- **Version source of truth (don't reintroduce the v0.3.2 drift bug).** A
+  *published* build's version is the **git tag** — `release.yml`'s "Resolve &
+  verify version" step derives it from `GITHUB_REF_NAME`, exports
+  `RESUME_APP_VERSION` so the build bakes the tag value, and **hard-fails if
+  `package.json` doesn't match the tag**. `build-desktop.mjs` and
+  `server/version.ts` both read `RESUME_APP_VERSION` first, else `package.json`.
+  So: to cut a release, bump `package.json` **and** `package-lock.json` to the
+  new version, commit, then tag `vX.Y.Z` — the CI guard rejects a tag whose
+  `package.json` wasn't bumped (that mismatch shipped a build self-reporting the
+  previous version, which then looped "update available" forever). Local
+  `npm run build:desktop` (no env) still uses `package.json`.
 - **Update UX (`updateRuntime` + `tray` + `notify`).** The tray has a disabled
   **version header** + two always-present items: "Check for updates"
   (`handleCheckClick` → `runCheck(true)`) and "Install update"

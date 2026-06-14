@@ -36,8 +36,16 @@ const log = (m) => console.log(`[build-desktop] ${m}`)
 // App version, baked into the launcher shims as RESUME_APP_VERSION (the bundle
 // has no package.json to read at runtime, and the auto-updater compares this to
 // the latest GitHub release). See server/version.ts.
+//
+// Precedence MIRRORS server/version.ts: an explicit RESUME_APP_VERSION wins,
+// else package.json. In the tag-triggered release workflow CI sets
+// RESUME_APP_VERSION from the git tag (the single source of truth for a
+// published build) AND fails if package.json drifted from it — so the baked
+// version can never silently fall back to a stale package.json again. Local
+// `npm run build:desktop` (no env) keeps using package.json.
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
-const VERSION = pkg.version || '0.0.0'
+const VERSION = process.env.RESUME_APP_VERSION?.trim() || pkg.version || '0.0.0'
+log(`version    : ${VERSION}${process.env.RESUME_APP_VERSION ? ' (from RESUME_APP_VERSION)' : ' (from package.json)'}`)
 
 // The release-asset name for THIS platform/arch — must match
 // server/desktop/updater.ts `assetNameFor` (intentionally duplicated: a build
