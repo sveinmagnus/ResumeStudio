@@ -7,7 +7,7 @@ import userEvent from '@testing-library/user-event'
 import { Overview } from '../../src/components/editor/Overview'
 import { useStore } from '../../src/store/useStore'
 import { resetStore } from '../helpers/store-reset'
-import { makeResume, makeProject } from '../fixtures'
+import { makeResume, makeProject, makeCertification, emptyStore } from '../fixtures'
 
 function seedTwoLocaleResume() {
   // English fully filled, Norwegian missing the project's customer field.
@@ -38,6 +38,42 @@ function seedTwoLocaleResume() {
     expandedItemId: null,
   })
 }
+
+describe('<Overview> needs-attention panel (F3)', () => {
+  beforeEach(() => resetStore())
+
+  it('shows nothing when there is no stale or expiring content', () => {
+    useStore.setState({
+      data: { ...emptyStore(), resume: makeResume() },
+      hasData: true, primaryLocale: 'en', secondaryLocale: null,
+      activeSection: 'overview', expandedItemId: null,
+    })
+    render(<Overview />)
+    expect(screen.queryByRole('region', { name: /needs attention/i })).not.toBeInTheDocument()
+  })
+
+  it('lists an expired certification and jumps to it on click', async () => {
+    useStore.setState({
+      data: {
+        ...emptyStore(),
+        resume: makeResume(),
+        certifications: [makeCertification({
+          id: 'c1', name: { en: 'AWS SA' }, expires: { year: 2000, month: 1 }, // long expired
+        })],
+      },
+      hasData: true, primaryLocale: 'en', secondaryLocale: null,
+      activeSection: 'overview', expandedItemId: null,
+    })
+    render(<Overview />)
+    expect(screen.getByRole('region', { name: /needs attention/i })).toBeInTheDocument()
+    expect(screen.getByText('AWS SA')).toBeInTheDocument()
+    expect(screen.getByText('Expired')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByText('AWS SA'))
+    expect(useStore.getState().activeSection).toBe('certifications')
+    expect(useStore.getState().expandedItemId).toBe('c1')
+  })
+})
 
 describe('<Overview> translation completeness drill-down', () => {
   beforeEach(() => resetStore())
