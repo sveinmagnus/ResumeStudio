@@ -290,6 +290,7 @@ export function applyTailorResponse(store: ResumeStore, input: TailorV1, locale:
     starred_only: false,
     page_limit: null,
     template_id: null,
+    export_locale: null,
     style: { ...DEFAULT_VIEW_STYLE },
     header: { ...DEFAULT_VIEW_HEADER, fields: defaultHeaderFields() },
     footer: { ...DEFAULT_VIEW_FOOTER, copyright_custom: {}, note: {} },

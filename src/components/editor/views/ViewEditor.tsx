@@ -40,9 +40,18 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
   onUpdate: (patch: Partial<ResumeView>) => void
 }) {
   const { data, primaryLocale } = useStore()
-  const [exportLocale, setExportLocale] = useState(
-    data.resume?.supported_locales?.[0] ?? primaryLocale
-  )
+  // Seed from the view's persisted export locale (F11) when it's still a
+  // supported locale; else the resume's first locale. Lazy init = once on mount.
+  const [exportLocale, setExportLocale] = useState(() => {
+    const supported = data.resume?.supported_locales ?? []
+    if (view.export_locale && supported.includes(view.export_locale)) return view.export_locale
+    return supported[0] ?? primaryLocale
+  })
+  // Persist the choice on the view so a Board CV always exports in its language.
+  const changeExportLocale = (lc: string) => {
+    setExportLocale(lc)
+    onUpdate({ export_locale: lc })
+  }
 
   // ── Live preview: rebuild HTML on view/data/locale changes, debounced ──
   const [previewHtml, setPreviewHtml] = useState(() =>
@@ -467,7 +476,7 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
             className="rv-locale-select"
             aria-label="Export language"
             value={exportLocale}
-            onChange={(e) => setExportLocale(e.target.value)}
+            onChange={(e) => changeExportLocale(e.target.value)}
           >
             {locales.map((lc) => (
               <option key={lc} value={lc}>

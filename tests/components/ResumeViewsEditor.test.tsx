@@ -153,6 +153,27 @@ describe('<ResumeViewsEditor>', () => {
     expect(useStore.getState().data.views[0].style.density).toBe('spacious')
   })
 
+  it('seeds the export language from the view and persists a change (F11)', async () => {
+    const { makeView, makeResume } = await import('../fixtures')
+    const view = makeView({ id: 'v1', name: 'Board CV', export_locale: 'no' })
+    useStore.setState({
+      data: {
+        ...emptyStore(),
+        resume: makeResume({ supported_locales: ['en', 'no'] }),
+        views: [view],
+      },
+      hasData: true, primaryLocale: 'en', secondaryLocale: null,
+      activeSection: 'views', activeViewId: 'v1', expandedItemId: null, mutationCount: 0,
+    })
+    render(<ResumeViewsEditor />)
+
+    const select = screen.getByLabelText(/export language/i) as HTMLSelectElement
+    expect(select.value).toBe('no') // seeded from the persisted view locale
+
+    await userEvent.selectOptions(select, 'en')
+    expect(useStore.getState().data.views[0].export_locale).toBe('en')
+  })
+
   it('edits the introduction text', async () => {
     seed()
     render(<ResumeViewsEditor />)

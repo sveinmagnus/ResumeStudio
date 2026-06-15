@@ -515,6 +515,13 @@ export interface ResumeView {
   page_limit: number | null
   /** Last applied export template (lib/viewTemplates.ts), or null when fully custom. Informational — manual tweaks don't clear it. */
   template_id: string | null
+  /**
+   * Persisted default export locale for this view (roadmap F11): a Board CV is
+   * always Norwegian, a partner CV always English. Optional/additive — when
+   * absent or no longer supported, the editor falls back to the resume's first
+   * locale. Set when the user picks an export language in the view editor.
+   */
+  export_locale?: string | null
   /** View-wide styling. Required on new views — older builds may not set it; consumers must tolerate undefined and use DEFAULT_VIEW_STYLE. */
   style: ViewStyle
   /** Header layout & content config. Required on new views; consumers tolerate undefined via withHeaderDefaults. */
