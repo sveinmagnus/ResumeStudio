@@ -5,6 +5,7 @@ import { LOCALE_LABELS, resolve, fmtDate } from '../../lib/locales'
 import { computeCompleteness, computeSectionCoverage, type MissingField, type SectionCoverage } from '../../lib/completeness'
 import { freshnessReport } from '../../lib/freshness'
 import { wipeLocale } from '../../lib/wipeLocale'
+import { CareerTimeline } from './CareerTimeline'
 import { useDialog } from '../ui/useDialog'
 
 interface CoreStat { label: string; count: number; key: string }
@@ -145,6 +146,8 @@ export function Overview() {
           </button>
         ))}
       </div>
+
+      <CareerTimeline />
 
       <h3 className="ov-section-title">Translation completeness</h3>
       <p className="ov-trans-hint">Click a row to see which fields are missing in that language.</p>

@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  */
 import { describe, it, expect, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Overview } from '../../src/components/editor/Overview'
 import { useStore } from '../../src/store/useStore'
@@ -93,11 +93,12 @@ describe('<Overview> translation completeness drill-down', () => {
     expect(noRow).toHaveAttribute('aria-expanded', 'false')
     await userEvent.click(noRow)
     expect(noRow).toHaveAttribute('aria-expanded', 'true')
-    // Missing in 'no': project customer
+    // Missing in 'no': project customer. Scope to the missing-field list — the
+    // career-timeline card also labels a bar "Acme" (the same project).
     const list = await screen.findByRole('list')
     expect(list).toBeInTheDocument()
-    expect(screen.getByText('Acme')).toBeInTheDocument()
-    expect(screen.getByText('Customer')).toBeInTheDocument()
+    expect(within(list).getByText('Acme')).toBeInTheDocument()
+    expect(within(list).getByText('Customer')).toBeInTheDocument()
   })
 
   it('navigates to the editor section and expands the item when a missing row is clicked', async () => {
