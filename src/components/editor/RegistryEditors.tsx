@@ -1,7 +1,9 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
 import { useStore, newId } from '../../store/useStore'
 import { useSortedItems } from '../../store/useSortedItems'
-import { suggestSkillNames } from '../../lib/skillTaxonomy'
+import {
+  suggestSkillNames, loadSkillRelations, relatedSkillSuggestions, type SkillRelations,
+} from '../../lib/skillTaxonomy'
 import { DualField } from '../ui/DualField'
 import { TextField } from '../ui/Fields'
 import { EditorCard, AddButton, FieldRow } from '../ui/EditorCard'
@@ -17,7 +19,7 @@ import type {
   Skill, Role, Reference, TechnologyCategory, CategorySkill,
   LocalizedString, Project, WorkExperience,
 } from '../../types'
-import { X, Combine, Filter as FilterIcon, Briefcase, FolderKanban } from 'lucide-react'
+import { X, Plus, Sparkles, Combine, Filter as FilterIcon, Briefcase, FolderKanban } from 'lucide-react'
 
 // ── Shared registry-filter bar ──────────────────────────────────────────────
 
@@ -93,6 +95,58 @@ function isMissingTranslation(
 
 // ── Skill registry ───────────────────────────────────────────────────────────
 
+/**
+ * Suggested related skills (roadmap F12 pt3): from the Quadim relatesTo graph,
+ * surface library skills related to what the user already has but hasn't added
+ * yet. Lazy-loads the relations chunk; renders nothing until there are
+ * suggestions. Per-session dismissal keeps the row from nagging.
+ */
+function RelatedSkillsPanel({ onAdd }: { onAdd: (name: string) => void }) {
+  const skills = useStore((s) => s.data.skills)
+  const primaryLocale = useStore((s) => s.primaryLocale)
+  const [relations, setRelations] = useState<SkillRelations | null>(null)
+  const [dismissed, setDismissed] = useState<Set<string>>(() => new Set())
+
+  useEffect(() => {
+    let alive = true
+    void loadSkillRelations().then((r) => { if (alive) setRelations(r) }).catch(() => { /* feature just hides */ })
+    return () => { alive = false }
+  }, [])
+
+  const have = useMemo(
+    () => skills.map((s) => resolve(s.name, primaryLocale)).filter(Boolean),
+    [skills, primaryLocale],
+  )
+  const suggestions = useMemo(() => {
+    if (!relations) return []
+    return relatedSkillSuggestions(have, relations).filter((s) => !dismissed.has(s.name.toLowerCase()))
+  }, [relations, have, dismissed])
+
+  if (suggestions.length === 0) return null
+  const dismiss = (name: string) =>
+    setDismissed((d) => new Set(d).add(name.toLowerCase()))
+
+  return (
+    <div className="rsp" role="group" aria-label="Suggested related skills">
+      <span className="rsp-label"><Sparkles size={13} /> Related skills you might add</span>
+      <div className="rsp-chips">
+        {suggestions.map((s) => (
+          <span key={s.name} className="rsp-chip">
+            <button type="button" className="rsp-add" onClick={() => onAdd(s.name)}
+              title={`Add "${s.name}" to your skill registry`}>
+              <Plus size={11} /> {s.name}
+            </button>
+            <button type="button" className="rsp-x" onClick={() => dismiss(s.name)}
+              aria-label={`Dismiss ${s.name}`} title="Not relevant">
+              <X size={10} />
+            </button>
+          </span>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export function SkillsEditor() {
   const { data, primaryLocale, secondaryLocale, addItem, updateItem, replaceData } = useStore()
   const [filter, setFilter] = useState<RegistryFilter>('all')
@@ -137,13 +191,15 @@ export function SkillsEditor() {
     replaceData(mergeSkills(data, sourceId, targetId))
   }
 
-  const add = () => {
-    const s: Skill = {
-      id: newId(), resume_id: data.resume!.id, name: {}, default_category: null,
-      skill_type: 'technical', total_duration_in_years: 0, proficiency: 0, is_highlighted: false, created_at: new Date().toISOString(),
-    }
-    addItem('skills', s)
-  }
+  const makeSkill = (name: Skill['name']): Skill => ({
+    id: newId(), resume_id: data.resume!.id, name, default_category: null,
+    skill_type: 'technical', total_duration_in_years: 0, proficiency: 0, is_highlighted: false, created_at: new Date().toISOString(),
+  })
+  const add = () => addItem('skills', makeSkill({}))
+  // Add a library-suggested skill under the primary locale (matches the
+  // autocomplete add path); the user translates via the normal workflow.
+  const addNamed = (name: string) => addItem('skills', makeSkill({ [primaryLocale]: name }))
+
   return (
     <div className="section-pane">
       <p className="registry-note">
@@ -151,6 +207,7 @@ export function SkillsEditor() {
         Total experience is computed from linked projects.
       </p>
       <FilterBar filter={filter} onChange={setFilter} counts={counts} />
+      {filter === 'all' && <RelatedSkillsPanel onAdd={addNamed} />}
       {items.length === 0 && (
         <div className="registry-empty">
           {filter === 'unused'
@@ -869,6 +926,35 @@ function RegistryStyles() {
         padding: 24px 16px; text-align: center;
         background: var(--paper-sunken); border-radius: var(--r-md); margin-bottom: 12px;
       }
+      /* Related-skill suggestions (F12 pt3) */
+      .rsp {
+        margin-bottom: 16px; padding: 11px 14px;
+        background: var(--accent-wash); border: 1px solid var(--secondary-line, var(--line));
+        border-radius: var(--r-md);
+      }
+      .rsp-label {
+        display: inline-flex; align-items: center; gap: 6px;
+        font-size: 12px; font-weight: 600; color: var(--accent);
+        text-transform: uppercase; letter-spacing: .03em; margin-bottom: 8px;
+      }
+      .rsp-chips { display: flex; flex-wrap: wrap; gap: 7px; }
+      .rsp-chip {
+        display: inline-flex; align-items: stretch;
+        border: 1px solid var(--accent); border-radius: 14px; overflow: hidden;
+        background: var(--paper);
+      }
+      .rsp-add {
+        display: inline-flex; align-items: center; gap: 4px;
+        padding: 4px 9px; font-size: 12.5px; font-weight: 500; color: var(--accent);
+        background: transparent; transition: background .12s;
+      }
+      .rsp-add:hover { background: var(--accent); color: #fff; }
+      .rsp-x {
+        display: grid; place-items: center; width: 22px;
+        color: var(--ink-faint); border-left: 1px solid var(--line);
+        transition: color .12s, background .12s;
+      }
+      .rsp-x:hover { color: #b91c1c; background: #fef2f2; }
       /* .check-row lives in src/index.css */
       .sub-block { margin: 16px 0 0; padding: 14px; background: var(--paper-sunken); border-radius: var(--r-md); }
       .sub-head { font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--ink-soft); margin-bottom: 10px; }

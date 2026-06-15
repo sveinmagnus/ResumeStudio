@@ -8,6 +8,7 @@ import {
   SkillsEditor, RolesEditor, ReferencesEditor, TechCategoriesEditor,
 } from '../../src/components/editor/RegistryEditors'
 import { useStore } from '../../src/store/useStore'
+import { setSkillRelationsForTest } from '../../src/lib/skillTaxonomy'
 import { resetStore } from '../helpers/store-reset'
 import { emptyStore, makeSkill, makeProject } from '../fixtures'
 import type { ResumeStore } from '../../src/types'
@@ -29,6 +30,37 @@ describe('<SkillsEditor> — add + merge', () => {
     render(<SkillsEditor />)
     await userEvent.click(screen.getByRole('button', { name: /add skill/i }))
     expect(useStore.getState().data.skills).toHaveLength(1)
+  })
+
+  it('suggests related skills from the library graph and adds the picked one', async () => {
+    setSkillRelationsForTest({
+      Scrum: ['Agile Software Development', 'Kanban'],
+      'Agile Software Development': ['Scrum'],
+      Kanban: ['Scrum'],
+    })
+    seed({ ...emptyStore(), skills: [makeSkill({ id: 's1', name: { en: 'Scrum' } })] })
+    render(<SkillsEditor />)
+
+    // The lazy relations load resolves, then the suggestion chip appears.
+    // The add button's accessible name is its visible text.
+    const chip = await screen.findByRole('button', { name: 'Agile Software Development' })
+    await userEvent.click(chip)
+
+    const skills = useStore.getState().data.skills
+    expect(skills).toHaveLength(2)
+    expect(skills.some((s) => s.name.en === 'Agile Software Development')).toBe(true)
+  })
+
+  it('dismisses a related-skill suggestion without adding it', async () => {
+    setSkillRelationsForTest({ Scrum: ['Kanban'], Kanban: ['Scrum'] })
+    seed({ ...emptyStore(), skills: [makeSkill({ id: 's1', name: { en: 'Scrum' } })] })
+    render(<SkillsEditor />)
+
+    await screen.findByRole('button', { name: 'Kanban' })
+    await userEvent.click(screen.getByRole('button', { name: /Dismiss Kanban/i }))
+
+    expect(screen.queryByRole('button', { name: 'Kanban' })).not.toBeInTheDocument()
+    expect(useStore.getState().data.skills).toHaveLength(1) // nothing added
   })
 
   it('merges one skill into another when confirmed', async () => {

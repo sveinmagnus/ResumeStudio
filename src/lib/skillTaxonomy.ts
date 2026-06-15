@@ -71,3 +71,62 @@ export function suggestSkillNames(
     return matchTaxonomy(names, query, existingNames())
   }
 }
+
+// ─── Related-skill suggestions (F12 pt3) ──────────────────────────────────────
+
+/** name → related names, from the Quadim relatesTo graph (bidirectional). */
+export type SkillRelations = Record<string, string[]>
+
+let cachedRelations: SkillRelations | null = null
+
+/** Load (and memoize) the related-skill graph. Lazy chunk on first call. */
+export async function loadSkillRelations(): Promise<SkillRelations> {
+  if (!cachedRelations) {
+    const mod = await import('../generated/skillRelations.json')
+    cachedRelations = mod.default as SkillRelations
+  }
+  return cachedRelations
+}
+
+/** Test seam: replace/clear the memoized relations. */
+export function setSkillRelationsForTest(rel: SkillRelations | null): void {
+  cachedRelations = rel
+}
+
+export interface RelatedSuggestion {
+  name: string
+  /** How many of the user's skills point to this one — drives ranking. */
+  weight: number
+}
+
+/**
+ * PURE: given the user's current skill names and the relations graph, suggest
+ * related library skills they don't already have. A skill pointed to by more
+ * of the user's skills ranks higher (it's central to what they already do);
+ * ties break alphabetically. Case-insensitive throughout.
+ */
+export function relatedSkillSuggestions(
+  have: string[],
+  relations: SkillRelations,
+  limit = 6,
+): RelatedSuggestion[] {
+  // Case-insensitive lookup of the graph and the user's existing skills.
+  const relByLower = new Map<string, string[]>()
+  for (const [k, v] of Object.entries(relations)) relByLower.set(k.toLowerCase(), v)
+  const haveLower = new Set(have.map((n) => n.trim().toLowerCase()))
+
+  // canonical suggestion name → accumulated weight (skip ones already held).
+  const weights = new Map<string, number>()
+  for (const name of have) {
+    const related = relByLower.get(name.trim().toLowerCase())
+    if (!related) continue
+    for (const r of related) {
+      if (haveLower.has(r.toLowerCase())) continue
+      weights.set(r, (weights.get(r) ?? 0) + 1)
+    }
+  }
+  return [...weights.entries()]
+    .map(([name, weight]) => ({ name, weight }))
+    .sort((a, b) => b.weight - a.weight || a.name.localeCompare(b.name))
+    .slice(0, limit)
+}
