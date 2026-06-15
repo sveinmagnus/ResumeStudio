@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
-import { ChevronDown, ChevronRight, MoreHorizontal, Trash2, FileSearch, X } from 'lucide-react'
+import { ChevronDown, ChevronRight, MoreHorizontal, Trash2, FileSearch, X, AlertTriangle, Clock } from 'lucide-react'
 import { useStore } from '../../store/useStore'
-import { LOCALE_LABELS, resolve } from '../../lib/locales'
+import { LOCALE_LABELS, resolve, fmtDate } from '../../lib/locales'
 import { computeCompleteness, computeSectionCoverage, type MissingField, type SectionCoverage } from '../../lib/completeness'
+import { freshnessReport } from '../../lib/freshness'
 import { wipeLocale } from '../../lib/wipeLocale'
 import { useDialog } from '../ui/useDialog'
 
@@ -35,6 +36,12 @@ export function Overview() {
   ]
 
   const completeness = computeCompleteness(data, locales)
+  const freshness = freshnessReport(data, new Date(), locales[0])
+
+  const goToItem = (section: string, itemId: string) => {
+    setActiveSection(section)
+    setExpandedItem(itemId)
+  }
 
   // Only one locale's drill-down is open at a time. Click an already-open
   // locale to collapse it.
@@ -72,6 +79,47 @@ export function Overview() {
           <p className="ov-title">{resolve(data.resume?.title, locales[0])}</p>
         </div>
       </div>
+
+      {/* Needs attention — freshness & expiry warnings (F3) */}
+      {freshness.total > 0 && (
+        <div className="ov-attn" role="region" aria-label="Needs attention">
+          <div className="ov-attn-head">
+            <AlertTriangle size={15} /> Needs attention
+            <span className="ov-attn-count">{freshness.total}</span>
+          </div>
+          <ul className="ov-attn-list">
+            {freshness.expiredCerts.map((c) => (
+              <li key={`exp-${c.id}`}>
+                <button className="ov-attn-row ov-attn-err" onClick={() => goToItem('certifications', c.id)}>
+                  <span className="ov-attn-badge">Expired</span>
+                  <span className="ov-attn-name">{c.name}</span>
+                  <span className="ov-attn-meta">{fmtDate(c.expires)}</span>
+                </button>
+              </li>
+            ))}
+            {freshness.expiringCerts.map((c) => (
+              <li key={`expg-${c.id}`}>
+                <button className="ov-attn-row ov-attn-warn" onClick={() => goToItem('certifications', c.id)}>
+                  <span className="ov-attn-badge">Expiring</span>
+                  <span className="ov-attn-name">{c.name}</span>
+                  <span className="ov-attn-meta">{fmtDate(c.expires)}</span>
+                </button>
+              </li>
+            ))}
+            {freshness.staleOngoing.map((s) => (
+              <li key={`stale-${s.section}-${s.id}`}>
+                <button className="ov-attn-row ov-attn-muted" onClick={() => goToItem(s.section, s.id)}>
+                  <span className="ov-attn-badge"><Clock size={11} /> Ongoing</span>
+                  <span className="ov-attn-name">{s.label}</span>
+                  <span className="ov-attn-meta">
+                    since {s.start ? fmtDate(s.start) : '—'} · still open?
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* Core cards */}
       <div className="ov-grid">
@@ -179,6 +227,40 @@ export function Overview() {
         .ov-hero { margin-bottom: 28px; }
         .ov-name { font-size: 38px; }
         .ov-title { color: var(--ink-soft); font-size: 17px; margin-top: 2px; }
+
+        /* Needs attention (F3) */
+        .ov-attn {
+          margin-bottom: 24px; padding: 14px 16px;
+          background: var(--warn-wash, #fff7e6); border: 1px solid #f0d8a8;
+          border-radius: var(--r-md);
+        }
+        .ov-attn-head {
+          display: flex; align-items: center; gap: 8px;
+          font-size: 13px; font-weight: 700; color: var(--warn-ink, #b87900);
+          text-transform: uppercase; letter-spacing: .04em; margin-bottom: 10px;
+        }
+        .ov-attn-count {
+          font-size: 11px; background: var(--warn-ink, #b87900); color: #fff;
+          border-radius: 9px; padding: 1px 8px; font-variant-numeric: tabular-nums;
+        }
+        .ov-attn-list { list-style: none; display: flex; flex-direction: column; gap: 3px; }
+        .ov-attn-row {
+          display: flex; align-items: center; gap: 10px; width: 100%;
+          padding: 7px 10px; border-radius: var(--r-sm); text-align: left;
+          background: transparent; transition: background .12s;
+        }
+        .ov-attn-row:hover { background: rgba(184,121,0,.10); }
+        .ov-attn-badge {
+          display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0;
+          font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em;
+          padding: 2px 8px; border-radius: 9px; min-width: 64px; justify-content: center;
+        }
+        .ov-attn-err   .ov-attn-badge { background: var(--err-wash, #fef2f2); color: var(--err-ink, #b91c1c); }
+        .ov-attn-warn  .ov-attn-badge { background: #fff0d6; color: #b87900; }
+        .ov-attn-muted .ov-attn-badge { background: var(--paper-sunken); color: var(--ink-soft); }
+        .ov-attn-name { font-weight: 600; color: var(--ink); font-size: 13.5px;
+          white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .ov-attn-meta { margin-left: auto; flex-shrink: 0; font-size: 12px; color: var(--ink-faint); }
 
         /* Big core cards */
         .ov-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin-bottom: 14px; }

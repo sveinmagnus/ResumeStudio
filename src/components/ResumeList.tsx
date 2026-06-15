@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { FileText, Plus, Trash2, Loader2, Pencil, Check, X, Settings } from 'lucide-react'
 import { api, type ResumeMeta, UnauthorizedError, ServerError } from '../lib/api'
 import { fmtBytes, weightLevel, type ResumeStorageStats, type StorageStats } from '../lib/storage'
+import { isResumeStale } from '../lib/freshness'
 import { fmtRelativeTime, detectLocalesInData } from '../lib/locales'
 import { freshStore } from '../lib/freshStore'
 import { listDirty } from '../lib/localCache'
@@ -308,6 +309,11 @@ export function ResumeList({ onUnauthorized }: ResumeListProps) {
                       {r.primary_locale.toUpperCase()}
                       {r.secondary_locale && ` / ${r.secondary_locale.toUpperCase()}`}
                       <WeightNote stat={statsById.get(r.id)} />
+                      {!dirtyIds.has(r.id) && isResumeStale(r.saved_at) && (
+                        <span className="rl-stale" title="Not updated in over 6 months — may be worth a review">
+                          {' · '}needs review
+                        </span>
+                      )}
                     </div>
                   </div>
                 </Link>
@@ -434,6 +440,7 @@ export function ResumeList({ onUnauthorized }: ResumeListProps) {
         .rl-meta { font-size: 12px; color: var(--ink-faint); margin-top: 2px; }
         .rl-weight { color: var(--warn-ink); }
         .rl-weight-risk { color: var(--err-ink); font-weight: 600; }
+        .rl-stale { color: var(--warn-ink); }
         .rl-unsynced-note {
           margin-bottom: 16px; padding: 9px 14px; font-size: 12.5px;
           background: var(--warn-wash); color: var(--warn-ink); border-radius: var(--r-sm);
