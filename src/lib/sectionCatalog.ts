@@ -465,7 +465,8 @@ export const SECTION_CATALOG: Record<string, SectionDescriptor> = {
     },
   },
 
-  // Registries — present for editor titles only, never rendered as sections.
-  skills: { title: (it, locale) => ls(it, 'name', locale) || 'Unnamed skill' },
-  roles:  { title: (it, locale) => ls(it, 'name', locale) || 'Unnamed role' },
+  // Registries — present for editor / search titles only, never rendered as sections.
+  skills:     { title: (it, locale) => ls(it, 'name', locale) || 'Unnamed skill' },
+  roles:      { title: (it, locale) => ls(it, 'name', locale) || 'Unnamed role' },
+  industries: { title: (it, locale) => ls(it, 'name', locale) || 'Unnamed industry' },
 }
