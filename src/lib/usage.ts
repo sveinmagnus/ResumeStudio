@@ -25,6 +25,10 @@ export interface RoleUsage {
   work_experiences: WorkExperience[]
 }
 
+export interface IndustryUsage {
+  projects: Project[]
+}
+
 /**
  * All entities that reference a given skill, deduplicated per-section. A
  * project that lists the same skill twice (different ProjectSkill rows on
@@ -65,4 +69,14 @@ export function isSkillUnused(store: ResumeStore, skillId: string): boolean {
 export function isRoleUnused(store: ResumeStore, roleId: string): boolean {
   const u = usageOfRole(store, roleId)
   return u.projects.length === 0 && u.work_experiences.length === 0
+}
+
+/** All projects that reference a given industry via `industry_id`. */
+export function usageOfIndustry(store: ResumeStore, industryId: string): IndustryUsage {
+  return { projects: store.projects.filter((p) => p.industry_id === industryId) }
+}
+
+/** True when no project references this industry — safe to remove. */
+export function isIndustryUnused(store: ResumeStore, industryId: string): boolean {
+  return usageOfIndustry(store, industryId).projects.length === 0
 }

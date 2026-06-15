@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import {
-  mergeSkills, mergeRoles,
-  countSkillReferences, countRoleReferences,
+  mergeSkills, mergeRoles, mergeIndustries, mergeRegistry,
+  countSkillReferences, countRoleReferences, countIndustryReferences,
 } from '../src/lib/merge'
 import {
-  emptyStore, makeSkill, makeRole, makeProject, makeTechCategory, makeWork,
+  emptyStore, makeSkill, makeRole, makeIndustry, makeProject, makeTechCategory, makeWork,
 } from './fixtures'
 
 // ─── mergeSkills ────────────────────────────────────────────────────────────
@@ -173,5 +173,60 @@ describe('countRoleReferences()', () => {
     }))
     store.work_experiences.push(makeWork({ role_id: 'r' }))
     expect(countRoleReferences(store, 'r')).toBe(3)
+  })
+})
+
+// ─── mergeIndustries + generic mergeRegistry (A8.1) ──────────────────────────
+
+describe('mergeIndustries()', () => {
+  function storeWithDupes() {
+    const store = emptyStore()
+    store.industries.push(makeIndustry({ id: 'fin', name: { en: 'Finance' } }))
+    store.industries.push(makeIndustry({ id: 'finance2', name: { en: 'finance' } }))
+    store.projects.push(makeProject({ id: 'p1', industry_id: 'fin', industry: { en: 'Finance' } }))
+    store.projects.push(makeProject({ id: 'p2', industry_id: 'finance2', industry: { en: 'finance' } }))
+    return store
+  }
+
+  it('rewrites project.industry_id and refreshes the denormalized name, deletes source', () => {
+    const out = mergeIndustries(storeWithDupes(), 'finance2', 'fin')
+    expect(out.industries.map((i) => i.id)).toEqual(['fin'])
+    expect(out.projects.every((p) => p.industry_id === 'fin')).toBe(true)
+    // p2's denormalized industry name now matches the surviving target.
+    expect(out.projects.find((p) => p.id === 'p2')!.industry).toEqual({ en: 'Finance' })
+  })
+
+  it('no-ops on same id or missing ids', () => {
+    const store = storeWithDupes()
+    expect(mergeIndustries(store, 'fin', 'fin')).toBe(store)
+    expect(mergeIndustries(store, 'nope', 'fin')).toBe(store)
+    expect(mergeIndustries(store, 'fin', 'nope')).toBe(store)
+  })
+})
+
+describe('countIndustryReferences()', () => {
+  it('counts projects linked to an industry', () => {
+    const store = emptyStore()
+    store.industries.push(makeIndustry({ id: 'fin' }))
+    store.projects.push(makeProject({ industry_id: 'fin' }))
+    store.projects.push(makeProject({ industry_id: 'fin' }))
+    store.projects.push(makeProject({ industry_id: null }))
+    expect(countIndustryReferences(store, 'fin')).toBe(2)
+  })
+})
+
+describe('mergeRegistry() generic engine', () => {
+  it('dispatches to the same behaviour as the named wrappers', () => {
+    const store = emptyStore()
+    store.skills.push(makeSkill({ id: 's1', name: { en: 'A' } }))
+    store.skills.push(makeSkill({ id: 's2', name: { en: 'B' } }))
+    store.projects.push(makeProject({
+      skills: [{ id: 'ps', skill_id: 's1', name: { en: 'A' }, duration_in_years: 0, offset_in_years: 0, total_duration_in_years: 0, sort_order: 0 }],
+    }))
+    const viaGeneric = mergeRegistry(store, 'skills', 's1', 's2')
+    const viaWrapper = mergeSkills(store, 's1', 's2')
+    expect(viaGeneric).toEqual(viaWrapper)
+    expect(viaGeneric.skills.map((s) => s.id)).toEqual(['s2'])
+    expect(viaGeneric.projects[0].skills[0].skill_id).toBe('s2')
   })
 })

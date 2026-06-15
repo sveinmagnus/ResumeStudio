@@ -550,6 +550,7 @@ export function importFromAIDraft(input: AIImportV1): ResumeStore {
       customer_anonymized: {},
       use_anonymized: false,
       industry: L(pr.industry),
+      industry_id: null, // interned into the registry by migrateStore on load (A8.1)
       description: L(pr.description),
       long_description: {},
       highlights: [],
@@ -672,6 +673,7 @@ export function importFromAIDraft(input: AIImportV1): ResumeStore {
     resume,
     skills,
     roles,
+    industries: [],
     key_qualifications,
     key_competencies,
     recommendations,

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   appendLocalized, buildRoleParagraph, foldRoleDescriptions,
-  extractKeyPointsToCompetencies, defaultEmploymentRoleLinks,
+  extractKeyPointsToCompetencies, defaultEmploymentRoleLinks, internIndustries,
   migrateStore, isNewerShape, CURRENT_SHAPE_VERSION,
 } from '../src/lib/migrate'
 import { emptyStore, makeProject, makeWork } from './fixtures'
@@ -281,5 +281,56 @@ describe('migrateStore() / isNewerShape()', () => {
     const before = JSON.stringify(store)
     migrateStore(store)
     expect(JSON.stringify(store)).toBe(before)
+  })
+})
+
+// ─── internIndustries (A8.1, shape v3) ───────────────────────────────────────
+
+describe('internIndustries()', () => {
+  it('interns project industry text into the registry, deduped, and links it', () => {
+    const store = emptyStore()
+    store.industries = []
+    store.projects.push(makeProject({ id: 'p1', industry: { en: 'Finance' }, industry_id: null }))
+    store.projects.push(makeProject({ id: 'p2', industry: { en: 'finance' }, industry_id: null })) // case dupe
+    store.projects.push(makeProject({ id: 'p3', industry: { en: 'Energy' }, industry_id: null }))
+
+    const out = internIndustries(store)
+    // Two registry entries: Finance (shared) + Energy.
+    expect(out.industries).toHaveLength(2)
+    const fin = out.industries.find((i) => i.name.en === 'Finance')!
+    const p1 = out.projects.find((p) => p.id === 'p1')!
+    const p2 = out.projects.find((p) => p.id === 'p2')!
+    expect(p1.industry_id).toBe(fin.id)
+    expect(p2.industry_id).toBe(fin.id) // case-insensitive dedupe → same id
+    expect(p1.industry_id).not.toBeNull()
+  })
+
+  it('leaves projects without industry text unlinked but field-present', () => {
+    const store = emptyStore()
+    store.industries = []
+    store.projects.push(makeProject({ id: 'p', industry: {}, industry_id: null }))
+    const out = internIndustries(store)
+    expect(out.industries).toHaveLength(0)
+    expect(out.projects[0].industry_id).toBeNull()
+  })
+
+  it('does not touch projects already linked', () => {
+    const store = emptyStore()
+    store.industries = [{ id: 'existing', resume_id: 'r', name: { en: 'Tech' }, sort_order: 0, disabled: false }]
+    store.projects.push(makeProject({ id: 'p', industry: { en: 'Tech' }, industry_id: 'existing' }))
+    const out = internIndustries(store)
+    expect(out.industries).toHaveLength(1)
+    expect(out.projects[0].industry_id).toBe('existing')
+  })
+
+  it('is reached by migrateStore: pre-v3 data gets industries + links', () => {
+    const store = emptyStore()
+    store.shape_version = 2
+    store.industries = []
+    store.projects.push(makeProject({ id: 'p', industry: { en: 'Healthcare' }, industry_id: null }))
+    const out = migrateStore(store)
+    expect(out.shape_version).toBe(CURRENT_SHAPE_VERSION)
+    expect(out.industries.some((i) => i.name.en === 'Healthcare')).toBe(true)
+    expect(out.projects[0].industry_id).not.toBeNull()
   })
 })

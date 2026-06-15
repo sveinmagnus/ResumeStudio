@@ -16,7 +16,7 @@ import {
   PositionsEditor, PresentationsEditor, PublicationsEditor, AwardsEditor,
   SpokenLanguagesEditor, RecommendationsEditor,
 } from './components/editor/SimpleEditors'
-import { SkillsEditor, RolesEditor, ReferencesEditor, TechCategoriesEditor } from './components/editor/RegistryEditors'
+import { SkillsEditor, RolesEditor, IndustriesEditor, ReferencesEditor, TechCategoriesEditor } from './components/editor/RegistryEditors'
 import { ResumeViewsEditor } from './components/editor/ResumeViewsEditor'
 import { ConflictModal } from './components/ConflictModal'
 import { NewerDataNotice } from './components/NewerDataNotice'
@@ -241,6 +241,7 @@ function EditorRoute({ resumeId, routeSection, routeViewId, onUnauthorized }: {
             {activeSection === 'references'            && <ReferencesEditor />}
             {activeSection === 'skills'                && <SkillsEditor />}
             {activeSection === 'roles'                 && <RolesEditor />}
+            {activeSection === 'industries'            && <IndustriesEditor />}
             {activeSection === 'views'                 && <ResumeViewsEditor />}
           </ErrorBoundary>
         </div>

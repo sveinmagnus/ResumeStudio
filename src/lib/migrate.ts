@@ -17,7 +17,7 @@
  *  - defaultEmploymentRoleLinks: backfill WorkExperience.role_id as null.
  */
 
-import type { ResumeStore, LocalizedString, ProjectRole, KeyCompetency, KeyPoint, WorkExperience } from '../types'
+import type { ResumeStore, LocalizedString, ProjectRole, KeyCompetency, KeyPoint, WorkExperience, Industry, Project } from '../types'
 import { v4 as uuidv4 } from 'uuid'
 
 // ─── Shape versioning ─────────────────────────────────────────────────────────
@@ -26,14 +26,20 @@ import { v4 as uuidv4 } from 'uuid'
  * The data-shape version this build reads and writes.
  *
  *  - absent / 1 — everything written before versioning existed.
- *  - 2          — the three structural migrations above have been applied.
+ *  - 2          — the three structural migrations (role descriptions, key
+ *                 points → competencies, employment role links) applied.
+ *  - 3          — the Industry registry (A8.1): `industries[]` + every
+ *                 project's `industry_id`, with legacy/imported free-text
+ *                 `industry` interned into the registry.
  *
  * Bump this ONLY for structural changes that need a migration (moving or
  * reshaping data). Additive optional fields are handled by render-boundary
  * defaults (`with*Defaults`) and must NOT bump it — a bump makes every other
- * install consider its data outdated.
+ * install consider its data outdated. A new top-level array that code iterates
+ * (like `industries`) is NOT a tolerable "optional field" — it must be
+ * guaranteed present, hence the bump + migration.
  */
-export const CURRENT_SHAPE_VERSION = 2
+export const CURRENT_SHAPE_VERSION = 3
 
 /**
  * True when `store` was written by a build with a NEWER shape than this one
@@ -61,8 +67,10 @@ export function isNewerShape(store: ResumeStore): boolean {
 export function migrateStore(store: ResumeStore): ResumeStore {
   const stored = store.shape_version ?? 1
   if (stored >= CURRENT_SHAPE_VERSION) return store
-  const migrated = defaultEmploymentRoleLinks(
-    extractKeyPointsToCompetencies(foldRoleDescriptions(store)),
+  const migrated = internIndustries(
+    defaultEmploymentRoleLinks(
+      extractKeyPointsToCompetencies(foldRoleDescriptions(store)),
+    ),
   )
   return { ...migrated, shape_version: CURRENT_SHAPE_VERSION }
 }
@@ -203,6 +211,63 @@ export function defaultEmploymentRoleLinks(store: ResumeStore): ResumeStore {
   })
   if (!changed) return store
   return { ...store, work_experiences }
+}
+
+// ─── Industry registry (A8.1, shape v3) ──────────────────────────────────────
+//
+// `Project.industry` used to be free LocalizedString text, with no dedupe.
+// v3 promotes industries to a shared registry (parallel to skills/roles) so
+// "Finance" / "finance" / "Banking" can be merged. This migration:
+//   - guarantees the `industries` array exists,
+//   - backfills `Project.industry_id` (null when unlinked),
+//   - interns each project's existing free-text industry into the registry
+//     (deduped case-insensitively on the primary-ish value) and links it.
+// Idempotent: a project that already has a non-null `industry_id` is left
+// alone, and a store already carrying `industries` with linked projects is a
+// no-op.
+
+/** A representative lowercased key for a localized name (first non-empty value). */
+function localizedKey(ls: LocalizedString | undefined): string {
+  if (!ls) return ''
+  for (const v of Object.values(ls)) {
+    const t = (v ?? '').trim()
+    if (t) return t.toLowerCase()
+  }
+  return ''
+}
+
+export function internIndustries(store: ResumeStore): ResumeStore {
+  const existing: Industry[] = Array.isArray(store.industries) ? [...store.industries] : []
+  const byKey = new Map<string, string>() // normalized name → industry id
+  for (const ind of existing) {
+    const k = localizedKey(ind.name)
+    if (k && !byKey.has(k)) byKey.set(k, ind.id)
+  }
+  const resumeId = store.resume?.id ?? ''
+  let changed = !Array.isArray(store.industries) // missing array alone is a change
+
+  const projects = store.projects.map((p): Project => {
+    if (p.industry_id) return p // already linked — leave it
+    const key = localizedKey(p.industry)
+    // No industry text → just guarantee the field is present (null link).
+    if (!key) return { ...p, industry_id: null }
+    let id = byKey.get(key)
+    if (!id) {
+      id = uuidv4()
+      byKey.set(key, id)
+      existing.push({
+        id, resume_id: resumeId,
+        name: { ...p.industry }, // adopt the project's localized spelling as canonical
+        sort_order: existing.length,
+        disabled: false,
+      })
+    }
+    changed = true
+    return { ...p, industry_id: id }
+  })
+
+  if (!changed) return store
+  return { ...store, industries: existing, projects }
 }
 
 export function extractKeyPointsToCompetencies(store: ResumeStore): ResumeStore {

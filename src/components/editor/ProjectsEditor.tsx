@@ -12,7 +12,7 @@ import { Autocomplete } from '../ui/Autocomplete'
 import { SkillTranslationPopover } from './RegistryEditors'
 import { resolve, fmtRange } from '../../lib/locales'
 import { richToPlain } from '../../lib/richText'
-import type { Project, ProjectRole, ProjectSkill, Skill } from '../../types'
+import type { Project, ProjectRole, ProjectSkill, Skill, Industry } from '../../types'
 import { Plus, X } from 'lucide-react'
 
 export function ProjectsEditor() {
@@ -24,7 +24,7 @@ export function ProjectsEditor() {
   const addProject = () => {
     const p: Project = {
       id: newId(), resume_id: data.resume!.id, work_experience_id: null,
-      customer: {}, customer_anonymized: {}, use_anonymized: false, industry: {},
+      customer: {}, customer_anonymized: {}, use_anonymized: false, industry: {}, industry_id: null,
       description: {}, long_description: {}, highlights: [], roles: [], skills: [],
       start: null, end: null, percent_allocated: null, team_size: null,
       location_country_code: null, external_url: null, skill_tags: [],
@@ -47,7 +47,7 @@ export function ProjectsEditor() {
 
           <DualField label="Customer" value={p.customer} onChange={(v) => updateItem('projects', p.id, { customer: v })} />
           <DualField label="Description (short)" value={p.description} onChange={(v) => updateItem('projects', p.id, { description: v })} />
-          <DualField label="Industry" value={p.industry} onChange={(v) => updateItem('projects', p.id, { industry: v })} />
+          <ProjectIndustryLink project={p} />
           <RichField label="Description" value={p.long_description} onChange={(v) => updateItem('projects', p.id, { long_description: v })} />
 
           <FieldRow>
@@ -105,10 +105,95 @@ function HighlightsEditor({ project }: { project: Project }) {
                 onChange={(e) => update(i, secondaryLocale, e.target.value)} />
             )}
           </div>
-          <button className="hl-del" onClick={() => remove(i)}><X size={14} /></button>
+          <button className="hl-del" onClick={() => remove(i)} aria-label="Remove highlight" title="Remove highlight"><X size={14} /></button>
         </div>
       ))}
       <button className="sub-add" onClick={add}><Plus size={13} /> Add highlight</button>
+    </div>
+  )
+}
+
+// ── Project industry (registry link, A8.1) ───────────────────────────────────
+
+/**
+ * Links a project to the shared Industry registry. When linked, shows the
+ * registry name + Unlink; when not, an autocomplete to pick an existing
+ * industry or create one. Legacy free-text `industry` (industry_id null) is
+ * shown and pre-filled so one click promotes it into the registry.
+ */
+function ProjectIndustryLink({ project }: { project: Project }) {
+  const { data, primaryLocale, addItem, updateItem } = useStore()
+  const linked = project.industry_id
+    ? data.industries.find((i) => i.id === project.industry_id)
+    : null
+  const legacyText = !project.industry_id ? resolve(project.industry, primaryLocale) : ''
+
+  const link = (industryId: string) => {
+    const ind = data.industries.find((i) => i.id === industryId)
+    if (!ind) return
+    updateItem('projects', project.id, { industry_id: ind.id, industry: ind.name })
+  }
+  const createAndLink = (text: string) => {
+    const ind: Industry = {
+      id: newId(), resume_id: data.resume!.id,
+      name: { [primaryLocale]: text },
+      sort_order: data.industries.length, disabled: false,
+    }
+    addItem('industries', ind)
+    updateItem('projects', project.id, { industry_id: ind.id, industry: ind.name })
+  }
+  const unlink = () => updateItem('projects', project.id, { industry_id: null })
+
+  return (
+    <div className="pil-wrap">
+      <label className="pil-label" htmlFor={`pil-${project.id}`}>
+        Industry <span className="pil-hint">— shared registry; merge duplicates in the Industry Registry</span>
+      </label>
+      {linked ? (
+        <div className="pil-linked">
+          <span className="pil-pill">{resolve(linked.name, primaryLocale) || '(unnamed industry)'}</span>
+          <button type="button" className="pil-unlink" onClick={unlink} title="Unlink from the industry registry" aria-label="Unlink industry">
+            <X size={13} /> Unlink
+          </button>
+        </div>
+      ) : (
+        <>
+          {legacyText && (
+            <div className="pil-legacy">Current: <strong>{legacyText}</strong> — pick or add to link it to the registry.</div>
+          )}
+          <Autocomplete
+            options={data.industries
+              .filter((i) => !i.disabled)
+              .map((i) => ({ id: i.id, label: resolve(i.name, primaryLocale) || '(unnamed)' }))}
+            onPick={link}
+            onAddNew={createAndLink}
+            addLabel="industry"
+            placeholder="Link or add an industry…"
+            ariaLabel="Link or add an industry"
+            initialQuery={legacyText}
+          />
+        </>
+      )}
+      <style>{`
+        .pil-wrap { margin-bottom: 16px; }
+        .pil-label {
+          display: block; font-size: 11px; font-weight: 600; letter-spacing: .08em;
+          text-transform: uppercase; color: var(--ink-faint); margin-bottom: 7px;
+        }
+        .pil-hint { font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--ink-faint); margin-left: 2px; }
+        .pil-linked { display: flex; align-items: center; gap: 8px; }
+        .pil-pill {
+          display: inline-flex; align-items: center; padding: 6px 12px;
+          background: var(--accent-wash); color: var(--accent); border-radius: var(--r-sm);
+          font-size: 13px; font-weight: 600;
+        }
+        .pil-unlink {
+          display: inline-flex; align-items: center; gap: 4px; padding: 5px 9px;
+          font-size: 12px; color: var(--ink-faint); border: 1px solid var(--line); border-radius: var(--r-sm);
+        }
+        .pil-unlink:hover { color: #b91c1c; border-color: #b91c1c; }
+        .pil-legacy { font-size: 12.5px; color: var(--ink-faint); margin-bottom: 7px; }
+      `}</style>
     </div>
   )
 }

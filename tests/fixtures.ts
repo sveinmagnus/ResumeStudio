@@ -1,6 +1,6 @@
 import type {
   ResumeStore, ResumeView, Project, WorkExperience, Education,
-  Course, Certification, Skill, Role, KeyQualification, SpokenLanguage,
+  Course, Certification, Skill, Role, Industry, KeyQualification, SpokenLanguage,
   TechnologyCategory, Position, Presentation, Publication, HonorAward,
   Reference, Resume, KeyCompetency, Recommendation,
 } from '../src/types'
@@ -12,7 +12,7 @@ export function emptyStore(): ResumeStore {
   return {
     shape_version: CURRENT_SHAPE_VERSION,
     resume: makeResume(),
-    skills: [], roles: [], key_qualifications: [], key_competencies: [],
+    skills: [], roles: [], industries: [], key_qualifications: [], key_competencies: [],
     recommendations: [], projects: [],
     work_experiences: [], educations: [], courses: [], certifications: [],
     spoken_languages: [], technology_categories: [], positions: [],
@@ -58,6 +58,7 @@ export function makeProject(over: Partial<Project> = {}): Project {
     customer_anonymized: {},
     use_anonymized: false,
     industry: { en: 'Finance' },
+    industry_id: null,
     description: { en: 'Short desc' },
     long_description: { en: 'Long desc' },
     highlights: [],
@@ -179,6 +180,17 @@ export function makeRole(over: Partial<Role> = {}): Role {
     years_of_experience: 0,
     years_of_experience_offset: 0,
     starred: false,
+    sort_order: 0,
+    disabled: false,
+    ...over,
+  }
+}
+
+export function makeIndustry(over: Partial<Industry> = {}): Industry {
+  return {
+    id: id(),
+    resume_id: 'resume-1',
+    name: { en: 'Finance' },
     sort_order: 0,
     disabled: false,
     ...over,

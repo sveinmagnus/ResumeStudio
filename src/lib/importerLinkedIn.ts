@@ -156,7 +156,7 @@ export function importFromLinkedIn(files: Record<string, string>): ResumeStore {
   // ── Key qualification from the profile summary ─────────────────────────────
   const store: ResumeStore = {
     resume,
-    skills: [], roles: [],
+    skills: [], roles: [], industries: [],
     key_qualifications: [], key_competencies: [], recommendations: [],
     projects: [], work_experiences: [], educations: [], courses: [],
     certifications: [], spoken_languages: [], technology_categories: [],
@@ -257,7 +257,7 @@ export function importFromLinkedIn(files: Record<string, string>): ResumeStore {
       id: uuidv4(), resume_id: resumeId,
       work_experience_id: null,
       customer: {}, customer_anonymized: {}, use_anonymized: false,
-      industry: {},
+      industry: {}, industry_id: null,
       description: L(p['Title']),
       long_description: L(p['Description']),
       highlights: [], roles: [], skills: [],
