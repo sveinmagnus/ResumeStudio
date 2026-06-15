@@ -230,8 +230,8 @@ export function SkillsEditor() {
             sortable={false}>
             <DualField label="Skill name" value={s.name} onChange={(v) => updateItem('skills', s.id, { name: v })} />
             <FieldRow>
-              <div className="pf-wrap">
-                <label className="pf-label">Type</label>
+              <label className="pf-wrap">
+                <span className="pf-label">Type</span>
                 <select className="pf-input" value={s.skill_type}
                   onChange={(e) => updateItem('skills', s.id, { skill_type: e.target.value as Skill['skill_type'] })}>
                   <option value="technical">Technical</option>
@@ -239,12 +239,12 @@ export function SkillsEditor() {
                   <option value="domain">Domain</option>
                   <option value="soft">Soft skill</option>
                 </select>
-              </div>
-              <div className="pf-wrap">
-                <label className="pf-label">Proficiency (0–5)</label>
+              </label>
+              <label className="pf-wrap">
+                <span className="pf-label">Proficiency (0–5)</span>
                 <input className="pf-input" type="number" min={0} max={5} value={s.proficiency}
                   onChange={(e) => updateItem('skills', s.id, { proficiency: parseInt(e.target.value) || 0 })} />
-              </div>
+              </label>
               <TextField label="Total years" value={s.total_duration_in_years.toFixed(1)}
                 onChange={(v) => updateItem('skills', s.id, { total_duration_in_years: parseFloat(v) || 0 })} />
             </FieldRow>

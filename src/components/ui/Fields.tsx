@@ -121,7 +121,10 @@ export function TagField({ label, tags, onChange, suggestions = [] }: {
 function PlainStyles() {
   return (
     <style>{`
-      .pf-wrap { margin-bottom: 16px; }
+      /* display:block so the variant rendered as a <label> wrapping its control
+         (implicit association — see RegistryEditors/SimpleEditors selects) keeps
+         the same stacked layout as the <div> variant. */
+      .pf-wrap { display: block; margin-bottom: 16px; }
       .pf-label {
         display: block; font-size: 11px; font-weight: 600; letter-spacing: .08em;
         text-transform: uppercase; color: var(--ink-faint); margin-bottom: 7px;

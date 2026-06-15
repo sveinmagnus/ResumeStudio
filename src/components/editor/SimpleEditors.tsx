@@ -47,8 +47,8 @@ export function WorkEditor() {
             <DateField label="End" value={w.end} onChange={(v) => updateItem('work_experiences', w.id, { end: v })} allowOngoing />
           </FieldRow>
           <FieldRow>
-            <div className="pf-wrap">
-              <label className="pf-label">Employment type</label>
+            <label className="pf-wrap">
+              <span className="pf-label">Employment type</span>
               <select className="pf-input" value={w.employment_type || ''}
                 onChange={(e) => updateItem('work_experiences', w.id, { employment_type: (e.target.value || null) as WorkExperience['employment_type'] })}>
                 <option value="">—</option>
@@ -57,7 +57,7 @@ export function WorkEditor() {
                 <option value="freelance">Freelance</option>
                 <option value="part_time">Part-time</option>
               </select>
-            </div>
+            </label>
             <TextField label="Company size" value={w.company_size || ''} onChange={(v) => updateItem('work_experiences', w.id, { company_size: v })} />
             <TextField label="Company URL" value={w.company_url || ''} onChange={(v) => updateItem('work_experiences', w.id, { company_url: v })} />
           </FieldRow>
@@ -374,8 +374,8 @@ export function PublicationsEditor() {
           <DualField label="Publisher" value={p.publisher} onChange={(v) => updateItem('publications', p.id, { publisher: v })} />
           <RichField label="Abstract" value={p.abstract} onChange={(v) => updateItem('publications', p.id, { abstract: v })} />
           <FieldRow>
-            <div className="pf-wrap">
-              <label className="pf-label">Type</label>
+            <label className="pf-wrap">
+              <span className="pf-label">Type</span>
               <select className="pf-input" value={p.publication_type}
                 onChange={(e) => updateItem('publications', p.id, { publication_type: e.target.value as Publication['publication_type'] })}>
                 <option value="article">Article</option>
@@ -385,7 +385,7 @@ export function PublicationsEditor() {
                 <option value="blog_post">Blog post</option>
                 <option value="report">Report</option>
               </select>
-            </div>
+            </label>
             <DateField label="Date" value={p.date} onChange={(v) => updateItem('publications', p.id, { date: v })} />
             <TextField label="URL" value={p.url || ''} onChange={(v) => updateItem('publications', p.id, { url: v })} />
           </FieldRow>
