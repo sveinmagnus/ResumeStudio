@@ -213,7 +213,7 @@ manual to assisted while staying 100% dependency-free. Reuses
 `aiImport.ts` validation patterns, the view normalizers, and the preview
 pane. Medium effort; highest strategic fit of anything on this list.
 
-### F3. Overview dashboard: freshness & expiry warnings (cheap win)
+### F3. Overview dashboard: freshness & expiry warnings (cheap win) — ✅ done (June 2026)
 `Certification.expires` is already in the model. Surface on Overview:
 - certifications expiring within N months / already expired,
 - "ongoing" projects/employments with no edits in over a year,
@@ -278,14 +278,14 @@ admin UI — just attribution, which is what a 2–5 person consultancy
 actually needs first. Defer real auth until someone asks for per-resume
 access control.
 
-### F11. Per-view default export locale
+### F11. Per-view default export locale — ✅ done (June 2026)
 The export-locale dropdown currently defaults to `supported_locales[0]`
 per session. A Board CV is *always* Norwegian; a partner CV is *always*
 English. Persist the chosen locale on the view (`export_locale: string |
 null`). Tiny, removes a recurring footgun (exporting the right view in the
 wrong language).
 
-### F12. Skill-taxonomy integration (Quadim Public Skill Library) — ✅ point 1 (autocomplete enrichment) done (June 2026); points 2–4 open
+### F12. Skill-taxonomy integration (Quadim Public Skill Library) — ✅ done (June 2026): all four points shipped
 A local, Apache-2.0-licensed taxonomy of **1,227 curated skill definitions**
 exists at `C:\Users\svein\Documents\Development\Public-SkillDefinitions`
 (canonical JSONs in `quadim-public-skilldefinitions/`, lean pre-built index
@@ -293,17 +293,16 @@ in `docs/data/skills-index.json`, relationship graph in
 `docs/data/graph-edges.json`). Each entry has a UUID, name, ~440-char
 description, classification (Technical / Management / Analytical / …),
 skill-type, and `relatesTo`/`isCompositeOf`/`isExtensionOf` links.
-Integration points, in rough order of value:
-1. **Autocomplete enrichment** — when adding a skill in `Autocomplete.tsx`,
-   suggest canonical library names alongside existing registry entries;
-   prevents the "Løsningarkitekt vs Løsningsarkitekt" duplicates *before*
-   merge has to fix them.
-2. **Import normalization** — match free-text skills from CVpartner / AI /
-   future LinkedIn imports against library names.
-3. **Related-skill suggestions** — "you list Scrum; consider Agile Software
-   Development" via the relatesTo graph.
-4. **Skill-matrix wording** (pairs with F9) — authoritative descriptions and
-   classifications for tender competency matrices.
+Integration points, in rough order of value (all shipped June 2026):
+1. ✅ **Autocomplete enrichment** — `Autocomplete.tsx` `suggestExtra` slot +
+   `lib/skillTaxonomy.ts` (lazy `skillTaxonomy.json`).
+2. ✅ **Import normalization** — `lib/skillNormalize.ts`, applied after the
+   free-text importers (not backup) in ImportScreen/AIImportModal.
+3. ✅ **Related-skill suggestions** — `skillRelations.json` (bidirectional
+   relatesTo graph) + `relatedSkillSuggestions`, surfaced in the Skill Registry.
+4. ✅ **Skill-matrix wording** — `skillClassifications.json` stamped onto
+   `Skill.classification` at import; a Category column in the matrix (all three
+   render paths). Descriptions omitted (impractical in a terse matrix).
 Implementation rule: stay dependency-free — derive a slimmed static JSON
 from `skills-index.json` at build time and lazy-load it like the DOCX
 exporter; never fetch the live site at runtime. Note: library descriptions
@@ -355,8 +354,10 @@ export, skill matrix) each touch the same three switches A5 collapses — do
 the refactor first and each feature drops from "edit 3 files in sync" to
 "add one descriptor + one renderer".
 
-**Remaining open work** (June 2026, after the big wave shipped): F12 points
-2–4 (import normalization, related-skill suggestions, skill-matrix wording),
-A4 Phase 2 (content-addressed asset table — conditional on measured need),
-then the cheap wins F3 (freshness/expiry warnings) and F11 (per-view export
-locale). The watchlist (A8) and the deferred items (F13–F16) stay parked.
+**Remaining open work** (June 2026): with F12 (all four points), F3, and F11
+now shipped, and A4 Phase 2 consciously deferred, the actionable roadmap is
+**clear**. What's left is parked by choice: the watchlist (A8 — generic
+mergeRegistry, cross-tab lock, UI-chrome localization, accessibility audit)
+and the deferred/conditional items (F13 PWA offline-load, F14 Electron
+repackaging, F15 career timeline, F16 global search). F4 and F8 were dropped
+as out of scope (bid-management / document-authoring).

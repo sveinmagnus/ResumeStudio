@@ -31,7 +31,7 @@ units:
     intent: "What is Resume Studio and how do I install, run, and configure it?"
     scope: global
     audience: [human, agent]
-    validated: "2026-06-11"
+    validated: "2026-06-15"
     update_frequency: monthly
     triggers: [overview, quickstart, install, configuration, env]
     hints:
@@ -196,7 +196,7 @@ units:
     intent: "What improvements and new features are planned, in what order, and why? (Full-solution review, June 2026.)"
     scope: global
     audience: [human, developer, agent]
-    validated: "2026-06-11"
+    validated: "2026-06-15"
     update_frequency: monthly
     depends_on: [claude-instructions]
     triggers: [roadmap, future-work, refactor, features, priorities]
