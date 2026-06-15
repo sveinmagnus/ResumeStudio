@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
-import { Download, Undo2, Redo2, History, ChevronDown, FileText, Menu, Settings } from 'lucide-react'
+import { Download, Undo2, Redo2, History, ChevronDown, FileText, Menu, Settings, Search } from 'lucide-react'
 import { useStore } from '../store/useStore'
 import { useUndoRedo } from '../store/useUndoRedo'
 import { SaveStatus, type SaveState } from './layout/SaveStatus'
 import { LanguageSwitcher } from './layout/LanguageSwitcher'
 import { SnapshotHistory } from './SnapshotHistory'
 import { SettingsModal } from './SettingsModal'
+import { GlobalSearch } from './GlobalSearch'
 import { downloadBackup } from '../lib/backup'
 import { api, type ResumeMeta, UnauthorizedError } from '../lib/api'
 import { Link, navigate } from '../lib/router'
@@ -44,9 +45,24 @@ export function AppHeader({
   const { undo, redo, canUndo, canRedo } = useUndoRedo()
   const [showHistory, setShowHistory] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
+  const [showSearch, setShowSearch] = useState(false)
+
+  // Cmd/Ctrl+K opens global content search (F16). Ignored while typing in a
+  // field unless the chord is pressed — the modifier check handles that.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault()
+        setShowSearch(true)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   return (
     <header className="app-header">
+      {showSearch && <GlobalSearch onClose={() => setShowSearch(false)} />}
       {showHistory && (
         <SnapshotHistory
           resumeId={resumeId}
@@ -109,6 +125,15 @@ export function AppHeader({
           </button>
         </div>
         <LanguageSwitcher />
+
+        <button
+          className="ah-settings"
+          onClick={() => setShowSearch(true)}
+          title="Search resume content (Ctrl/Cmd+K)"
+          aria-label="Search"
+        >
+          <Search size={16} />
+        </button>
 
         <button
           className="ah-btn-secondary"
