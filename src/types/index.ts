@@ -80,6 +80,14 @@ export interface Skill {
   total_duration_in_years: number
   proficiency: number   // 0–5
   is_highlighted: boolean
+  /**
+   * Authoritative classification from the Quadim skill library (e.g.
+   * "Technical", "Management", "Analytical"), stamped at import when the name
+   * matches the library (roadmap F12 pt4). Optional/additive — manually-added
+   * skills lack it and fall back to `skill_type` in the skill-matrix Category
+   * column. Free string (the library taxonomy is richer than our enum).
+   */
+  classification?: string
   created_at: string
 }
 

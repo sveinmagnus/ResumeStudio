@@ -560,25 +560,33 @@ function matrixCell(text: string, tokens: StyleTokens, opts: { bold?: boolean; w
   })
 }
 
-/** The competency-matrix table: skill × experience × proficiency × last used. */
+/** The competency-matrix table: skill × [category] × experience × proficiency × last used. */
 function skillMatrixTable(rows: SkillMatrixRow[], showDates: boolean, tokens: StyleTokens): Table {
-  const widths = showDates ? [40, 20, 20, 20] : [50, 25, 25]
+  const showCategory = rows.some((r) => r.category)
+  // Column widths, dropping the columns that aren't shown and re-normalising.
+  const cols: Array<{ key: 'skill' | 'category' | 'exp' | 'prof' | 'date'; label: string }> = [
+    { key: 'skill', label: 'Skill' },
+    ...(showCategory ? [{ key: 'category' as const, label: 'Category' }] : []),
+    { key: 'exp', label: 'Experience' },
+    { key: 'prof', label: 'Proficiency' },
+    ...(showDates ? [{ key: 'date' as const, label: 'Last used' }] : []),
+  ]
+  const width = Math.round(100 / cols.length)
+  const cell = (key: typeof cols[number]['key'], r: SkillMatrixRow): string => {
+    switch (key) {
+      case 'skill':    return r.name
+      case 'category': return r.category
+      case 'exp':      return r.years > 0 ? `${r.years} yrs` : ''
+      case 'prof':     return fmtProficiency(r.proficiency)
+      case 'date':     return fmtLastUsed(r)
+    }
+  }
   const header = new TableRow({
     tableHeader: true,
-    children: [
-      matrixCell('Skill', tokens, { bold: true, width: widths[0] }),
-      matrixCell('Experience', tokens, { bold: true, width: widths[1] }),
-      matrixCell('Proficiency', tokens, { bold: true, width: widths[2] }),
-      ...(showDates ? [matrixCell('Last used', tokens, { bold: true, width: widths[3] })] : []),
-    ],
+    children: cols.map((c) => matrixCell(c.label, tokens, { bold: true, width })),
   })
   const body = rows.map((r) => new TableRow({
-    children: [
-      matrixCell(r.name, tokens, { width: widths[0] }),
-      matrixCell(r.years > 0 ? `${r.years} yrs` : '', tokens, { width: widths[1] }),
-      matrixCell(fmtProficiency(r.proficiency), tokens, { width: widths[2] }),
-      ...(showDates ? [matrixCell(fmtLastUsed(r), tokens, { width: widths[3] })] : []),
-    ],
+    children: cols.map((c) => matrixCell(cell(c.key, r), tokens, { width })),
   }))
   return new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },

@@ -1,7 +1,8 @@
 /**
  * Regenerate the slim Quadim Public Skill Library artifacts the app ships:
- *   - src/generated/skillTaxonomy.json  — flat list of canonical names (F12 pt1/2)
- *   - src/generated/skillRelations.json — name → related names map (F12 pt3)
+ *   - src/generated/skillTaxonomy.json       — flat list of canonical names (F12 pt1/2)
+ *   - src/generated/skillRelations.json      — name → related names map (F12 pt3)
+ *   - src/generated/skillClassifications.json — name → authoritative classification (F12 pt4)
  *
  * Both are lazy-loaded by lib/skillTaxonomy.ts so the runtime never fetches
  * anything and CI never needs the source repo. Re-run this script (and commit
@@ -23,6 +24,7 @@ const source = process.argv[2]
   ?? path.join(root, '..', 'Public-SkillDefinitions', 'docs', 'data', 'skills-index.json')
 const namesTarget = path.join(root, 'src', 'generated', 'skillTaxonomy.json')
 const relTarget = path.join(root, 'src', 'generated', 'skillRelations.json')
+const classTarget = path.join(root, 'src', 'generated', 'skillClassifications.json')
 
 const index = JSON.parse(fs.readFileSync(source, 'utf8'))
 if (!Array.isArray(index)) throw new Error('skills-index.json: expected an array')
@@ -74,3 +76,22 @@ for (const name of [...adjacency.keys()].sort((a, b) => a.localeCompare(b, 'en')
 }
 fs.writeFileSync(relTarget, JSON.stringify(relations, null, 0) + '\n', 'utf8')
 console.log(`Wrote ${Object.keys(relations).length} related-skill entries (${fs.statSync(relTarget).size} bytes) to ${path.relative(root, relTarget)}`)
+
+// ── Classifications (F12 pt4) ────────────────────────────────────────────────
+// Each entry's `ce` is its authoritative classification (Technical /
+// Management / Analytical / …). Emit canonical name → classification for the
+// skill-matrix Category column. First spelling wins on dupes.
+const classifications = {}
+for (const entry of index) {
+  const name = String(entry?.name ?? '').trim()
+  const canon = canonicalByLower.get(name.toLowerCase())
+  const ce = String(entry?.ce ?? '').trim()
+  if (!canon || !ce || classifications[canon]) continue
+  classifications[canon] = ce
+}
+const sortedClass = {}
+for (const name of Object.keys(classifications).sort((a, b) => a.localeCompare(b, 'en'))) {
+  sortedClass[name] = classifications[name]
+}
+fs.writeFileSync(classTarget, JSON.stringify(sortedClass, null, 0) + '\n', 'utf8')
+console.log(`Wrote ${Object.keys(sortedClass).length} classifications (${fs.statSync(classTarget).size} bytes) to ${path.relative(root, classTarget)}`)

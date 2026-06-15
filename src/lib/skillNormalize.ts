@@ -65,27 +65,53 @@ export interface NormalizeResult {
   changed: number
 }
 
+/** Build a lowercased-name lookup for the classification map (F12 pt4). */
+function lowerLookup(map: Record<string, string> | undefined): Map<string, string> {
+  const out = new Map<string, string>()
+  if (map) for (const [k, v] of Object.entries(map)) out.set(k.trim().toLowerCase(), v)
+  return out
+}
+
 /**
  * Rewrite a freshly-imported store's skill names to canonical library
- * spellings. Pure — returns a new store; the input is untouched.
+ * spellings, and (when `classifications` is supplied) stamp each matching
+ * skill's authoritative library classification (F12 pt4). Pure — returns a new
+ * store; the input is untouched.
  *
  * The registry (`skills`) is the source of truth; `ProjectSkill.name` and
  * `CategorySkill.name` are denormalized copies, so after canonicalizing a
  * registry entry we rebuild every copy that references it. Orphan project /
  * category skills (no `skill_id`) are canonicalized directly.
  */
-export function normalizeImportedSkills(store: ResumeStore, taxonomy: string[]): NormalizeResult {
+export function normalizeImportedSkills(
+  store: ResumeStore,
+  taxonomy: string[],
+  classifications?: Record<string, string>,
+): NormalizeResult {
   const map = buildCanonicalMap(taxonomy)
   if (map.size === 0) return { store, changed: 0 }
+  const classMap = lowerLookup(classifications)
 
   let changed = 0
   const canonicalById = new Map<string, LocalizedString>()
   const skills = store.skills.map((s) => {
     const r = canonicalizeLocalized(s.name, map)
-    if (!r.changed) return s
-    changed++
-    canonicalById.set(s.id, r.value)
-    return { ...s, name: r.value }
+    // Stamp classification from the (canonicalized) name when not already set.
+    let classification = s.classification
+    if (!classification && classMap.size) {
+      for (const v of Object.values(r.value)) {
+        const c = classMap.get(v.trim().toLowerCase())
+        if (c) { classification = c; break }
+      }
+    }
+    const classChanged = classification !== s.classification
+    if (!r.changed && !classChanged) return s
+    if (r.changed) { changed++; canonicalById.set(s.id, r.value) }
+    return {
+      ...s,
+      ...(r.changed ? { name: r.value } : {}),
+      ...(classChanged ? { classification } : {}),
+    }
   })
 
   // Rebuild denormalized name copies: use the canonicalized registry name for

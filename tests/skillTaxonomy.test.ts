@@ -2,11 +2,17 @@ import { describe, it, expect, afterEach } from 'vitest'
 import {
   matchTaxonomy, loadSkillTaxonomy, suggestSkillNames, setSkillTaxonomyForTest,
   loadSkillRelations, relatedSkillSuggestions, setSkillRelationsForTest,
+  loadSkillClassifications, setSkillClassificationsForTest,
 } from '../src/lib/skillTaxonomy'
 import taxonomy from '../src/generated/skillTaxonomy.json'
 import relations from '../src/generated/skillRelations.json'
+import classifications from '../src/generated/skillClassifications.json'
 
-afterEach(() => { setSkillTaxonomyForTest(null); setSkillRelationsForTest(null) })
+afterEach(() => {
+  setSkillTaxonomyForTest(null)
+  setSkillRelationsForTest(null)
+  setSkillClassificationsForTest(null)
+})
 
 describe('generated taxonomy file', () => {
   it('is a sizeable, deduped, sorted list of names', () => {
@@ -123,5 +129,26 @@ describe('relatedSkillSuggestions', () => {
     const out = relatedSkillSuggestions([key], rel)
     expect(out.length).toBeGreaterThan(0)
     expect(out.every((s) => s.name.toLowerCase() !== key.toLowerCase())).toBe(true)
+  })
+})
+
+// ─── Classifications (F12 pt4) ────────────────────────────────────────────────
+
+describe('generated classifications file', () => {
+  it('maps known skill names to non-empty classification strings', () => {
+    const names = new Set((taxonomy as string[]).map((n) => n.toLowerCase()))
+    const cls = classifications as Record<string, string>
+    const keys = Object.keys(cls)
+    expect(keys.length).toBeGreaterThan(500)
+    for (const [name, ce] of Object.entries(cls)) {
+      expect(names.has(name.toLowerCase())).toBe(true)
+      expect(ce.length).toBeGreaterThan(0)
+    }
+  })
+
+  it('loadSkillClassifications memoizes the generated map', async () => {
+    const first = await loadSkillClassifications()
+    expect(first).toBe(await loadSkillClassifications())
+    expect(Object.keys(first).length).toBe(Object.keys(classifications).length)
   })
 })

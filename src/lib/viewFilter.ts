@@ -341,9 +341,11 @@ export function buildViewHtml(store: ResumeStore, view: ResumeView, locale: stri
         if (!rows.length) return ''
         const heading = resolved.hide_heading ? '' : `<h2>${escapeHtml(s.label)}</h2>`
         const showDates = !resolved.hide_dates
-        const head = `<tr><th>Skill</th><th>Experience</th><th>Proficiency</th>${showDates ? '<th>Last used</th>' : ''}</tr>`
+        // Show the Category column only if at least one row has a category.
+        const showCategory = rows.some((row) => row.category)
+        const head = `<tr><th>Skill</th>${showCategory ? '<th>Category</th>' : ''}<th>Experience</th><th>Proficiency</th>${showDates ? '<th>Last used</th>' : ''}</tr>`
         const body = rows.map((row) =>
-          `<tr><td>${escapeHtml(row.name)}</td><td>${row.years > 0 ? escapeHtml(`${row.years} yrs`) : ''}</td><td>${escapeHtml(fmtProficiency(row.proficiency))}</td>${showDates ? `<td>${escapeHtml(fmtLastUsed(row))}</td>` : ''}</tr>`,
+          `<tr><td>${escapeHtml(row.name)}</td>${showCategory ? `<td>${escapeHtml(row.category)}</td>` : ''}<td>${row.years > 0 ? escapeHtml(`${row.years} yrs`) : ''}</td><td>${escapeHtml(fmtProficiency(row.proficiency))}</td>${showDates ? `<td>${escapeHtml(fmtLastUsed(row))}</td>` : ''}</tr>`,
         ).join('\n')
         return `<section class="ve-section ve-sec-skill_matrix">
   ${heading}

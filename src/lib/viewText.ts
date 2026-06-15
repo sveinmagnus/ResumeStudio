@@ -132,18 +132,22 @@ function buildViewDoc(store: ResumeStore, view: ResumeView, locale: string, fmt:
       const resolved = resolveSectionStyle(viewStyle, s.sectionStyle)
       const rows = skillMatrixRows(store, view, locale, { highlightedOnly: s.detail === 'summary' })
       if (!rows.length) continue
+      const showCategory = rows.some((r) => r.category)
+      const showDates = !resolved.hide_dates
       if (md) {
         out.push(`## ${s.label}`)
-        out.push('| Skill | Experience | Proficiency | Last used |')
-        out.push('| --- | --- | --- | --- |')
+        const cols = ['Skill', ...(showCategory ? ['Category'] : []), 'Experience', 'Proficiency', ...(showDates ? ['Last used'] : [])]
+        out.push(`| ${cols.join(' | ')} |`)
+        out.push(`| ${cols.map(() => '---').join(' | ')} |`)
         for (const r of rows) {
-          out.push(`| ${r.name} | ${r.years > 0 ? `${r.years} yrs` : ''} | ${fmtProficiency(r.proficiency)} | ${resolved.hide_dates ? '' : fmtLastUsed(r)} |`)
+          const cells = [r.name, ...(showCategory ? [r.category] : []), r.years > 0 ? `${r.years} yrs` : '', fmtProficiency(r.proficiency), ...(showDates ? [fmtLastUsed(r)] : [])]
+          out.push(`| ${cells.join(' | ')} |`)
         }
       } else {
         out.push(s.label.toUpperCase())
         out.push('-'.repeat(Math.max(4, s.label.length)))
         for (const r of rows) {
-          out.push(['- ' + r.name, r.years > 0 ? `${r.years} yrs` : '', fmtProficiency(r.proficiency), resolved.hide_dates ? '' : fmtLastUsed(r)]
+          out.push(['- ' + r.name, showCategory ? r.category : '', r.years > 0 ? `${r.years} yrs` : '', fmtProficiency(r.proficiency), showDates ? fmtLastUsed(r) : '']
             .filter(Boolean).join(' — '))
         }
       }

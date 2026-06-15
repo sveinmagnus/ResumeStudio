@@ -10,7 +10,7 @@ import {
   isEuropassJson, isEuropassXml, importFromEuropassJson, importFromEuropassXml,
 } from '../lib/importerEuropass'
 import { AIImportModal } from './AIImportModal'
-import { loadSkillTaxonomy } from '../lib/skillTaxonomy'
+import { loadSkillTaxonomy, loadSkillClassifications } from '../lib/skillTaxonomy'
 import { normalizeImportedSkills } from '../lib/skillNormalize'
 import type { ResumeStore } from '../types'
 
@@ -18,12 +18,16 @@ const YEAR = new Date().getFullYear()
 
 /**
  * Canonicalize a freshly-imported store's skill names against the Quadim
- * library (F12 pt2). Skipped for backups, whose names are intentional. The
- * taxonomy is the same lazy-loaded list the autocomplete uses (memoized).
+ * library (F12 pt2) and stamp authoritative classifications (F12 pt4). Skipped
+ * for backups, whose names are intentional. The taxonomy/classifications are
+ * the same lazy-loaded data the editor uses (memoized).
  */
 async function normalizeImported(store: ResumeStore): Promise<ResumeStore> {
   try {
-    return normalizeImportedSkills(store, await loadSkillTaxonomy()).store
+    const [taxonomy, classifications] = await Promise.all([
+      loadSkillTaxonomy(), loadSkillClassifications(),
+    ])
+    return normalizeImportedSkills(store, taxonomy, classifications).store
   } catch {
     return store // never let a taxonomy hiccup block an import
   }

@@ -93,6 +93,27 @@ export function setSkillRelationsForTest(rel: SkillRelations | null): void {
   cachedRelations = rel
 }
 
+// ─── Authoritative classifications (F12 pt4) ──────────────────────────────────
+
+/** canonical name → authoritative classification (e.g. "Technical", "Management"). */
+export type SkillClassifications = Record<string, string>
+
+let cachedClassifications: SkillClassifications | null = null
+
+/** Load (and memoize) the classification map. Lazy chunk on first call. */
+export async function loadSkillClassifications(): Promise<SkillClassifications> {
+  if (!cachedClassifications) {
+    const mod = await import('../generated/skillClassifications.json')
+    cachedClassifications = mod.default as SkillClassifications
+  }
+  return cachedClassifications
+}
+
+/** Test seam: replace/clear the memoized classifications. */
+export function setSkillClassificationsForTest(c: SkillClassifications | null): void {
+  cachedClassifications = c
+}
+
 export interface RelatedSuggestion {
   name: string
   /** How many of the user's skills point to this one — drives ranking. */

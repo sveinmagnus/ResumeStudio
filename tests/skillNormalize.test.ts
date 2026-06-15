@@ -97,6 +97,39 @@ describe('normalizeImportedSkills', () => {
     expect(out).toBe(store)
   })
 
+  // ── Classification stamping (F12 pt4) ──────────────────────────────────────
+  const CLASS = { TypeScript: 'Technical', Kubernetes: 'Technical', Scrum: 'Management' }
+
+  it('stamps the authoritative classification on a canonicalized skill', () => {
+    const store = emptyStore()
+    store.skills.push(makeSkill({ id: 'ts', name: { en: 'typescript' } }))
+    const { store: out } = normalizeImportedSkills(store, TAXONOMY, CLASS)
+    expect(out.skills[0].name).toEqual({ en: 'TypeScript' })
+    expect(out.skills[0].classification).toBe('Technical')
+  })
+
+  it('does not overwrite an existing classification', () => {
+    const store = emptyStore()
+    store.skills.push(makeSkill({ id: 'ts', name: { en: 'TypeScript' }, classification: 'Custom' }))
+    const { store: out } = normalizeImportedSkills(store, TAXONOMY, CLASS)
+    expect(out.skills[0].classification).toBe('Custom')
+  })
+
+  it('leaves classification unset for skills absent from the library', () => {
+    const store = emptyStore()
+    store.skills.push(makeSkill({ id: 'x', name: { no: 'Løsningsarkitektur' } }))
+    const { store: out } = normalizeImportedSkills(store, TAXONOMY, CLASS)
+    expect(out.skills[0].classification).toBeUndefined()
+  })
+
+  it('stamps classification even when the name needed no canonicalization', () => {
+    const store = emptyStore()
+    store.skills.push(makeSkill({ id: 'k8s', name: { en: 'Kubernetes' } }))
+    const { store: out, changed } = normalizeImportedSkills(store, TAXONOMY, CLASS)
+    expect(changed).toBe(0) // name already canonical
+    expect(out.skills[0].classification).toBe('Technical')
+  })
+
   it('canonicalizes a matching value regardless of its locale key', () => {
     const store = emptyStore()
     // A skill stored under a non-English locale that still spells a library name.

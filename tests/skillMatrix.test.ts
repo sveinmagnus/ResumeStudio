@@ -108,6 +108,29 @@ describe('skill matrix in buildViewHtml', () => {
     expect(html).toContain('&lt;script&gt;')
   })
 
+  it('shows an authoritative Category column when classifications are present (F12 pt4)', () => {
+    const store = matrixStore()
+    store.skills[0].classification = 'Technical' // TypeScript → library classification
+    const sections = buildViewSections().map((s) =>
+      s.key === 'skill_matrix' ? { ...s, detail: 'full' as const } : s,
+    )
+    const html = buildViewHtml(store, makeView({ sections }), 'en')
+    expect(html).toContain('<th>Category</th>')
+    expect(html).toContain('Technical')
+  })
+
+  it('omits the Category column entirely when no skill has a category', () => {
+    // matrixStore skills have skill_type defaulting to a value, which prettifies
+    // into a category — so to assert omission, blank the skill_type.
+    const store = matrixStore()
+    store.skills.forEach((s) => { s.skill_type = '' as never; s.classification = undefined })
+    const sections = buildViewSections().map((s) =>
+      s.key === 'skill_matrix' ? { ...s, detail: 'full' as const } : s,
+    )
+    const html = buildViewHtml(store, makeView({ sections }), 'en')
+    expect(html).not.toContain('<th>Category</th>')
+  })
+
   it('summary detail renders highlighted skills only', () => {
     const sections = buildViewSections().map((s) =>
       s.key === 'skill_matrix' ? { ...s, detail: 'summary' as const } : s,
