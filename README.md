@@ -96,6 +96,13 @@ The full feature tour lives on the
 - **Skill intelligence.** A local, dependency-free skill library (Quadim,
   Apache-2.0) powers canonical-name autocomplete, **related-skill suggestions**
   in the registry, and authoritative classifications in the skill-matrix export.
+- **Shared registries with merge.** Skills, roles, **and industries** each live
+  once and are referenced everywhere; "Merge this into…" consolidates
+  duplicates ("Finance" / "finance") and rewrites every reference.
+- **Career timeline.** The Overview draws your employments and projects as a
+  timeline and flags gaps in your work history.
+- **Global search.** Ctrl/Cmd+K opens a command palette that searches every
+  section, registry and field, and jumps straight to the match.
 - **Stay current.** An Overview "Needs attention" panel flags expired/expiring
   certifications and long-running "ongoing" entries; the picker badges resumes
   you haven't touched in a while.

@@ -99,9 +99,23 @@ What works today:
 - **Undo / redo** (Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z) with debounced history.
 - **Drag-and-drop reordering** (`@dnd-kit`) on every section that owns a
   `sort_order`; up/down arrow buttons kept for keyboard / accessibility.
-- **Registry merge** — "Merge this skill/role into…" rewrites every reference
-  and deletes the source. Role merges also rewrite linked employments
-  (`WorkExperience.role_id`) alongside `project.roles[].role_id`.
+- **Registry merge** — "Merge this skill/role/industry into…" rewrites every
+  reference and deletes the source, via the generic descriptor-table
+  `mergeRegistry(store, kind, source, target)` in `lib/merge.ts` (skills,
+  roles, industries; the named wrappers stay for readability). Role merges also
+  rewrite linked employments (`WorkExperience.role_id`) alongside
+  `project.roles[].role_id`. **Industries** are the third registry kind:
+  `Project.industry_id` links to `data.industries`, populated automatically by
+  the shape-v3 migration (`migrate.ts → internIndustries` interns existing /
+  imported free-text industries, deduped).
+- **Global content search** (`lib/contentSearch.ts`) — a Ctrl/Cmd+K command
+  palette (`GlobalSearch`) substring-searches every section, registry and the
+  header, ranks title matches first, and jumps to the item.
+- **Career timeline** — an Overview card (`lib/careerTimeline.ts`) showing
+  employments + projects as an overlap-packed timeline with employment-gap
+  detection.
+- **Accessibility regression net** — `tests/components/a11y.test.tsx` runs
+  jest-axe (dev-only) over the editor surfaces; keep new editors passing it.
 - **Registry management** — Skill and Role lists carry an "Unused / Missing
   translation" filter bar; each card shows its usage breakdown as
   "N projects | M categor(y|ies)" (skills) or "N projects | M employments"
@@ -236,6 +250,8 @@ src/
 │   ├── viewTailor.ts           ← PURE: BYO-LLM view tailoring (F2) — prompt bundle, resumestudio-tailor/v1 validation (field-pathed), applyTailorResponse
 │   ├── viewText.ts             ← PURE: ATS plain-text + Markdown exports (F6) — third render adapter over the catalog
 │   ├── skillMatrix.ts          ← PURE: skill-matrix rows (F9) — registry + project usage → years/proficiency/last-used + authoritative Category (F12 pt4)
+│   ├── careerTimeline.ts       ← PURE: career-timeline model (F15) — employment/project bars, lane packing, employment-gap detection, year ticks
+│   ├── contentSearch.ts        ← PURE: global content search (F16) — recursive string collector over the store + ranked hits with snippet + authoritative Category (F12 pt4)
 │   ├── skillTaxonomy.ts        ← Quadim skill-library data (F12): lazy generated JSON (names/relations/classifications) + PURE matchTaxonomy / relatedSkillSuggestions (regen: scripts/build-skill-taxonomy.mjs)
 │   ├── skillNormalize.ts       ← PURE: canonicalize imported skill names to library spelling + stamp classifications (F12 pt2/4); free-text importers only, not backups
 │   ├── freshness.ts            ← PURE: freshness/expiry warnings (F3) — expired/expiring certs, stale 'ongoing' items, isResumeStale; deterministic via injected `now`
@@ -352,7 +368,8 @@ Every translatable field is a `LocalizedString = Record<string, string>` keyed b
 ### Shared registries
 - **`Skill`** lives in a global registry (`data.skills`) and is referenced by `ProjectSkill` (on `Project`) and `CategorySkill` (on `TechnologyCategory`) via `skill_id`. Use `lib/merge.ts → countSkillReferences()` to count all references.
 - **`Role`** also lives in a global registry (`data.roles`). `ProjectRole` references it via `role_id`. Use `countRoleReferences()`.
-- **Snapshot names**: `ProjectSkill.name`, `CategorySkill.name`, and `ProjectRole.name` are denormalized copies of the registry's name at link time, so a registry rename doesn't silently rewrite history. `merge.ts` updates these snapshots when it rewrites references.
+- **`Industry`** (A8.1) lives in `data.industries`; `Project.industry_id` references it (with `Project.industry` kept as the denormalized name). Use `countIndustryReferences()`. All three kinds merge through the generic `mergeRegistry` / `countRegistryReferences`.
+- **Snapshot names**: `ProjectSkill.name`, `CategorySkill.name`, `ProjectRole.name`, and `Project.industry` are denormalized copies of the registry's name at link time, so a registry rename doesn't silently rewrite history. `merge.ts` updates these snapshots when it rewrites references.
 
 ### Resume Views
 `ResumeView` (in `data.views`) is the "targeted resume" config: a name, an introduction (localized), a list of enabled sections in display order, an excluded-items list, a starred-only toggle, and an optional page limit. `lib/viewFilter.ts → applyView()` produces a filtered `ResumeStore` from a view; the exporter and HTML renderer consume the filtered store.
@@ -648,8 +665,10 @@ than calling `set()` directly. Return `null` from the updater for a no-op
 
 ### Data-shape versioning (`lib/migrate.ts`)
 - `ResumeStore.shape_version` stamps the content shape (absent = pre-versioning
-  = 1; `CURRENT_SHAPE_VERSION` = 2). **Bump only for structural migrations** —
-  additive optional fields stay covered by `with*Defaults` render tolerance.
+  = 1; `CURRENT_SHAPE_VERSION` = 3 — v3 added the Industry registry +
+  `industry_id` and interns existing industry text). **Bump only for structural
+  migrations** (a new top-level array that code iterates counts) — additive
+  optional fields stay covered by `with*Defaults` render tolerance.
 - `migrateStore()` is the single choke point for data entering the app from
   outside: `loadStore` runs it on every load; the snapshot-restore site calls
   it before `replaceData`. `replaceData` itself never migrates — in-app
@@ -872,11 +891,17 @@ Ordered loosely by recommended priority. Each is a self-contained chunk.
 > matrix Category column), the **storage readout** (`server/storage.ts` +
 > picker weight warnings), **freshness & expiry warnings** (`lib/freshness.ts`
 > — Overview "Needs attention" + picker staleness), and a **per-view export
-> locale** (`export_locale`). See §1, §14, `plans/improvement-roadmap.md`, and
-> `DESKTOP.md`. **A4 Phase 2** (content-addressed asset table) was deliberately
-> deferred — measurement infra shipped; build the table only when real data
-> warrants. **F4/F8** (application log, cover letter) were dropped as out of
-> scope.
+> locale** (`export_locale`). The July 2026 wave added: the **generic
+> `mergeRegistry`** + an **Industry registry** (third mergeable kind;
+> `Project.industry_id`, shape v3 migration interns existing/imported industry
+> text), an **accessibility audit** (jest-axe regression suite + fixed
+> unlabelled controls), the **career-timeline** Overview card
+> (`lib/careerTimeline.ts`), and **global content search**
+> (`lib/contentSearch.ts` + `GlobalSearch` palette, Ctrl/Cmd+K). See §1, §14,
+> `plans/improvement-roadmap.md`, and `DESKTOP.md`. **A4 Phase 2**
+> (content-addressed asset table) was deliberately deferred — measurement infra
+> shipped; build the table only when real data warrants. **F4/F8** (application
+> log, cover letter) were dropped as out of scope.
 >
 > The **v0.3.1 UX/accessibility wave** (12 `ux/*` branches) also shipped:
 > programmatic labels + per-locale `lang` everywhere (`bcp47()`), live
@@ -891,8 +916,16 @@ Ordered loosely by recommended priority. Each is a self-contained chunk.
 > header), and the **Profile & Competencies page** replacing the Personal
 > Details sub-tabs (`canonicalSectionKey()` keeps old deep links working).
 
-### 12.1 Generic mergeRegistry
-`mergeSkills` and `mergeRoles` are near-identical. If a third registry kind ever appears (e.g. mergeable industries), refactor to a descriptor-table `mergeRegistry(store, kind, source, target)`. Not worth doing for two kinds today.
+### 12.1 Remaining watchlist (deferred until forced)
+- **Cross-tab BroadcastChannel lock**: two tabs editing one resume share a
+  localStorage pending slot; the server `version` check makes it *safe* (the
+  second flush 409s into the conflict modal), just not tidy.
+- **UI-chrome localization**: app labels are English-only. A dictionary-based
+  `t()` for chrome strings is plausible for the Norwegian market but taxes
+  every component forever — decide once and record it here either way.
+- (Done July 2026: **generic `mergeRegistry`** — `lib/merge.ts` is now a
+  descriptor-table engine over skills/roles/industries; the **accessibility
+  audit** — jest-axe suite in `tests/components/a11y.test.tsx`.)
 
 ### 12.2 Image asset table (A4 Phase 2)
 Snapshots are image-free and the picker now measures payload weight (`GET /api/resumes/storage`), but every auto-save PUT and localStorage pending record still carries the embedded base64 images. If real-world measurements show quota risk, move to a content-addressed `assets` table (`hash → bytes`) with `asset_id` references — touches exporter/viewFilter (resolve at render), the backup format (embed on export), and localCache.

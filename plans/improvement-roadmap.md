@@ -158,8 +158,8 @@ boundaries forever. Add a `shape_version` to the stored JSON and a single
 `migrateStore()` applied in `loadResume`/`loadStore`, mirroring the backup
 scaffold. Old tolerant defaults stay as defense-in-depth.
 
-### A8. Watchlist (deliberately deferred — keep saying no until forced)
-- **Generic `mergeRegistry`** (§12.2): still only two registry kinds.
+### A8. Watchlist (mostly deferred)
+- **Generic `mergeRegistry`** — ✅ done (June 2026): refactored to a descriptor-table engine AND industries added as the real third mergeable registry kind (`Project.industry_id`, shape v3 migration interns existing/imported industry text).
 - **Cross-tab BroadcastChannel lock** (§12.5): conflict path already makes
   it safe.
 - **UI-chrome localization**: app labels are English-only. For a tool whose
@@ -167,10 +167,10 @@ scaffold. Old tolerant defaults stay as defense-in-depth.
   dictionary-based `t()` for chrome strings is a plausible ask — but it
   taxes every component forever. Decide once, record the decision in
   CLAUDE.md either way.
-- **Accessibility audit**: dnd-kit keyboard sensors and up/down buttons are
-  good bones; do a focused pass on modal focus traps, `aria-label`s on the
-  icon-only buttons (copy/draft/star/merge), and contrast of the cyan
-  secondary tint. Half a day, schedule alongside any template work.
+- **Accessibility audit** — ✅ done (June 2026): added jest-axe + an a11y
+  regression suite over the editor surfaces; fixed the unlabelled
+  select/number controls it found. Modal focus traps (all useDialog), icon
+  labels and cyan-text contrast were already in good shape.
 
 ---
 
@@ -326,12 +326,12 @@ deliberately chosen to match `app.getPath('userData')`, so an Electron move
 is repackaging, not a rewrite. Pull the trigger only when tray / updater /
 browser-opening friction on some OS outweighs the packaging cost.
 
-### F15. Career timeline / gap visualization — *deferred / conditional*
+### F15. Career timeline / gap visualization — ✅ done (June 2026)
 A visual timeline of employments + projects on the Overview, surfacing gaps
 and overlaps. Nice-to-have, not core to the master-CV → views loop. Pure
 `lib/` computation + an SVG/canvas card. Revisit if a user actually asks.
 
-### F16. Global content search — *deferred / conditional*
+### F16. Global content search — ✅ done (June 2026)
 A cross-section search ("find every item mentioning Kubernetes") becomes
 worth it once resumes are large enough that the sidebar stops being enough
 to navigate. Pure client-side index over the store. Revisit after the
