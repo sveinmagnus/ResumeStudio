@@ -27,7 +27,7 @@ import { normalizeImportLocale } from './aiImport'
 function freshImportStore(resumeId: string, resume: Resume): ResumeStore {
   return {
     resume,
-    skills: [], roles: [],
+    skills: [], roles: [], industries: [],
     key_qualifications: [], key_competencies: [], recommendations: [],
     projects: [], work_experiences: [], educations: [], courses: [],
     certifications: [], spoken_languages: [], technology_categories: [],

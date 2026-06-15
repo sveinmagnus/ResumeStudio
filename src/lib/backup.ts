@@ -12,7 +12,7 @@
  */
 
 import type {
-  ResumeStore, Resume, Skill, Role,
+  ResumeStore, Resume, Skill, Role, Industry,
   KeyQualification, KeyCompetency, Recommendation, Project, WorkExperience,
   Education, Course, Certification, SpokenLanguage, TechnologyCategory,
   Position, Presentation, HonorAward, Publication, Reference, ResumeView,
@@ -41,6 +41,8 @@ export interface BackupV1 {
   registries: {
     skills: Skill[]
     roles: Role[]
+    /** Industry registry (A8.1). Additive — backups from older builds omit it. */
+    industries?: Industry[]
   }
   sections: {
     key_qualifications: KeyQualification[]
@@ -131,6 +133,7 @@ export function exportToBackup(store: ResumeStore): BackupV1 {
     registries: {
       skills: store.skills,
       roles: store.roles,
+      industries: store.industries,
     },
     sections: {
       key_qualifications: store.key_qualifications,
@@ -168,6 +171,9 @@ export function importFromBackup(backup: AnyBackup): ResumeStore {
     resume:                  v1.profile,
     skills:                  v1.registries.skills,
     roles:                   v1.registries.roles,
+    // Added with the Industry registry (A8.1) — older backups omit it; a
+    // pre-v3 shape_version then triggers internIndustries in migrateStore.
+    industries:              v1.registries.industries ?? [],
     key_qualifications:      v1.sections.key_qualifications,
     // Added after the initial v1 shape — older backups omit these arrays.
     key_competencies:        v1.sections.key_competencies ?? [],

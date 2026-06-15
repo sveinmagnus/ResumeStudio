@@ -340,6 +340,7 @@ export function importFromCVPartner(raw: Record<string, unknown>): ResumeStore {
       customer_anonymized: localized(p.customer_anonymized),
       use_anonymized: p.customer_selected === 'customer_anonymized',
       industry: localized(p.industry),
+      industry_id: null, // interned into the registry by migrateStore on load (A8.1)
       description: localized(p.description),
       long_description: projectLongDescription,
       highlights: [],
@@ -546,6 +547,7 @@ export function importFromCVPartner(raw: Record<string, unknown>): ResumeStore {
     resume,
     skills,
     roles,
+    industries: [],
     key_qualifications,
     key_competencies,
     recommendations: [],

@@ -5,12 +5,12 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {
-  SkillsEditor, RolesEditor, ReferencesEditor, TechCategoriesEditor,
+  SkillsEditor, RolesEditor, IndustriesEditor, ReferencesEditor, TechCategoriesEditor,
 } from '../../src/components/editor/RegistryEditors'
 import { useStore } from '../../src/store/useStore'
 import { setSkillRelationsForTest } from '../../src/lib/skillTaxonomy'
 import { resetStore } from '../helpers/store-reset'
-import { emptyStore, makeSkill, makeProject } from '../fixtures'
+import { emptyStore, makeSkill, makeProject, makeIndustry } from '../fixtures'
 import type { ResumeStore } from '../../src/types'
 
 function seed(data: ResumeStore = emptyStore()) {
@@ -165,5 +165,43 @@ describe('<TechCategoriesEditor>', () => {
     expect(state.skills[0].name).toEqual({ en: 'Kubernetes' })
     expect(state.technology_categories[0].skills).toHaveLength(1)
     expect(state.technology_categories[0].skills[0].skill_id).toBe(state.skills[0].id)
+  })
+})
+
+describe('<IndustriesEditor> (A8.1)', () => {
+  beforeEach(() => resetStore())
+
+  function seedInd(data: ResumeStore) {
+    useStore.setState({
+      data, hasData: true, primaryLocale: 'en', secondaryLocale: null,
+      activeSection: 'industries', expandedItemId: null, mutationCount: 0,
+    })
+  }
+
+  it('adds an industry to the registry', async () => {
+    seedInd(emptyStore())
+    render(<IndustriesEditor />)
+    await userEvent.click(screen.getByRole('button', { name: /add industry/i }))
+    expect(useStore.getState().data.industries).toHaveLength(1)
+  })
+
+  it('merges one industry into another, rewriting the linked project', async () => {
+    const a = makeIndustry({ id: 'a', name: { en: 'finance' } })
+    const b = makeIndustry({ id: 'b', name: { en: 'Finance' } })
+    const project = makeProject({ id: 'p', industry_id: 'a', industry: { en: 'finance' } })
+    seedInd({ ...emptyStore(), industries: [a, b], projects: [project] })
+    useStore.setState({ expandedItemId: 'a' })
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+    render(<IndustriesEditor />)
+    await userEvent.selectOptions(
+      screen.getByRole('combobox', { name: /merge this industry/i }),
+      screen.getByRole('option', { name: 'Finance' }),
+    )
+
+    const industries = useStore.getState().data.industries
+    expect(industries).toHaveLength(1)         // source removed
+    expect(industries[0].id).toBe('b')
+    expect(useStore.getState().data.projects[0].industry_id).toBe('b') // ref rewritten
   })
 })

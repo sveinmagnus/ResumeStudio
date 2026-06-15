@@ -12,11 +12,12 @@ import { SortBar } from '../ui/SortBar'
 import { Autocomplete } from '../ui/Autocomplete'
 import { resolve, fmtRange } from '../../lib/locales'
 import {
-  mergeSkills, mergeRoles, countSkillReferences, countRoleReferences,
+  mergeSkills, mergeRoles, mergeIndustries,
+  countSkillReferences, countRoleReferences, countIndustryReferences,
 } from '../../lib/merge'
-import { usageOfSkill, usageOfRole, isSkillUnused, isRoleUnused } from '../../lib/usage'
+import { usageOfSkill, usageOfRole, usageOfIndustry, isSkillUnused, isRoleUnused } from '../../lib/usage'
 import type {
-  Skill, Role, Reference, TechnologyCategory, CategorySkill,
+  Skill, Role, Industry, Reference, TechnologyCategory, CategorySkill,
   LocalizedString, Project, WorkExperience,
 } from '../../types'
 import { X, Plus, Sparkles, Combine, Filter as FilterIcon, Briefcase, FolderKanban } from 'lucide-react'
@@ -362,6 +363,94 @@ export function RolesEditor() {
   )
 }
 
+// ── Industry registry (A8.1) ─────────────────────────────────────────────────
+
+export function IndustriesEditor() {
+  const { data, primaryLocale, secondaryLocale, addItem, updateItem, replaceData } = useStore()
+  const [filter, setFilter] = useState<RegistryFilter>('all')
+
+  const sortedItems = useSortedItems('industries')
+
+  const usage = useMemo(
+    () => new Map(sortedItems.map((i) => [i.id, countIndustryReferences(data, i.id)])),
+    [sortedItems, data],
+  )
+
+  const counts = useMemo(() => {
+    let unused = 0
+    let missing = 0
+    for (const ind of sortedItems) {
+      if ((usage.get(ind.id) ?? 0) === 0) unused++
+      if (isMissingTranslation(ind.name, primaryLocale, secondaryLocale)) missing++
+    }
+    return { all: sortedItems.length, unused, missing }
+  }, [sortedItems, usage, primaryLocale, secondaryLocale])
+
+  const items = useMemo(() => {
+    if (filter === 'unused') return sortedItems.filter((i) => (usage.get(i.id) ?? 0) === 0)
+    if (filter === 'missing-translation') {
+      return sortedItems.filter((i) => isMissingTranslation(i.name, primaryLocale, secondaryLocale))
+    }
+    return sortedItems
+  }, [sortedItems, usage, filter, primaryLocale, secondaryLocale])
+
+  const add = () => {
+    const ind: Industry = {
+      id: newId(), resume_id: data.resume!.id, name: {},
+      sort_order: sortedItems.length, disabled: false,
+    }
+    addItem('industries', ind)
+  }
+
+  const onMerge = (sourceId: string, targetId: string) => {
+    if (!confirmMerge('industry', sourceId, targetId, data.industries, primaryLocale, countIndustryReferences(data, sourceId))) return
+    replaceData(mergeIndustries(data, sourceId, targetId))
+  }
+
+  return (
+    <div className="section-pane">
+      <p className="registry-note">
+        Reusable industry / sector labels referenced by projects. Define
+        "Finance" once here, then merge duplicates ("finance", "Banking") into it.
+      </p>
+      <FilterBar filter={filter} onChange={setFilter} counts={counts} />
+      <SortBar section="industries" count={sortedItems.length} />
+      <SortableList section="industries" ids={items.map((x) => x.id)}>
+      {items.length === 0 && (
+        <div className="registry-empty">
+          {filter === 'unused'
+            ? 'No unused industries — every industry is referenced by a project.'
+            : filter === 'missing-translation'
+              ? 'No industries are missing a translation in the secondary language.'
+              : 'No industries yet — they appear as you set a project industry, or add one below.'}
+        </div>
+      )}
+      {items.map((ind) => {
+        const u = usageOfIndustry(data, ind.id)
+        const projectCount = u.projects.length
+        return (
+          <EditorCard key={ind.id} section="industries" id={ind.id}
+            title={resolve(ind.name, primaryLocale)}
+            meta={`${projectCount} project${projectCount === 1 ? '' : 's'}`}
+            disabled={ind.disabled} canStar={false}>
+            <DualField label="Industry name" value={ind.name} onChange={(v) => updateItem('industries', ind.id, { name: v })} />
+            <IndustryUsagePanel projects={u.projects} />
+            <MergeRow
+              kind="industry"
+              sourceId={ind.id}
+              allItems={sortedItems.filter((x) => x.id !== ind.id).map((x) => ({ id: x.id, label: resolve(x.name, primaryLocale) }))}
+              onMerge={onMerge}
+            />
+          </EditorCard>
+        )
+      })}
+      </SortableList>
+      <AddButton label="Add industry" onClick={add} />
+      <RegistryStyles />
+    </div>
+  )
+}
+
 // ── Usage panels ────────────────────────────────────────────────────────────
 
 /**
@@ -475,6 +564,32 @@ function RoleUsagePanel({
   )
 }
 
+/** "Where is this industry used" panel — projects only. */
+function IndustryUsagePanel({ projects }: { projects: Project[] }) {
+  const { primaryLocale, setActiveSection, setExpandedItem } = useStore()
+  if (projects.length === 0) {
+    return (
+      <div className="usage-block usage-empty">
+        <strong>Unused</strong> — no projects reference this industry yet.
+      </div>
+    )
+  }
+  return (
+    <div className="usage-block">
+      <div className="usage-head">Used in</div>
+      <div className="usage-sub">{projects.length} project{projects.length === 1 ? '' : 's'}</div>
+      {projects.map((p) => (
+        <UsageRow
+          key={p.id}
+          icon={<FolderKanban size={13} />}
+          label={`${resolve(p.customer, primaryLocale) || resolve(p.description, primaryLocale) || 'Untitled project'} ${fmtRange(p.start, p.end) ? '· ' + fmtRange(p.start, p.end) : ''}`.trim()}
+          onClick={() => { setActiveSection('projects'); setExpandedItem(p.id) }}
+        />
+      ))}
+    </div>
+  )
+}
+
 // ── Reusable merge UI ───────────────────────────────────────────────────────
 
 /**
@@ -482,7 +597,7 @@ function RoleUsagePanel({
  * AND the merge has a valid (different, both-present) source/target pair.
  */
 function confirmMerge(
-  kind: 'skill' | 'role',
+  kind: 'skill' | 'role' | 'industry',
   sourceId: string,
   targetId: string,
   registry: ReadonlyArray<{ id: string; name: LocalizedString }>,
@@ -506,7 +621,7 @@ interface MergeOption { id: string; label: string }
 function MergeRow({
   kind, sourceId, allItems, onMerge,
 }: {
-  kind: 'skill' | 'role'
+  kind: 'skill' | 'role' | 'industry'
   sourceId: string
   allItems: MergeOption[]
   onMerge: (sourceId: string, targetId: string) => void
@@ -518,6 +633,7 @@ function MergeRow({
       <span className="merge-label">Merge this {kind} into:</span>
       <select
         className="merge-sel"
+        aria-label={`Merge this ${kind} into another`}
         defaultValue=""
         onChange={(e) => {
           const v = e.target.value

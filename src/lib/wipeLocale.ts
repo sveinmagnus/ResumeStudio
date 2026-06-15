@@ -20,7 +20,7 @@ import type {
   KeyQualification, KeyCompetency, Recommendation, Project, WorkExperience,
   Education, Course, Certification, SpokenLanguage, TechnologyCategory,
   Position, Presentation, HonorAward, Publication, Reference, Skill, Role,
-  KeyPoint, ProjectRole, ProjectSkill, CategorySkill, ResumeView,
+  Industry, KeyPoint, ProjectRole, ProjectSkill, CategorySkill, ResumeView,
 } from '../types'
 
 export function wipeLocale(store: ResumeStore, locale: string): ResumeStore {
@@ -33,6 +33,7 @@ export function wipeLocale(store: ResumeStore, locale: string): ResumeStore {
   }
 
   const next: ResumeStore = {
+    shape_version: store.shape_version,
     resume: store.resume ? wipeResume(store.resume, locale, ls) : null,
     skills: store.skills.map((s): Skill => ({
       ...s,
@@ -40,6 +41,7 @@ export function wipeLocale(store: ResumeStore, locale: string): ResumeStore {
       default_category: s.default_category ? ls(s.default_category) : null,
     })),
     roles: store.roles.map((r): Role => ({ ...r, name: ls(r.name) })),
+    industries: store.industries.map((i): Industry => ({ ...i, name: ls(i.name) })),
     key_qualifications: store.key_qualifications.map((kq): KeyQualification => ({
       ...kq,
       label: ls(kq.label),

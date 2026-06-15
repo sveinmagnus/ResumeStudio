@@ -16,7 +16,7 @@ export function emptyStore(): ResumeStore {
   return {
     shape_version: CURRENT_SHAPE_VERSION,
     resume: null,
-    skills: [], roles: [], key_qualifications: [], key_competencies: [],
+    skills: [], roles: [], industries: [], key_qualifications: [], key_competencies: [],
     recommendations: [], projects: [],
     work_experiences: [], educations: [], courses: [], certifications: [],
     spoken_languages: [], technology_categories: [], positions: [],

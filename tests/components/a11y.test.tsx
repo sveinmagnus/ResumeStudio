@@ -11,14 +11,14 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render } from '@testing-library/react'
 import { axe, toHaveNoViolations } from 'jest-axe'
 import { ProjectsEditor } from '../../src/components/editor/ProjectsEditor'
-import { SkillsEditor, RolesEditor, ReferencesEditor, TechCategoriesEditor } from '../../src/components/editor/RegistryEditors'
+import { SkillsEditor, RolesEditor, IndustriesEditor, ReferencesEditor, TechCategoriesEditor } from '../../src/components/editor/RegistryEditors'
 import { WorkEditor, PublicationsEditor } from '../../src/components/editor/SimpleEditors'
 import { HeaderEditor } from '../../src/components/editor/HeaderEditor'
 import { Overview } from '../../src/components/editor/Overview'
 import { useStore } from '../../src/store/useStore'
 import { resetStore } from '../helpers/store-reset'
 import {
-  emptyStore, makeResume, makeProject, makeSkill, makeRole, makeReference,
+  emptyStore, makeResume, makeProject, makeSkill, makeRole, makeIndustry, makeReference,
   makeCertification, makeWork, makePublication, makeTechCategory,
 } from '../fixtures'
 import type { ResumeStore } from '../../src/types'
@@ -60,6 +60,20 @@ describe('accessibility (axe) — editor surfaces', () => {
       { activeSection: 'roles', expandedItemId: 'r1' },
     )
     const { container } = render(<RolesEditor />)
+    expect(await axe(container)).toHaveNoViolations()
+  })
+
+  it('IndustriesEditor (with two entries → merge UI) has no violations', async () => {
+    seed(
+      {
+        industries: [
+          makeIndustry({ id: 'i1', name: { en: 'Finance' } }),
+          makeIndustry({ id: 'i2', name: { en: 'Energy' } }),
+        ],
+      },
+      { activeSection: 'industries', expandedItemId: 'i1' },
+    )
+    const { container } = render(<IndustriesEditor />)
     expect(await axe(container)).toHaveNoViolations()
   })
 

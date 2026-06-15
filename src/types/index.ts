@@ -91,6 +91,21 @@ export interface Skill {
   created_at: string
 }
 
+/**
+ * A shared Industry registry entry (A8.1). Like Role, it lives in a global
+ * registry (`data.industries`) and is referenced by `Project.industry_id`, so
+ * "Finance" / "finance" / "Banking" can be consolidated with the same
+ * merge machinery as skills and roles. `Project.industry` keeps a denormalized
+ * name copy at link time (the snapshot-name pattern).
+ */
+export interface Industry {
+  id: string
+  resume_id: string
+  name: LocalizedString
+  sort_order: number
+  disabled: boolean
+}
+
 export interface Role {
   id: string
   resume_id: string
@@ -165,7 +180,10 @@ export interface Project {
   customer: LocalizedString
   customer_anonymized: LocalizedString
   use_anonymized: boolean
+  /** Denormalized industry name (copied from the registry at link time, or free text on legacy data). */
   industry: LocalizedString
+  /** Link to the shared Industry registry (A8.1). null = unlinked / legacy free text. */
+  industry_id: string | null
   description: LocalizedString
   long_description: LocalizedString
   highlights: LocalizedString[]
@@ -548,6 +566,7 @@ export interface ResumeStore {
   resume: Resume | null
   skills: Skill[]
   roles: Role[]
+  industries: Industry[]
   key_qualifications: KeyQualification[]
   key_competencies: KeyCompetency[]
   recommendations: Recommendation[]

@@ -6,7 +6,7 @@ import {
 } from '../src/lib/backup'
 import {
   emptyStore, makeProject, makeWork, makeEducation, makeKQ,
-  makeReference, makeSpokenLanguage, makeSkill, makeRole,
+  makeReference, makeSpokenLanguage, makeSkill, makeRole, makeIndustry,
   makeView,
 } from './fixtures'
 
@@ -99,8 +99,9 @@ describe('round-trip (exportToBackup → importFromBackup)', () => {
     const store = emptyStore()
     store.skills.push(makeSkill({ name: { en: 'Go', no: 'Go' } }))
     store.roles.push(makeRole({ name: { en: 'SRE' }, starred: true }))
+    store.industries.push(makeIndustry({ id: 'fin', name: { en: 'Finance', no: 'Finans' } }))
     store.key_qualifications.push(makeKQ())
-    store.projects.push(makeProject({ starred: true, customer: { en: 'X', no: 'Y' } }))
+    store.projects.push(makeProject({ starred: true, customer: { en: 'X', no: 'Y' }, industry_id: 'fin' }))
     store.work_experiences.push(makeWork({ employer: { en: 'Old Co' }, end: { year: 2018, month: 12 } }))
     store.educations.push(makeEducation({ grade: 'A+', exchange: true }))
     store.spoken_languages.push(makeSpokenLanguage())
