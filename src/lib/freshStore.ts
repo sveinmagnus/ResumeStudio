@@ -37,6 +37,7 @@ export function freshStore(): ResumeStore {
       website_url: null, profile_image_url: null,
       profile_photo: null, company_logo: null, company_name: null,
       default_locale: 'en', supported_locales: ['en'],
+      attention_dismissals: {},
       created_at: now, updated_at: now,
     },
   }

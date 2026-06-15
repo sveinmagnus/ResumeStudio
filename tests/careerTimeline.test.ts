@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { buildCareerTimeline, monthsToLabel } from '../src/lib/careerTimeline'
-import { emptyStore, makeWork, makeProject } from './fixtures'
+import { emptyStore, makeWork, makeProject, makeEducation } from './fixtures'
 
 const NOW = new Date('2026-06-15T00:00:00Z') // → nowMonths = 2026*12 + 6
 const opts = { now: NOW }
@@ -91,6 +91,47 @@ describe('employment gaps', () => {
     store.work_experiences.push(makeWork({ id: 'b', start: { year: 2019, month: 1 }, end: { year: 2020, month: 1 } }))
     const m = buildCareerTimeline(store, 'en', { ...opts, includeProjects: false })
     expect(m.gaps).toEqual([])
+  })
+})
+
+describe('education track', () => {
+  it('builds an education bar from school + degree', () => {
+    const store = emptyStore()
+    store.educations.push(makeEducation({
+      id: 'e1', school: { en: 'NTNU' }, degree: { en: 'MSc CS' },
+      start: { year: 2014, month: 8 }, end: { year: 2016, month: 6 },
+    }))
+    const m = buildCareerTimeline(store, 'en', opts)
+    expect(m.education.bars).toHaveLength(1)
+    expect(m.education.bars[0].label).toBe('NTNU')
+    expect(m.education.bars[0].sublabel).toBe('MSc CS')
+    expect(m.education.bars[0].kind).toBe('education')
+  })
+
+  it('skips education without a start date and disabled education', () => {
+    const store = emptyStore()
+    store.educations.push(makeEducation({ id: 'e1', start: null }))
+    store.educations.push(makeEducation({ id: 'e2', start: { year: 2014, month: 1 }, disabled: true }))
+    expect(buildCareerTimeline(store, 'en', opts).education.bars).toEqual([])
+  })
+
+  it('education FILLS what would otherwise be an employment gap', () => {
+    const store = emptyStore()
+    store.work_experiences.push(makeWork({ id: 'a', start: { year: 2014, month: 1 }, end: { year: 2016, month: 6 } }))
+    store.work_experiences.push(makeWork({ id: 'b', start: { year: 2018, month: 9 }, end: { year: 2020, month: 1 } }))
+    // Studied Jul 2016 – Aug 2018 — exactly the otherwise-uncovered span.
+    store.educations.push(makeEducation({ id: 'e1', start: { year: 2016, month: 7 }, end: { year: 2018, month: 8 } }))
+    expect(buildCareerTimeline(store, 'en', opts).gaps).toEqual([])
+  })
+
+  it('the same span IS a gap when education is excluded', () => {
+    const store = emptyStore()
+    store.work_experiences.push(makeWork({ id: 'a', start: { year: 2014, month: 1 }, end: { year: 2016, month: 6 } }))
+    store.work_experiences.push(makeWork({ id: 'b', start: { year: 2018, month: 9 }, end: { year: 2020, month: 1 } }))
+    store.educations.push(makeEducation({ id: 'e1', start: { year: 2016, month: 7 }, end: { year: 2018, month: 8 } }))
+    const m = buildCareerTimeline(store, 'en', { ...opts, includeEducation: false })
+    expect(m.education.bars).toEqual([])
+    expect(m.gaps).toHaveLength(1)
   })
 })
 
