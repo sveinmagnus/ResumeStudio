@@ -35,9 +35,16 @@ What works today:
 - **Storage readout** — `GET /api/resumes/storage` measures each resume's
   payload (and embedded-image share); the picker warns at 1 MB / 2.5 MB
   (localStorage-quota risk) and shows the DB size in the footer.
-- **Skill-taxonomy suggestions** — the skill autocompletes offer canonical
-  names from the Quadim Public Skill Library (committed slim JSON, lazy
-  chunk; `lib/skillTaxonomy.ts`) so new skills don't mint near-duplicates.
+- **Skill-taxonomy integration (Quadim library)** — the skill autocompletes
+  offer canonical names (committed slim JSON, lazy chunk; `lib/skillTaxonomy.ts`)
+  so new skills don't mint near-duplicates; free-text imports are
+  **normalized** to canonical spellings (`lib/skillNormalize.ts`); the Skill
+  Registry suggests **related skills** from the relatesTo graph; and imported
+  skills carry an authoritative **classification** surfaced as the skill-matrix
+  Category column.
+- **Freshness & expiry warnings** — the Overview's "Needs attention" panel
+  flags expired/expiring certifications and long-running "ongoing" items, and
+  the picker badges resumes not updated in 6+ months (`lib/freshness.ts`).
 - **Targeted exports via Resume Views** — pick sections, exclude items,
   starred-only filter, custom intro, then export PDF (browser print pipeline),
   DOCX (lazy-loaded docx lib), or ATS-friendly **plain text / Markdown**
@@ -228,8 +235,10 @@ src/
 │   ├── viewTemplates.ts        ← PURE: named export templates (F1) — presets seeding style/header/footer + section detail via template_id
 │   ├── viewTailor.ts           ← PURE: BYO-LLM view tailoring (F2) — prompt bundle, resumestudio-tailor/v1 validation (field-pathed), applyTailorResponse
 │   ├── viewText.ts             ← PURE: ATS plain-text + Markdown exports (F6) — third render adapter over the catalog
-│   ├── skillMatrix.ts          ← PURE: skill-matrix rows (F9) — registry + project usage → years/proficiency/last-used
-│   ├── skillTaxonomy.ts        ← Quadim skill-library suggestions (F12): lazy-loaded generated JSON + PURE matchTaxonomy (regen: scripts/build-skill-taxonomy.mjs)
+│   ├── skillMatrix.ts          ← PURE: skill-matrix rows (F9) — registry + project usage → years/proficiency/last-used + authoritative Category (F12 pt4)
+│   ├── skillTaxonomy.ts        ← Quadim skill-library data (F12): lazy generated JSON (names/relations/classifications) + PURE matchTaxonomy / relatedSkillSuggestions (regen: scripts/build-skill-taxonomy.mjs)
+│   ├── skillNormalize.ts       ← PURE: canonicalize imported skill names to library spelling + stamp classifications (F12 pt2/4); free-text importers only, not backups
+│   ├── freshness.ts            ← PURE: freshness/expiry warnings (F3) — expired/expiring certs, stale 'ongoing' items, isResumeStale; deterministic via injected `now`
 │   ├── importerLinkedIn.ts     ← PURE: LinkedIn data-export (CSV map) → ResumeStore; RFC4180 parseCsv. ZIP extraction lives in ImportScreen (lazy fflate)
 │   ├── importerEuropass.ts     ← Europass import: SkillsPassport XML (DOMParser) + profile JSON → ResumeStore
 │   ├── storage.ts (src/lib)    ← PURE: payload-weight thresholds + fmtBytes for the picker readout (server twin: server/storage.ts)
@@ -857,10 +866,17 @@ Ordered loosely by recommended priority. Each is a self-contained chunk.
 > posting), **per-view anonymization** (`force_anonymized`), **ATS plain-text
 > + Markdown exports** (`lib/viewText.ts`), **LinkedIn + Europass importers**,
 > the **skill-matrix view section** (`lib/skillMatrix.ts`), **named tokens +
-> saved_by attribution** (`RESUME_API_TOKENS`), **skill-taxonomy autocomplete
-> enrichment** (`lib/skillTaxonomy.ts`, Quadim library), and the **storage
-> readout** (`server/storage.ts` + picker weight warnings). See §1, §14,
-> `plans/improvement-roadmap.md`, and `DESKTOP.md`.
+> saved_by attribution** (`RESUME_API_TOKENS`), the full **Quadim
+> skill-taxonomy integration** (`lib/skillTaxonomy.ts` autocomplete + relations;
+> `lib/skillNormalize.ts` import normalization + classification stamping; the
+> matrix Category column), the **storage readout** (`server/storage.ts` +
+> picker weight warnings), **freshness & expiry warnings** (`lib/freshness.ts`
+> — Overview "Needs attention" + picker staleness), and a **per-view export
+> locale** (`export_locale`). See §1, §14, `plans/improvement-roadmap.md`, and
+> `DESKTOP.md`. **A4 Phase 2** (content-addressed asset table) was deliberately
+> deferred — measurement infra shipped; build the table only when real data
+> warrants. **F4/F8** (application log, cover letter) were dropped as out of
+> scope.
 >
 > The **v0.3.1 UX/accessibility wave** (12 `ux/*` branches) also shipped:
 > programmatic labels + per-locale `lang` everywhere (`bcp47()`), live
@@ -881,10 +897,7 @@ Ordered loosely by recommended priority. Each is a self-contained chunk.
 ### 12.2 Image asset table (A4 Phase 2)
 Snapshots are image-free and the picker now measures payload weight (`GET /api/resumes/storage`), but every auto-save PUT and localStorage pending record still carries the embedded base64 images. If real-world measurements show quota risk, move to a content-addressed `assets` table (`hash → bytes`) with `asset_id` references — touches exporter/viewFilter (resolve at render), the backup format (embed on export), and localCache.
 
-### 12.3 Remaining skill-taxonomy integrations (F12 points 2–4)
-Autocomplete enrichment shipped. Still open, in value order: import normalization (match free-text skills from CVpartner/AI/LinkedIn imports against library names), related-skill suggestions (the `relatesTo` graph), and authoritative wording for skill-matrix exports. Same rule: derive from the committed slim JSON, never fetch at runtime.
-
-### 12.4 Offline-load (PWA / service worker) — *deferred Tier 3*
+### 12.3 Offline-load (PWA / service worker) — *deferred Tier 3*
 Offline *editing* shipped (durable queue + reconnect drain + conflict safety —
 see §8). What's still not possible is *loading* the app with no network: there's
 no service worker caching the shell + assets, so a cold start offline fails. A
@@ -894,7 +907,7 @@ only worth it if "open and edit with zero connectivity" becomes a real need.
 See `plans/offline-editing.md` (Tier 3, explicitly out of scope for the shipped
 work) for the analysis.
 
-### 12.5 Cross-tab coordination
+### 12.4 Cross-tab coordination
 Two tabs of the same browser editing one resume share a single `localStorage`
 pending slot and can interleave writes. The server `version` check prevents
 *server* clobber (the second tab's flush 409s into the conflict modal), but a

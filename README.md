@@ -91,6 +91,14 @@ The full feature tour lives on the
 - **Import.** CVpartner JSON, **LinkedIn data exports** (.zip), **Europass**
   (XML/JSON), portable JSON backups, and an **AI-assisted import** from any
   PDF/Word CV — a bring-your-own-LLM flow with no external service or API key.
+  Imported skills are **normalized** to a curated skill library's canonical
+  spellings so you don't accumulate near-duplicates.
+- **Skill intelligence.** A local, dependency-free skill library (Quadim,
+  Apache-2.0) powers canonical-name autocomplete, **related-skill suggestions**
+  in the registry, and authoritative classifications in the skill-matrix export.
+- **Stay current.** An Overview "Needs attention" panel flags expired/expiring
+  certifications and long-running "ongoing" entries; the picker badges resumes
+  you haven't touched in a while.
 - **Small-team attribution.** Optional named tokens
   (`RESUME_API_TOKENS=kari:…,ola:…`) stamp who saved what — shown on picker
   cards and in version history. No permissions model, just attribution.
