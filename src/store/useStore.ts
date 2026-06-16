@@ -87,6 +87,15 @@ interface AppState {
 
   // ── Resume / locale ───────────────────────────────────────────────────────
   updateResume: (patch: Partial<Resume>) => void
+  /**
+   * Dismiss a "Needs attention" warning until the given ISO timestamp — the
+   * consultant has judged it doesn't need attention, so it stays suppressed
+   * (see `lib/freshness.ts → snoozeUntil`). Persisted on the resume so it
+   * syncs/backs-up. No-op when there's no loaded resume.
+   */
+  dismissAttention: (key: string, until: string) => void
+  /** Un-dismiss a previously snoozed warning so it can surface again. */
+  clearAttentionDismissal: (key: string) => void
   /** Rescan all data, merge any new locales into resume.supported_locales. */
   detectAndSetLocales: () => void
   /** Add a locale code to resume.supported_locales (no-op if already present). */
@@ -224,6 +233,36 @@ export const useStore = create<AppState>((set, get) => {
         data: {
           ...st.data,
           resume: { ...st.data.resume, ...patch, updated_at: new Date().toISOString() },
+        },
+      }
+    }),
+
+    // Acknowledge / un-acknowledge a freshness warning. These touch the
+    // dismissals map only (not updated_at) — dismissing a flag isn't "editing
+    // content", but it IS a user-visible change that should auto-save, so it
+    // goes through `mutate()`.
+    dismissAttention: (key, until) => mutate((st) => {
+      if (!st.data.resume) return null
+      const current = st.data.resume.attention_dismissals ?? {}
+      if (current[key] === until) return null // no-op: already set to this value
+      return {
+        data: {
+          ...st.data,
+          resume: { ...st.data.resume, attention_dismissals: { ...current, [key]: until } },
+        },
+      }
+    }),
+
+    clearAttentionDismissal: (key) => mutate((st) => {
+      if (!st.data.resume) return null
+      const current = st.data.resume.attention_dismissals ?? {}
+      if (!(key in current)) return null // no-op: nothing to clear
+      const next = { ...current }
+      delete next[key]
+      return {
+        data: {
+          ...st.data,
+          resume: { ...st.data.resume, attention_dismissals: next },
         },
       }
     }),

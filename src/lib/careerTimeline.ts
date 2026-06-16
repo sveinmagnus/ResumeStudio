@@ -1,11 +1,15 @@
 /**
  * PURE: career-timeline model (roadmap F15).
  *
- * Turns the store's employments and projects into a positioned timeline:
- * bars on two tracks (employment / project), overlap-packed into lanes, plus
- * detected employment GAPS (uncovered spans in the work history) and the year
+ * Turns the store's employments, education and projects into a positioned
+ * timeline: bars on three tracks (employment / education / project),
+ * overlap-packed into lanes, plus detected work-history GAPS and the year
  * ticks for an axis. The Overview's CareerTimeline card renders this as SVG —
  * all geometry decisions that need testing live here, not in the component.
+ *
+ * Gaps are computed from employment AND education combined, so a period spent
+ * studying does NOT read as a gap in the career — only spans with neither work
+ * nor education count.
  *
  * Months are absolute integers (`year * 12 + month`) so arithmetic is trivial
  * and locale-free; the card maps the [minMonths, maxMonths] span to pixels.
@@ -14,7 +18,7 @@
 import type { ResumeStore, YearMonth, LocalizedString } from '../types'
 import { resolve } from './locales'
 
-export type TimelineKind = 'employment' | 'project'
+export type TimelineKind = 'employment' | 'education' | 'project'
 
 export interface TimelineBar {
   id: string
@@ -45,8 +49,9 @@ export interface TimelineTrack {
 
 export interface CareerTimelineModel {
   employment: TimelineTrack
+  education: TimelineTrack
   projects: TimelineTrack
-  /** Uncovered spans in the employment history, ≥ the gap threshold. */
+  /** Uncovered spans in the work history (neither employment nor education), ≥ the gap threshold. */
   gaps: TimelineGap[]
   /** Axis bounds (rounded out to whole years). */
   minMonths: number
@@ -120,6 +125,12 @@ export interface TimelineOptions {
   minGapMonths?: number
   /** Include the projects track (default true). */
   includeProjects?: boolean
+  /**
+   * Include education — both as its own track AND as gap coverage (default
+   * true). When false, education is ignored entirely, so study periods reopen
+   * as gaps (used by tests to assert the gap-filling behaviour).
+   */
+  includeEducation?: boolean
 }
 
 export function buildCareerTimeline(
@@ -131,6 +142,7 @@ export function buildCareerTimeline(
   const nowMonths = now.getFullYear() * 12 + (now.getMonth() + 1)
   const minGapMonths = opts.minGapMonths ?? 2
   const includeProjects = opts.includeProjects ?? true
+  const includeEducation = opts.includeEducation ?? true
 
   const ls = (v: LocalizedString | undefined): string => resolve(v, locale)
 
@@ -143,6 +155,17 @@ export function buildCareerTimeline(
       sublabel: ls(w.role_title),
       start: w.start, end: w.end, kind: 'employment',
     })
+  }
+  if (includeEducation) {
+    for (const e of store.educations) {
+      if (e.disabled || !e.start) continue
+      raw.push({
+        id: e.id,
+        label: ls(e.school) || 'Education',
+        sublabel: ls(e.degree),
+        start: e.start, end: e.end, kind: 'education',
+      })
+    }
   }
   if (includeProjects) {
     for (const p of store.projects) {
@@ -171,12 +194,14 @@ export function buildCareerTimeline(
     a.startMonths - b.startMonths || a.endMonths - b.endMonths
 
   const employmentBars = raw.filter((r) => r.kind === 'employment').map(toBar).sort(byStart)
+  const educationBars = raw.filter((r) => r.kind === 'education').map(toBar).sort(byStart)
   const projectBars = raw.filter((r) => r.kind === 'project').map(toBar).sort(byStart)
 
   const employmentLanes = packLanes(employmentBars)
+  const educationLanes = packLanes(educationBars)
   const projectLanes = packLanes(projectBars)
 
-  const allBars = [...employmentBars, ...projectBars]
+  const allBars = [...employmentBars, ...educationBars, ...projectBars]
   const hasData = allBars.length > 0
 
   // Axis bounds rounded out to whole years.
@@ -194,13 +219,17 @@ export function buildCareerTimeline(
   const years: number[] = []
   for (let m = minMonths; m < maxMonths; m += 12) years.push(m / 12)
 
+  // Gaps reflect uncovered work history: a span counts only when NEITHER
+  // employment NOR education covers it (education fills what used to read as a
+  // gap). Projects deliberately don't count toward coverage.
   const gaps = computeGaps(
-    employmentBars.map((b) => ({ start: b.startMonths, end: b.endMonths })),
+    [...employmentBars, ...educationBars].map((b) => ({ start: b.startMonths, end: b.endMonths })),
     minGapMonths,
   )
 
   return {
     employment: { bars: employmentBars, lanes: employmentLanes },
+    education: { bars: educationBars, lanes: educationLanes },
     projects: { bars: projectBars, lanes: projectLanes },
     gaps,
     minMonths, maxMonths, years,

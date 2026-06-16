@@ -67,6 +67,17 @@ export interface Resume {
   company_name?: string | null
   default_locale: string
   supported_locales: string[]
+  /**
+   * Per-warning "this is fine" acknowledgements for the Overview's "Needs
+   * attention" panel: a warning key (e.g. `cert:<id>`, `stale:projects:<id>`)
+   * → the ISO timestamp until which that warning stays suppressed. Lets the
+   * consultant dismiss a flag they've judged irrelevant so it doesn't reappear
+   * for a year (see `lib/freshness.ts`). Additive + optional — absent on data
+   * written before this shipped; consumers default to `{}`. Lives on the
+   * resume (not a top-level store array) so it round-trips through the backup
+   * `profile` and never widens the section-key unions.
+   */
+  attention_dismissals?: Record<string, string>
   created_at: string
   updated_at: string
 }

@@ -2,12 +2,12 @@
  * @vitest-environment jsdom
  */
 import { describe, it, expect, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { CareerTimeline } from '../../src/components/editor/CareerTimeline'
 import { useStore } from '../../src/store/useStore'
 import { resetStore } from '../helpers/store-reset'
-import { emptyStore, makeWork, makeProject } from '../fixtures'
+import { emptyStore, makeWork, makeProject, makeEducation } from '../fixtures'
 import type { ResumeStore } from '../../src/types'
 
 function seed(over: Partial<ResumeStore> = {}) {
@@ -39,8 +39,34 @@ describe('<CareerTimeline>', () => {
     expect(screen.getByText('Career timeline')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Employment: Cartavio/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Project: AcmeProj/i })).toBeInTheDocument()
-    // Jul 2019 → Dec 2020 is an 18-month employment gap.
-    expect(screen.getByText(/1 gap in employment/i)).toBeInTheDocument()
+    // Jul 2019 → Dec 2020 is an 18-month gap with no work or education.
+    expect(screen.getByText(/1 gap in work history/i)).toBeInTheDocument()
+  })
+
+  it('renders an education bar and a study period fills the gap', () => {
+    seed({
+      work_experiences: [
+        makeWork({ id: 'w1', employer: { en: 'Cartavio' }, start: { year: 2018, month: 1 }, end: { year: 2019, month: 6 } }),
+        makeWork({ id: 'w2', employer: { en: 'NewCo' }, start: { year: 2021, month: 1 }, end: null }),
+      ],
+      // Education covers Jul 2019 – Dec 2020, the span that was an employment gap.
+      educations: [makeEducation({ id: 'e1', school: { en: 'NTNU' }, start: { year: 2019, month: 7 }, end: { year: 2020, month: 12 } })],
+    })
+    render(<CareerTimeline />)
+    expect(screen.getByRole('button', { name: /Education: NTNU/i })).toBeInTheDocument()
+    expect(screen.queryByText(/gap in work history/i)).not.toBeInTheDocument()
+  })
+
+  it('opens the full-width zoom modal and closes it', async () => {
+    seed({
+      work_experiences: [makeWork({ id: 'w1', employer: { en: 'Cartavio' }, start: { year: 2020, month: 1 }, end: null })],
+    })
+    render(<CareerTimeline />)
+    await userEvent.click(screen.getByRole('button', { name: /expand timeline to full width/i }))
+    const dialog = screen.getByRole('dialog', { name: /career timeline/i })
+    expect(dialog).toBeInTheDocument()
+    await userEvent.click(within(dialog).getByRole('button', { name: /close/i }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
   it('clicking an employment bar navigates and expands it', async () => {

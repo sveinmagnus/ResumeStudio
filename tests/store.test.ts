@@ -619,3 +619,31 @@ describe('addSupportedLocale()', () => {
     expect(useStore.getState().mutationCount).toBe(before + 1)
   })
 })
+
+describe('dismissAttention() / clearAttentionDismissal()', () => {
+  it('records a dismissal and bumps mutationCount', () => {
+    const before = useStore.getState().mutationCount
+    useStore.getState().dismissAttention('cert:c1', '2027-06-15T00:00:00Z')
+    expect(useStore.getState().data.resume!.attention_dismissals).toEqual({ 'cert:c1': '2027-06-15T00:00:00Z' })
+    expect(useStore.getState().mutationCount).toBe(before + 1)
+  })
+
+  it('is a no-op when re-dismissing with the same until value', () => {
+    useStore.getState().dismissAttention('cert:c1', '2027-06-15T00:00:00Z')
+    const before = useStore.getState().mutationCount
+    useStore.getState().dismissAttention('cert:c1', '2027-06-15T00:00:00Z')
+    expect(useStore.getState().mutationCount).toBe(before)
+  })
+
+  it('clears a dismissal so the warning can surface again', () => {
+    useStore.getState().dismissAttention('stale:projects:p1', '2027-06-15T00:00:00Z')
+    useStore.getState().clearAttentionDismissal('stale:projects:p1')
+    expect(useStore.getState().data.resume!.attention_dismissals).toEqual({})
+  })
+
+  it('clear is a no-op when the key was never dismissed', () => {
+    const before = useStore.getState().mutationCount
+    useStore.getState().clearAttentionDismissal('nope')
+    expect(useStore.getState().mutationCount).toBe(before)
+  })
+})

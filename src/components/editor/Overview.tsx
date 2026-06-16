@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
-import { ChevronDown, ChevronRight, MoreHorizontal, Trash2, FileSearch, X, AlertTriangle, Clock } from 'lucide-react'
+import { ChevronDown, ChevronRight, MoreHorizontal, Trash2, FileSearch, X, AlertTriangle, Clock, Check, RotateCcw } from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import { LOCALE_LABELS, resolve, fmtDate } from '../../lib/locales'
 import { computeCompleteness, computeSectionCoverage, type MissingField, type SectionCoverage } from '../../lib/completeness'
-import { freshnessReport } from '../../lib/freshness'
+import { freshnessReport, snoozeUntil } from '../../lib/freshness'
 import { wipeLocale } from '../../lib/wipeLocale'
 import { CareerTimeline } from './CareerTimeline'
 import { useDialog } from '../ui/useDialog'
@@ -12,7 +12,7 @@ interface CoreStat { label: string; count: number; key: string }
 interface CompactStat { label: string; count: number; key: string }
 
 export function Overview() {
-  const { data, setActiveSection, setExpandedItem, replaceData, setPrimaryLocale, setSecondaryLocale, primaryLocale, secondaryLocale } = useStore()
+  const { data, setActiveSection, setExpandedItem, replaceData, setPrimaryLocale, setSecondaryLocale, primaryLocale, secondaryLocale, dismissAttention, clearAttentionDismissal } = useStore()
   const locales = data.resume?.supported_locales || ['en']
 
   // Core experience: the substantive content sections — get prominent cards.
@@ -50,11 +50,15 @@ export function Overview() {
   const [menuLocale, setMenuLocale] = useState<string | null>(null)
   const [confirmWipe, setConfirmWipe] = useState<string | null>(null)
   const [coverageLocale, setCoverageLocale] = useState<string | null>(null)
+  const [snoozedOpen, setSnoozedOpen] = useState(false)
 
   const goToField = (m: MissingField) => {
     setActiveSection(m.section)
     if (m.itemId) setExpandedItem(m.itemId)
   }
+
+  // Acknowledge a warning ("looks fine") — suppresses it for a year.
+  const dismiss = (key: string) => dismissAttention(key, snoozeUntil(new Date()))
 
   const doWipe = (locale: string) => {
     const wiped = wipeLocale(data, locale)
@@ -82,43 +86,91 @@ export function Overview() {
       </div>
 
       {/* Needs attention — freshness & expiry warnings (F3) */}
-      {freshness.total > 0 && (
-        <div className="ov-attn" role="region" aria-label="Needs attention">
-          <div className="ov-attn-head">
-            <AlertTriangle size={15} /> Needs attention
-            <span className="ov-attn-count">{freshness.total}</span>
-          </div>
-          <ul className="ov-attn-list">
-            {freshness.expiredCerts.map((c) => (
-              <li key={`exp-${c.id}`}>
-                <button className="ov-attn-row ov-attn-err" onClick={() => goToItem('certifications', c.id)}>
-                  <span className="ov-attn-badge">Expired</span>
-                  <span className="ov-attn-name">{c.name}</span>
-                  <span className="ov-attn-meta">{fmtDate(c.expires)}</span>
-                </button>
-              </li>
-            ))}
-            {freshness.expiringCerts.map((c) => (
-              <li key={`expg-${c.id}`}>
-                <button className="ov-attn-row ov-attn-warn" onClick={() => goToItem('certifications', c.id)}>
-                  <span className="ov-attn-badge">Expiring</span>
-                  <span className="ov-attn-name">{c.name}</span>
-                  <span className="ov-attn-meta">{fmtDate(c.expires)}</span>
-                </button>
-              </li>
-            ))}
-            {freshness.staleOngoing.map((s) => (
-              <li key={`stale-${s.section}-${s.id}`}>
-                <button className="ov-attn-row ov-attn-muted" onClick={() => goToItem(s.section, s.id)}>
-                  <span className="ov-attn-badge"><Clock size={11} /> Ongoing</span>
-                  <span className="ov-attn-name">{s.label}</span>
-                  <span className="ov-attn-meta">
-                    since {s.start ? fmtDate(s.start) : '—'} · still open?
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
+      {(freshness.total > 0 || freshness.snoozed.length > 0) && (
+        <div
+          className={`ov-attn${freshness.total === 0 ? ' ov-attn-clear' : ''}`}
+          role="region"
+          aria-label="Needs attention"
+        >
+          {freshness.total > 0 ? (
+            <>
+              <div className="ov-attn-head">
+                <AlertTriangle size={15} /> Needs attention
+                <span className="ov-attn-count">{freshness.total}</span>
+              </div>
+              <ul className="ov-attn-list">
+                {freshness.expiredCerts.map((c) => (
+                  <li key={`exp-${c.id}`} className="ov-attn-li">
+                    <button className="ov-attn-row ov-attn-err" onClick={() => goToItem('certifications', c.id)}>
+                      <span className="ov-attn-badge">Expired</span>
+                      <span className="ov-attn-name">{c.name}</span>
+                      <span className="ov-attn-meta">{fmtDate(c.expires)}</span>
+                    </button>
+                    <DismissButton label={c.name} onDismiss={() => dismiss(c.dismissKey)} />
+                  </li>
+                ))}
+                {freshness.expiringCerts.map((c) => (
+                  <li key={`expg-${c.id}`} className="ov-attn-li">
+                    <button className="ov-attn-row ov-attn-warn" onClick={() => goToItem('certifications', c.id)}>
+                      <span className="ov-attn-badge">Expiring</span>
+                      <span className="ov-attn-name">{c.name}</span>
+                      <span className="ov-attn-meta">{fmtDate(c.expires)}</span>
+                    </button>
+                    <DismissButton label={c.name} onDismiss={() => dismiss(c.dismissKey)} />
+                  </li>
+                ))}
+                {freshness.staleOngoing.map((s) => (
+                  <li key={`stale-${s.section}-${s.id}`} className="ov-attn-li">
+                    <button className="ov-attn-row ov-attn-muted" onClick={() => goToItem(s.section, s.id)}>
+                      <span className="ov-attn-badge"><Clock size={11} /> Ongoing</span>
+                      <span className="ov-attn-name">{s.label}</span>
+                      <span className="ov-attn-meta">
+                        since {s.start ? fmtDate(s.start) : '—'} · still open?
+                      </span>
+                    </button>
+                    <DismissButton label={s.label} onDismiss={() => dismiss(s.dismissKey)} />
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : (
+            <div className="ov-attn-head ov-attn-head-clear">
+              <Check size={15} /> Nothing needs attention
+            </div>
+          )}
+
+          {freshness.snoozed.length > 0 && (
+            <div className="ov-snoozed">
+              <button
+                type="button"
+                className="ov-snoozed-toggle"
+                onClick={() => setSnoozedOpen((o) => !o)}
+                aria-expanded={snoozedOpen}
+              >
+                {snoozedOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                {freshness.snoozed.length} dismissed for a year
+              </button>
+              {snoozedOpen && (
+                <ul className="ov-snoozed-list">
+                  {freshness.snoozed.map((s) => (
+                    <li key={s.key} className="ov-snoozed-row">
+                      <span className="ov-snoozed-name">{s.label}</span>
+                      <span className="ov-snoozed-meta">until {fmtSnooze(s.until)}</span>
+                      <button
+                        type="button"
+                        className="ov-snoozed-restore"
+                        onClick={() => clearAttentionDismissal(s.key)}
+                        title={`Show "${s.label}" again`}
+                        aria-label={`Restore warning for ${s.label}`}
+                      >
+                        <RotateCcw size={13} /> Restore
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -247,12 +299,46 @@ export function Overview() {
           border-radius: 9px; padding: 1px 8px; font-variant-numeric: tabular-nums;
         }
         .ov-attn-list { list-style: none; display: flex; flex-direction: column; gap: 3px; }
+        .ov-attn-li { display: flex; align-items: center; gap: 2px; }
         .ov-attn-row {
-          display: flex; align-items: center; gap: 10px; width: 100%;
+          display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0;
           padding: 7px 10px; border-radius: var(--r-sm); text-align: left;
           background: transparent; transition: background .12s;
         }
         .ov-attn-row:hover { background: rgba(184,121,0,.10); }
+        .ov-attn-dismiss {
+          flex-shrink: 0; width: 30px; height: 30px; display: grid; place-items: center;
+          border-radius: var(--r-sm); color: var(--ink-faint);
+          transition: color .12s, background .12s;
+        }
+        .ov-attn-dismiss:hover { background: var(--ok-wash); color: var(--ok-ink); }
+        /* "All clear, but some warnings are snoozed" — neutralise the warn look. */
+        .ov-attn-clear { background: var(--paper-raised); border-color: var(--line); }
+        .ov-attn-head-clear { color: var(--ok-ink); margin-bottom: 0; }
+        /* Snoozed disclosure */
+        .ov-snoozed { margin-top: 8px; }
+        .ov-attn-list + .ov-snoozed { border-top: 1px solid #f0d8a8; padding-top: 8px; }
+        .ov-snoozed-toggle {
+          display: inline-flex; align-items: center; gap: 6px;
+          font-size: 12px; font-weight: 600; color: var(--ink-soft);
+          padding: 2px 4px; border-radius: var(--r-sm); transition: color .12s;
+        }
+        .ov-snoozed-toggle:hover { color: var(--accent); }
+        .ov-snoozed-list { list-style: none; display: flex; flex-direction: column; gap: 1px; margin-top: 4px; }
+        .ov-snoozed-row {
+          display: flex; align-items: center; gap: 10px;
+          padding: 5px 8px 5px 22px; border-radius: var(--r-sm); font-size: 13px;
+        }
+        .ov-snoozed-name { color: var(--ink); font-weight: 500;
+          white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+        .ov-snoozed-meta { margin-left: auto; flex-shrink: 0; font-size: 12px; color: var(--ink-faint); }
+        .ov-snoozed-restore {
+          flex-shrink: 0; display: inline-flex; align-items: center; gap: 5px;
+          font-size: 12px; font-weight: 600; color: var(--ink-soft);
+          padding: 3px 8px; border-radius: var(--r-sm); border: 1px solid var(--line);
+          transition: color .12s, border-color .12s, background .12s;
+        }
+        .ov-snoozed-restore:hover { color: var(--accent); border-color: var(--accent); background: var(--accent-wash); }
         .ov-attn-badge {
           display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0;
           font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em;
@@ -338,6 +424,29 @@ export function Overview() {
       `}</style>
     </div>
   )
+}
+
+// ─── Dismiss ("looks fine") button for a needs-attention row ────────────────
+
+function DismissButton({ label, onDismiss }: { label: string; onDismiss: () => void }) {
+  return (
+    <button
+      type="button"
+      className="ov-attn-dismiss"
+      onClick={onDismiss}
+      title={`Looks fine — don't flag "${label}" for a year`}
+      aria-label={`Dismiss the warning for ${label} for a year`}
+    >
+      <Check size={15} />
+    </button>
+  )
+}
+
+/** Format a snooze-until ISO timestamp as a short "Mon YYYY" label. */
+function fmtSnooze(iso: string): string {
+  const t = Date.parse(iso)
+  if (Number.isNaN(t)) return ''
+  return new Date(t).toLocaleDateString(undefined, { year: 'numeric', month: 'short' })
 }
 
 // ─── Triple-dot menu per locale ─────────────────────────────────────────────

@@ -44,7 +44,12 @@ What works today:
   Category column.
 - **Freshness & expiry warnings** — the Overview's "Needs attention" panel
   flags expired/expiring certifications and long-running "ongoing" items, and
-  the picker badges resumes not updated in 6+ months (`lib/freshness.ts`).
+  the picker badges resumes not updated in 6+ months (`lib/freshness.ts`). The
+  current engagement is auto-exempt (a single ongoing employment = the main
+  job; a single open full-time project — 100% **or** unspecified allocation =
+  the main project), and any remaining warning can be dismissed ("looks fine")
+  to snooze it for a year (`Resume.attention_dismissals`, surfaced as a
+  recoverable "snoozed" list).
 - **Targeted exports via Resume Views** — pick sections, exclude items,
   starred-only filter, custom intro, then export PDF (browser print pipeline),
   DOCX (lazy-loaded docx lib), or ATS-friendly **plain text / Markdown**
@@ -112,8 +117,9 @@ What works today:
   palette (`GlobalSearch`) substring-searches every section, registry and the
   header, ranks title matches first, and jumps to the item.
 - **Career timeline** — an Overview card (`lib/careerTimeline.ts`) showing
-  employments + projects as an overlap-packed timeline with employment-gap
-  detection.
+  employments, education + projects as an overlap-packed timeline with
+  work-history-gap detection (education counts as coverage, so study periods
+  aren't gaps) and a full-viewport-width zoom modal for readability.
 - **Accessibility regression net** — `tests/components/a11y.test.tsx` runs
   jest-axe (dev-only) over the editor surfaces; keep new editors passing it.
 - **Registry management** — Skill and Role lists carry an "Unused / Missing

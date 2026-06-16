@@ -73,6 +73,51 @@ describe('<Overview> needs-attention panel (F3)', () => {
     expect(useStore.getState().activeSection).toBe('certifications')
     expect(useStore.getState().expandedItemId).toBe('c1')
   })
+
+  it('dismissing a warning snoozes it and removes it from the active list', async () => {
+    useStore.setState({
+      data: {
+        ...emptyStore(),
+        resume: makeResume(),
+        certifications: [makeCertification({
+          id: 'c1', name: { en: 'AWS SA' }, expires: { year: 2000, month: 1 },
+        })],
+      },
+      hasData: true, primaryLocale: 'en', secondaryLocale: null,
+      activeSection: 'overview', expandedItemId: null, mutationCount: 0,
+    })
+    render(<Overview />)
+    await userEvent.click(screen.getByRole('button', { name: /dismiss the warning for AWS SA/i }))
+
+    // It's recorded with a future snooze date…
+    const dismissals = useStore.getState().data.resume!.attention_dismissals!
+    expect(Object.keys(dismissals)).toEqual(['cert:c1'])
+    expect(Date.parse(dismissals['cert:c1'])).toBeGreaterThan(Date.now())
+
+    // …and the active warning is gone, replaced by the "snoozed" disclosure.
+    expect(screen.queryByText('Expired')).not.toBeInTheDocument()
+    expect(screen.getByText(/1 dismissed for a year/i)).toBeInTheDocument()
+  })
+
+  it('restoring a snoozed warning brings it back', async () => {
+    useStore.setState({
+      data: {
+        ...emptyStore(),
+        resume: makeResume({ attention_dismissals: { 'cert:c1': '2099-01-01T00:00:00Z' } }),
+        certifications: [makeCertification({
+          id: 'c1', name: { en: 'AWS SA' }, expires: { year: 2000, month: 1 },
+        })],
+      },
+      hasData: true, primaryLocale: 'en', secondaryLocale: null,
+      activeSection: 'overview', expandedItemId: null, mutationCount: 0,
+    })
+    render(<Overview />)
+    // Open the snoozed disclosure, then restore.
+    await userEvent.click(screen.getByRole('button', { name: /1 dismissed for a year/i }))
+    await userEvent.click(screen.getByRole('button', { name: /restore warning for AWS SA/i }))
+    expect(useStore.getState().data.resume!.attention_dismissals).toEqual({})
+    expect(screen.getByText('Expired')).toBeInTheDocument()
+  })
 })
 
 describe('<Overview> translation completeness drill-down', () => {
