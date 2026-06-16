@@ -8,7 +8,8 @@ import { SnapshotHistory } from '../../src/components/SnapshotHistory'
 import { useStore } from '../../src/store/useStore'
 import { api, type SnapshotMeta } from '../../src/lib/api'
 import { resetStore } from '../helpers/store-reset'
-import { emptyStore, makeResume } from '../fixtures'
+import { emptyStore, makeResume, makeProject } from '../fixtures'
+import type { ResumeStore } from '../../src/types'
 
 const SNAPSHOTS: SnapshotMeta[] = [
   { id: 2, saved_at: '2026-05-31T11:59:00Z', size: 1200 },
@@ -85,5 +86,37 @@ describe('<SnapshotHistory>', () => {
     vi.spyOn(api, 'listSnapshots').mockRejectedValue(new Error('boom'))
     render(<SnapshotHistory resumeId="r1" onClose={() => {}} />)
     expect(await screen.findByText(/could not load history/i)).toBeInTheDocument()
+  })
+
+  // ── What-changed detail (lazy diff vs the previous snapshot) ─────────────
+
+  it('expands a row to show what changed vs the previous snapshot', async () => {
+    const prev: ResumeStore = emptyStore()
+    const next: ResumeStore = { ...emptyStore(), projects: [makeProject({ id: 'p1', customer: { en: 'Acme Bank' } })] }
+    vi.spyOn(api, 'listSnapshots').mockResolvedValue(SNAPSHOTS)
+    vi.spyOn(api, 'getSnapshot').mockImplementation(async (_rid, id) => (id === 2 ? next : prev))
+
+    render(<SnapshotHistory resumeId="r1" onClose={() => {}} />)
+    await screen.findAllByRole('button', { name: /restore/i })
+
+    // Expand the latest (id 2) row → diffs against the older (id 1).
+    const expanders = screen.getAllByRole('button', { name: /show what changed/i })
+    await userEvent.click(expanders[0])
+
+    expect(await screen.findByText('Acme Bank')).toBeInTheDocument()
+    expect(screen.getByText('Added')).toBeInTheDocument()
+    expect(api.getSnapshot).toHaveBeenCalledWith('r1', 2)
+    expect(api.getSnapshot).toHaveBeenCalledWith('r1', 1)
+  })
+
+  it('labels the oldest snapshot as the first recorded version', async () => {
+    vi.spyOn(api, 'listSnapshots').mockResolvedValue(SNAPSHOTS)
+    vi.spyOn(api, 'getSnapshot').mockResolvedValue(emptyStore())
+    render(<SnapshotHistory resumeId="r1" onClose={() => {}} />)
+    await screen.findAllByRole('button', { name: /restore/i })
+
+    const expanders = screen.getAllByRole('button', { name: /show what changed/i })
+    await userEvent.click(expanders[1]) // the older row (id 1) has no predecessor
+    expect(await screen.findByText(/first recorded version/i)).toBeInTheDocument()
   })
 })

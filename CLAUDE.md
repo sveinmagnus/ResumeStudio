@@ -95,8 +95,12 @@ What works today:
   backend is configured (`LIBRETRANSLATE_URL`). See §8.
 - **Server-side snapshot history**, **per resume** — every save appends a
   snapshot (deduped, last 50 kept *per resume*); the header's **History**
-  button restores any of them. See §8.
-- **Undo / redo** (Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z) with debounced history.
+  button restores any of them. Each row **expands to show what changed** vs the
+  previous snapshot — items added/removed by title, plus per-field character
+  deltas that name the field and language box ("Description (Norsk): +42
+  chars") — computed lazily by `lib/snapshotDiff.ts`. See §8.
+- **Undo / redo** (Ctrl/Cmd+Z; redo on Ctrl/Cmd+Shift+Z **or** Ctrl/Cmd+Y)
+  with debounced history.
 - **Drag-and-drop reordering** (`@dnd-kit`) on every section that owns a
   `sort_order`; up/down arrow buttons kept for keyboard / accessibility.
 - **Registry merge** — "Merge this skill/role/industry into…" rewrites every
@@ -122,10 +126,13 @@ What works today:
   (roles), and a per-card expansion lists the actual referencing items with
   click-to-jump. Project / tech-category skill chips are added through an
   **autocomplete** (existing skill OR auto-create from typed text); clicking
-  an already-attached chip opens a `DualField` popover that edits the
-  **registry** entry's translation (so the change propagates to every
-  reference). Same autocomplete pattern links an employment to a registry
-  Role and a reference to a project / employment.
+  an already-attached chip opens a `DualField` popover (the shared
+  `TranslationPopover`) that edits the **registry** entry's translation (so the
+  change propagates to every reference). The **same chip + autocomplete +
+  dual-language popover** pattern is used for **project roles** and the
+  **employment role link** (picking an existing role fills both languages; the
+  popover edits the registry Role), plus linking a reference to a project /
+  employment.
 - **React error boundary** around the editor so a crashed view never traps the
   user.
 - **Downloadable desktop build** — a portable folder (bundled Node + esbuild'd
@@ -401,6 +408,12 @@ header space.
 - `useStore().primaryLocale` and `useStore().secondaryLocale` (the latter can be `null` to mean "single column mode").
 - The `DualField` component reads these directly and renders 1 or 2 inputs accordingly. Components calling `DualField` never need to know about locales — just pass the `LocalizedString` and a setter.
 - The secondary input gets a subtle cyan tint (CSS var `--secondary-tint`) to distinguish from the primary (which uses the Cartavio navy accent on focus).
+- `RichField` (the main multi-line description editor) **breaks out wider than
+  the editor card in two-language mode** (`.rf-wide`, capped via
+  `min(1400px, max(100%, calc(100vw - 350px)))`) so each language column gets a
+  comfortable width when the viewport allows; single-language mode stays at the
+  normal card width. The open `EditorCard` uses `overflow: visible` so the
+  overhang isn't clipped.
 - The secondary column carries two **translation-assist** affordances:
   **Copy** (fills the secondary with the primary text, no network) and, when a
   LibreTranslate backend is configured, **Draft** (server-proxied machine

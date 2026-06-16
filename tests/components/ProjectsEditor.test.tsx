@@ -55,22 +55,56 @@ describe('<ProjectsEditor>', () => {
     void project
   })
 
-  it('adds a project role and links it to a registry role', async () => {
-    const role = makeRole({ name: { en: 'Architect' } })
-    const project = seedExpandedProject({ roles: [role] })
+  it('links a registry role into the project via the autocomplete', async () => {
+    const role = makeRole({ name: { en: 'Architect', no: 'Arkitekt' } })
+    seedExpandedProject({ roles: [role] })
     render(<ProjectsEditor />)
 
-    await userEvent.click(screen.getByRole('button', { name: /add role/i }))
-    expect(useStore.getState().data.projects[0].roles).toHaveLength(1)
-
-    // Link via the role <select> (its default option text is unique).
-    const roleSelect = screen.getByDisplayValue('— link to registry role —')
-    await userEvent.selectOptions(roleSelect, screen.getByRole('option', { name: 'Architect' }))
+    const input = screen.getByPlaceholderText(/search or add a role/i)
+    await userEvent.click(input)
+    await userEvent.click(screen.getByRole('option', { name: /Architect/ }))
 
     const linked = useStore.getState().data.projects[0].roles[0]
     expect(linked.role_id).toBe(role.id)
-    expect(linked.name.en).toBe('Architect') // snapshot copied from the registry
-    void project
+    // Snapshot copies BOTH languages from the registry on link.
+    expect(linked.name).toEqual({ en: 'Architect', no: 'Arkitekt' })
+  })
+
+  it('creates a brand-new registry role via the autocomplete add-new path', async () => {
+    seedExpandedProject()
+    render(<ProjectsEditor />)
+
+    const input = screen.getByPlaceholderText(/search or add a role/i)
+    await userEvent.click(input)
+    await userEvent.type(input, 'Tech Lead{Enter}')
+
+    const state = useStore.getState().data
+    expect(state.roles).toHaveLength(1)
+    expect(state.roles[0].name).toEqual({ en: 'Tech Lead' })
+    expect(state.projects[0].roles).toHaveLength(1)
+    expect(state.projects[0].roles[0].role_id).toBe(state.roles[0].id)
+  })
+
+  it('editing a role chip translation updates the shared registry', async () => {
+    const role = makeRole({ name: { en: 'Architect' } })
+    // A project already linked to the role so a chip renders.
+    const project = makeProject({ customer: { en: 'Acme' } })
+    project.roles = [{ id: 'pr1', role_id: role.id, name: role.name, sort_order: 0, disabled: false }]
+    useStore.setState({
+      data: { ...emptyStore(), roles: [role], projects: [project] },
+      hasData: true, primaryLocale: 'en', secondaryLocale: 'no',
+      activeSection: 'projects', expandedItemId: project.id, mutationCount: 0,
+    })
+    render(<ProjectsEditor />)
+
+    // Click the chip to open the dual-language popover, then edit the EN field.
+    await userEvent.click(screen.getByRole('button', { name: 'Architect' }))
+    const enInput = screen.getByLabelText(/Role name \(English\)/i)
+    await userEvent.clear(enInput)
+    await userEvent.type(enInput, 'Solution Architect')
+
+    // The registry role itself changed (propagates to every reference).
+    expect(useStore.getState().data.roles[0].name.en).toBe('Solution Architect')
   })
 
   it('links a registry skill into the project via the autocomplete', async () => {

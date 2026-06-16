@@ -1,11 +1,26 @@
-import { useEffect, useState } from 'react'
-import { History, RotateCcw, X, Loader2 } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { History, RotateCcw, X, Loader2, ChevronRight, ChevronDown } from 'lucide-react'
 import { useDialog } from './ui/useDialog'
 import { useStore } from '../store/useStore'
 import { api, type SnapshotMeta, UnauthorizedError } from '../lib/api'
 import { fmtRelativeTime } from '../lib/locales'
 import { reattachImages } from '../lib/snapshotImages'
 import { migrateStore } from '../lib/migrate'
+import { describeSnapshotChanges, type SnapshotChange } from '../lib/snapshotDiff'
+import type { ResumeStore } from '../types'
+
+/** Lazily-computed diff state for one expanded history row. */
+interface RowDiff {
+  loading?: boolean
+  error?: string
+  /** True for the oldest snapshot — nothing to compare against. */
+  initial?: boolean
+  changes?: SnapshotChange[]
+}
+
+const TAG_TEXT: Record<SnapshotChange['kind'], string> = {
+  added: 'Added', removed: 'Removed', edited: 'Edited',
+}
 
 interface SnapshotHistoryProps {
   resumeId: string
@@ -24,9 +39,46 @@ interface SnapshotHistoryProps {
 export function SnapshotHistory({ resumeId, onClose, onUnauthorized }: SnapshotHistoryProps) {
   const dialogRef = useDialog(onClose)
   const replaceData = useStore((s) => s.replaceData)
+  const primaryLocale = useStore((s) => s.primaryLocale)
   const [snapshots, setSnapshots] = useState<SnapshotMeta[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [restoringId, setRestoringId] = useState<number | null>(null)
+
+  // Lazily-loaded "what changed" detail, computed on expand against the
+  // previous (older) snapshot. Full snapshot payloads are cached so re-opening
+  // a row — or diffing the neighbour — never refetches.
+  const [expandedId, setExpandedId] = useState<number | null>(null)
+  const [diffs, setDiffs] = useState<Record<number, RowDiff>>({})
+  const dataCache = useRef<Map<number, ResumeStore>>(new Map())
+
+  const fetchData = async (id: number): Promise<ResumeStore> => {
+    const hit = dataCache.current.get(id)
+    if (hit) return hit
+    const data = await api.getSnapshot(resumeId, id)
+    dataCache.current.set(id, data)
+    return data
+  }
+
+  const toggleDetail = async (snap: SnapshotMeta, index: number) => {
+    if (expandedId === snap.id) { setExpandedId(null); return }
+    setExpandedId(snap.id)
+    if (diffs[snap.id] && !diffs[snap.id].error) return // already computed
+    setDiffs((d) => ({ ...d, [snap.id]: { loading: true } }))
+    try {
+      const older = snapshots?.[index + 1] // list is newest-first
+      const current = await fetchData(snap.id)
+      if (!older) {
+        setDiffs((d) => ({ ...d, [snap.id]: { initial: true } }))
+        return
+      }
+      const previous = await fetchData(older.id)
+      const changes = describeSnapshotChanges(previous, current, primaryLocale)
+      setDiffs((d) => ({ ...d, [snap.id]: { changes } }))
+    } catch (e) {
+      if (e instanceof UnauthorizedError) { onUnauthorized?.(); onClose(); return }
+      setDiffs((d) => ({ ...d, [snap.id]: { error: 'Could not load this comparison.' } }))
+    }
+  }
 
   useEffect(() => {
     let active = true
@@ -87,27 +139,76 @@ export function SnapshotHistory({ resumeId, onClose, onUnauthorized }: SnapshotH
 
           {snapshots && snapshots.length > 0 && (
             <ul className="sh-list">
-              {snapshots.map((s, i) => (
-                <li key={s.id} className="sh-row">
-                  <div className="sh-info">
-                    <span className="sh-when">
-                      {fmtRelativeTime(s.saved_at)}
-                      {s.saved_by && <span className="sh-by">by {s.saved_by}</span>}
-                      {i === 0 && <span className="sh-badge">latest</span>}
-                    </span>
-                    <span className="sh-abs">{new Date(s.saved_at).toLocaleString()}</span>
+              {snapshots.map((s, i) => {
+                const open = expandedId === s.id
+                const d = diffs[s.id]
+                return (
+                <li key={s.id} className={`sh-row ${open ? 'is-open' : ''}`}>
+                  <div className="sh-row-main">
+                    <button
+                      className="sh-exp"
+                      onClick={() => void toggleDetail(s, i)}
+                      aria-expanded={open}
+                      aria-label={open ? 'Hide what changed' : 'Show what changed'}
+                      title="What changed in this save"
+                    >
+                      {open ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+                    </button>
+                    <div className="sh-info">
+                      <span className="sh-when">
+                        {fmtRelativeTime(s.saved_at)}
+                        {s.saved_by && <span className="sh-by">by {s.saved_by}</span>}
+                        {i === 0 && <span className="sh-badge">latest</span>}
+                      </span>
+                      <span className="sh-abs">{new Date(s.saved_at).toLocaleString()}</span>
+                    </div>
+                    <button
+                      className="sh-restore"
+                      onClick={() => void restore(s)}
+                      disabled={restoringId !== null}
+                    >
+                      {restoringId === s.id
+                        ? <><Loader2 size={13} className="sh-spin" /> Restoring…</>
+                        : <><RotateCcw size={13} /> Restore</>}
+                    </button>
                   </div>
-                  <button
-                    className="sh-restore"
-                    onClick={() => void restore(s)}
-                    disabled={restoringId !== null}
-                  >
-                    {restoringId === s.id
-                      ? <><Loader2 size={13} className="sh-spin" /> Restoring…</>
-                      : <><RotateCcw size={13} /> Restore</>}
-                  </button>
+                  {open && (
+                    <div className="sh-detail">
+                      {d?.loading && (
+                        <div className="sh-detail-state"><Loader2 size={13} className="sh-spin" /> Comparing…</div>
+                      )}
+                      {d?.error && <div className="sh-detail-state sh-detail-err">{d.error}</div>}
+                      {d && !d.loading && !d.error && d.initial && (
+                        <div className="sh-detail-state">First recorded version — nothing to compare against.</div>
+                      )}
+                      {d && !d.loading && !d.error && !d.initial && (d.changes?.length === 0) && (
+                        <div className="sh-detail-state">No text changes (reordering or images only).</div>
+                      )}
+                      {d?.changes && d.changes.length > 0 && (
+                        <ul className="sh-changes">
+                          {d.changes.map((c, ci) => (
+                            <li key={ci} className="sh-change">
+                              <span className={`sh-chg-tag sh-chg-${c.kind}`}>{TAG_TEXT[c.kind]}</span>
+                              <span className="sh-chg-body">
+                                <span className="sh-chg-head">
+                                  <span className="sh-chg-section">{c.section}</span>
+                                  <span className="sh-chg-name">{c.label}</span>
+                                </span>
+                                {c.details && c.details.length > 0 && (
+                                  <span className="sh-chg-fields">
+                                    {c.details.map((dt, di) => <span key={di} className="sh-chg-field">{dt}</span>)}
+                                  </span>
+                                )}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  )}
                 </li>
-              ))}
+                )
+              })}
             </ul>
           )}
         </div>
@@ -136,12 +237,22 @@ export function SnapshotHistory({ resumeId, onClose, onUnauthorized }: SnapshotH
         .sh-error { padding: 14px; background: #fef2f2; color: #b91c1c; border-radius: var(--r-sm); font-size: 13px; }
         .sh-list { list-style: none; display: flex; flex-direction: column; gap: 4px; }
         .sh-row {
-          display: flex; align-items: center; justify-content: space-between; gap: 12px;
-          padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r-md);
+          border: 1px solid var(--line); border-radius: var(--r-md);
           transition: border-color .12s;
         }
         .sh-row:hover { border-color: var(--accent); }
-        .sh-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+        .sh-row.is-open { border-color: var(--line-strong); }
+        .sh-row-main {
+          display: flex; align-items: center; justify-content: space-between; gap: 10px;
+          padding: 10px 12px;
+        }
+        .sh-exp {
+          flex-shrink: 0; width: 26px; height: 26px; display: grid; place-items: center;
+          border-radius: var(--r-sm); color: var(--ink-faint);
+          transition: color .12s, background .12s;
+        }
+        .sh-exp:hover { background: var(--paper-sunken); color: var(--accent); }
+        .sh-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
         .sh-when { font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
         .sh-badge {
           font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
@@ -158,6 +269,32 @@ export function SnapshotHistory({ resumeId, onClose, onUnauthorized }: SnapshotH
         .sh-restore:disabled { opacity: .5; cursor: default; }
         .sh-spin { animation: sh-spin 1s linear infinite; }
         @keyframes sh-spin { to { transform: rotate(360deg); } }
+
+        /* What-changed detail panel */
+        .sh-detail {
+          border-top: 1px solid var(--line); padding: 8px 12px 10px 44px;
+          animation: fadeIn .15s ease;
+        }
+        .sh-detail-state {
+          font-size: 12.5px; color: var(--ink-faint);
+          display: flex; align-items: center; gap: 6px; padding: 2px 0;
+        }
+        .sh-detail-err { color: var(--err-ink); }
+        .sh-changes { list-style: none; display: flex; flex-direction: column; gap: 6px; }
+        .sh-change { display: flex; gap: 8px; align-items: flex-start; }
+        .sh-chg-tag {
+          flex-shrink: 0; font-size: 10px; font-weight: 700; letter-spacing: .04em;
+          text-transform: uppercase; padding: 2px 7px; border-radius: 9px;
+          min-width: 58px; text-align: center; margin-top: 1px;
+        }
+        .sh-chg-added   { background: var(--ok-wash);   color: var(--ok-ink); }
+        .sh-chg-removed { background: var(--err-wash);  color: var(--err-ink); }
+        .sh-chg-edited  { background: var(--accent-wash); color: var(--accent); }
+        .sh-chg-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+        .sh-chg-head { font-size: 13px; color: var(--ink); }
+        .sh-chg-section { font-weight: 700; margin-right: 5px; }
+        .sh-chg-fields { display: flex; flex-wrap: wrap; gap: 3px 10px; }
+        .sh-chg-field { font-size: 12px; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
       `}</style>
     </div>
   )

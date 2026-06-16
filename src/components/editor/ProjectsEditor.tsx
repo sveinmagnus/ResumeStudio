@@ -9,10 +9,10 @@ import { EditorCard, AddButton, FieldRow } from '../ui/EditorCard'
 import { SortableList } from '../ui/SortableList'
 import { SortBar } from '../ui/SortBar'
 import { Autocomplete } from '../ui/Autocomplete'
-import { SkillTranslationPopover } from './RegistryEditors'
+import { SkillTranslationPopover, TranslationPopover } from './RegistryEditors'
 import { resolve, fmtRange } from '../../lib/locales'
 import { richToPlain } from '../../lib/richText'
-import type { Project, ProjectRole, ProjectSkill, Skill, Industry } from '../../types'
+import type { Project, ProjectRole, ProjectSkill, Skill, Industry, Role, LocalizedString } from '../../types'
 import { Plus, X } from 'lucide-react'
 
 export function ProjectsEditor() {
@@ -201,39 +201,92 @@ function ProjectIndustryLink({ project }: { project: Project }) {
 // ── Project roles ────────────────────────────────────────────────────────────
 
 function ProjectRolesEditor({ project }: { project: Project }) {
-  const { data, updateItem, primaryLocale } = useStore()
+  const { data, addItem, updateItem, primaryLocale } = useStore()
 
-  const update = (rid: string, patch: Partial<ProjectRole>) => {
-    updateItem('projects', project.id, {
-      roles: project.roles.map((r) => (r.id === rid ? { ...r, ...patch } : r)),
-    })
-  }
-  const add = () => {
-    const role: ProjectRole = { id: newId(), role_id: '', name: {}, sort_order: project.roles.length, disabled: false }
+  const remove = (rid: string) => updateItem('projects', project.id, { roles: project.roles.filter((r) => r.id !== rid) })
+
+  // Link an existing registry role. Skips silently if already attached.
+  const linkExisting = (roleId: string) => {
+    if (project.roles.some((r) => r.role_id === roleId)) return
+    const reg = data.roles.find((x) => x.id === roleId)
+    if (!reg) return
+    // Snapshot the registry name (both languages) so picking fills both fields.
+    const role: ProjectRole = { id: newId(), role_id: roleId, name: reg.name, sort_order: project.roles.length, disabled: false }
     updateItem('projects', project.id, { roles: [...project.roles, role] })
   }
-  const remove = (rid: string) => updateItem('projects', project.id, { roles: project.roles.filter((r) => r.id !== rid) })
+
+  // Create a brand-new registry role from typed text, then attach it — mirrors
+  // ProjectSkillsEditor.createAndLink so roles and skills behave identically.
+  const createAndLink = (text: string) => {
+    const reg: Role = {
+      id: newId(), resume_id: data.resume!.id,
+      name: { [primaryLocale]: text },
+      years_of_experience: 0, years_of_experience_offset: 0,
+      starred: false, sort_order: data.roles.length, disabled: false,
+    }
+    addItem('roles', reg)
+    const pr: ProjectRole = { id: newId(), role_id: reg.id, name: reg.name, sort_order: project.roles.length, disabled: false }
+    const current = useStore.getState().data.projects.find((p) => p.id === project.id)
+    if (!current) return
+    updateItem('projects', project.id, { roles: [...current.roles, pr] })
+  }
 
   return (
     <div className="sub-block">
-      <div className="sub-head">Roles on this project <span className="sub-hint">describe the work in the project Description above</span></div>
-      {project.roles.map((role) => (
-        <div key={role.id} className="nested-card">
-          <div className="nested-top">
-            <select className="role-select" value={role.role_id}
-              onChange={(e) => {
-                const reg = data.roles.find((x) => x.id === e.target.value)
-                update(role.id, { role_id: e.target.value, name: reg ? reg.name : role.name })
-              }}>
-              <option value="">— link to registry role —</option>
-              {data.roles.map((r) => <option key={r.id} value={r.id}>{resolve(r.name, primaryLocale)}</option>)}
-            </select>
-            <button className="hl-del" onClick={() => remove(role.id)}><X size={14} /></button>
-          </div>
-          {!role.role_id && <DualField label="Role name" value={role.name} onChange={(v) => update(role.id, { name: v })} />}
-        </div>
-      ))}
-      <button className="sub-add" onClick={add}><Plus size={13} /> Add role</button>
+      <div className="sub-head">Roles on this project <span className="sub-hint">linked to the role registry — click a chip to edit its translation</span></div>
+      <div className="skill-chip-list">
+        {project.roles.map((r) => (
+          <ProjectRoleChip key={r.id} project={project} pr={r} onRemove={() => remove(r.id)} />
+        ))}
+      </div>
+      <Autocomplete
+        options={data.roles
+          .filter((reg) => !reg.disabled && !project.roles.some((pr) => pr.role_id === reg.id))
+          .map((reg) => ({ id: reg.id, label: resolve(reg.name, primaryLocale) || '(unnamed role)' }))}
+        onPick={linkExisting}
+        onAddNew={createAndLink}
+        addLabel="role"
+        placeholder="Search or add a role…"
+      />
+    </div>
+  )
+}
+
+/**
+ * A ProjectRole chip mirroring ProjectSkillChip. Clicking opens a dual-language
+ * popover: when linked to a registry Role it edits the registry name (so the
+ * change propagates to every reference); for a legacy free-text role (no
+ * registry link) it edits the project's local snapshot name.
+ */
+function ProjectRoleChip({ project, pr, onRemove }: { project: Project; pr: ProjectRole; onRemove: () => void }) {
+  const { data, primaryLocale, updateItem } = useStore()
+  const [open, setOpen] = useState(false)
+  const role = pr.role_id ? data.roles.find((x) => x.id === pr.role_id) : null
+  const label = resolve(role?.name ?? pr.name, primaryLocale) || '(unnamed role)'
+
+  const onChangeName = (name: LocalizedString) => {
+    if (role) updateItem('roles', role.id, { name })
+    else updateItem('projects', project.id, { roles: project.roles.map((r) => (r.id === pr.id ? { ...r, name } : r)) })
+  }
+
+  return (
+    <div className="skill-chip-w">
+      <button type="button" className="skill-chip" onClick={() => setOpen((o) => !o)} title="Edit translation">
+        <span>{label}</span>
+      </button>
+      <button type="button" className="skill-chip-x" onClick={(e) => { e.stopPropagation(); onRemove() }} title="Remove from this project">
+        <X size={12} />
+      </button>
+      {open && (
+        <TranslationPopover
+          title={`Edit “${label}” translation`}
+          fieldLabel="Role name"
+          value={role?.name ?? pr.name}
+          footnote={role ? 'Changes the registry — all references update.' : 'Free-text role — not linked to the registry.'}
+          onClose={() => setOpen(false)}
+          onChange={onChangeName}
+        />
+      )}
     </div>
   )
 }
@@ -370,9 +423,6 @@ function PaneStyles() {
       .hl-del:hover { background: var(--accent-wash); color: var(--accent); }
       .sub-add { display: inline-flex; align-items: center; gap: 5px; padding: 6px 12px; font-size: 13px; font-weight: 600; color: var(--accent); border-radius: var(--r-sm); }
       .sub-add:hover { background: var(--accent-wash); }
-      .nested-card { background: var(--paper-raised); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 12px; margin-bottom: 8px; }
-      .nested-top { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
-      .role-select { flex: 1; padding: 7px 10px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--paper); font-weight: 500; }
       .skill-chip-list { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 10px; }
       .skill-chip-w { position: relative; display: inline-flex; align-items: center; background: var(--paper-raised); border: 1px solid var(--line); border-radius: 20px; padding: 2px 6px 2px 2px; }
       .skill-chip-w:hover { border-color: var(--accent); }

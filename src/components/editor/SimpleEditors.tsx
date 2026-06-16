@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useStore, newId } from '../../store/useStore'
 import { useSortedItems } from '../../store/useSortedItems'
 import { DualField } from '../ui/DualField'
@@ -7,6 +8,7 @@ import { EditorCard, AddButton, FieldRow } from '../ui/EditorCard'
 import { SortableList } from '../ui/SortableList'
 import { SortBar } from '../ui/SortBar'
 import { Autocomplete } from '../ui/Autocomplete'
+import { TranslationPopover } from './RegistryEditors'
 import { resolve, fmtRange, fmtDate } from '../../lib/locales'
 import { richToPlain } from '../../lib/richText'
 import type {
@@ -80,6 +82,7 @@ export function WorkEditor() {
  */
 function EmploymentRoleLink({ work }: { work: WorkExperience }) {
   const { data, primaryLocale, addItem, updateItem } = useStore()
+  const [editing, setEditing] = useState(false)
   const linked = work.role_id ? data.roles.find((r) => r.id === work.role_id) : null
 
   const link = (roleId: string) => {
@@ -110,10 +113,22 @@ function EmploymentRoleLink({ work }: { work: WorkExperience }) {
       <label className="erl-label">Registry role link <span className="erl-hint">— share this title with projects / merges</span></label>
       {linked ? (
         <div className="erl-linked">
-          <span className="erl-pill">{resolve(linked.name, primaryLocale) || '(unnamed role)'}</span>
+          <button type="button" className="erl-pill erl-pill-btn" onClick={() => setEditing((o) => !o)} title="Edit translation in both languages">
+            {resolve(linked.name, primaryLocale) || '(unnamed role)'}
+          </button>
           <button type="button" className="erl-unlink" onClick={unlink} title="Unlink from the role registry">
             <X size={13} /> Unlink
           </button>
+          {editing && (
+            <TranslationPopover
+              title={`Edit “${resolve(linked.name, primaryLocale) || 'role'}” translation`}
+              fieldLabel="Role name"
+              value={linked.name}
+              footnote="Changes the registry — all references update."
+              onClose={() => setEditing(false)}
+              onChange={(name) => updateItem('roles', linked.id, { name })}
+            />
+          )}
         </div>
       ) : (
         <Autocomplete
@@ -133,12 +148,14 @@ function EmploymentRoleLink({ work }: { work: WorkExperience }) {
           text-transform: uppercase; color: var(--ink-faint); margin-bottom: 7px;
         }
         .erl-hint { font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--ink-faint); margin-left: 2px; }
-        .erl-linked { display: flex; align-items: center; gap: 8px; }
+        .erl-linked { display: flex; align-items: center; gap: 8px; position: relative; }
         .erl-pill {
           display: inline-flex; align-items: center; padding: 5px 11px;
           background: var(--accent-wash); color: var(--accent);
           border-radius: 999px; font-size: 13px; font-weight: 600;
         }
+        .erl-pill-btn { cursor: pointer; transition: background .12s; }
+        .erl-pill-btn:hover { background: var(--accent); color: #fff; }
         .erl-unlink {
           display: inline-flex; align-items: center; gap: 4px;
           padding: 4px 10px; font-size: 12px; color: var(--ink-faint);

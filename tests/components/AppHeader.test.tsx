@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { AppHeader } from '../../src/components/AppHeader'
 import { useStore } from '../../src/store/useStore'
@@ -62,6 +62,30 @@ describe('<AppHeader>', () => {
     renderHeader()
     expect(screen.getByRole('button', { name: 'Undo' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Redo' })).toBeDisabled()
+  })
+
+  it('binds Ctrl+Z to undo and Ctrl+Y to redo the last edit', () => {
+    vi.useFakeTimers()
+    try {
+      seed()
+      renderHeader()
+      const before = useStore.getState().data.resume!.full_name
+
+      // Make an observable edit, then let the 500ms history debounce commit.
+      act(() => { useStore.getState().updateResume({ full_name: 'Edited Name' }) })
+      act(() => { vi.advanceTimersByTime(600) })
+      expect(useStore.getState().data.resume!.full_name).toBe('Edited Name')
+
+      // Ctrl+Z reverts it…
+      act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true })) })
+      expect(useStore.getState().data.resume!.full_name).toBe(before)
+
+      // …Ctrl+Y reapplies it.
+      act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'y', ctrlKey: true })) })
+      expect(useStore.getState().data.resume!.full_name).toBe('Edited Name')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('opens the settings modal from the header cogwheel', async () => {

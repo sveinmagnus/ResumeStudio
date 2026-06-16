@@ -132,7 +132,10 @@ export function EditorCard({
           border-radius: var(--r-md); margin-bottom: 10px; overflow: hidden;
           transition: box-shadow .2s, border-color .2s;
         }
-        .ec.open { box-shadow: var(--shadow-md); border-color: var(--line-strong); }
+        /* When open, let a child (the wide main-description editor) overhang the
+           card to the right instead of being clipped. Collapsed cards keep
+           overflow:hidden so the rounded corners + preview text stay clean. */
+        .ec.open { box-shadow: var(--shadow-md); border-color: var(--line-strong); overflow: visible; }
         .ec.is-disabled { opacity: .55; }
         .ec.is-dragging { box-shadow: var(--shadow-lg); border-color: var(--accent); z-index: 5; position: relative; }
         .ec-head {

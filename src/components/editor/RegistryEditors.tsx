@@ -986,16 +986,19 @@ function CategorySkillChip({
 }
 
 /**
- * Shared popover surface used by both CategorySkillChip and the
- * ProjectsEditor's project-skill chip. Edits the registry Skill's name
- * (the LocalizedString). Dismisses on outside click.
+ * Generic dual-language translation popover. Renders a DualField bound to a
+ * LocalizedString, with a heading and a footnote, dismissing on outside click.
+ * Used by skill chips, role chips, and the employment role pill.
  */
-export function SkillTranslationPopover({
-  skill, onClose, onChange,
+export function TranslationPopover({
+  title, fieldLabel, value, footnote, onClose, onChange,
 }: {
-  skill: Skill
+  title: string
+  fieldLabel: string
+  value: LocalizedString
+  footnote?: string
   onClose: () => void
-  onChange: (name: LocalizedString) => void
+  onChange: (value: LocalizedString) => void
 }) {
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -1009,9 +1012,9 @@ export function SkillTranslationPopover({
   }, [onClose])
   return (
     <div ref={ref} className="stp-pop">
-      <div className="stp-head">Edit “{Object.values(skill.name)[0] || 'skill'}” translation</div>
-      <DualField label="Skill name" value={skill.name} onChange={onChange} />
-      <div className="stp-foot">Changes the registry — all references update.</div>
+      <div className="stp-head">{title}</div>
+      <DualField label={fieldLabel} value={value} onChange={onChange} />
+      {footnote && <div className="stp-foot">{footnote}</div>}
       <style>{`
         .stp-pop {
           position: absolute; top: calc(100% + 6px); left: 0; z-index: 40;
@@ -1026,6 +1029,30 @@ export function SkillTranslationPopover({
         .stp-foot { font-size: 11px; color: var(--ink-faint); margin-top: 4px; }
       `}</style>
     </div>
+  )
+}
+
+/**
+ * Shared popover used by both CategorySkillChip and the ProjectsEditor's
+ * project-skill chip. Edits the registry Skill's name — a thin wrapper over
+ * the generic TranslationPopover.
+ */
+export function SkillTranslationPopover({
+  skill, onClose, onChange,
+}: {
+  skill: Skill
+  onClose: () => void
+  onChange: (name: LocalizedString) => void
+}) {
+  return (
+    <TranslationPopover
+      title={`Edit “${Object.values(skill.name)[0] || 'skill'}” translation`}
+      fieldLabel="Skill name"
+      value={skill.name}
+      footnote="Changes the registry — all references update."
+      onClose={onClose}
+      onChange={onChange}
+    />
   )
 }
 
