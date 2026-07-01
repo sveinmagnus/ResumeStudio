@@ -141,12 +141,15 @@ What works today:
   dual-language popover** pattern is used for **project roles** and the
   **employment role link** (picking an existing role fills both languages; the
   popover edits the registry Role), plus linking a reference to a project /
-  employment. The **Role registry** also has a **"By category" view**
-  (`Role.category`, optional free-text): a compact grouping of role titles under
-  category headers, where dragging a role onto another header recategorizes it
-  (dnd-kit `useDraggable`/`useDroppable`) and clicking a role opens the normal
-  editor in a lightbox. Categories are assigned via the Category field in the
-  role editor; the distinct values form the headers.
+  employment. The **Skill and Role registries** also have a **"By category"
+  view** (`Skill.category` / `Role.category`, optional free-text): a compact
+  grouping of item titles under category headers, where dragging an item onto
+  another header recategorizes it (dnd-kit `useDraggable`/`useDroppable`) and
+  clicking one opens the normal editor in a lightbox. Categories are assigned
+  via the Category field in the editor; the distinct values form the headers.
+  Both editors share the generic `RegistryCategoryView` / `CatGroup` /
+  `CatChip` / `RegistryLightbox` (a skill's category is the consultant's own
+  organisation, distinct from `skill_type` and the Quadim `classification`).
 - **React error boundary** around the editor so a crashed view never traps the
   user.
 - **Downloadable desktop build** — a portable folder (bundled Node + esbuild'd
@@ -245,7 +248,7 @@ src/
 ├── lib/
 │   ├── api.ts                  ← Server client (listResumes/createResume/loadResume(id)/saveResume(id,data,locales)/patchResume/deleteResume + snapshots + translate)
 │   ├── backup.ts               ← Portable JSON backup format + migrateBackup() scaffold
-│   ├── completeness.ts         ← PURE: translation completeness % + missing field paths per locale
+│   ├── completeness.ts         ← PURE: translation completeness % + missing field paths per locale (includes ACTIVELY-USED registry names — skills/roles/industries referenced elsewhere; unused entries don't count)
 │   ├── exporter.ts             ← LAZY-LOADED .docx generation (Cartavio brand, A4)
 │   ├── freshStore.ts           ← emptyStore() / freshStore() factories (used by Zustand startFresh + the picker create flow)
 │   ├── importer.ts             ← CVpartner JSON → ResumeStore

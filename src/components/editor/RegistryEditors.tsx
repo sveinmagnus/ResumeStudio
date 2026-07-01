@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useEffect } from 'react'
+import { useState, useMemo, useRef, useEffect, type ReactNode } from 'react'
 import { useStore, newId } from '../../store/useStore'
 import { useSortedItems } from '../../store/useSortedItems'
 import { useStableExpanded } from '../../store/useStableExpanded'
@@ -153,9 +153,71 @@ function RelatedSkillsPanel({ onAdd }: { onAdd: (name: string) => void }) {
   )
 }
 
+/**
+ * A skill's edit fields — shared by the list-view card and the category-view
+ * lightbox so both surfaces show the same editor.
+ */
+function SkillEditBody({ skill, allSkills, categories, onMerge }: {
+  skill: Skill
+  allSkills: Skill[]
+  categories: string[]
+  onMerge: (sourceId: string, targetId: string) => void
+}) {
+  const { data, primaryLocale, updateItem } = useStore()
+  const u = usageOfSkill(data, skill.id)
+  const catListId = `skill-cat-${skill.id}`
+  return (
+    <>
+      <DualField label="Skill name" value={skill.name} onChange={(v) => updateItem('skills', skill.id, { name: v })} />
+      <FieldRow>
+        <label className="pf-wrap">
+          <span className="pf-label">Type</span>
+          <select className="pf-input" value={skill.skill_type}
+            onChange={(e) => updateItem('skills', skill.id, { skill_type: e.target.value as Skill['skill_type'] })}>
+            <option value="technical">Technical</option>
+            <option value="methodology">Methodology</option>
+            <option value="domain">Domain</option>
+            <option value="soft">Soft skill</option>
+          </select>
+        </label>
+        <label className="pf-wrap">
+          <span className="pf-label">Proficiency (0–5)</span>
+          <input className="pf-input" type="number" min={0} max={5} value={skill.proficiency}
+            onChange={(e) => updateItem('skills', skill.id, { proficiency: parseInt(e.target.value) || 0 })} />
+        </label>
+        <TextField label="Total years" value={skill.total_duration_in_years.toFixed(1)}
+          onChange={(v) => updateItem('skills', skill.id, { total_duration_in_years: parseFloat(v) || 0 })} />
+        <label className="pf-wrap">
+          <span className="pf-label">Category</span>
+          <input
+            className="pf-input" list={catListId} value={skill.category ?? ''} placeholder="Uncategorized"
+            onChange={(e) => updateItem('skills', skill.id, { category: e.target.value.trim() || null })}
+          />
+          <datalist id={catListId}>
+            {categories.map((c) => <option key={c} value={c} />)}
+          </datalist>
+        </label>
+      </FieldRow>
+      <label className="check-row">
+        <input type="checkbox" checked={skill.is_highlighted} onChange={(e) => updateItem('skills', skill.id, { is_highlighted: e.target.checked })} />
+        Highlight in compact skill summaries
+      </label>
+      <SkillUsagePanel projects={u.projects} categories={u.technology_categories} />
+      <MergeRow
+        kind="skill"
+        sourceId={skill.id}
+        allItems={allSkills.filter((x) => x.id !== skill.id).map((x) => ({ id: x.id, label: resolve(x.name, primaryLocale) }))}
+        onMerge={onMerge}
+      />
+    </>
+  )
+}
+
 export function SkillsEditor() {
   const { data, primaryLocale, secondaryLocale, addItem, updateItem, replaceData } = useStore()
   const [filter, setFilter] = useState<RegistryFilter>('all')
+  const [view, setView] = useState<'list' | 'category'>('list')
+  const [editingId, setEditingId] = useState<string | null>(null)
 
   const allItems = useMemo(
     () => [...data.skills].sort(
@@ -202,8 +264,11 @@ export function SkillsEditor() {
 
   const makeSkill = (name: Skill['name']): Skill => ({
     id: newId(), resume_id: data.resume!.id, name, default_category: null,
-    skill_type: 'technical', total_duration_in_years: 0, proficiency: 0, is_highlighted: false, created_at: new Date().toISOString(),
+    skill_type: 'technical', total_duration_in_years: 0, proficiency: 0, is_highlighted: false,
+    category: null, created_at: new Date().toISOString(),
   })
+  const categories = useMemo(() => categoriesOf(allItems), [allItems])
+  const editingSkill = editingId ? data.skills.find((s) => s.id === editingId) ?? null : null
   const add = () => addItem('skills', makeSkill({}))
   // Add a library-suggested skill under the primary locale (matches the
   // autocomplete add path); the user translates via the normal workflow.
@@ -215,79 +280,73 @@ export function SkillsEditor() {
         Skills live here once and are referenced by projects and the skills showcase.
         Total experience is computed from linked projects.
       </p>
-      <FilterBar filter={filter} onChange={setFilter} counts={counts} />
-      {filter === 'all' && <RelatedSkillsPanel onAdd={addNamed} />}
-      {displayItems.length === 0 && (
-        <div className="registry-empty">
-          {filter === 'unused'
-            ? 'No unused skills — every skill is referenced somewhere.'
-            : filter === 'missing-translation'
-              ? 'No skills are missing a translation in the secondary language.'
-              : 'No skills yet — add your first below.'}
-        </div>
+      <div className="reg-view-toggle" role="group" aria-label="Skill view">
+        <button type="button" className={`rvt-btn ${view === 'list' ? 'active' : ''}`} onClick={() => setView('list')} aria-pressed={view === 'list'}>
+          <List size={14} /> List
+        </button>
+        <button type="button" className={`rvt-btn ${view === 'category' ? 'active' : ''}`} onClick={() => setView('category')} aria-pressed={view === 'category'}>
+          <LayoutGrid size={14} /> By category
+        </button>
+      </div>
+
+      {view === 'list' ? (
+        <>
+          <FilterBar filter={filter} onChange={setFilter} counts={counts} />
+          {filter === 'all' && <RelatedSkillsPanel onAdd={addNamed} />}
+          {displayItems.length === 0 && (
+            <div className="registry-empty">
+              {filter === 'unused'
+                ? 'No unused skills — every skill is referenced somewhere.'
+                : filter === 'missing-translation'
+                  ? 'No skills are missing a translation in the secondary language.'
+                  : 'No skills yet — add your first below.'}
+            </div>
+          )}
+          {displayItems.map((s) => {
+            const u = usageOfSkill(data, s.id)
+            const projectCount = u.projects.length
+            const catCount = u.technology_categories.length
+            return (
+              <EditorCard key={s.id} section="skills" id={s.id}
+                title={resolve(s.name, primaryLocale)}
+                subtitle={[s.skill_type, s.category].filter(Boolean).join(' · ')}
+                meta={`${projectCount} project${projectCount === 1 ? '' : 's'} | ${catCount} categor${catCount === 1 ? 'y' : 'ies'}`}
+                canStar={false} canDisable={false}
+                sortable={false}>
+                <SkillEditBody skill={s} allSkills={allItems} categories={categories} onMerge={onMerge} />
+              </EditorCard>
+            )
+          })}
+          <AddButton label="Add skill" onClick={add} />
+        </>
+      ) : (
+        <>
+          <p className="registry-note rcv-hint">Drag a skill onto another category header to recategorize it. Click a skill to edit it. Set a skill's category in its editor.</p>
+          <RegistryCategoryView
+            items={allItems}
+            unnamed="(unnamed skill)"
+            onOpen={setEditingId}
+            onRecategorize={(id, cat) => updateItem('skills', id, { category: cat })}
+          />
+          <AddButton label="Add skill" onClick={add} />
+        </>
       )}
-      {displayItems.map((s) => {
-        const u = usageOfSkill(data, s.id)
-        const projectCount = u.projects.length
-        const catCount = u.technology_categories.length
-        return (
-          <EditorCard key={s.id} section="skills" id={s.id}
-            title={resolve(s.name, primaryLocale)}
-            subtitle={s.skill_type}
-            meta={`${projectCount} project${projectCount === 1 ? '' : 's'} | ${catCount} categor${catCount === 1 ? 'y' : 'ies'}`}
-            canStar={false} canDisable={false}
-            sortable={false}>
-            <DualField label="Skill name" value={s.name} onChange={(v) => updateItem('skills', s.id, { name: v })} />
-            <FieldRow>
-              <label className="pf-wrap">
-                <span className="pf-label">Type</span>
-                <select className="pf-input" value={s.skill_type}
-                  onChange={(e) => updateItem('skills', s.id, { skill_type: e.target.value as Skill['skill_type'] })}>
-                  <option value="technical">Technical</option>
-                  <option value="methodology">Methodology</option>
-                  <option value="domain">Domain</option>
-                  <option value="soft">Soft skill</option>
-                </select>
-              </label>
-              <label className="pf-wrap">
-                <span className="pf-label">Proficiency (0–5)</span>
-                <input className="pf-input" type="number" min={0} max={5} value={s.proficiency}
-                  onChange={(e) => updateItem('skills', s.id, { proficiency: parseInt(e.target.value) || 0 })} />
-              </label>
-              <TextField label="Total years" value={s.total_duration_in_years.toFixed(1)}
-                onChange={(v) => updateItem('skills', s.id, { total_duration_in_years: parseFloat(v) || 0 })} />
-            </FieldRow>
-            <label className="check-row">
-              <input type="checkbox" checked={s.is_highlighted} onChange={(e) => updateItem('skills', s.id, { is_highlighted: e.target.checked })} />
-              Highlight in compact skill summaries
-            </label>
-            <SkillUsagePanel projects={u.projects} categories={u.technology_categories} />
-            <MergeRow
-              kind="skill"
-              sourceId={s.id}
-              allItems={allItems.filter((x) => x.id !== s.id).map((x) => ({ id: x.id, label: resolve(x.name, primaryLocale) }))}
-              onMerge={onMerge}
-            />
-          </EditorCard>
-        )
-      })}
-      <AddButton label="Add skill" onClick={add} />
+
+      {editingSkill && (
+        <RegistryLightbox
+          title={resolve(editingSkill.name, primaryLocale) || '(unnamed skill)'}
+          ariaLabel="Edit skill"
+          onClose={() => setEditingId(null)}
+        >
+          <SkillEditBody skill={editingSkill} allSkills={allItems} categories={categories} onMerge={onMerge} />
+        </RegistryLightbox>
+      )}
       <RegistryStyles />
     </div>
   )
 }
 
 // ── Role registry ────────────────────────────────────────────────────────────
-
-/** Distinct, sorted role category labels (non-empty). */
-function roleCategories(roles: Role[]): string[] {
-  const set = new Set<string>()
-  for (const r of roles) {
-    const c = (r.category ?? '').trim()
-    if (c) set.add(c)
-  }
-  return [...set].sort((a, b) => a.localeCompare(b))
-}
 
 /**
  * The role's edit fields — shared by the list-view card and the category-view
@@ -340,7 +399,7 @@ export function RolesEditor() {
   const [editingId, setEditingId] = useState<string | null>(null)
 
   const sortedItems = useSortedItems('roles')
-  const categories = useMemo(() => roleCategories(sortedItems), [sortedItems])
+  const categories = useMemo(() => categoriesOf(sortedItems), [sortedItems])
 
   const usage = useMemo(
     () => new Map(sortedItems.map((r) => [r.id, countRoleReferences(data, r.id)])),
@@ -431,94 +490,113 @@ export function RolesEditor() {
       ) : (
         <>
           <p className="registry-note rcv-hint">Drag a role onto another category header to recategorize it. Click a role to edit it. Set a role's category in its editor.</p>
-          <RoleCategoryView roles={sortedItems} onOpen={setEditingId} />
+          <RegistryCategoryView
+            items={sortedItems}
+            unnamed="(unnamed role)"
+            onOpen={setEditingId}
+            onRecategorize={(id, cat) => updateItem('roles', id, { category: cat })}
+          />
           <AddButton label="Add role" onClick={add} />
         </>
       )}
 
       {editingRole && (
-        <RoleEditModal
-          role={editingRole}
-          allRoles={sortedItems}
-          categories={categories}
-          onMerge={onMerge}
+        <RegistryLightbox
+          title={resolve(editingRole.name, primaryLocale) || '(unnamed role)'}
+          ariaLabel="Edit role"
           onClose={() => setEditingId(null)}
-        />
+        >
+          <RoleEditBody role={editingRole} allRoles={sortedItems} categories={categories} onMerge={onMerge} />
+        </RegistryLightbox>
       )}
       <RegistryStyles />
     </div>
   )
 }
 
-// ── Role category view (grouped, compact, drag-to-recategorize) ───────────────
+// ── Registry "by category" view (grouped, compact, drag-to-recategorize) ──────
+// Shared by the Skill and Role registries: any item with a free-text
+// `category` groups under category headers; drag a chip onto another header to
+// recategorize it, click a chip to open its editor in a lightbox.
 
 const UNCATEGORIZED = '__uncategorized__'
 
-function RoleCategoryView({ roles, onOpen }: { roles: Role[]; onOpen: (id: string) => void }) {
-  const primaryLocale = useStore((s) => s.primaryLocale)
-  const updateItem = useStore((s) => s.updateItem)
+interface CatItem { id: string; name: LocalizedString; category?: string | null }
+
+/** Distinct, sorted category labels (non-empty) across items. */
+function categoriesOf(items: CatItem[]): string[] {
+  const set = new Set<string>()
+  for (const it of items) {
+    const c = (it.category ?? '').trim()
+    if (c) set.add(c)
+  }
+  return [...set].sort((a, b) => a.localeCompare(b))
+}
+
+function RegistryCategoryView({ items, unnamed, onOpen, onRecategorize }: {
+  items: CatItem[]
+  /** Label for an item with no name yet, e.g. "(unnamed skill)". */
+  unnamed: string
+  onOpen: (id: string) => void
+  onRecategorize: (id: string, category: string | null) => void
+}) {
+  const locale = useStore((s) => s.primaryLocale)
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
 
   // Group by category (Uncategorized last), categories A→Z.
   const groups = useMemo(() => {
-    const m = new Map<string, Role[]>()
-    for (const r of roles) {
-      const key = (r.category ?? '').trim() || UNCATEGORIZED
+    const m = new Map<string, CatItem[]>()
+    for (const it of items) {
+      const key = (it.category ?? '').trim() || UNCATEGORIZED
       if (!m.has(key)) m.set(key, [])
-      m.get(key)!.push(r)
+      m.get(key)!.push(it)
     }
     return [...m.entries()].sort(([a], [b]) => {
       if (a === UNCATEGORIZED) return 1
       if (b === UNCATEGORIZED) return -1
       return a.localeCompare(b)
     })
-  }, [roles])
+  }, [items])
 
   const onDragEnd = (e: DragEndEvent) => {
     const { active, over } = e
     if (!over) return
     const target = String(over.id) === UNCATEGORIZED ? null : String(over.id)
-    const role = roles.find((r) => r.id === String(active.id))
-    if (!role || (role.category ?? null) === target) return
-    updateItem('roles', String(active.id), { category: target })
+    const it = items.find((x) => x.id === String(active.id))
+    if (!it || (it.category ?? null) === target) return
+    onRecategorize(String(active.id), target)
   }
 
   return (
     <DndContext sensors={sensors} onDragEnd={onDragEnd}>
       <div className="rcv">
         {groups.map(([key, list]) => (
-          <RoleCatGroup
-            key={key}
-            catKey={key}
-            label={key === UNCATEGORIZED ? 'Uncategorized' : key}
-            roles={list}
-            locale={primaryLocale}
-            onOpen={onOpen}
-          />
+          <CatGroup key={key} catKey={key} label={key === UNCATEGORIZED ? 'Uncategorized' : key}
+            items={list} locale={locale} unnamed={unnamed} onOpen={onOpen} />
         ))}
       </div>
     </DndContext>
   )
 }
 
-function RoleCatGroup({ catKey, label, roles, locale, onOpen }: {
-  catKey: string; label: string; roles: Role[]; locale: string; onOpen: (id: string) => void
+function CatGroup({ catKey, label, items, locale, unnamed, onOpen }: {
+  catKey: string; label: string; items: CatItem[]; locale: string; unnamed: string; onOpen: (id: string) => void
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: catKey })
   return (
     <div className="rcv-group">
       <div ref={setNodeRef} className={`rcv-head ${isOver ? 'is-over' : ''}`}>
-        {label} <span className="rcv-count">{roles.length}</span>
+        {label} <span className="rcv-count">{items.length}</span>
       </div>
       <div className="rcv-chips">
-        {roles.map((r) => <RoleCatChip key={r.id} role={r} locale={locale} onOpen={onOpen} />)}
+        {items.map((it) => <CatChip key={it.id} item={it} locale={locale} unnamed={unnamed} onOpen={onOpen} />)}
       </div>
     </div>
   )
 }
 
-function RoleCatChip({ role, locale, onOpen }: { role: Role; locale: string; onOpen: (id: string) => void }) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: role.id })
+function CatChip({ item, locale, unnamed, onOpen }: { item: CatItem; locale: string; unnamed: string; onOpen: (id: string) => void }) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: item.id })
   const style = transform
     ? { transform: `translate3d(${Math.round(transform.x)}px, ${Math.round(transform.y)}px, 0)` }
     : undefined
@@ -530,31 +608,27 @@ function RoleCatChip({ role, locale, onOpen }: { role: Role; locale: string; onO
       style={style}
       {...attributes}
       {...listeners}
-      onClick={() => onOpen(role.id)}
+      onClick={() => onOpen(item.id)}
       title="Drag to another category · click to edit"
     >
-      {resolve(role.name, locale) || '(unnamed role)'}
+      {resolve(item.name, locale) || unnamed}
     </button>
   )
 }
 
-function RoleEditModal({ role, allRoles, categories, onMerge, onClose }: {
-  role: Role
-  allRoles: Role[]
-  categories: string[]
-  onMerge: (sourceId: string, targetId: string) => void
-  onClose: () => void
+/** Lightbox chrome for the category-view editor (content passed as children). */
+function RegistryLightbox({ title, ariaLabel, onClose, children }: {
+  title: string; ariaLabel: string; onClose: () => void; children: ReactNode
 }) {
-  const primaryLocale = useStore((s) => s.primaryLocale)
   const dialogRef = useDialog(onClose)
   return (
     <div className="rcv-modal-backdrop" role="presentation" onClick={onClose}>
-      <div className="rcv-modal" ref={dialogRef} role="dialog" aria-modal="true" aria-label="Edit role" onClick={(e) => e.stopPropagation()}>
+      <div className="rcv-modal" ref={dialogRef} role="dialog" aria-modal="true" aria-label={ariaLabel} onClick={(e) => e.stopPropagation()}>
         <div className="rcv-modal-head">
-          <h3>{resolve(role.name, primaryLocale) || '(unnamed role)'}</h3>
+          <h3>{title}</h3>
           <button className="rcv-modal-close" onClick={onClose} aria-label="Close"><X size={16} /></button>
         </div>
-        <RoleEditBody role={role} allRoles={allRoles} categories={categories} onMerge={onMerge} />
+        {children}
       </div>
       <style>{`
         .rcv-modal-backdrop {

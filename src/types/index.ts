@@ -106,6 +106,14 @@ export interface Skill {
    * column. Free string (the library taxonomy is richer than our enum).
    */
   classification?: string
+  /**
+   * Optional free-text grouping label for the Skill registry's "by category"
+   * view (e.g. "Frontend", "Cloud", "Data") — the consultant's own
+   * organisation of a large skill list, distinct from `skill_type` (the coarse
+   * export classifier) and `classification` (the Quadim library's). Additive /
+   * optional; absent skills group under "Uncategorized".
+   */
+  category?: string | null
   created_at: string
 }
 
