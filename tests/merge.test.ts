@@ -183,17 +183,32 @@ describe('mergeIndustries()', () => {
     const store = emptyStore()
     store.industries.push(makeIndustry({ id: 'fin', name: { en: 'Finance' } }))
     store.industries.push(makeIndustry({ id: 'finance2', name: { en: 'finance' } }))
-    store.projects.push(makeProject({ id: 'p1', industry_id: 'fin', industry: { en: 'Finance' } }))
-    store.projects.push(makeProject({ id: 'p2', industry_id: 'finance2', industry: { en: 'finance' } }))
+    store.projects.push(makeProject({ id: 'p1', industries: [{ id: 'pi1', industry_id: 'fin', name: { en: 'Finance' }, sort_order: 0 }] }))
+    store.projects.push(makeProject({ id: 'p2', industries: [{ id: 'pi2', industry_id: 'finance2', name: { en: 'finance' }, sort_order: 0 }] }))
     return store
   }
 
-  it('rewrites project.industry_id and refreshes the denormalized name, deletes source', () => {
+  it('rewrites project industry links + refreshes the snapshot, deletes source', () => {
     const out = mergeIndustries(storeWithDupes(), 'finance2', 'fin')
     expect(out.industries.map((i) => i.id)).toEqual(['fin'])
-    expect(out.projects.every((p) => p.industry_id === 'fin')).toBe(true)
-    // p2's denormalized industry name now matches the surviving target.
-    expect(out.projects.find((p) => p.id === 'p2')!.industry).toEqual({ en: 'Finance' })
+    expect(out.projects.every((p) => p.industries.every((pi) => pi.industry_id === 'fin'))).toBe(true)
+    // p2's snapshot name now matches the surviving target.
+    expect(out.projects.find((p) => p.id === 'p2')!.industries[0].name).toEqual({ en: 'Finance' })
+  })
+
+  it('dedupes when a project already links both source and target', () => {
+    const store = emptyStore()
+    store.industries.push(makeIndustry({ id: 'fin', name: { en: 'Finance' } }))
+    store.industries.push(makeIndustry({ id: 'finance2', name: { en: 'finance' } }))
+    store.projects.push(makeProject({
+      id: 'p', industries: [
+        { id: 'a', industry_id: 'fin', name: { en: 'Finance' }, sort_order: 0 },
+        { id: 'b', industry_id: 'finance2', name: { en: 'finance' }, sort_order: 1 },
+      ],
+    }))
+    const out = mergeIndustries(store, 'finance2', 'fin')
+    expect(out.projects[0].industries).toHaveLength(1)
+    expect(out.projects[0].industries[0].industry_id).toBe('fin')
   })
 
   it('no-ops on same id or missing ids', () => {
@@ -205,12 +220,12 @@ describe('mergeIndustries()', () => {
 })
 
 describe('countIndustryReferences()', () => {
-  it('counts projects linked to an industry', () => {
+  it('counts industry links across projects', () => {
     const store = emptyStore()
     store.industries.push(makeIndustry({ id: 'fin' }))
-    store.projects.push(makeProject({ industry_id: 'fin' }))
-    store.projects.push(makeProject({ industry_id: 'fin' }))
-    store.projects.push(makeProject({ industry_id: null }))
+    store.projects.push(makeProject({ industries: [{ id: 'a', industry_id: 'fin', name: {}, sort_order: 0 }] }))
+    store.projects.push(makeProject({ industries: [{ id: 'b', industry_id: 'fin', name: {}, sort_order: 0 }] }))
+    store.projects.push(makeProject({ industries: [] }))
     expect(countIndustryReferences(store, 'fin')).toBe(2)
   })
 })

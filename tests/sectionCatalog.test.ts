@@ -72,7 +72,7 @@ describe('projects — anonymization (both render paths)', () => {
 describe('projects — per-target drift stays explicit', () => {
   const p = makeProject({
     customer: { en: 'Acme' },
-    industry: { en: 'Finance' },
+    industries: [{ id: 'pi1', industry_id: 'ind1', name: { en: 'Finance' }, sort_order: 0 }],
     description: { en: 'Short desc' },
     long_description: { en: 'Long desc' },
     team_size: 5,

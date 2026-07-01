@@ -188,7 +188,7 @@ describe('<IndustriesEditor> (A8.1)', () => {
   it('merges one industry into another, rewriting the linked project', async () => {
     const a = makeIndustry({ id: 'a', name: { en: 'finance' } })
     const b = makeIndustry({ id: 'b', name: { en: 'Finance' } })
-    const project = makeProject({ id: 'p', industry_id: 'a', industry: { en: 'finance' } })
+    const project = makeProject({ id: 'p', industries: [{ id: 'pi1', industry_id: 'a', name: { en: 'finance' }, sort_order: 0 }] })
     seedInd({ ...emptyStore(), industries: [a, b], projects: [project] })
     useStore.setState({ expandedItemId: 'a' })
     vi.spyOn(window, 'confirm').mockReturnValue(true)
@@ -202,7 +202,7 @@ describe('<IndustriesEditor> (A8.1)', () => {
     const industries = useStore.getState().data.industries
     expect(industries).toHaveLength(1)         // source removed
     expect(industries[0].id).toBe('b')
-    expect(useStore.getState().data.projects[0].industry_id).toBe('b') // ref rewritten
+    expect(useStore.getState().data.projects[0].industries[0].industry_id).toBe('b') // ref rewritten
   })
 })
 

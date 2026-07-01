@@ -17,7 +17,7 @@
  *  - defaultEmploymentRoleLinks: backfill WorkExperience.role_id as null.
  */
 
-import type { ResumeStore, LocalizedString, ProjectRole, KeyCompetency, KeyPoint, WorkExperience, Industry, Project } from '../types'
+import type { ResumeStore, LocalizedString, ProjectRole, ProjectIndustry, KeyCompetency, KeyPoint, WorkExperience, Industry, Project } from '../types'
 import { v4 as uuidv4 } from 'uuid'
 
 // ─── Shape versioning ─────────────────────────────────────────────────────────
@@ -31,6 +31,10 @@ import { v4 as uuidv4 } from 'uuid'
  *  - 3          — the Industry registry (A8.1): `industries[]` + every
  *                 project's `industry_id`, with legacy/imported free-text
  *                 `industry` interned into the registry.
+ *  - 4          — a project may reference MULTIPLE industries: the single
+ *                 `industry`/`industry_id` pair becomes `Project.industries[]`
+ *                 (ProjectIndustry links, snapshot names), mirroring
+ *                 `roles`/`skills`.
  *
  * Bump this ONLY for structural changes that need a migration (moving or
  * reshaping data). Additive optional fields are handled by render-boundary
@@ -39,7 +43,7 @@ import { v4 as uuidv4 } from 'uuid'
  * (like `industries`) is NOT a tolerable "optional field" — it must be
  * guaranteed present, hence the bump + migration.
  */
-export const CURRENT_SHAPE_VERSION = 3
+export const CURRENT_SHAPE_VERSION = 4
 
 /**
  * True when `store` was written by a build with a NEWER shape than this one
@@ -67,7 +71,7 @@ export function isNewerShape(store: ResumeStore): boolean {
 export function migrateStore(store: ResumeStore): ResumeStore {
   const stored = store.shape_version ?? 1
   if (stored >= CURRENT_SHAPE_VERSION) return store
-  const migrated = internIndustries(
+  const migrated = internProjectIndustries(
     defaultEmploymentRoleLinks(
       extractKeyPointsToCompetencies(foldRoleDescriptions(store)),
     ),
@@ -213,18 +217,16 @@ export function defaultEmploymentRoleLinks(store: ResumeStore): ResumeStore {
   return { ...store, work_experiences }
 }
 
-// ─── Industry registry (A8.1, shape v3) ──────────────────────────────────────
+// ─── Industry registry + multi-link (A8.1 shape v3, multi shape v4) ───────────
 //
-// `Project.industry` used to be free LocalizedString text, with no dedupe.
-// v3 promotes industries to a shared registry (parallel to skills/roles) so
-// "Finance" / "finance" / "Banking" can be merged. This migration:
-//   - guarantees the `industries` array exists,
-//   - backfills `Project.industry_id` (null when unlinked),
-//   - interns each project's existing free-text industry into the registry
-//     (deduped case-insensitively on the primary-ish value) and links it.
-// Idempotent: a project that already has a non-null `industry_id` is left
-// alone, and a store already carrying `industries` with linked projects is a
-// no-op.
+// `Project.industry` used to be free LocalizedString text; v3 promoted it to a
+// shared registry with a single `industry_id` link; v4 lets a project reference
+// MULTIPLE industries via `Project.industries[]` (ProjectIndustry links). This
+// single migration folds both steps — interning any legacy free-text name into
+// the registry (deduped case-insensitively) and producing the `industries[]`
+// array — because they always run together on load. Idempotent: a project that
+// already carries `industries[]` is left alone (bar stripping stray legacy
+// fields), and a store already at v4 is a no-op.
 
 /** A representative lowercased key for a localized name (first non-empty value). */
 function localizedKey(ls: LocalizedString | undefined): string {
@@ -236,7 +238,10 @@ function localizedKey(ls: LocalizedString | undefined): string {
   return ''
 }
 
-export function internIndustries(store: ResumeStore): ResumeStore {
+/** A project as it may exist pre-v4: single industry link + denormalized name. */
+type PreV4Project = { industries?: ProjectIndustry[]; industry?: LocalizedString; industry_id?: string | null }
+
+export function internProjectIndustries(store: ResumeStore): ResumeStore {
   const existing: Industry[] = Array.isArray(store.industries) ? [...store.industries] : []
   const byKey = new Map<string, string>() // normalized name → industry id
   for (const ind of existing) {
@@ -246,24 +251,48 @@ export function internIndustries(store: ResumeStore): ResumeStore {
   const resumeId = store.resume?.id ?? ''
   let changed = !Array.isArray(store.industries) // missing array alone is a change
 
-  const projects = store.projects.map((p): Project => {
-    if (p.industry_id) return p // already linked — leave it
-    const key = localizedKey(p.industry)
-    // No industry text → just guarantee the field is present (null link).
-    if (!key) return { ...p, industry_id: null }
-    let id = byKey.get(key)
-    if (!id) {
-      id = uuidv4()
-      byKey.set(key, id)
-      existing.push({
-        id, resume_id: resumeId,
-        name: { ...p.industry }, // adopt the project's localized spelling as canonical
-        sort_order: existing.length,
-        disabled: false,
-      })
-    }
+  const stripLegacy = (raw: Project, industries: ProjectIndustry[]): Project => {
+    const clean = { ...raw } as Record<string, unknown>
+    delete clean.industry
+    delete clean.industry_id
+    clean.industries = industries
+    return clean as unknown as Project
+  }
+
+  const projects = store.projects.map((raw): Project => {
+    const p = raw as unknown as PreV4Project
+    const hasArray = Array.isArray(p.industries)
+    const hasLegacyKeys = 'industry' in p || 'industry_id' in p
+    // Clean v4 project (array present, no stray legacy fields) → nothing to do.
+    if (hasArray && !hasLegacyKeys) return raw
+
     changed = true
-    return { ...p, industry_id: id }
+    const industries: ProjectIndustry[] = hasArray ? [...(p.industries as ProjectIndustry[])] : []
+    if (p.industry_id) {
+      // v3 link → snapshot from the registry (fall back to the denormalized name).
+      if (!industries.some((pi) => pi.industry_id === p.industry_id)) {
+        const reg = existing.find((i) => i.id === p.industry_id)
+        industries.push({
+          id: uuidv4(), industry_id: p.industry_id,
+          name: reg ? { ...reg.name } : { ...(p.industry ?? {}) }, sort_order: industries.length,
+        })
+      }
+    } else {
+      // Pre-v3 / imported free text → intern into the registry, deduped by name.
+      const key = localizedKey(p.industry)
+      if (key) {
+        let id = byKey.get(key)
+        if (!id) {
+          id = uuidv4()
+          byKey.set(key, id)
+          existing.push({ id, resume_id: resumeId, name: { ...(p.industry ?? {}) }, sort_order: existing.length, disabled: false })
+        }
+        if (!industries.some((pi) => pi.industry_id === id)) {
+          industries.push({ id: uuidv4(), industry_id: id, name: { ...(p.industry ?? {}) }, sort_order: industries.length })
+        }
+      }
+    }
+    return stripLegacy(raw, industries)
   })
 
   if (!changed) return store

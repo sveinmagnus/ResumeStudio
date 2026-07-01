@@ -113,10 +113,13 @@ What works today:
   `mergeRegistry(store, kind, source, target)` in `lib/merge.ts` (skills,
   roles, industries; the named wrappers stay for readability). Role merges also
   rewrite linked employments (`WorkExperience.role_id`) alongside
-  `project.roles[].role_id`. **Industries** are the third registry kind:
-  `Project.industry_id` links to `data.industries`, populated automatically by
-  the shape-v3 migration (`migrate.ts → internIndustries` interns existing /
-  imported free-text industries, deduped).
+  `project.roles[].role_id`. **Industries** are the third registry kind: a
+  project links to one or MORE via `Project.industries[]` (ProjectIndustry
+  snapshots; shape v4 — a single `industry_id` pre-v4), edited as chips like
+  skills/roles. `migrate.ts → internProjectIndustries` interns existing/imported
+  free-text industries into `data.industries` (deduped) and produces the
+  `industries[]` array; `mergeIndustries` rewrites the links (deduping when a
+  project already lists the target).
 - **Global content search** (`lib/contentSearch.ts`) — a Ctrl/Cmd+K command
   palette (`GlobalSearch`) substring-searches every section, registry and the
   header, ranks title matches first, and jumps to the item.
@@ -381,8 +384,8 @@ Every translatable field is a `LocalizedString = Record<string, string>` keyed b
 ### Shared registries
 - **`Skill`** lives in a global registry (`data.skills`) and is referenced by `ProjectSkill` (on `Project`) and `CategorySkill` (on `TechnologyCategory`) via `skill_id`. Use `lib/merge.ts → countSkillReferences()` to count all references.
 - **`Role`** also lives in a global registry (`data.roles`). `ProjectRole` references it via `role_id`. Use `countRoleReferences()`.
-- **`Industry`** (A8.1) lives in `data.industries`; `Project.industry_id` references it (with `Project.industry` kept as the denormalized name). Use `countIndustryReferences()`. All three kinds merge through the generic `mergeRegistry` / `countRegistryReferences`.
-- **Snapshot names**: `ProjectSkill.name`, `CategorySkill.name`, `ProjectRole.name`, and `Project.industry` are denormalized copies of the registry's name at link time, so a registry rename doesn't silently rewrite history. `merge.ts` updates these snapshots when it rewrites references.
+- **`Industry`** (A8.1) lives in `data.industries`; a project references one or more via `Project.industries[]` (`ProjectIndustry` links; shape v4 — a single `Project.industry_id` pre-v4). Use `countIndustryReferences()`. All three kinds merge through the generic `mergeRegistry` / `countRegistryReferences`.
+- **Snapshot names**: `ProjectSkill.name`, `CategorySkill.name`, `ProjectRole.name`, and `ProjectIndustry.name` are denormalized copies of the registry's name at link time, so a registry rename doesn't silently rewrite history. `merge.ts` updates these snapshots when it rewrites references.
 
 ### Resume Views
 `ResumeView` (in `data.views`) is the "targeted resume" config: a name, an introduction (localized), a list of enabled sections in display order, an excluded-items list, a starred-only toggle, and an optional page limit. `lib/viewFilter.ts → applyView()` produces a filtered `ResumeStore` from a view; the exporter and HTML renderer consume the filtered store.
@@ -694,8 +697,9 @@ than calling `set()` directly. Return `null` from the updater for a no-op
 
 ### Data-shape versioning (`lib/migrate.ts`)
 - `ResumeStore.shape_version` stamps the content shape (absent = pre-versioning
-  = 1; `CURRENT_SHAPE_VERSION` = 3 — v3 added the Industry registry +
-  `industry_id` and interns existing industry text). **Bump only for structural
+  = 1; `CURRENT_SHAPE_VERSION` = 4 — v3 added the Industry registry +
+  `industry_id`; v4 turned that single link into `Project.industries[]`
+  (multi-link) via `internProjectIndustries`). **Bump only for structural
   migrations** (a new top-level array that code iterates counts) — additive
   optional fields stay covered by `with*Defaults` render tolerance.
 - `migrateStore()` is the single choke point for data entering the app from

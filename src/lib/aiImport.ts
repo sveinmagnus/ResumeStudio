@@ -542,15 +542,14 @@ export function importFromAIDraft(input: AIImportV1): ResumeStore {
       }))
     const employer = str(pr.employer)
     const work_experience_id = employer ? workByEmployer.get(norm(employer)) ?? null : null
-    projects.push({
+    const project: Project = {
       id: uuidv4(),
       resume_id: resumeId,
       work_experience_id,
       customer: L(pr.customer),
       customer_anonymized: {},
       use_anonymized: false,
-      industry: L(pr.industry),
-      industry_id: null, // interned into the registry by migrateStore on load (A8.1)
+      industries: [],
       description: L(pr.description),
       long_description: {},
       highlights: [],
@@ -567,7 +566,11 @@ export function importFromAIDraft(input: AIImportV1): ResumeStore {
       starred: false,
       disabled: false,
       internal_notes: null,
-    })
+    }
+    // Free-text industry rides along as a legacy field; migrateStore interns it
+    // into the registry + `industries[]` on load (shape v4).
+    ;(project as unknown as { industry: LocalizedString }).industry = L(pr.industry)
+    projects.push(project)
   })
 
   // ── Educations ───────────────────────────────────────────────────────────

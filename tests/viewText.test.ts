@@ -15,7 +15,7 @@ function sampleStore() {
   store.projects.push(makeProject({
     id: 'p1',
     customer: { en: 'AcmeCo' },
-    industry: { en: 'Finance' },
+    industries: [{ id: 'pi1', industry_id: 'ind1', name: { en: 'Finance' }, sort_order: 0 }],
     long_description: { en: '<p>Built the <b>platform</b></p><ul><li>Led the team</li></ul>' },
     start: { year: 2022, month: 3 }, end: null,
     skills: [
