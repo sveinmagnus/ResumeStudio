@@ -330,7 +330,7 @@ export function importFromCVPartner(raw: Record<string, unknown>): ResumeStore {
       }
     })
 
-    projects.push({
+    const project: Project = {
       id: uuidv4(),
       resume_id: resumeId,
       work_experience_id: p.related_work_experience_id
@@ -339,8 +339,7 @@ export function importFromCVPartner(raw: Record<string, unknown>): ResumeStore {
       customer: localized(p.customer),
       customer_anonymized: localized(p.customer_anonymized),
       use_anonymized: p.customer_selected === 'customer_anonymized',
-      industry: localized(p.industry),
-      industry_id: null, // interned into the registry by migrateStore on load (A8.1)
+      industries: [],
       description: localized(p.description),
       long_description: projectLongDescription,
       highlights: [],
@@ -357,7 +356,11 @@ export function importFromCVPartner(raw: Record<string, unknown>): ResumeStore {
       starred: p.starred || false,
       disabled: p.disabled || false,
       internal_notes: null,
-    })
+    }
+    // Free-text industry name rides along as a legacy field; migrateStore
+    // interns it into the registry + `industries[]` on load (shape v4).
+    ;(project as unknown as { industry: typeof project.customer }).industry = localized(p.industry)
+    projects.push(project)
   }
 
   // ── Work experiences ──────────────────────────────────────────────────────

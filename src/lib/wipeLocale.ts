@@ -20,7 +20,7 @@ import type {
   KeyQualification, KeyCompetency, Recommendation, Project, WorkExperience,
   Education, Course, Certification, SpokenLanguage, TechnologyCategory,
   Position, Presentation, HonorAward, Publication, Reference, Skill, Role,
-  Industry, KeyPoint, ProjectRole, ProjectSkill, CategorySkill, ResumeView,
+  Industry, KeyPoint, ProjectRole, ProjectIndustry, ProjectSkill, CategorySkill, ResumeView,
 } from '../types'
 
 export function wipeLocale(store: ResumeStore, locale: string): ResumeStore {
@@ -67,7 +67,7 @@ export function wipeLocale(store: ResumeStore, locale: string): ResumeStore {
       ...p,
       customer: ls(p.customer),
       customer_anonymized: ls(p.customer_anonymized),
-      industry: ls(p.industry),
+      industries: p.industries.map((pi): ProjectIndustry => ({ ...pi, name: ls(pi.name) })),
       description: ls(p.description),
       long_description: ls(p.long_description),
       highlights: p.highlights.map((h) => ls(h)),

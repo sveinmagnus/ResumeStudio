@@ -103,7 +103,15 @@ interface AppState {
 
   // ── Generic array item ops ────────────────────────────────────────────────
   updateItem: <K extends ArraySectionKey>(section: K, id: string, patch: Partial<ArrayItem<K>>) => void
-  addItem: <K extends ArraySectionKey>(section: K, item: ArrayItem<K>) => void
+  /**
+   * Append a new item. It is placed at the TOP of the custom (`sort_order`)
+   * order — a freshly added item shouldn't sink to the bottom of a
+   * reverse-timeline list (until it's dated the date-sort views float it up
+   * too; see `lib/sectionSort`). By default the new item's card is opened;
+   * pass `{ open: false }` when creating a registry entry from inside another
+   * editor so it doesn't steal focus (and collapse) the parent card.
+   */
+  addItem: <K extends ArraySectionKey>(section: K, item: ArrayItem<K>, opts?: { open?: boolean }) => void
   removeItem: (section: ArraySectionKey, id: string) => void
   /** Move `id` to the given index (clamped to bounds), then renormalise sort_order. */
   moveItem: (section: ArraySectionKey, id: string, toIndex: number) => void
@@ -303,12 +311,23 @@ export const useStore = create<AppState>((set, get) => {
       return { data: { ...st.data, [section]: next } }
     }),
 
-    addItem: (section, item) => mutate((st) => {
-      const arr = st.data[section] as Array<unknown>
-      return {
-        data: { ...st.data, [section]: [...arr, item] },
-        expandedItemId: (item as { id: string }).id,
+    addItem: (section, item, opts) => mutate((st) => {
+      const arr = st.data[section] as unknown as Array<Record<string, unknown>>
+      // Place new items at the top of the custom order: give the new item a
+      // sort_order below every existing one (sort ascends by sort_order). Only
+      // touch sections whose items actually carry sort_order.
+      let toAdd = item as Record<string, unknown>
+      if ('sort_order' in toAdd) {
+        const minOrder = arr.reduce(
+          (m, it) => Math.min(m, typeof it.sort_order === 'number' ? it.sort_order : 0),
+          0,
+        )
+        toAdd = { ...toAdd, sort_order: minOrder - 1 }
       }
+      const patch: Partial<AppState> = { data: { ...st.data, [section]: [...arr, toAdd] } }
+      // Open the new card unless the caller opts out (nested registry creation).
+      if (opts?.open !== false) patch.expandedItemId = (toAdd as { id: string }).id
+      return patch
     }),
 
     removeItem: (section, id) => mutate((st) => {

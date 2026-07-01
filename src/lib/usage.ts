@@ -71,9 +71,9 @@ export function isRoleUnused(store: ResumeStore, roleId: string): boolean {
   return u.projects.length === 0 && u.work_experiences.length === 0
 }
 
-/** All projects that reference a given industry via `industry_id`. */
+/** All projects that reference a given industry via `industries[]`. */
 export function usageOfIndustry(store: ResumeStore, industryId: string): IndustryUsage {
-  return { projects: store.projects.filter((p) => p.industry_id === industryId) }
+  return { projects: store.projects.filter((p) => p.industries.some((pi) => pi.industry_id === industryId)) }
 }
 
 /** True when no project references this industry — safe to remove. */

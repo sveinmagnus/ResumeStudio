@@ -7,7 +7,7 @@ import userEvent from '@testing-library/user-event'
 import { ProjectsEditor } from '../../src/components/editor/ProjectsEditor'
 import { useStore } from '../../src/store/useStore'
 import { resetStore } from '../helpers/store-reset'
-import { emptyStore, makeProject, makeRole, makeSkill } from '../fixtures'
+import { emptyStore, makeProject, makeRole, makeSkill, makeIndustry } from '../fixtures'
 import type { ResumeStore } from '../../src/types'
 
 function seed(data: ResumeStore = emptyStore()) {
@@ -137,5 +137,33 @@ describe('<ProjectsEditor>', () => {
     // The new skill is linked to the project in one shot.
     expect(state.projects[0].skills).toHaveLength(1)
     expect(state.projects[0].skills[0].skill_id).toBe(state.skills[0].id)
+  })
+
+  it('links MULTIPLE industries as chips and edits a chip translation via the registry', async () => {
+    seedExpandedProject({
+      industries: [
+        makeIndustry({ id: 'i1', name: { en: 'Finance', no: 'Finans' } }),
+        makeIndustry({ id: 'i2', name: { en: 'Energy' } }),
+      ],
+    })
+    useStore.setState({ secondaryLocale: 'no' })
+    render(<ProjectsEditor />)
+
+    const input = screen.getByPlaceholderText(/search or add an industry/i)
+    await userEvent.click(input)
+    await userEvent.click(screen.getByRole('option', { name: /Finance/ }))
+    await userEvent.type(input, 'Energy')
+    await userEvent.click(screen.getByRole('option', { name: /Energy/ }))
+
+    // Both industries are linked (multiple allowed).
+    const linked = useStore.getState().data.projects[0].industries
+    expect(linked.map((pi) => pi.industry_id)).toEqual(['i1', 'i2'])
+
+    // Clicking a chip opens the dual-language popover; editing propagates to the registry.
+    await userEvent.click(screen.getByRole('button', { name: 'Finance' }))
+    const enInput = screen.getByLabelText(/Industry name \(English\)/i)
+    await userEvent.clear(enInput)
+    await userEvent.type(enInput, 'Banking')
+    expect(useStore.getState().data.industries.find((i) => i.id === 'i1')!.name.en).toBe('Banking')
   })
 })

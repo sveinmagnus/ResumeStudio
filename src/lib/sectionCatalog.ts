@@ -128,6 +128,12 @@ function projectRoleNames(it: AnyItem, locale: string): string[] {
     .filter(Boolean)
 }
 
+function projectIndustryNames(it: AnyItem, locale: string): string[] {
+  return ((it.industries as AnyItem[] | undefined) ?? [])
+    .map((pi) => ls(pi, 'name', locale))
+    .filter(Boolean)
+}
+
 function skillNames(it: AnyItem, locale: string): string[] {
   return ((it.skills as AnyItem[] | undefined) ?? [])
     .map((s) => ls(s, 'name', locale))
@@ -150,7 +156,7 @@ export const SECTION_CATALOG: Record<string, SectionDescriptor> = {
       const { locale } = ctx
       const title = projectCustomer(it, locale) || ls(it, 'description', locale) || 'Untitled project'
       const roles = projectRoleNames(it, locale).join(', ')
-      const industry = ls(it, 'industry', locale)
+      const industry = projectIndustryNames(it, locale).join(', ')
       const shortDesc = ls(it, 'description', locale)
       const longDesc = ls(it, 'long_description', locale)
       if (ctx.target === 'html') {

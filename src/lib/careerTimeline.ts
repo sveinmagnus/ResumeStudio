@@ -173,7 +173,7 @@ export function buildCareerTimeline(
       raw.push({
         id: p.id,
         label: ls(p.customer) || ls(p.description) || 'Project',
-        sublabel: ls(p.industry),
+        sublabel: p.industries.map((pi) => ls(pi.name)).filter(Boolean).join(', '),
         start: p.start, end: p.end, kind: 'project',
       })
     }

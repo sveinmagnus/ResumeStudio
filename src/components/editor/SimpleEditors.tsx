@@ -34,6 +34,7 @@ export function WorkEditor() {
   return (
     <div className="section-pane">
       <SortBar section="work_experiences" count={items.length} />
+      <AddButton label="Add employment" onClick={add} />
       <SortableList section="work_experiences" ids={items.map((x) => x.id)}>
       {items.map((w) => (
         <EditorCard key={w.id} section="work_experiences" id={w.id}
@@ -66,7 +67,6 @@ export function WorkEditor() {
         </EditorCard>
       ))}
       </SortableList>
-      <AddButton label="Add employment" onClick={add} />
     </div>
   )
 }
@@ -102,9 +102,9 @@ function EmploymentRoleLink({ work }: { work: WorkExperience }) {
       years_of_experience: 0, years_of_experience_offset: 0,
       starred: false, sort_order: data.roles.length, disabled: false,
     }
-    // addItem opens the role's card; that's fine — it lives in another
-    // section, won't affect this editor. Also link the new id immediately.
-    addItem('roles', r)
+    // open:false — creating the role must not steal focus from (and collapse)
+    // this employment card. Link the new id immediately.
+    addItem('roles', r, { open: false })
     updateItem('work_experiences', work.id, { role_id: r.id, role_title: r.name })
   }
 
@@ -184,6 +184,7 @@ export function EducationEditor() {
   return (
     <div className="section-pane">
       <SortBar section="educations" count={items.length} />
+      <AddButton label="Add education" onClick={add} />
       <SortableList section="educations" ids={items.map((x) => x.id)}>
       {items.map((e) => (
         <EditorCard key={e.id} section="educations" id={e.id}
@@ -205,7 +206,6 @@ export function EducationEditor() {
         </EditorCard>
       ))}
       </SortableList>
-      <AddButton label="Add education" onClick={add} />
     </div>
   )
 }
@@ -225,6 +225,7 @@ export function CoursesEditor() {
   return (
     <div className="section-pane">
       <SortBar section="courses" count={items.length} />
+      <AddButton label="Add course" onClick={add} />
       <SortableList section="courses" ids={items.map((x) => x.id)}>
       {items.map((c) => (
         <EditorCard key={c.id} section="courses" id={c.id}
@@ -238,7 +239,6 @@ export function CoursesEditor() {
         </EditorCard>
       ))}
       </SortableList>
-      <AddButton label="Add course" onClick={add} />
     </div>
   )
 }
@@ -259,6 +259,7 @@ export function CertificationsEditor() {
   return (
     <div className="section-pane">
       <SortBar section="certifications" count={items.length} />
+      <AddButton label="Add certification" onClick={add} />
       <SortableList section="certifications" ids={items.map((x) => x.id)}>
       {items.map((c) => (
         <EditorCard key={c.id} section="certifications" id={c.id}
@@ -276,7 +277,6 @@ export function CertificationsEditor() {
         </EditorCard>
       ))}
       </SortableList>
-      <AddButton label="Add certification" onClick={add} />
     </div>
   )
 }
@@ -300,6 +300,7 @@ export function PositionsEditor() {
         committee work, and other engagements outside paid employment.
       </p>
       <SortBar section="positions" count={items.length} />
+      <AddButton label="Add role" onClick={add} />
       <SortableList section="positions" ids={items.map((x) => x.id)}>
       {items.map((p) => (
         <EditorCard key={p.id} section="positions" id={p.id}
@@ -316,7 +317,6 @@ export function PositionsEditor() {
         </EditorCard>
       ))}
       </SortableList>
-      <AddButton label="Add role" onClick={add} />
       <style>{`
         .section-intro {
           font-size: 13.5px; color: var(--ink-soft); line-height: 1.55;
@@ -344,6 +344,7 @@ export function PresentationsEditor() {
   return (
     <div className="section-pane">
       <SortBar section="presentations" count={items.length} />
+      <AddButton label="Add presentation" onClick={add} />
       <SortableList section="presentations" ids={items.map((x) => x.id)}>
       {items.map((p) => (
         <EditorCard key={p.id} section="presentations" id={p.id}
@@ -360,7 +361,6 @@ export function PresentationsEditor() {
         </EditorCard>
       ))}
       </SortableList>
-      <AddButton label="Add presentation" onClick={add} />
     </div>
   )
 }
@@ -381,6 +381,7 @@ export function PublicationsEditor() {
   return (
     <div className="section-pane">
       <SortBar section="publications" count={items.length} />
+      <AddButton label="Add publication" onClick={add} />
       <SortableList section="publications" ids={items.map((x) => x.id)}>
       {items.map((p) => (
         <EditorCard key={p.id} section="publications" id={p.id}
@@ -409,7 +410,6 @@ export function PublicationsEditor() {
         </EditorCard>
       ))}
       </SortableList>
-      <AddButton label="Add publication" onClick={add} />
     </div>
   )
 }
@@ -429,6 +429,7 @@ export function AwardsEditor() {
   return (
     <div className="section-pane">
       <SortBar section="honor_awards" count={items.length} />
+      <AddButton label="Add award" onClick={add} />
       <SortableList section="honor_awards" ids={items.map((x) => x.id)}>
       {items.map((a) => (
         <EditorCard key={a.id} section="honor_awards" id={a.id}
@@ -443,7 +444,6 @@ export function AwardsEditor() {
         </EditorCard>
       ))}
       </SortableList>
-      <AddButton label="Add award" onClick={add} />
     </div>
   )
 }

@@ -113,10 +113,13 @@ What works today:
   `mergeRegistry(store, kind, source, target)` in `lib/merge.ts` (skills,
   roles, industries; the named wrappers stay for readability). Role merges also
   rewrite linked employments (`WorkExperience.role_id`) alongside
-  `project.roles[].role_id`. **Industries** are the third registry kind:
-  `Project.industry_id` links to `data.industries`, populated automatically by
-  the shape-v3 migration (`migrate.ts → internIndustries` interns existing /
-  imported free-text industries, deduped).
+  `project.roles[].role_id`. **Industries** are the third registry kind: a
+  project links to one or MORE via `Project.industries[]` (ProjectIndustry
+  snapshots; shape v4 — a single `industry_id` pre-v4), edited as chips like
+  skills/roles. `migrate.ts → internProjectIndustries` interns existing/imported
+  free-text industries into `data.industries` (deduped) and produces the
+  `industries[]` array; `mergeIndustries` rewrites the links (deduping when a
+  project already lists the target).
 - **Global content search** (`lib/contentSearch.ts`) — a Ctrl/Cmd+K command
   palette (`GlobalSearch`) substring-searches every section, registry and the
   header, ranks title matches first, and jumps to the item.
@@ -138,7 +141,12 @@ What works today:
   dual-language popover** pattern is used for **project roles** and the
   **employment role link** (picking an existing role fills both languages; the
   popover edits the registry Role), plus linking a reference to a project /
-  employment.
+  employment. The **Role registry** also has a **"By category" view**
+  (`Role.category`, optional free-text): a compact grouping of role titles under
+  category headers, where dragging a role onto another header recategorizes it
+  (dnd-kit `useDraggable`/`useDroppable`) and clicking a role opens the normal
+  editor in a lightbox. Categories are assigned via the Category field in the
+  role editor; the distinct values form the headers.
 - **React error boundary** around the editor so a crashed view never traps the
   user.
 - **Downloadable desktop build** — a portable folder (bundled Node + esbuild'd
@@ -381,8 +389,8 @@ Every translatable field is a `LocalizedString = Record<string, string>` keyed b
 ### Shared registries
 - **`Skill`** lives in a global registry (`data.skills`) and is referenced by `ProjectSkill` (on `Project`) and `CategorySkill` (on `TechnologyCategory`) via `skill_id`. Use `lib/merge.ts → countSkillReferences()` to count all references.
 - **`Role`** also lives in a global registry (`data.roles`). `ProjectRole` references it via `role_id`. Use `countRoleReferences()`.
-- **`Industry`** (A8.1) lives in `data.industries`; `Project.industry_id` references it (with `Project.industry` kept as the denormalized name). Use `countIndustryReferences()`. All three kinds merge through the generic `mergeRegistry` / `countRegistryReferences`.
-- **Snapshot names**: `ProjectSkill.name`, `CategorySkill.name`, `ProjectRole.name`, and `Project.industry` are denormalized copies of the registry's name at link time, so a registry rename doesn't silently rewrite history. `merge.ts` updates these snapshots when it rewrites references.
+- **`Industry`** (A8.1) lives in `data.industries`; a project references one or more via `Project.industries[]` (`ProjectIndustry` links; shape v4 — a single `Project.industry_id` pre-v4). Use `countIndustryReferences()`. All three kinds merge through the generic `mergeRegistry` / `countRegistryReferences`.
+- **Snapshot names**: `ProjectSkill.name`, `CategorySkill.name`, `ProjectRole.name`, and `ProjectIndustry.name` are denormalized copies of the registry's name at link time, so a registry rename doesn't silently rewrite history. `merge.ts` updates these snapshots when it rewrites references.
 
 ### Resume Views
 `ResumeView` (in `data.views`) is the "targeted resume" config: a name, an introduction (localized), a list of enabled sections in display order, an excluded-items list, a starred-only toggle, and an optional page limit. `lib/viewFilter.ts → applyView()` produces a filtered `ResumeStore` from a view; the exporter and HTML renderer consume the filtered store.
@@ -414,12 +422,12 @@ header space.
 - `useStore().primaryLocale` and `useStore().secondaryLocale` (the latter can be `null` to mean "single column mode").
 - The `DualField` component reads these directly and renders 1 or 2 inputs accordingly. Components calling `DualField` never need to know about locales — just pass the `LocalizedString` and a setter.
 - The secondary input gets a subtle cyan tint (CSS var `--secondary-tint`) to distinguish from the primary (which uses the Cartavio navy accent on focus).
-- `RichField` (the main multi-line description editor) **breaks out wider than
-  the editor card in two-language mode** (`.rf-wide`, capped via
-  `min(1400px, max(100%, calc(100vw - 350px)))`) so each language column gets a
-  comfortable width when the viewport allows; single-language mode stays at the
-  normal card width. The open `EditorCard` uses `overflow: visible` so the
-  overhang isn't clipped.
+- In two-language edit mode the **open editor card itself breaks out wider**
+  than the ~930px content column (`.ec-wide` on `EditorCard`, gated on
+  `secondaryLocale`, capped via `min(1240px, max(100%, calc(100vw - 350px)))`)
+  so the main description gets a comfortable width per language **without any
+  field overflowing the card** — the fields stay 100% of the (now wider) card.
+  Single-language mode stays at the normal width.
 - The secondary column carries two **translation-assist** affordances:
   **Copy** (fills the secondary with the primary text, no network) and, when a
   LibreTranslate backend is configured, **Draft** (server-proxied machine
@@ -491,12 +499,22 @@ const projects = useStore(s => s.data.projects)
 ```ts
 const { addItem, updateItem, removeItem, moveItem, reorderItem } = useStore()
 
-addItem('projects', newProject)                          // appends + opens
+addItem('projects', newProject)                          // top of custom order + opens the card
+addItem('roles', reg, { open: false })                   // nested registry create: don't steal focus
 updateItem('projects', projectId, { customer: localized }) // shallow merge
 removeItem('projects', projectId)                        // no-op if id unknown
 moveItem('projects', projectId, toIndex)                 // drag-and-drop target
 reorderItem('projects', projectId, 'up' | 'down')        // keyboard fallback (thin wrapper over moveItem)
 ```
+
+`addItem` places the new item at the **top** of the custom (`sort_order`) order
+(a fresh item shouldn't sink to the bottom of a reverse-timeline list; the
+editors also render their **Add button above the list**), and in the date-sort
+modes an **undated item floats to the top** until it's dated
+(`lib/sectionSort.ts`) — then it drops into place. `addItem` also **opens the
+new item's card** by default; pass `{ open: false }` when creating a registry
+entry (skill/role/industry) from *inside* another editor so it doesn't steal
+focus from — and collapse — the parent card.
 
 The generic functions are typed: `updateItem('projects', id, { customer: ... })` will autocomplete to the fields of `Project`. Use them rather than writing one-off mutations.
 
@@ -684,8 +702,9 @@ than calling `set()` directly. Return `null` from the updater for a no-op
 
 ### Data-shape versioning (`lib/migrate.ts`)
 - `ResumeStore.shape_version` stamps the content shape (absent = pre-versioning
-  = 1; `CURRENT_SHAPE_VERSION` = 3 — v3 added the Industry registry +
-  `industry_id` and interns existing industry text). **Bump only for structural
+  = 1; `CURRENT_SHAPE_VERSION` = 4 — v3 added the Industry registry +
+  `industry_id`; v4 turned that single link into `Project.industries[]`
+  (multi-link) via `internProjectIndustries`). **Bump only for structural
   migrations** (a new top-level array that code iterates counts) — additive
   optional fields stay covered by `with*Defaults` render tolerance.
 - `migrateStore()` is the single choke point for data entering the app from

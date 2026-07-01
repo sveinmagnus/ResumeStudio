@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {
   SkillsEditor, RolesEditor, IndustriesEditor, ReferencesEditor, TechCategoriesEditor,
@@ -10,7 +10,7 @@ import {
 import { useStore } from '../../src/store/useStore'
 import { setSkillRelationsForTest } from '../../src/lib/skillTaxonomy'
 import { resetStore } from '../helpers/store-reset'
-import { emptyStore, makeSkill, makeProject, makeIndustry } from '../fixtures'
+import { emptyStore, makeSkill, makeProject, makeIndustry, makeRole } from '../fixtures'
 import type { ResumeStore } from '../../src/types'
 
 function seed(data: ResumeStore = emptyStore()) {
@@ -188,7 +188,7 @@ describe('<IndustriesEditor> (A8.1)', () => {
   it('merges one industry into another, rewriting the linked project', async () => {
     const a = makeIndustry({ id: 'a', name: { en: 'finance' } })
     const b = makeIndustry({ id: 'b', name: { en: 'Finance' } })
-    const project = makeProject({ id: 'p', industry_id: 'a', industry: { en: 'finance' } })
+    const project = makeProject({ id: 'p', industries: [{ id: 'pi1', industry_id: 'a', name: { en: 'finance' }, sort_order: 0 }] })
     seedInd({ ...emptyStore(), industries: [a, b], projects: [project] })
     useStore.setState({ expandedItemId: 'a' })
     vi.spyOn(window, 'confirm').mockReturnValue(true)
@@ -202,6 +202,79 @@ describe('<IndustriesEditor> (A8.1)', () => {
     const industries = useStore.getState().data.industries
     expect(industries).toHaveLength(1)         // source removed
     expect(industries[0].id).toBe('b')
-    expect(useStore.getState().data.projects[0].industry_id).toBe('b') // ref rewritten
+    expect(useStore.getState().data.projects[0].industries[0].industry_id).toBe('b') // ref rewritten
+  })
+})
+
+describe('<SkillsEditor> — active item stays put while editing (missing-translation filter)', () => {
+  beforeEach(() => resetStore())
+
+  it('keeps the expanded item present after its translation is completed', async () => {
+    useStore.setState({
+      data: {
+        ...emptyStore(),
+        skills: [
+          makeSkill({ id: 's1', name: { en: 'TypeScript' } }),          // missing 'no'
+          makeSkill({ id: 's2', name: { en: 'React', no: 'React' } }),  // complete
+        ],
+      },
+      hasData: true, primaryLocale: 'en', secondaryLocale: 'no',
+      activeSection: 'skills', expandedItemId: null, mutationCount: 0,
+    })
+    render(<SkillsEditor />)
+
+    // Filter to just the untranslated skill, then open it.
+    await userEvent.click(screen.getByRole('button', { name: /missing translation/i }))
+    await userEvent.click(screen.getByRole('button', { name: /TypeScript/ }))
+
+    // Completing the Norwegian translation would normally drop it from the
+    // filter mid-typing; the active-item pin must keep the edit box mounted.
+    const noInput = screen.getByLabelText(/Skill name \(Norsk\)/i)
+    await userEvent.type(noInput, 'TypeScript')
+
+    expect(useStore.getState().data.skills.find((s) => s.id === 's1')!.name.no).toBe('TypeScript')
+    expect(screen.getByLabelText(/Skill name \(Norsk\)/i)).toBeInTheDocument()
+  })
+})
+
+describe('<RolesEditor> — category view', () => {
+  beforeEach(() => resetStore())
+
+  function seedRoles() {
+    useStore.setState({
+      data: {
+        ...emptyStore(),
+        roles: [
+          makeRole({ id: 'r1', name: { en: 'Solution Architect' }, category: 'Architecture' }),
+          makeRole({ id: 'r2', name: { en: 'Backend Developer' }, category: 'Development' }),
+          makeRole({ id: 'r3', name: { en: 'Scrum Master' } }), // uncategorized
+        ],
+      },
+      hasData: true, primaryLocale: 'en', secondaryLocale: null,
+      activeSection: 'roles', expandedItemId: null, mutationCount: 0,
+    })
+  }
+
+  it('groups roles by category with an Uncategorized bucket and compact chips', async () => {
+    seedRoles()
+    render(<RolesEditor />)
+    await userEvent.click(screen.getByRole('button', { name: /by category/i }))
+    expect(screen.getByText('Architecture')).toBeInTheDocument()
+    expect(screen.getByText('Development')).toBeInTheDocument()
+    expect(screen.getByText('Uncategorized')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Solution Architect/ })).toBeInTheDocument()
+  })
+
+  it('opens the edit lightbox on chip click and assigns a category', async () => {
+    seedRoles()
+    render(<RolesEditor />)
+    await userEvent.click(screen.getByRole('button', { name: /by category/i }))
+    await userEvent.click(screen.getByRole('button', { name: 'Scrum Master' }))
+
+    const dialog = await screen.findByRole('dialog', { name: /edit role/i })
+    expect(within(dialog).getByLabelText(/Role name/i)).toBeInTheDocument()
+
+    await userEvent.type(within(dialog).getByPlaceholderText('Uncategorized'), 'Agile')
+    expect(useStore.getState().data.roles.find((r) => r.id === 'r3')!.category).toBe('Agile')
   })
 })

@@ -74,7 +74,7 @@ export function RichField({ label, value, onChange, placeholder }: RichFieldProp
   const fieldId = useId()
 
   return (
-    <div className={`rf-wrap ${secondary ? 'rf-wide' : ''}`}>
+    <div className="rf-wrap">
       {/* contentEditable can't take htmlFor — the columns name themselves
           via aria-label ("Description (Norsk)") built from this label. */}
       <span className="rf-label" id={`${fieldId}-label`}>{label}</span>
@@ -136,15 +136,6 @@ export function RichField({ label, value, onChange, placeholder }: RichFieldProp
 
       <style>{`
         .rf-wrap { margin-bottom: 18px; animation: fadeIn .3s ease; container-type: inline-size; }
-        /* In two-language mode the main description editor breaks out wider than
-           the ~930px editor card so EACH language column gets a comfortable
-           width when the viewport has the room. max(100%, …) means it never
-           shrinks below the card width (narrow viewports / the sidebar drawer
-           just get the normal full width), and it's capped so ultra-wide
-           screens don't produce an unwieldy line length. The open EditorCard
-           sets overflow:visible so this overhang isn't clipped (see
-           EditorCard). Single-language mode stays at the normal card width. */
-        .rf-wide { width: min(1400px, max(100%, calc(100vw - 350px))); }
         .rf-label {
           display: block; font-size: 11px; font-weight: 600; letter-spacing: .08em;
           text-transform: uppercase; color: var(--ink-faint); margin-bottom: 7px;

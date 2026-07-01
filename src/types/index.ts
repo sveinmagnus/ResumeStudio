@@ -25,6 +25,13 @@ export interface ProjectRole {
   disabled: boolean
 }
 
+export interface ProjectIndustry {
+  id: string
+  industry_id: string
+  name: LocalizedString        // snapshot of the registry name at link time
+  sort_order: number
+}
+
 export interface ProjectSkill {
   id: string
   skill_id: string
@@ -104,10 +111,10 @@ export interface Skill {
 
 /**
  * A shared Industry registry entry (A8.1). Like Role, it lives in a global
- * registry (`data.industries`) and is referenced by `Project.industry_id`, so
- * "Finance" / "finance" / "Banking" can be consolidated with the same
- * merge machinery as skills and roles. `Project.industry` keeps a denormalized
- * name copy at link time (the snapshot-name pattern).
+ * registry (`data.industries`) and is referenced by `Project.industries[]`
+ * (shape v4; a single `industry_id` pre-v4), so "Finance" / "finance" /
+ * "Banking" can be consolidated with the same merge machinery as skills and
+ * roles. Each `ProjectIndustry` snapshots the registry name at link time.
  */
 export interface Industry {
   id: string
@@ -126,6 +133,13 @@ export interface Role {
   starred: boolean
   sort_order: number
   disabled: boolean
+  /**
+   * Optional free-text grouping label for the Role registry's "by category"
+   * view (e.g. "Architecture", "Leadership"). Additive/optional — absent roles
+   * group under "Uncategorized". Not a registry of its own; the distinct values
+   * across roles form the category headers.
+   */
+  category?: string | null
 }
 
 export interface KeyQualification {
@@ -191,10 +205,14 @@ export interface Project {
   customer: LocalizedString
   customer_anonymized: LocalizedString
   use_anonymized: boolean
-  /** Denormalized industry name (copied from the registry at link time, or free text on legacy data). */
-  industry: LocalizedString
-  /** Link to the shared Industry registry (A8.1). null = unlinked / legacy free text. */
-  industry_id: string | null
+  /**
+   * Industries this project belongs to — a multi-link into the shared Industry
+   * registry (shape v4), mirroring `roles`/`skills`. A project can span several
+   * sectors (e.g. "Banking" + "Public sector"). Each entry snapshots the
+   * registry name at link time (the snapshot-name pattern). Migrated from the
+   * pre-v4 single `industry`/`industry_id` pair.
+   */
+  industries: ProjectIndustry[]
   description: LocalizedString
   long_description: LocalizedString
   highlights: LocalizedString[]

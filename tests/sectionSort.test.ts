@@ -61,11 +61,11 @@ describe('sortItems()', () => {
     expect(out.map((x) => x.id)).toEqual(['new', 'mid', 'old'])
   })
 
-  it('start mode sorts a missing start date last', () => {
+  it('start mode floats a missing start date to the top (new items surface until dated)', () => {
     const dated = makeWork({ id: 'dated', start: { year: 2020, month: 1 } })
     const undated = makeWork({ id: 'undated', start: null })
-    const out = sortItems('work_experiences', [undated, dated], 'start', 'en')
-    expect(out.map((x) => x.id)).toEqual(['dated', 'undated'])
+    const out = sortItems('work_experiences', [dated, undated], 'start', 'en')
+    expect(out.map((x) => x.id)).toEqual(['undated', 'dated'])
   })
 
   it('end mode treats a null (ongoing) end as the most recent', () => {
@@ -88,15 +88,15 @@ describe('sortItems()', () => {
     expect(out.map((x) => x.id)).toEqual(['new', 'mid', 'old', 'done'])
   })
 
-  it('end mode keeps an unknown-start ongoing item below dated ongoing ones', () => {
-    // An ongoing item with no recorded start date is treated as oldest among
-    // its ongoing siblings (consistent with how `start` sort treats a missing
-    // start), but still ranks above anything with a concrete end date.
+  it('end mode floats an unknown-start ongoing item to the top of the ongoing group', () => {
+    // An ongoing item with no recorded start date is a freshly-added /
+    // not-yet-dated entry, so it floats to the top among its ongoing siblings —
+    // but a concrete end date still ranks below every ongoing item.
     const dated   = makeWork({ id: 'dated',   end: null, start: { year: 2022, month: 6 } })
     const undated = makeWork({ id: 'undated', end: null, start: null })
     const ended   = makeWork({ id: 'ended',   end: { year: 2024, month: 1 } })
-    const out = sortItems('work_experiences', [undated, ended, dated], 'end', 'en')
-    expect(out.map((x) => x.id)).toEqual(['dated', 'undated', 'ended'])
+    const out = sortItems('work_experiences', [dated, ended, undated], 'end', 'en')
+    expect(out.map((x) => x.id)).toEqual(['undated', 'dated', 'ended'])
   })
 
   it('date mode uses the section single-date field (courses → completed)', () => {

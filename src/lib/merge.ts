@@ -82,15 +82,20 @@ const REGISTRIES: Record<RegistryKind, RegistryDescriptor> = {
   industries: {
     rewrite: (store, sourceId, target) => ({
       ...store,
-      projects: store.projects.map((p) =>
-        p.industry_id === sourceId
-          ? { ...p, industry_id: target.id, industry: target.name }
-          : p,
-      ),
+      projects: store.projects.map((p) => {
+        if (!p.industries.some((pi) => pi.industry_id === sourceId)) return p
+        // Point source links at the target + refresh the snapshot, then dedupe
+        // so a project that already listed the target doesn't end up with two.
+        const seen = new Set<string>()
+        const industries = p.industries
+          .map((pi) => (pi.industry_id === sourceId ? { ...pi, industry_id: target.id, name: target.name } : pi))
+          .filter((pi) => (seen.has(pi.industry_id) ? false : (seen.add(pi.industry_id), true)))
+        return { ...p, industries }
+      }),
     }),
     count: (store, id) => {
       let n = 0
-      for (const p of store.projects) if (p.industry_id === id) n++
+      for (const p of store.projects) for (const pi of p.industries) if (pi.industry_id === id) n++
       return n
     },
   },

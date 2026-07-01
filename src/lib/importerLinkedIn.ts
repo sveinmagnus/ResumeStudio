@@ -257,7 +257,7 @@ export function importFromLinkedIn(files: Record<string, string>): ResumeStore {
       id: uuidv4(), resume_id: resumeId,
       work_experience_id: null,
       customer: {}, customer_anonymized: {}, use_anonymized: false,
-      industry: {}, industry_id: null,
+      industries: [],
       description: L(p['Title']),
       long_description: L(p['Description']),
       highlights: [], roles: [], skills: [],

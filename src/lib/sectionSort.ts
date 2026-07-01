@@ -60,12 +60,14 @@ function ymKey(ym: unknown): number | null {
 }
 
 /**
- * Descending comparison by date key.
- * `nullIsRecent` decides where a missing date lands:
- *   - end dates: null = ongoing ⇒ most recent (sorts first)
- *   - start / single dates: null = unknown ⇒ oldest (sorts last)
+ * Descending comparison by date key. A missing date (`null`) always sorts to
+ * the TOP: for end dates that means "ongoing = most recent", and for start /
+ * single dates it means "not dated yet" — a freshly added item stays on top
+ * until the user sets its date, at which point it drops into its chronological
+ * place. (The `nullIsRecent` flag is kept for callers that ever need the old
+ * "nulls last" behaviour; all current call sites want nulls on top.)
  */
-function byDateDesc(a: number | null, b: number | null, nullIsRecent: boolean): number {
+function byDateDesc(a: number | null, b: number | null, nullIsRecent = true): number {
   const av = a ?? (nullIsRecent ? Infinity : -Infinity)
   const bv = b ?? (nullIsRecent ? Infinity : -Infinity)
   if (av === bv) return 0
@@ -91,7 +93,8 @@ export function sortItems<T extends Sortable>(
         ),
       )
     case 'start':
-      return arr.sort((a, b) => byDateDesc(ymKey(a.start), ymKey(b.start), false))
+      // Undated items float to the top (new items surface until dated).
+      return arr.sort((a, b) => byDateDesc(ymKey(a.start), ymKey(b.start)))
     case 'end':
       // Ongoing items (null end) all rank as "most recent" by end date, so
       // they tie with each other. Without a secondary key the input order
@@ -101,16 +104,18 @@ export function sortItems<T extends Sortable>(
       // a real end date are still compared purely by that end date.
       return arr.sort((a, b) => {
         const ae = ymKey(a.end), be = ymKey(b.end)
-        const primary = byDateDesc(ae, be, true)
+        const primary = byDateDesc(ae, be)
         if (primary !== 0) return primary
         if (ae === null && be === null) {
-          return byDateDesc(ymKey(a.start), ymKey(b.start), false)
+          // Both ongoing: newest start first; an undated (new) one stays on top.
+          return byDateDesc(ymKey(a.start), ymKey(b.start))
         }
         return 0
       })
     case 'date': {
       const field = DATE_CAPS[section]?.single ?? 'date'
-      return arr.sort((a, b) => byDateDesc(ymKey(a[field]), ymKey(b[field]), false))
+      // Undated items float to the top (new items surface until dated).
+      return arr.sort((a, b) => byDateDesc(ymKey(a[field]), ymKey(b[field])))
     }
     case 'custom':
     default:

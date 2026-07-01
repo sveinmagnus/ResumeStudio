@@ -12,7 +12,7 @@ import { Autocomplete } from '../ui/Autocomplete'
 import { SkillTranslationPopover, TranslationPopover } from './RegistryEditors'
 import { resolve, fmtRange } from '../../lib/locales'
 import { richToPlain } from '../../lib/richText'
-import type { Project, ProjectRole, ProjectSkill, Skill, Industry, Role, LocalizedString } from '../../types'
+import type { Project, ProjectRole, ProjectIndustry, ProjectSkill, Skill, Industry, Role, LocalizedString } from '../../types'
 import { Plus, X } from 'lucide-react'
 
 export function ProjectsEditor() {
@@ -24,7 +24,7 @@ export function ProjectsEditor() {
   const addProject = () => {
     const p: Project = {
       id: newId(), resume_id: data.resume!.id, work_experience_id: null,
-      customer: {}, customer_anonymized: {}, use_anonymized: false, industry: {}, industry_id: null,
+      customer: {}, customer_anonymized: {}, use_anonymized: false, industries: [],
       description: {}, long_description: {}, highlights: [], roles: [], skills: [],
       start: null, end: null, percent_allocated: null, team_size: null,
       location_country_code: null, external_url: null, skill_tags: [],
@@ -36,6 +36,7 @@ export function ProjectsEditor() {
   return (
     <div className="section-pane">
       <SortBar section="projects" count={projects.length} />
+      <AddButton label="Add project" onClick={addProject} />
       <SortableList section="projects" ids={projects.map((p) => p.id)}>
       {projects.map((p) => (
         <EditorCard key={p.id} section="projects" id={p.id}
@@ -47,7 +48,7 @@ export function ProjectsEditor() {
 
           <DualField label="Customer" value={p.customer} onChange={(v) => updateItem('projects', p.id, { customer: v })} />
           <DualField label="Description (short)" value={p.description} onChange={(v) => updateItem('projects', p.id, { description: v })} />
-          <ProjectIndustryLink project={p} />
+          <ProjectIndustriesEditor project={p} />
           <RichField label="Description" value={p.long_description} onChange={(v) => updateItem('projects', p.id, { long_description: v })} />
 
           <FieldRow>
@@ -69,7 +70,6 @@ export function ProjectsEditor() {
         </EditorCard>
       ))}
       </SortableList>
-      <AddButton label="Add project" onClick={addProject} />
       <PaneStyles />
     </div>
   )
@@ -113,87 +113,99 @@ function HighlightsEditor({ project }: { project: Project }) {
   )
 }
 
-// ── Project industry (registry link, A8.1) ───────────────────────────────────
+// ── Project industries (multi-link into the shared Industry registry) ────────
 
 /**
- * Links a project to the shared Industry registry. When linked, shows the
- * registry name + Unlink; when not, an autocomplete to pick an existing
- * industry or create one. Legacy free-text `industry` (industry_id null) is
- * shown and pre-filled so one click promotes it into the registry.
+ * Links a project to one or MORE industries (shape v4), mirroring the project
+ * skills/roles UX: chips for the linked industries (click a chip to edit its
+ * dual-language registry name via the shared popover) plus a typeahead to link
+ * an existing industry or create a new one. "shared registry" — merge
+ * duplicates in the Industry Registry.
  */
-function ProjectIndustryLink({ project }: { project: Project }) {
-  const { data, primaryLocale, addItem, updateItem } = useStore()
-  const linked = project.industry_id
-    ? data.industries.find((i) => i.id === project.industry_id)
-    : null
-  const legacyText = !project.industry_id ? resolve(project.industry, primaryLocale) : ''
+function ProjectIndustriesEditor({ project }: { project: Project }) {
+  const { data, addItem, updateItem, primaryLocale } = useStore()
 
-  const link = (industryId: string) => {
+  const remove = (piId: string) =>
+    updateItem('projects', project.id, { industries: project.industries.filter((pi) => pi.id !== piId) })
+
+  const linkExisting = (industryId: string) => {
+    if (project.industries.some((pi) => pi.industry_id === industryId)) return
     const ind = data.industries.find((i) => i.id === industryId)
     if (!ind) return
-    updateItem('projects', project.id, { industry_id: ind.id, industry: ind.name })
+    const pi: ProjectIndustry = { id: newId(), industry_id: ind.id, name: ind.name, sort_order: project.industries.length }
+    updateItem('projects', project.id, { industries: [...project.industries, pi] })
   }
+
   const createAndLink = (text: string) => {
     const ind: Industry = {
       id: newId(), resume_id: data.resume!.id,
       name: { [primaryLocale]: text },
       sort_order: data.industries.length, disabled: false,
     }
-    addItem('industries', ind)
-    updateItem('projects', project.id, { industry_id: ind.id, industry: ind.name })
+    // open:false so creating the industry doesn't collapse this project card.
+    addItem('industries', ind, { open: false })
+    const pi: ProjectIndustry = { id: newId(), industry_id: ind.id, name: ind.name, sort_order: project.industries.length }
+    const current = useStore.getState().data.projects.find((p) => p.id === project.id)
+    if (!current) return
+    updateItem('projects', project.id, { industries: [...current.industries, pi] })
   }
-  const unlink = () => updateItem('projects', project.id, { industry_id: null })
 
   return (
-    <div className="pil-wrap">
-      <label className="pil-label" htmlFor={`pil-${project.id}`}>
-        Industry <span className="pil-hint">— shared registry; merge duplicates in the Industry Registry</span>
-      </label>
-      {linked ? (
-        <div className="pil-linked">
-          <span className="pil-pill">{resolve(linked.name, primaryLocale) || '(unnamed industry)'}</span>
-          <button type="button" className="pil-unlink" onClick={unlink} title="Unlink from the industry registry" aria-label="Unlink industry">
-            <X size={13} /> Unlink
-          </button>
-        </div>
-      ) : (
-        <>
-          {legacyText && (
-            <div className="pil-legacy">Current: <strong>{legacyText}</strong> — pick or add to link it to the registry.</div>
-          )}
-          <Autocomplete
-            options={data.industries
-              .filter((i) => !i.disabled)
-              .map((i) => ({ id: i.id, label: resolve(i.name, primaryLocale) || '(unnamed)' }))}
-            onPick={link}
-            onAddNew={createAndLink}
-            addLabel="industry"
-            placeholder="Link or add an industry…"
-            ariaLabel="Link or add an industry"
-            initialQuery={legacyText}
-          />
-        </>
+    <div className="sub-block">
+      <div className="sub-head">Industries <span className="sub-hint">shared registry — click a chip to edit its translation; merge duplicates in the Industry Registry</span></div>
+      <div className="skill-chip-list">
+        {project.industries.map((pi) => (
+          <ProjectIndustryChip key={pi.id} project={project} pi={pi} onRemove={() => remove(pi.id)} />
+        ))}
+      </div>
+      <Autocomplete
+        options={data.industries
+          .filter((i) => !i.disabled && !project.industries.some((pi) => pi.industry_id === i.id))
+          .map((i) => ({ id: i.id, label: resolve(i.name, primaryLocale) || '(unnamed industry)' }))}
+        onPick={linkExisting}
+        onAddNew={createAndLink}
+        addLabel="industry"
+        placeholder="Search or add an industry…"
+      />
+    </div>
+  )
+}
+
+/**
+ * A ProjectIndustry chip mirroring ProjectRoleChip. Clicking opens a
+ * dual-language popover editing the registry Industry name (propagates to every
+ * reference); for a stale link with no registry entry it edits the local
+ * snapshot name.
+ */
+function ProjectIndustryChip({ project, pi, onRemove }: { project: Project; pi: ProjectIndustry; onRemove: () => void }) {
+  const { data, primaryLocale, updateItem } = useStore()
+  const [open, setOpen] = useState(false)
+  const industry = data.industries.find((i) => i.id === pi.industry_id)
+  const label = resolve(industry?.name ?? pi.name, primaryLocale) || '(unnamed industry)'
+
+  const onChangeName = (name: LocalizedString) => {
+    if (industry) updateItem('industries', industry.id, { name })
+    else updateItem('projects', project.id, { industries: project.industries.map((x) => (x.id === pi.id ? { ...x, name } : x)) })
+  }
+
+  return (
+    <div className="skill-chip-w">
+      <button type="button" className="skill-chip" onClick={() => setOpen((o) => !o)} title="Edit translation">
+        <span>{label}</span>
+      </button>
+      <button type="button" className="skill-chip-x" onClick={(e) => { e.stopPropagation(); onRemove() }} title="Remove from this project">
+        <X size={12} />
+      </button>
+      {open && (
+        <TranslationPopover
+          title={`Edit “${label}” translation`}
+          fieldLabel="Industry name"
+          value={industry?.name ?? pi.name}
+          footnote={industry ? 'Changes the registry — all references update.' : 'Not linked to the registry.'}
+          onClose={() => setOpen(false)}
+          onChange={onChangeName}
+        />
       )}
-      <style>{`
-        .pil-wrap { margin-bottom: 16px; }
-        .pil-label {
-          display: block; font-size: 11px; font-weight: 600; letter-spacing: .08em;
-          text-transform: uppercase; color: var(--ink-faint); margin-bottom: 7px;
-        }
-        .pil-hint { font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--ink-faint); margin-left: 2px; }
-        .pil-linked { display: flex; align-items: center; gap: 8px; }
-        .pil-pill {
-          display: inline-flex; align-items: center; padding: 6px 12px;
-          background: var(--accent-wash); color: var(--accent); border-radius: var(--r-sm);
-          font-size: 13px; font-weight: 600;
-        }
-        .pil-unlink {
-          display: inline-flex; align-items: center; gap: 4px; padding: 5px 9px;
-          font-size: 12px; color: var(--ink-faint); border: 1px solid var(--line); border-radius: var(--r-sm);
-        }
-        .pil-unlink:hover { color: #b91c1c; border-color: #b91c1c; }
-        .pil-legacy { font-size: 12.5px; color: var(--ink-faint); margin-bottom: 7px; }
-      `}</style>
     </div>
   )
 }
@@ -224,7 +236,7 @@ function ProjectRolesEditor({ project }: { project: Project }) {
       years_of_experience: 0, years_of_experience_offset: 0,
       starred: false, sort_order: data.roles.length, disabled: false,
     }
-    addItem('roles', reg)
+    addItem('roles', reg, { open: false }) // don't collapse this project card
     const pr: ProjectRole = { id: newId(), role_id: reg.id, name: reg.name, sort_order: project.roles.length, disabled: false }
     const current = useStore.getState().data.projects.find((p) => p.id === project.id)
     if (!current) return
@@ -323,7 +335,7 @@ function ProjectSkillsEditor({ project }: { project: Project }) {
       total_duration_in_years: 0, proficiency: 0,
       is_highlighted: false, created_at: new Date().toISOString(),
     }
-    addItem('skills', reg)
+    addItem('skills', reg, { open: false }) // don't collapse this project card
     const ps: ProjectSkill = {
       id: newId(), skill_id: reg.id, name: reg.name,
       duration_in_years: 0, offset_in_years: 0, total_duration_in_years: 0,
