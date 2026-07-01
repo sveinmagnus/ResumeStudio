@@ -876,7 +876,7 @@ export function TechCategoriesEditor() {
       default_category: null, skill_type: 'technical', total_duration_in_years: 0,
       proficiency: 0, is_highlighted: false, created_at: new Date().toISOString(),
     }
-    addItem('skills', skill)
+    addItem('skills', skill, { open: false }) // don't collapse this category card
     // Pull the freshly-current category off `items` after addItem (which
     // committed via the store): use a microtask so we read the updated state.
     // Simpler: read directly via getState.

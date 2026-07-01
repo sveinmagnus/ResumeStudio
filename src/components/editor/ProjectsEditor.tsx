@@ -36,6 +36,7 @@ export function ProjectsEditor() {
   return (
     <div className="section-pane">
       <SortBar section="projects" count={projects.length} />
+      <AddButton label="Add project" onClick={addProject} />
       <SortableList section="projects" ids={projects.map((p) => p.id)}>
       {projects.map((p) => (
         <EditorCard key={p.id} section="projects" id={p.id}
@@ -69,7 +70,6 @@ export function ProjectsEditor() {
         </EditorCard>
       ))}
       </SortableList>
-      <AddButton label="Add project" onClick={addProject} />
       <PaneStyles />
     </div>
   )
@@ -139,7 +139,8 @@ function ProjectIndustryLink({ project }: { project: Project }) {
       name: { [primaryLocale]: text },
       sort_order: data.industries.length, disabled: false,
     }
-    addItem('industries', ind)
+    // open:false so creating the industry doesn't collapse this project card.
+    addItem('industries', ind, { open: false })
     updateItem('projects', project.id, { industry_id: ind.id, industry: ind.name })
   }
   const unlink = () => updateItem('projects', project.id, { industry_id: null })
@@ -224,7 +225,7 @@ function ProjectRolesEditor({ project }: { project: Project }) {
       years_of_experience: 0, years_of_experience_offset: 0,
       starred: false, sort_order: data.roles.length, disabled: false,
     }
-    addItem('roles', reg)
+    addItem('roles', reg, { open: false }) // don't collapse this project card
     const pr: ProjectRole = { id: newId(), role_id: reg.id, name: reg.name, sort_order: project.roles.length, disabled: false }
     const current = useStore.getState().data.projects.find((p) => p.id === project.id)
     if (!current) return
@@ -323,7 +324,7 @@ function ProjectSkillsEditor({ project }: { project: Project }) {
       total_duration_in_years: 0, proficiency: 0,
       is_highlighted: false, created_at: new Date().toISOString(),
     }
-    addItem('skills', reg)
+    addItem('skills', reg, { open: false }) // don't collapse this project card
     const ps: ProjectSkill = {
       id: newId(), skill_id: reg.id, name: reg.name,
       duration_in_years: 0, offset_in_years: 0, total_duration_in_years: 0,

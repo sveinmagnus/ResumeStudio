@@ -42,8 +42,12 @@ export function EditorCard({
   canStar = true, canDisable = true, sortable = true, children,
 }: EditorCardProps) {
   const { expandedItemId, setExpandedItem, updateItem, removeItem, reorderItem } = useStore()
+  const secondaryLocale = useStore((s) => s.secondaryLocale)
   const guard = useReorderGuard(section)
   const open = expandedItemId === id
+  // Only widen the card when editing in two languages — a single-language
+  // editor doesn't need the extra width (see the .ec-wide rule).
+  const wide = open && !!secondaryLocale
 
   // useSortable is called unconditionally because hooks may not be
   // conditional. When `sortable` is false we still pay the (tiny) hook
@@ -62,7 +66,7 @@ export function EditorCard({
       ref={sortable ? setNodeRef : undefined}
       style={style}
       data-card-id={id}
-      className={`ec ${open ? 'open' : ''} ${disabled ? 'is-disabled' : ''} ${isDragging ? 'is-dragging' : ''}`}
+      className={`ec ${open ? 'open' : ''} ${wide ? 'ec-wide' : ''} ${disabled ? 'is-disabled' : ''} ${isDragging ? 'is-dragging' : ''}`}
     >
       <div className="ec-head" onClick={() => setExpandedItem(id)}>
         {sortable && (
@@ -132,10 +136,15 @@ export function EditorCard({
           border-radius: var(--r-md); margin-bottom: 10px; overflow: hidden;
           transition: box-shadow .2s, border-color .2s;
         }
-        /* When open, let a child (the wide main-description editor) overhang the
-           card to the right instead of being clipped. Collapsed cards keep
-           overflow:hidden so the rounded corners + preview text stay clean. */
         .ec.open { box-shadow: var(--shadow-md); border-color: var(--line-strong); overflow: visible; }
+        /* When editing in two languages, the card itself breaks out wider than
+           the ~930px content column (up to the viewport) so each language column
+           of the main description gets a comfortable width — WITHOUT any field
+           overflowing the card. max(100%, …) never shrinks it below the normal
+           column width (narrow viewports / the sidebar drawer stay normal); the
+           cap keeps ultra-wide screens sane. overflow:visible (above) lets the
+           chip translation popovers escape; nothing else exceeds the card. */
+        .ec.ec-wide { width: min(1240px, max(100%, calc(100vw - 350px))); }
         .ec.is-disabled { opacity: .55; }
         .ec.is-dragging { box-shadow: var(--shadow-lg); border-color: var(--accent); z-index: 5; position: relative; }
         .ec-head {
@@ -193,7 +202,8 @@ export function AddButton({ label, onClick }: { label: string; onClick: () => vo
       + {label}
       <style>{`
         .add-btn {
-          width: 100%; padding: 13px; border: 1.5px dashed var(--line-strong);
+          width: 100%; padding: 13px; margin-bottom: 10px;
+          border: 1.5px dashed var(--line-strong);
           border-radius: var(--r-md); color: var(--ink-soft); font-weight: 600; font-size: 14px;
           transition: color .15s, background .15s, border-color .15s, box-shadow .15s; background: transparent;
         }

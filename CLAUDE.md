@@ -414,12 +414,12 @@ header space.
 - `useStore().primaryLocale` and `useStore().secondaryLocale` (the latter can be `null` to mean "single column mode").
 - The `DualField` component reads these directly and renders 1 or 2 inputs accordingly. Components calling `DualField` never need to know about locales — just pass the `LocalizedString` and a setter.
 - The secondary input gets a subtle cyan tint (CSS var `--secondary-tint`) to distinguish from the primary (which uses the Cartavio navy accent on focus).
-- `RichField` (the main multi-line description editor) **breaks out wider than
-  the editor card in two-language mode** (`.rf-wide`, capped via
-  `min(1400px, max(100%, calc(100vw - 350px)))`) so each language column gets a
-  comfortable width when the viewport allows; single-language mode stays at the
-  normal card width. The open `EditorCard` uses `overflow: visible` so the
-  overhang isn't clipped.
+- In two-language edit mode the **open editor card itself breaks out wider**
+  than the ~930px content column (`.ec-wide` on `EditorCard`, gated on
+  `secondaryLocale`, capped via `min(1240px, max(100%, calc(100vw - 350px)))`)
+  so the main description gets a comfortable width per language **without any
+  field overflowing the card** — the fields stay 100% of the (now wider) card.
+  Single-language mode stays at the normal width.
 - The secondary column carries two **translation-assist** affordances:
   **Copy** (fills the secondary with the primary text, no network) and, when a
   LibreTranslate backend is configured, **Draft** (server-proxied machine
@@ -491,12 +491,22 @@ const projects = useStore(s => s.data.projects)
 ```ts
 const { addItem, updateItem, removeItem, moveItem, reorderItem } = useStore()
 
-addItem('projects', newProject)                          // appends + opens
+addItem('projects', newProject)                          // top of custom order + opens the card
+addItem('roles', reg, { open: false })                   // nested registry create: don't steal focus
 updateItem('projects', projectId, { customer: localized }) // shallow merge
 removeItem('projects', projectId)                        // no-op if id unknown
 moveItem('projects', projectId, toIndex)                 // drag-and-drop target
 reorderItem('projects', projectId, 'up' | 'down')        // keyboard fallback (thin wrapper over moveItem)
 ```
+
+`addItem` places the new item at the **top** of the custom (`sort_order`) order
+(a fresh item shouldn't sink to the bottom of a reverse-timeline list; the
+editors also render their **Add button above the list**), and in the date-sort
+modes an **undated item floats to the top** until it's dated
+(`lib/sectionSort.ts`) — then it drops into place. `addItem` also **opens the
+new item's card** by default; pass `{ open: false }` when creating a registry
+entry (skill/role/industry) from *inside* another editor so it doesn't steal
+focus from — and collapse — the parent card.
 
 The generic functions are typed: `updateItem('projects', id, { customer: ... })` will autocomplete to the fields of `Project`. Use them rather than writing one-off mutations.
 

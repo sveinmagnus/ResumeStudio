@@ -37,6 +37,14 @@ const reset = () => {
 
 beforeEach(reset)
 
+/**
+ * Seed a section's items directly, bypassing addItem's "place new items on
+ * top" policy. Used by the moveItem/reorderItem mechanics tests so they can
+ * assert on known, explicit sort_order values.
+ */
+const seed = (section: 'projects', items: ReturnType<typeof makeProject>[]) =>
+  useStore.setState((st) => ({ data: { ...st.data, [section]: items } }))
+
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 describe('newId() & emptyLocalized()', () => {
@@ -80,6 +88,23 @@ describe('addItem()', () => {
     useStore.getState().addItem('projects', makeProject())
     expect(useStore.getState().data.projects).not.toBe(originalRef)
   })
+
+  it('places the new item at the TOP of the custom order (sort_order below existing)', () => {
+    seed('projects', [makeProject({ id: 'a', sort_order: 0 }), makeProject({ id: 'b', sort_order: 1 })])
+    useStore.getState().addItem('projects', makeProject({ id: 'new', sort_order: 999 }))
+    const added = useStore.getState().data.projects.find((p) => p.id === 'new')!
+    // Its sort_order is below every existing one, so custom sort ranks it first.
+    expect(added.sort_order).toBeLessThan(0)
+    const byOrder = [...useStore.getState().data.projects].sort((x, y) => x.sort_order - y.sort_order)
+    expect(byOrder[0].id).toBe('new')
+  })
+
+  it('{ open: false } leaves expandedItemId unchanged (nested registry creation)', () => {
+    useStore.setState({ expandedItemId: 'parent-card' })
+    useStore.getState().addItem('roles', makeRole({ id: 'r1' }), { open: false })
+    expect(useStore.getState().expandedItemId).toBe('parent-card')
+    expect(useStore.getState().data.roles.map((r) => r.id)).toContain('r1')
+  })
 })
 
 describe('updateItem()', () => {
@@ -117,22 +142,20 @@ describe('removeItem()', () => {
 
 describe('reorderItem()', () => {
   it('swaps the item with its previous neighbour (up)', () => {
-    const items = [
+    seed('projects', [
       makeProject({ id: 'a', sort_order: 0 }),
       makeProject({ id: 'b', sort_order: 1 }),
       makeProject({ id: 'c', sort_order: 2 }),
-    ]
-    items.forEach((p) => useStore.getState().addItem('projects', p))
+    ])
     useStore.getState().reorderItem('projects', 'b', 'up')
     expect(useStore.getState().data.projects.map((p) => p.id)).toEqual(['b', 'a', 'c'])
   })
 
   it('renormalises sort_order after swap', () => {
-    const items = [
+    seed('projects', [
       makeProject({ id: 'a', sort_order: 10 }),
       makeProject({ id: 'b', sort_order: 20 }),
-    ]
-    items.forEach((p) => useStore.getState().addItem('projects', p))
+    ])
     useStore.getState().reorderItem('projects', 'a', 'down')
     expect(useStore.getState().data.projects.map((p) => p.sort_order)).toEqual([0, 1])
   })
@@ -160,35 +183,31 @@ describe('reorderItem()', () => {
 
 describe('moveItem()', () => {
   it('moves the item to the requested index and renormalises sort_order', () => {
-    const items = [
+    seed('projects', [
       makeProject({ id: 'a', sort_order: 0 }),
       makeProject({ id: 'b', sort_order: 1 }),
       makeProject({ id: 'c', sort_order: 2 }),
       makeProject({ id: 'd', sort_order: 3 }),
-    ]
-    items.forEach((p) => useStore.getState().addItem('projects', p))
+    ])
     useStore.getState().moveItem('projects', 'a', 2)
     expect(useStore.getState().data.projects.map((p) => p.id)).toEqual(['b', 'c', 'a', 'd'])
     expect(useStore.getState().data.projects.map((p) => p.sort_order)).toEqual([0, 1, 2, 3])
   })
 
   it('clamps a too-high target index to last position', () => {
-    useStore.getState().addItem('projects', makeProject({ id: 'a' }))
-    useStore.getState().addItem('projects', makeProject({ id: 'b' }))
+    seed('projects', [makeProject({ id: 'a', sort_order: 0 }), makeProject({ id: 'b', sort_order: 1 })])
     useStore.getState().moveItem('projects', 'a', 99)
     expect(useStore.getState().data.projects.map((p) => p.id)).toEqual(['b', 'a'])
   })
 
   it('clamps a negative target index to 0', () => {
-    useStore.getState().addItem('projects', makeProject({ id: 'a' }))
-    useStore.getState().addItem('projects', makeProject({ id: 'b' }))
+    seed('projects', [makeProject({ id: 'a', sort_order: 0 }), makeProject({ id: 'b', sort_order: 1 })])
     useStore.getState().moveItem('projects', 'b', -5)
     expect(useStore.getState().data.projects.map((p) => p.id)).toEqual(['b', 'a'])
   })
 
   it('is a no-op when moving to current position', () => {
-    useStore.getState().addItem('projects', makeProject({ id: 'a' }))
-    useStore.getState().addItem('projects', makeProject({ id: 'b' }))
+    seed('projects', [makeProject({ id: 'a', sort_order: 0 }), makeProject({ id: 'b', sort_order: 1 })])
     const before = useStore.getState().mutationCount
     useStore.getState().moveItem('projects', 'a', 0)
     expect(useStore.getState().mutationCount).toBe(before)
@@ -202,10 +221,12 @@ describe('moveItem()', () => {
   })
 
   it('respects current sort_order when computing positions (not raw array order)', () => {
-    // Add items with intentionally inverted sort_order
-    useStore.getState().addItem('projects', makeProject({ id: 'a', sort_order: 2 }))
-    useStore.getState().addItem('projects', makeProject({ id: 'b', sort_order: 0 }))
-    useStore.getState().addItem('projects', makeProject({ id: 'c', sort_order: 1 }))
+    // Seed items with intentionally inverted sort_order
+    seed('projects', [
+      makeProject({ id: 'a', sort_order: 2 }),
+      makeProject({ id: 'b', sort_order: 0 }),
+      makeProject({ id: 'c', sort_order: 1 }),
+    ])
     // Visible order is b, c, a — moving b to index 2 should put it last
     useStore.getState().moveItem('projects', 'b', 2)
     const ordered = [...useStore.getState().data.projects].sort((x, y) => x.sort_order - y.sort_order)
@@ -439,11 +460,13 @@ describe('mutationCount semantics', () => {
     // Need 2 items so moveItem is a real move (not the from===to no-op).
     useStore.getState().addItem('projects', makeProject({ id: 'p1', sort_order: 0 }))
     useStore.getState().addItem('projects', makeProject({ id: 'p2', sort_order: 1 }))
-    const after2Adds = useStore.getState().mutationCount
+    // Seed explicit order so p1 is first and moving it to index 1 is a real move.
+    seed('projects', [makeProject({ id: 'p1', sort_order: 0 }), makeProject({ id: 'p2', sort_order: 1 })])
+    const baseline = useStore.getState().mutationCount
     useStore.getState().updateItem('projects', 'p1', { team_size: 5 })
     useStore.getState().moveItem('projects', 'p1', 1)
     useStore.getState().removeItem('projects', 'p1')
-    expect(useStore.getState().mutationCount).toBe(after2Adds + 3)
+    expect(useStore.getState().mutationCount).toBe(baseline + 3)
   })
 
   it('updates/removes for a missing id do NOT bump the counter', () => {
@@ -455,8 +478,7 @@ describe('mutationCount semantics', () => {
   })
 
   it('moveItem to the same position does NOT bump the counter', () => {
-    useStore.getState().addItem('projects', makeProject({ id: 'a', sort_order: 0 }))
-    useStore.getState().addItem('projects', makeProject({ id: 'b', sort_order: 1 }))
+    seed('projects', [makeProject({ id: 'a', sort_order: 0 }), makeProject({ id: 'b', sort_order: 1 })])
     const before = useStore.getState().mutationCount
     useStore.getState().moveItem('projects', 'a', 0) // already at 0
     expect(useStore.getState().mutationCount).toBe(before)
