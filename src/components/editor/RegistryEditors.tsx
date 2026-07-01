@@ -1,6 +1,7 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
 import { useStore, newId } from '../../store/useStore'
 import { useSortedItems } from '../../store/useSortedItems'
+import { useStableExpanded } from '../../store/useStableExpanded'
 import {
   suggestSkillNames, loadSkillRelations, relatedSkillSuggestions, type SkillRelations,
 } from '../../lib/skillTaxonomy'
@@ -184,6 +185,9 @@ export function SkillsEditor() {
     }
     return allItems
   }, [allItems, usage, filter, primaryLocale, secondaryLocale])
+  // Keep the item being edited present even once its translation is complete
+  // (the missing-translation filter would otherwise drop it mid-typing).
+  const displayItems = useStableExpanded('skills', items)
 
   const onMerge = (sourceId: string, targetId: string) => {
     if (!confirmMerge('skill', sourceId, targetId, data.skills, primaryLocale, countSkillReferences(data, sourceId))) return
@@ -209,7 +213,7 @@ export function SkillsEditor() {
       </p>
       <FilterBar filter={filter} onChange={setFilter} counts={counts} />
       {filter === 'all' && <RelatedSkillsPanel onAdd={addNamed} />}
-      {items.length === 0 && (
+      {displayItems.length === 0 && (
         <div className="registry-empty">
           {filter === 'unused'
             ? 'No unused skills — every skill is referenced somewhere.'
@@ -218,7 +222,7 @@ export function SkillsEditor() {
               : 'No skills yet — add your first below.'}
         </div>
       )}
-      {items.map((s) => {
+      {displayItems.map((s) => {
         const u = usageOfSkill(data, s.id)
         const projectCount = u.projects.length
         const catCount = u.technology_categories.length
@@ -299,6 +303,8 @@ export function RolesEditor() {
     }
     return sortedItems
   }, [sortedItems, usage, filter, primaryLocale, secondaryLocale])
+  // Keep the item being edited present past the live filter (see SkillsEditor).
+  const displayItems = useStableExpanded('roles', items)
 
   const add = () => {
     const r: Role = {
@@ -320,8 +326,8 @@ export function RolesEditor() {
       {/* SortableList only wraps the rendered slice; reordering with a filter
           active still bakes into sort_order against the visible items, which
           is the intuitive behaviour. */}
-      <SortableList section="roles" ids={items.map((x) => x.id)}>
-      {items.length === 0 && (
+      <SortableList section="roles" ids={displayItems.map((x) => x.id)}>
+      {displayItems.length === 0 && (
         <div className="registry-empty">
           {filter === 'unused'
             ? 'No unused roles — every role is referenced somewhere.'
@@ -330,7 +336,7 @@ export function RolesEditor() {
               : 'No roles yet — add your first below.'}
         </div>
       )}
-      {items.map((r) => {
+      {displayItems.map((r) => {
         const u = usageOfRole(data, r.id)
         const projectCount = u.projects.length
         const empCount = u.work_experiences.length
@@ -393,6 +399,8 @@ export function IndustriesEditor() {
     }
     return sortedItems
   }, [sortedItems, usage, filter, primaryLocale, secondaryLocale])
+  // Keep the item being edited present past the live filter (see SkillsEditor).
+  const displayItems = useStableExpanded('industries', items)
 
   const add = () => {
     const ind: Industry = {
@@ -415,8 +423,8 @@ export function IndustriesEditor() {
       </p>
       <FilterBar filter={filter} onChange={setFilter} counts={counts} />
       <SortBar section="industries" count={sortedItems.length} />
-      <SortableList section="industries" ids={items.map((x) => x.id)}>
-      {items.length === 0 && (
+      <SortableList section="industries" ids={displayItems.map((x) => x.id)}>
+      {displayItems.length === 0 && (
         <div className="registry-empty">
           {filter === 'unused'
             ? 'No unused industries — every industry is referenced by a project.'
@@ -425,7 +433,7 @@ export function IndustriesEditor() {
               : 'No industries yet — they appear as you set a project industry, or add one below.'}
         </div>
       )}
-      {items.map((ind) => {
+      {displayItems.map((ind) => {
         const u = usageOfIndustry(data, ind.id)
         const projectCount = u.projects.length
         return (

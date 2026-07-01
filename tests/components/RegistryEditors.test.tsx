@@ -205,3 +205,34 @@ describe('<IndustriesEditor> (A8.1)', () => {
     expect(useStore.getState().data.projects[0].industry_id).toBe('b') // ref rewritten
   })
 })
+
+describe('<SkillsEditor> — active item stays put while editing (missing-translation filter)', () => {
+  beforeEach(() => resetStore())
+
+  it('keeps the expanded item present after its translation is completed', async () => {
+    useStore.setState({
+      data: {
+        ...emptyStore(),
+        skills: [
+          makeSkill({ id: 's1', name: { en: 'TypeScript' } }),          // missing 'no'
+          makeSkill({ id: 's2', name: { en: 'React', no: 'React' } }),  // complete
+        ],
+      },
+      hasData: true, primaryLocale: 'en', secondaryLocale: 'no',
+      activeSection: 'skills', expandedItemId: null, mutationCount: 0,
+    })
+    render(<SkillsEditor />)
+
+    // Filter to just the untranslated skill, then open it.
+    await userEvent.click(screen.getByRole('button', { name: /missing translation/i }))
+    await userEvent.click(screen.getByRole('button', { name: /TypeScript/ }))
+
+    // Completing the Norwegian translation would normally drop it from the
+    // filter mid-typing; the active-item pin must keep the edit box mounted.
+    const noInput = screen.getByLabelText(/Skill name \(Norsk\)/i)
+    await userEvent.type(noInput, 'TypeScript')
+
+    expect(useStore.getState().data.skills.find((s) => s.id === 's1')!.name.no).toBe('TypeScript')
+    expect(screen.getByLabelText(/Skill name \(Norsk\)/i)).toBeInTheDocument()
+  })
+})

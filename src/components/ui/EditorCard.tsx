@@ -1,4 +1,4 @@
-import { ReactNode } from 'react'
+import { ReactNode, useEffect, useRef } from 'react'
 import { useStore } from '../../store/useStore'
 import { useReorderGuard } from '../../store/useReorderGuard'
 import {
@@ -45,6 +45,23 @@ export function EditorCard({
   const secondaryLocale = useStore((s) => s.secondaryLocale)
   const guard = useReorderGuard(section)
   const open = expandedItemId === id
+
+  // Scroll a newly-opened card into view. This matters when expansion is
+  // triggered programmatically — jumping from a registry usage link, or the
+  // Overview "needs attention" list — where the target card can be far down a
+  // long (and re-sorted) list and would otherwise open off-screen, so the user
+  // sees some other item at the top and thinks the wrong one opened. `nearest`
+  // is a no-op when the card is already visible (e.g. a manual click).
+  const wasOpen = useRef(false)
+  useEffect(() => {
+    if (open && !wasOpen.current) {
+      const el = document.querySelector<HTMLElement>(`[data-card-id="${id}"]`)
+      if (el && typeof el.scrollIntoView === 'function') {
+        el.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+      }
+    }
+    wasOpen.current = open
+  }, [open, id])
   // Only widen the card when editing in two languages — a single-language
   // editor doesn't need the extra width (see the .ec-wide rule).
   const wide = open && !!secondaryLocale
