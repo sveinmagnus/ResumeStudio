@@ -114,6 +114,27 @@ export function setSkillClassificationsForTest(c: SkillClassifications | null): 
   cachedClassifications = c
 }
 
+// ─── Fine-grained domains (auto-categorization) ───────────────────────────────
+
+/** canonical name → fine-grained domain (e.g. "Software Development", "Cloud & Infrastructure"). */
+export type SkillDomains = Record<string, string>
+
+let cachedDomains: SkillDomains | null = null
+
+/** Load (and memoize) the domain map. Lazy chunk on first call. */
+export async function loadSkillDomains(): Promise<SkillDomains> {
+  if (!cachedDomains) {
+    const mod = await import('../generated/skillDomains.json')
+    cachedDomains = mod.default as SkillDomains
+  }
+  return cachedDomains
+}
+
+/** Test seam: replace/clear the memoized domains. */
+export function setSkillDomainsForTest(d: SkillDomains | null): void {
+  cachedDomains = d
+}
+
 export interface RelatedSuggestion {
   name: string
   /** How many of the user's skills point to this one — drives ranking. */

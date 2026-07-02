@@ -8,7 +8,7 @@ import {
   SkillsEditor, RolesEditor, IndustriesEditor, ReferencesEditor, TechCategoriesEditor,
 } from '../../src/components/editor/RegistryEditors'
 import { useStore } from '../../src/store/useStore'
-import { setSkillRelationsForTest } from '../../src/lib/skillTaxonomy'
+import { setSkillRelationsForTest, setSkillDomainsForTest } from '../../src/lib/skillTaxonomy'
 import { resetStore } from '../helpers/store-reset'
 import { emptyStore, makeSkill, makeProject, makeIndustry, makeRole } from '../fixtures'
 import type { ResumeStore } from '../../src/types'
@@ -20,7 +20,11 @@ function seed(data: ResumeStore = emptyStore()) {
   })
 }
 
-afterEach(() => vi.restoreAllMocks())
+afterEach(() => {
+  vi.restoreAllMocks()
+  setSkillRelationsForTest(null)
+  setSkillDomainsForTest(null)
+})
 
 describe('<SkillsEditor> — add + merge', () => {
   beforeEach(() => resetStore())
@@ -49,6 +53,30 @@ describe('<SkillsEditor> — add + merge', () => {
     const skills = useStore.getState().data.skills
     expect(skills).toHaveLength(2)
     expect(skills.some((s) => s.name.en === 'Agile Software Development')).toBe(true)
+  })
+
+  it('auto-categorizes uncategorized skills from the library in the By category view', async () => {
+    setSkillDomainsForTest({ TypeScript: 'Software Development', Kubernetes: 'Cloud & Infrastructure' })
+    setSkillRelationsForTest({})
+    seed({
+      ...emptyStore(),
+      skills: [
+        makeSkill({ id: 's1', name: { en: 'TypeScript' } }),
+        makeSkill({ id: 's2', name: { en: 'Kubernetes' } }),
+        makeSkill({ id: 's3', name: { en: 'My Frontend' }, category: 'Kept' }),
+      ],
+    })
+    render(<SkillsEditor />)
+    await userEvent.click(screen.getByRole('button', { name: /by category/i }))
+
+    // Panel appears once the lazy domain map resolves (2 fillable, s3 is set).
+    const btn = await screen.findByRole('button', { name: /auto-categorize 2/i })
+    await userEvent.click(btn)
+
+    const skills = useStore.getState().data.skills
+    expect(skills.find((s) => s.id === 's1')!.category).toBe('Software Development')
+    expect(skills.find((s) => s.id === 's2')!.category).toBe('Cloud & Infrastructure')
+    expect(skills.find((s) => s.id === 's3')!.category).toBe('Kept') // manual category untouched
   })
 
   it('dismisses a related-skill suggestion without adding it', async () => {

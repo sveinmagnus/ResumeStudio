@@ -3,6 +3,7 @@
  *   - src/generated/skillTaxonomy.json       — flat list of canonical names (F12 pt1/2)
  *   - src/generated/skillRelations.json      — name → related names map (F12 pt3)
  *   - src/generated/skillClassifications.json — name → authoritative classification (F12 pt4)
+ *   - src/generated/skillDomains.json        — name → fine-grained domain (auto-categorization)
  *
  * Both are lazy-loaded by lib/skillTaxonomy.ts so the runtime never fetches
  * anything and CI never needs the source repo. Re-run this script (and commit
@@ -25,6 +26,7 @@ const source = process.argv[2]
 const namesTarget = path.join(root, 'src', 'generated', 'skillTaxonomy.json')
 const relTarget = path.join(root, 'src', 'generated', 'skillRelations.json')
 const classTarget = path.join(root, 'src', 'generated', 'skillClassifications.json')
+const domainTarget = path.join(root, 'src', 'generated', 'skillDomains.json')
 
 const index = JSON.parse(fs.readFileSync(source, 'utf8'))
 if (!Array.isArray(index)) throw new Error('skills-index.json: expected an array')
@@ -95,3 +97,23 @@ for (const name of Object.keys(classifications).sort((a, b) => a.localeCompare(b
 }
 fs.writeFileSync(classTarget, JSON.stringify(sortedClass, null, 0) + '\n', 'utf8')
 console.log(`Wrote ${Object.keys(sortedClass).length} classifications (${fs.statSync(classTarget).size} bytes) to ${path.relative(root, classTarget)}`)
+
+// ── Domains (auto-categorization) ────────────────────────────────────────────
+// Each entry's `domain` is a fine-grained grouping ("Software Development",
+// "Cloud & Infrastructure", …) — far richer than the 8 `ce` buckets and a
+// natural source for the Skill registry's free-text `category`. Emit canonical
+// name → domain; skip domainless entries. First spelling wins on dupes.
+const domains = {}
+for (const entry of index) {
+  const name = String(entry?.name ?? '').trim()
+  const canon = canonicalByLower.get(name.toLowerCase())
+  const domain = String(entry?.domain ?? '').trim()
+  if (!canon || !domain || domains[canon]) continue
+  domains[canon] = domain
+}
+const sortedDomains = {}
+for (const name of Object.keys(domains).sort((a, b) => a.localeCompare(b, 'en'))) {
+  sortedDomains[name] = domains[name]
+}
+fs.writeFileSync(domainTarget, JSON.stringify(sortedDomains, null, 0) + '\n', 'utf8')
+console.log(`Wrote ${Object.keys(sortedDomains).length} domains (${fs.statSync(domainTarget).size} bytes) to ${path.relative(root, domainTarget)}`)

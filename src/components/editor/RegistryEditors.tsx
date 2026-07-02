@@ -3,8 +3,10 @@ import { useStore, newId } from '../../store/useStore'
 import { useSortedItems } from '../../store/useSortedItems'
 import { useStableExpanded } from '../../store/useStableExpanded'
 import {
-  suggestSkillNames, loadSkillRelations, relatedSkillSuggestions, type SkillRelations,
+  suggestSkillNames, loadSkillRelations, relatedSkillSuggestions, loadSkillDomains,
+  type SkillRelations, type SkillDomains,
 } from '../../lib/skillTaxonomy'
+import { autoCategorizeSkills } from '../../lib/skillCategorize'
 import { DualField } from '../ui/DualField'
 import { TextField } from '../ui/Fields'
 import { EditorCard, AddButton, FieldRow } from '../ui/EditorCard'
@@ -21,7 +23,7 @@ import type {
   Skill, Role, Industry, Reference, TechnologyCategory, CategorySkill,
   LocalizedString, Project, WorkExperience,
 } from '../../types'
-import { X, Plus, Sparkles, Combine, Filter as FilterIcon, Briefcase, FolderKanban, List, LayoutGrid } from 'lucide-react'
+import { X, Plus, Sparkles, Combine, Filter as FilterIcon, Briefcase, FolderKanban, List, LayoutGrid, Wand2 } from 'lucide-react'
 import {
   DndContext, PointerSensor, useSensor, useSensors, useDraggable, useDroppable, type DragEndEvent,
 } from '@dnd-kit/core'
@@ -149,6 +151,65 @@ function RelatedSkillsPanel({ onAdd }: { onAdd: (name: string) => void }) {
           </span>
         ))}
       </div>
+    </div>
+  )
+}
+
+/**
+ * Auto-categorize the skill registry from the Quadim library (fully offline).
+ * Lazy-loads the domain map (+ relations for the Tier-2 graph vote), previews
+ * how many currently-uncategorized skills would get a category, and applies via
+ * replaceData so the change is undoable + auto-saved. Only fills blanks — a
+ * category set by hand is never overwritten. Renders null when nothing applies.
+ */
+function AutoCategorizePanel() {
+  const data = useStore((s) => s.data)
+  const replaceData = useStore((s) => s.replaceData)
+  const [domains, setDomains] = useState<SkillDomains | null>(null)
+  const [relations, setRelations] = useState<SkillRelations | null>(null)
+  const [justRan, setJustRan] = useState<number | null>(null)
+
+  useEffect(() => {
+    let alive = true
+    void loadSkillDomains().then((d) => { if (alive) setDomains(d) }).catch(() => { /* feature just hides */ })
+    void loadSkillRelations().then((r) => { if (alive) setRelations(r) }).catch(() => { /* Tier 2 just skips */ })
+    return () => { alive = false }
+  }, [])
+
+  // Preview only — nothing is applied until the user clicks.
+  const preview = useMemo(() => {
+    if (!domains) return null
+    return autoCategorizeSkills(data, domains, relations ?? undefined)
+  }, [data, domains, relations])
+
+  const pending = preview?.changed ?? 0
+  if (pending === 0 && justRan === null) return null
+
+  const apply = () => {
+    if (!preview || preview.changed === 0) return
+    replaceData(preview.store)
+    setJustRan(preview.changed)
+  }
+
+  const inferred = preview?.assignments.filter((a) => a.tier === 2).length ?? 0
+
+  return (
+    <div className="acp" role="group" aria-label="Auto-categorize skills">
+      {pending > 0 ? (
+        <>
+          <span className="acp-text">
+            <Wand2 size={13} /> {pending} uncategorized skill{pending === 1 ? '' : 's'} can be grouped
+            from the skill library{inferred > 0 ? ` (${inferred} inferred from related skills)` : ''}.
+          </span>
+          <button type="button" className="acp-btn" onClick={apply}>
+            Auto-categorize {pending}
+          </button>
+        </>
+      ) : (
+        <span className="acp-text acp-done" role="status">
+          <Wand2 size={13} /> Categorized {justRan} skill{justRan === 1 ? '' : 's'} — undo with Ctrl+Z.
+        </span>
+      )}
     </div>
   )
 }
@@ -322,6 +383,7 @@ export function SkillsEditor() {
       ) : (
         <>
           <p className="registry-note rcv-hint">Drag a skill onto another category header to recategorize it. Click a skill to edit it. Set a skill's category in its editor.</p>
+          <AutoCategorizePanel />
           <RegistryCategoryView
             items={allItems}
             unnamed="(unnamed skill)"
@@ -1416,6 +1478,26 @@ function RegistryStyles() {
         transition: color .12s, background .12s;
       }
       .rsp-x:hover { color: #b91c1c; background: #fef2f2; }
+      /* Auto-categorize panel */
+      .acp {
+        display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px;
+        margin-bottom: 14px; padding: 10px 14px;
+        background: var(--accent-wash); border: 1px solid var(--secondary-line, var(--line));
+        border-radius: var(--r-md);
+      }
+      .acp-text {
+        display: inline-flex; align-items: center; gap: 6px;
+        font-size: 12.5px; color: var(--ink-soft); flex: 1 1 auto; min-width: 220px;
+      }
+      .acp-text svg { color: var(--accent); flex-shrink: 0; }
+      .acp-done { color: var(--ok-ink, var(--accent)); }
+      .acp-done svg { color: var(--ok-ink, var(--accent)); }
+      .acp-btn {
+        display: inline-flex; align-items: center; padding: 6px 14px;
+        font-size: 12.5px; font-weight: 600; color: #fff; background: var(--accent);
+        border-radius: var(--r-sm); transition: background .12s; flex-shrink: 0;
+      }
+      .acp-btn:hover { background: var(--accent-bright, var(--accent)); }
       /* .check-row lives in src/index.css */
       .sub-block { margin: 16px 0 0; padding: 14px; background: var(--paper-sunken); border-radius: var(--r-md); }
       .sub-head { font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--ink-soft); margin-bottom: 10px; }
