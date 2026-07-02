@@ -9,6 +9,7 @@
 import type { ResumeStore, LocalizedString } from '../types'
 import { getItemTitle } from './viewFilter'
 import { richToPlain } from './richText'
+import { resolve } from './locales'
 import { SECTIONS } from './sections'
 
 /**
@@ -110,6 +111,36 @@ export function computeCompleteness(
   data.certifications.forEach((c) => {
     const label = getItemTitle('certifications', c, LABEL_LOCALE)
     track(c.name, 'certifications', c.id, label, 'Name')
+  })
+
+  // Registry names (skills / roles / industries) that are ACTIVELY USED
+  // elsewhere in the resume. An unused registry entry never reaches an export,
+  // so leaving it untranslated shouldn't drag the score down — but a skill that
+  // appears on a project and lacks a translation absolutely should. (Fixes the
+  // "100 untranslated skills but 100% complete" report.) Membership sets are
+  // built in one pass so this stays cheap for large registries.
+  const usedSkillIds = new Set<string>()
+  const usedRoleIds = new Set<string>()
+  const usedIndustryIds = new Set<string>()
+  for (const p of data.projects) {
+    for (const ps of p.skills) usedSkillIds.add(ps.skill_id)
+    for (const pr of p.roles) usedRoleIds.add(pr.role_id)
+    for (const pi of p.industries) usedIndustryIds.add(pi.industry_id)
+  }
+  for (const c of data.technology_categories) for (const cs of c.skills) usedSkillIds.add(cs.skill_id)
+  for (const w of data.work_experiences) if (w.role_id) usedRoleIds.add(w.role_id)
+
+  data.skills.forEach((s) => {
+    if (!usedSkillIds.has(s.id)) return
+    track(s.name, 'skills', s.id, resolve(s.name, LABEL_LOCALE) || 'Skill', 'Skill name')
+  })
+  data.roles.forEach((r) => {
+    if (r.disabled || !usedRoleIds.has(r.id)) return
+    track(r.name, 'roles', r.id, resolve(r.name, LABEL_LOCALE) || 'Role', 'Role name')
+  })
+  data.industries.forEach((i) => {
+    if (i.disabled || !usedIndustryIds.has(i.id)) return
+    track(i.name, 'industries', i.id, resolve(i.name, LABEL_LOCALE) || 'Industry', 'Industry name')
   })
 
   const result: Record<string, LocaleCompleteness> = {}

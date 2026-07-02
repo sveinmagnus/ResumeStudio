@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { computeCompleteness, computeSectionCoverage } from '../src/lib/completeness'
 import {
-  emptyStore, makeProject, makeWork, makeEducation, makeKQ, makeCourse,
+  emptyStore, makeProject, makeWork, makeEducation, makeKQ, makeCourse, makeSkill, makeRole,
 } from './fixtures'
 
 describe('computeCompleteness()', () => {
@@ -196,5 +196,51 @@ describe('computeSectionCoverage()', () => {
     const noOut = computeSectionCoverage(store, 'no')
     expect(noOut.find((r) => r.key === 'key_qualifications')?.populated).toBe(1)
     expect(noOut.find((r) => r.key === 'courses')?.populated).toBe(1)
+  })
+})
+
+describe('computeCompleteness() — used registry items (skills / roles)', () => {
+  function clearHeader(store: ReturnType<typeof emptyStore>) {
+    if (store.resume) {
+      store.resume.title = {}
+      store.resume.nationality = {}
+      store.resume.place_of_residence = {}
+    }
+  }
+
+  it('counts a USED skill missing its secondary translation as incomplete', () => {
+    const store = emptyStore()
+    clearHeader(store)
+    const skill = makeSkill({ id: 'sk1', name: { en: 'React' } }) // no Norwegian
+    store.skills = [skill]
+    store.projects = [makeProject({
+      id: 'p1',
+      customer: { en: 'Acme', no: 'Acme' },
+      description: { en: 'd', no: 'd' },
+      long_description: { en: 'l', no: 'l' },
+      skills: [{ id: 'ps1', skill_id: 'sk1', name: skill.name, duration_in_years: 0, offset_in_years: 0, total_duration_in_years: 0, sort_order: 0 }],
+    })]
+
+    const out = computeCompleteness(store, ['en', 'no'])
+    expect(out.en.percent).toBe(100)
+    expect(out.no.percent).toBeLessThan(100)
+    expect(out.no.missing.some((m) => m.section === 'skills' && m.itemId === 'sk1')).toBe(true)
+  })
+
+  it('ignores an UNUSED skill missing a translation', () => {
+    const store = emptyStore()
+    clearHeader(store)
+    store.skills = [makeSkill({ id: 'sk1', name: { en: 'React' } })] // referenced by nothing
+    const out = computeCompleteness(store, ['en', 'no'])
+    expect(out.no).toEqual({ percent: 100, missing: [] })
+  })
+
+  it('counts a role linked from an employment', () => {
+    const store = emptyStore()
+    clearHeader(store)
+    store.roles = [makeRole({ id: 'r1', name: { en: 'Architect' } })] // no Norwegian
+    store.work_experiences = [makeWork({ id: 'w1', employer: { en: 'C', no: 'C' }, long_description: { en: 'x', no: 'x' }, role_id: 'r1' })]
+    const out = computeCompleteness(store, ['en', 'no'])
+    expect(out.no.missing.some((m) => m.section === 'roles' && m.itemId === 'r1')).toBe(true)
   })
 })

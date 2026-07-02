@@ -13,23 +13,19 @@ function seedTwoLocaleResume() {
   // English fully filled, Norwegian missing the project's customer field.
   useStore.setState({
     data: {
+      ...emptyStore(),
       resume: makeResume({
         supported_locales: ['en', 'no'],
         title: { en: 'Consultant', no: 'Konsulent' },
         nationality: { en: 'Norwegian', no: 'Norsk' },
         place_of_residence: { en: 'Oslo', no: 'Oslo' },
       }),
-      skills: [], roles: [], key_qualifications: [], key_competencies: [], recommendations: [],
       projects: [makeProject({
         id: 'p1',
         customer: { en: 'Acme' },                              // missing 'no'
         description: { en: 'desc', no: 'beskrivelse' },
         long_description: { en: 'long', no: 'lang' },
       })],
-      work_experiences: [], educations: [], courses: [], certifications: [],
-      spoken_languages: [], technology_categories: [], positions: [],
-      presentations: [], honor_awards: [], publications: [], references: [],
-      views: [],
     },
     hasData: true,
     primaryLocale: 'en',

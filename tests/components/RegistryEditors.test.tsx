@@ -278,3 +278,45 @@ describe('<RolesEditor> — category view', () => {
     expect(useStore.getState().data.roles.find((r) => r.id === 'r3')!.category).toBe('Agile')
   })
 })
+
+describe('<SkillsEditor> — category view', () => {
+  beforeEach(() => resetStore())
+
+  function seedSkills() {
+    useStore.setState({
+      data: {
+        ...emptyStore(),
+        skills: [
+          makeSkill({ id: 's1', name: { en: 'React' }, category: 'Frontend' }),
+          makeSkill({ id: 's2', name: { en: 'PostgreSQL' }, category: 'Data' }),
+          makeSkill({ id: 's3', name: { en: 'Docker' } }), // uncategorized
+        ],
+      },
+      hasData: true, primaryLocale: 'en', secondaryLocale: null,
+      activeSection: 'skills', expandedItemId: null, mutationCount: 0,
+    })
+  }
+
+  it('groups skills by category with an Uncategorized bucket and compact chips', async () => {
+    seedSkills()
+    render(<SkillsEditor />)
+    await userEvent.click(screen.getByRole('button', { name: /by category/i }))
+    expect(screen.getByText('Frontend')).toBeInTheDocument()
+    expect(screen.getByText('Data')).toBeInTheDocument()
+    expect(screen.getByText('Uncategorized')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /React/ })).toBeInTheDocument()
+  })
+
+  it('opens the edit lightbox on chip click and assigns a category', async () => {
+    seedSkills()
+    render(<SkillsEditor />)
+    await userEvent.click(screen.getByRole('button', { name: /by category/i }))
+    await userEvent.click(screen.getByRole('button', { name: 'Docker' }))
+
+    const dialog = await screen.findByRole('dialog', { name: /edit skill/i })
+    expect(within(dialog).getByLabelText(/Skill name/i)).toBeInTheDocument()
+
+    await userEvent.type(within(dialog).getByPlaceholderText('Uncategorized'), 'DevOps')
+    expect(useStore.getState().data.skills.find((s) => s.id === 's3')!.category).toBe('DevOps')
+  })
+})
