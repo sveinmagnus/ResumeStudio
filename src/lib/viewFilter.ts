@@ -6,7 +6,7 @@ import { resolve } from './locales'
 import { SECTION_CATALOG, type AnyItem, type CatalogCtx } from './sectionCatalog'
 import { skillMatrixRows, fmtLastUsed, fmtProficiency } from './skillMatrix'
 import { renderRichHtml } from './richText'
-import { DEFAULT_VIEW_STYLE, deriveTokens, resolveSectionStyle, withDefaults, resolveFontCss, type ResolvedSectionStyle, type StyleTokens } from './viewStyle'
+import { deriveTokens, resolveSectionStyle, withDefaults, resolveFontCss, type ResolvedSectionStyle, type StyleTokens } from './viewStyle'
 import { withHeaderDefaults, withFooterDefaults, buildHeaderLines, buildCopyrightLine } from './viewHeader'
 
 // ─── Section helpers ──────────────────────────────────────────────────────────
@@ -289,8 +289,6 @@ function renderItem(sectionKey: string, item: unknown, ctx: RenderCtx): string {
  * dividers/density without touching the global rules.
  */
 function sectionStyleCss(secKey: string, resolved: ResolvedSectionStyle, baseTokens: StyleTokens): string {
-  const sec = DEFAULT_VIEW_STYLE === DEFAULT_VIEW_STYLE  // tree-shaking-safe noop
-  void sec
   const tokens = deriveTokens(resolved)
   const showDivider = resolved.item_divider ?? true
   return `

@@ -83,32 +83,41 @@ export function computeCompleteness(
     track(data.resume.nationality,        'header', null, root, 'Nationality')
     track(data.resume.place_of_residence, 'header', null, root, 'Place of residence')
   }
+  // Disabled (soft-deleted) items are excluded from every export and overview,
+  // so their untranslated fields must not drag the completeness score down —
+  // consistent with computeSectionCoverage below, which filters them too.
   data.key_qualifications.forEach((k) => {
+    if (k.disabled) return
     const label = getItemTitle('key_qualifications', k, LABEL_LOCALE)
     track(k.summary,  'key_qualifications', k.id, label, 'Summary')
     track(k.tag_line, 'key_qualifications', k.id, label, 'Tagline')
   })
   data.projects.forEach((p) => {
+    if (p.disabled) return
     const label = getItemTitle('projects', p, LABEL_LOCALE)
     track(p.customer,         'projects', p.id, label, 'Customer')
     track(p.description,      'projects', p.id, label, 'Description')
     track(p.long_description, 'projects', p.id, label, 'Long description')
   })
   data.work_experiences.forEach((w) => {
+    if (w.disabled) return
     const label = getItemTitle('work_experiences', w, LABEL_LOCALE)
     track(w.employer,         'work_experiences', w.id, label, 'Employer')
     track(w.long_description, 'work_experiences', w.id, label, 'Long description')
   })
   data.educations.forEach((e) => {
+    if (e.disabled) return
     const label = getItemTitle('educations', e, LABEL_LOCALE)
     track(e.school, 'educations', e.id, label, 'School')
     track(e.degree, 'educations', e.id, label, 'Degree')
   })
   data.courses.forEach((c) => {
+    if (c.disabled) return
     const label = getItemTitle('courses', c, LABEL_LOCALE)
     track(c.name, 'courses', c.id, label, 'Name')
   })
   data.certifications.forEach((c) => {
+    if (c.disabled) return
     const label = getItemTitle('certifications', c, LABEL_LOCALE)
     track(c.name, 'certifications', c.id, label, 'Name')
   })
@@ -123,12 +132,16 @@ export function computeCompleteness(
   const usedRoleIds = new Set<string>()
   const usedIndustryIds = new Set<string>()
   for (const p of data.projects) {
+    // Disabled projects never reach an export, so a registry entry referenced
+    // only by one shouldn't count as "used" (and drag the score down for a
+    // translation that will never ship). applyView filters them out too.
+    if (p.disabled) continue
     for (const ps of p.skills) usedSkillIds.add(ps.skill_id)
     for (const pr of p.roles) usedRoleIds.add(pr.role_id)
     for (const pi of p.industries) usedIndustryIds.add(pi.industry_id)
   }
-  for (const c of data.technology_categories) for (const cs of c.skills) usedSkillIds.add(cs.skill_id)
-  for (const w of data.work_experiences) if (w.role_id) usedRoleIds.add(w.role_id)
+  for (const c of data.technology_categories) if (!c.disabled) for (const cs of c.skills) usedSkillIds.add(cs.skill_id)
+  for (const w of data.work_experiences) if (!w.disabled && w.role_id) usedRoleIds.add(w.role_id)
 
   data.skills.forEach((s) => {
     if (!usedSkillIds.has(s.id)) return

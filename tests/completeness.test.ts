@@ -243,4 +243,28 @@ describe('computeCompleteness() — used registry items (skills / roles)', () =>
     const out = computeCompleteness(store, ['en', 'no'])
     expect(out.no.missing.some((m) => m.section === 'roles' && m.itemId === 'r1')).toBe(true)
   })
+
+  it('ignores a skill referenced only by a DISABLED project', () => {
+    const store = emptyStore()
+    clearHeader(store)
+    const skill = makeSkill({ id: 'sk1', name: { en: 'React' } }) // no Norwegian
+    store.skills = [skill]
+    store.projects = [makeProject({
+      id: 'p1',
+      disabled: true, // soft-deleted → never exports, so its skill isn't "used"
+      customer: { en: 'Acme', no: 'Acme' },
+      skills: [{ id: 'ps1', skill_id: 'sk1', name: skill.name, duration_in_years: 0, offset_in_years: 0, total_duration_in_years: 0, sort_order: 0 }],
+    })]
+    const out = computeCompleteness(store, ['en', 'no'])
+    expect(out.no).toEqual({ percent: 100, missing: [] })
+  })
+
+  it('ignores a role linked only from a DISABLED employment', () => {
+    const store = emptyStore()
+    clearHeader(store)
+    store.roles = [makeRole({ id: 'r1', name: { en: 'Architect' } })] // no Norwegian
+    store.work_experiences = [makeWork({ id: 'w1', disabled: true, employer: { en: 'C', no: 'C' }, long_description: { en: 'x', no: 'x' }, role_id: 'r1' })]
+    const out = computeCompleteness(store, ['en', 'no'])
+    expect(out.no).toEqual({ percent: 100, missing: [] })
+  })
 })

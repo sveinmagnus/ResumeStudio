@@ -3,6 +3,7 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import rateLimit from 'express-rate-limit'
 import { authMiddleware } from './auth.js'
+import { isDesktop } from './settings.js'
 import authRouter from './routes/auth.js'
 import resumeRouter from './routes/resume.js'
 import translateRouter from './routes/translate.js'
@@ -18,6 +19,22 @@ import updateRouter from './routes/update.js'
 const __dirname = import.meta.url
   ? path.dirname(fileURLToPath(import.meta.url))
   : process.cwd()
+
+/**
+ * True when the HTTP `Host` header names a loopback address (any/no port).
+ * Powers the desktop DNS-rebinding guard: a request whose Host is an attacker's
+ * own hostname — even one that has rebound its DNS to 127.0.0.1 — is rejected,
+ * while the app's own `http://127.0.0.1:<port>` / `http://localhost:<port>`
+ * requests pass. Exported for unit testing.
+ */
+export function isLoopbackHost(host: string | undefined): boolean {
+  if (!host) return false
+  // Strip the port. IPv6 literals are bracketed in a Host header: `[::1]:3001`.
+  const hostname = host.startsWith('[')
+    ? host.slice(1, host.indexOf(']'))
+    : host.split(':')[0]
+  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1'
+}
 
 /**
  * Build the Express app (routes, middleware, security headers) WITHOUT
@@ -83,6 +100,27 @@ export function createApp(): Express {
     res.setHeader('Permissions-Policy', 'interest-cohort=()')
     next()
   })
+
+  // ── DNS-rebinding guard (desktop loopback build only) ─────────────────────
+  // The desktop build runs auth-less on 127.0.0.1, relying on the browser's
+  // origin model to keep other sites out. The Sec-Fetch-Site brake below stops
+  // classic cross-site CSRF, but a DNS-rebinding attack defeats it: a page on
+  // `attacker.example` that re-resolves its OWN hostname to 127.0.0.1 issues
+  // requests the browser labels 'same-origin', so they slip past the brake AND
+  // the cookie's SameSite. Those requests still carry the attacker's hostname in
+  // the Host header, so pinning Host to a loopback name closes the hole — for
+  // reads too (a rebind could otherwise exfiltrate the CV), hence it runs on
+  // every method. Armed only on the desktop build; the VPS is served on a real
+  // domain and reads Host legitimately (and requires auth regardless).
+  if (isDesktop()) {
+    app.use((req, res, next) => {
+      if (!isLoopbackHost(req.headers.host)) {
+        res.status(403).json({ error: 'Invalid host' })
+        return
+      }
+      next()
+    })
+  }
 
   // ── Cross-site request guard (CSRF brake) ─────────────────────────────────
   // Browsers tag every request with `Sec-Fetch-Site`. Reject state-changing
