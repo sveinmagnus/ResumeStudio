@@ -108,6 +108,44 @@ describe('<SkillsEditor> — add + merge', () => {
     expect(screen.queryByText('Leadership')).not.toBeInTheDocument()
   })
 
+  it('removes a skill\'s category via the chip "x" in the By category view', async () => {
+    seed({
+      ...emptyStore(),
+      skills: [
+        makeSkill({ id: 's1', name: { en: 'React' }, category: 'Frontend' }),
+        makeSkill({ id: 's2', name: { en: 'Vue' }, category: 'Frontend' }),
+      ],
+    })
+    render(<SkillsEditor />)
+    await userEvent.click(screen.getByRole('button', { name: /by category/i }))
+
+    // The "x" clears the explicit category (React falls back to its type).
+    await userEvent.click(screen.getByRole('button', { name: /remove category from React/i }))
+    expect(useStore.getState().data.skills.find((s) => s.id === 's1')!.category).toBeNull()
+    expect(useStore.getState().data.skills.find((s) => s.id === 's2')!.category).toBe('Frontend')
+  })
+
+  it('bulk-clears the categories of the filtered group so they can be re-categorized', async () => {
+    seed({
+      ...emptyStore(),
+      skills: [
+        makeSkill({ id: 's1', name: { en: 'React' }, category: 'Frontend' }),
+        makeSkill({ id: 's2', name: { en: 'Vue' }, category: 'Frontend' }),
+        makeSkill({ id: 's3', name: { en: 'Postgres' }, category: 'Data' }),
+      ],
+    })
+    render(<SkillsEditor />)
+
+    // Filter to Frontend, then clear its two skills' categories in one action.
+    await userEvent.selectOptions(screen.getByLabelText('Category'), 'Frontend')
+    await userEvent.click(screen.getByRole('button', { name: /clear category \(2\)/i }))
+
+    const skills = useStore.getState().data.skills
+    expect(skills.find((s) => s.id === 's1')!.category).toBeNull()
+    expect(skills.find((s) => s.id === 's2')!.category).toBeNull()
+    expect(skills.find((s) => s.id === 's3')!.category).toBe('Data') // untouched
+  })
+
   it('dismisses a related-skill suggestion without adding it', async () => {
     setSkillRelationsForTest({ Scrum: ['Kanban'], Kanban: ['Scrum'] })
     seed({ ...emptyStore(), skills: [makeSkill({ id: 's1', name: { en: 'Scrum' } })] })
@@ -318,7 +356,7 @@ describe('<RolesEditor> — category view', () => {
     expect(screen.getByText('Architecture')).toBeInTheDocument()
     expect(screen.getByText('Development')).toBeInTheDocument()
     expect(screen.getByText('Uncategorized')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Solution Architect/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Solution Architect' })).toBeInTheDocument()
   })
 
   it('opens the edit lightbox on chip click and assigns a category', async () => {
@@ -362,7 +400,7 @@ describe('<SkillsEditor> — category view', () => {
     // Docker has no explicit category; its type ('technical') is the grouping.
     expect(screen.getByText('Technical')).toBeInTheDocument()
     expect(screen.queryByText('Uncategorized')).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /React/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'React' })).toBeInTheDocument()
   })
 
   it('opens the edit lightbox on chip click and assigns a category', async () => {

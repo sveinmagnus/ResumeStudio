@@ -167,3 +167,24 @@ export function autoCategorizeSkills(
   if (assignments.length === 0) return { store, changed: 0, assignments: [] }
   return { store: { ...store, skills }, changed: assignments.length, assignments }
 }
+
+/**
+ * Clear the explicit `category` on the given skills (set it to null) so they
+ * fall back to their type default and become eligible for auto-categorization
+ * again. Skills without an explicit category are left untouched. Pure — returns
+ * a new store, or the same store when nothing changed.
+ */
+export function clearSkillCategories(
+  store: ResumeStore,
+  ids: Iterable<string>,
+): { store: ResumeStore; cleared: number } {
+  const idSet = new Set(ids)
+  let cleared = 0
+  const skills = store.skills.map((s) => {
+    if (!idSet.has(s.id) || !(s.category && s.category.trim())) return s
+    cleared++
+    return { ...s, category: null }
+  })
+  if (cleared === 0) return { store, cleared: 0 }
+  return { store: { ...store, skills }, cleared }
+}

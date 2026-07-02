@@ -7,7 +7,7 @@ import {
   type SkillRelations, type SkillDomains,
 } from '../../lib/skillTaxonomy'
 import {
-  autoCategorizeSkills, effectiveSkillCategory, SKILL_TYPE_LABELS,
+  autoCategorizeSkills, clearSkillCategories, effectiveSkillCategory, SKILL_TYPE_LABELS,
 } from '../../lib/skillCategorize'
 import { DualField } from '../ui/DualField'
 import { TextField } from '../ui/Fields'
@@ -321,6 +321,19 @@ export function SkillsEditor() {
   // (the missing-translation filter would otherwise drop it mid-typing).
   const displayItems = useStableExpanded('skills', items)
 
+  // Bulk-clear: when a specific category is filtered, offer to strip the
+  // explicit category off the shown skills so they're auto-categorizable again.
+  const clearableIds = useMemo(
+    () => (categoryFilter === 'all'
+      ? []
+      : displayItems.filter((s) => s.category && s.category.trim()).map((s) => s.id)),
+    [categoryFilter, displayItems],
+  )
+  const clearCategories = () => {
+    const res = clearSkillCategories(data, clearableIds)
+    if (res.cleared > 0) replaceData(res.store)
+  }
+
   const onMerge = (sourceId: string, targetId: string) => void (async () => {
     if (!await confirmMerge('skill', sourceId, targetId, data.skills, primaryLocale, countSkillReferences(data, sourceId))) return
     // replaceData (not loadStore) so the merge enters the undo stack and is
@@ -372,6 +385,12 @@ export function SkillsEditor() {
                 <option value="all">All categories ({allItems.length})</option>
                 {categoryCounts.map(([c, n]) => <option key={c} value={c}>{c} ({n})</option>)}
               </select>
+              {clearableIds.length > 0 && (
+                <button type="button" className="scf-clear" onClick={clearCategories}
+                  title="Clear the category from these skills so they can be auto-categorized again">
+                  Clear category ({clearableIds.length})
+                </button>
+              )}
             </div>
           )}
           {filter === 'all' && categoryFilter === 'all' && <RelatedSkillsPanel onAdd={addNamed} />}
@@ -408,10 +427,15 @@ export function SkillsEditor() {
           <p className="registry-note rcv-hint">Drag a skill onto another category header to recategorize it. Click a skill to edit it. Skills with no explicit category are grouped by their type.</p>
           <AutoCategorizePanel />
           <RegistryCategoryView
-            items={allItems.map((s) => ({ ...s, category: effectiveSkillCategory(s) }))}
+            items={allItems.map((s) => ({
+              ...s,
+              category: effectiveSkillCategory(s),
+              removable: !!(s.category && s.category.trim()),
+            }))}
             unnamed="(unnamed skill)"
             onOpen={setEditingId}
             onRecategorize={(id, cat) => updateItem('skills', id, { category: cat })}
+            onRemove={(id) => updateItem('skills', id, { category: null })}
           />
           <AddButton label="Add skill" onClick={add} />
         </>
@@ -576,10 +600,11 @@ export function RolesEditor() {
         <>
           <p className="registry-note rcv-hint">Drag a role onto another category header to recategorize it. Click a role to edit it. Set a role's category in its editor.</p>
           <RegistryCategoryView
-            items={sortedItems}
+            items={sortedItems.map((r) => ({ ...r, removable: !!(r.category && r.category.trim()) }))}
             unnamed="(unnamed role)"
             onOpen={setEditingId}
             onRecategorize={(id, cat) => updateItem('roles', id, { category: cat })}
+            onRemove={(id) => updateItem('roles', id, { category: null })}
           />
           <AddButton label="Add role" onClick={add} />
         </>
@@ -1332,13 +1357,24 @@ function RegistryStyles() {
       .rcv-head.is-over { background: var(--accent-wash); color: var(--accent); box-shadow: inset 0 0 0 2px var(--accent); }
       .rcv-count { font-weight: 700; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
       .rcv-chips { display: flex; flex-wrap: wrap; gap: 7px; padding: 12px 13px; min-height: 20px; }
+      .rcv-chip-wrap { display: inline-flex; align-items: stretch; }
+      .rcv-chip-wrap.is-dragging { opacity: .6; box-shadow: var(--shadow-md); z-index: 20; position: relative; border-radius: 16px; }
+      .rcv-chip-wrap.is-dragging .rcv-chip { cursor: grabbing; }
       .rcv-chip {
         padding: 6px 12px; font-size: 13px; font-weight: 500; color: var(--ink);
         background: var(--paper-raised); border: 1px solid var(--line); border-radius: 16px;
         cursor: grab; touch-action: none; transition: color .12s, border-color .12s, background .12s;
       }
       .rcv-chip:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-wash); }
-      .rcv-chip.is-dragging { opacity: .6; cursor: grabbing; box-shadow: var(--shadow-md); z-index: 20; position: relative; }
+      .rcv-chip.has-x { border-top-right-radius: 0; border-bottom-right-radius: 0; border-right: none; }
+      .rcv-chip-x {
+        display: grid; place-items: center; width: 24px; flex-shrink: 0;
+        color: var(--ink-faint); background: var(--paper-raised);
+        border: 1px solid var(--line); border-left: none;
+        border-top-right-radius: 16px; border-bottom-right-radius: 16px;
+        transition: color .12s, background .12s;
+      }
+      .rcv-chip-x:hover { color: #b91c1c; background: #fef2f2; }
       /* Related-skill suggestions (F12 pt3) */
       .rsp {
         margin-bottom: 16px; padding: 11px 14px;
@@ -1396,6 +1432,13 @@ function RegistryStyles() {
         border: 1px solid var(--line); border-radius: var(--r-sm);
         background: var(--paper); color: var(--ink); max-width: 320px;
       }
+      .scf-clear {
+        font: inherit; font-size: 12.5px; font-weight: 500; padding: 5px 11px;
+        border: 1px solid var(--line); border-radius: var(--r-sm);
+        background: var(--paper); color: var(--ink-soft);
+        transition: color .12s, border-color .12s, background .12s;
+      }
+      .scf-clear:hover { color: #b91c1c; border-color: #f2c2c2; background: #fef2f2; }
       /* .check-row lives in src/index.css */
       .sub-block { margin: 16px 0 0; padding: 14px; background: var(--paper-sunken); border-radius: var(--r-md); }
       .sub-head { font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--ink-soft); margin-bottom: 10px; }

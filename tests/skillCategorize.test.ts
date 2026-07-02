@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { autoCategorizeSkills, effectiveSkillCategory } from '../src/lib/skillCategorize'
+import {
+  autoCategorizeSkills, clearSkillCategories, effectiveSkillCategory,
+} from '../src/lib/skillCategorize'
 import { emptyStore, makeSkill } from './fixtures'
 import type { SkillDomains, SkillRelations } from '../src/lib/skillTaxonomy'
 
@@ -106,6 +108,47 @@ describe('autoCategorizeSkills — Tier 2 (graph vote)', () => {
     const rel: SkillRelations = { Løsningsarkitektur: ['Some Unknown Skill'] }
     const { changed } = autoCategorizeSkills(store, DOMAINS, rel)
     expect(changed).toBe(0)
+  })
+})
+
+describe('clearSkillCategories', () => {
+  it('clears the explicit category on the listed skills only', () => {
+    const store = emptyStore()
+    store.skills.push(makeSkill({ id: 'a', name: { en: 'A' }, category: 'Frontend' }))
+    store.skills.push(makeSkill({ id: 'b', name: { en: 'B' }, category: 'Data' }))
+    store.skills.push(makeSkill({ id: 'c', name: { en: 'C' }, category: 'Cloud' }))
+    const { store: out, cleared } = clearSkillCategories(store, ['a', 'b'])
+    expect(cleared).toBe(2)
+    expect(out.skills.find((s) => s.id === 'a')!.category).toBeNull()
+    expect(out.skills.find((s) => s.id === 'b')!.category).toBeNull()
+    expect(out.skills.find((s) => s.id === 'c')!.category).toBe('Cloud') // not listed
+  })
+
+  it('ignores skills that have no explicit category (no-op count)', () => {
+    const store = emptyStore()
+    store.skills.push(makeSkill({ id: 'a', name: { en: 'A' }, category: null }))
+    const { store: out, cleared } = clearSkillCategories(store, ['a'])
+    expect(cleared).toBe(0)
+    expect(out).toBe(store)
+  })
+
+  it('does not mutate the input store', () => {
+    const store = emptyStore()
+    store.skills.push(makeSkill({ id: 'a', name: { en: 'A' }, category: 'Frontend' }))
+    clearSkillCategories(store, ['a'])
+    expect(store.skills[0].category).toBe('Frontend')
+  })
+
+  it('after clearing, the skill is eligible for auto-categorization again', () => {
+    const store = emptyStore()
+    // Wrongly pinned to a manual category the auto-categorizer would skip.
+    store.skills.push(makeSkill({ id: 'ts', name: { en: 'TypeScript' }, category: 'Misc' }))
+    const pinned = autoCategorizeSkills(store, DOMAINS)
+    expect(pinned.changed).toBe(0) // manual category is respected
+    const cleared = clearSkillCategories(store, ['ts']).store
+    const recat = autoCategorizeSkills(cleared, DOMAINS)
+    expect(recat.changed).toBe(1)
+    expect(recat.store.skills[0].category).toBe('Software Development')
   })
 })
 
