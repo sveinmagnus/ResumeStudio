@@ -43,10 +43,16 @@ What works today:
   skills carry an authoritative **classification** surfaced as the skill-matrix
   Category column. The Skill Registry's "By category" view also offers
   **offline auto-categorization** (`lib/skillCategorize.ts`): a one-click action
-  fills each uncategorized skill's free-text `category` from the library's
-  fine-grained `domain` — Tier 1 by exact name match, Tier 2 by a relations-graph
-  majority vote — never overwriting a manually-set category, applied via
-  `replaceData` (undoable + auto-saved).
+  fills each skill's `category` from the library's fine-grained `domain` — Tier 1
+  by exact name match, Tier 2 by a relations-graph majority vote — never
+  overwriting a manually-set category, applied via `replaceData` (undoable +
+  auto-saved). **A skill's category and its `skill_type` are ONE concept in the
+  UI** — there is no separate "type" control; `skill_type` is just the coarse
+  default a skill carries until it's given (or auto-assigned) a real category.
+  `effectiveSkillCategory(skill)` (explicit `category`, else the title-cased type
+  label) is what the list card subtitle, the By-category grouping, and the
+  registry's **category filter** (a dropdown of used categories with per-category
+  skill counts) all group on, so the three never disagree.
 - **Freshness & expiry warnings** — the Overview's "Needs attention" panel
   flags expired/expiring certifications and long-running "ongoing" items, and
   the picker badges resumes not updated in 6+ months (`lib/freshness.ts`). The
@@ -283,7 +289,7 @@ src/
 │   ├── contentSearch.ts        ← PURE: global content search (F16) — recursive string collector over the store + ranked hits with snippet + authoritative Category (F12 pt4)
 │   ├── skillTaxonomy.ts        ← Quadim skill-library data (F12): lazy generated JSON (names/relations/classifications/domains) + PURE matchTaxonomy / relatedSkillSuggestions (regen: scripts/build-skill-taxonomy.mjs)
 │   ├── skillNormalize.ts       ← PURE: canonicalize imported skill names to library spelling + stamp classifications (F12 pt2/4); free-text importers only, not backups
-│   ├── skillCategorize.ts      ← PURE: offline auto-categorization of the Skill registry — Tier 1 exact name→domain match + Tier 2 relations-graph majority vote; fills BLANK `category` only (never overwrites manual). Source: generated/skillDomains.json
+│   ├── skillCategorize.ts      ← PURE: offline auto-categorization of the Skill registry — Tier 1 exact name→domain match + Tier 2 relations-graph majority vote; fills BLANK `category` only (never overwrites manual). Source: generated/skillDomains.json. Also `effectiveSkillCategory()` — category is unified with `skill_type` (no separate type control); type is the fallback default. Used by the list subtitle, By-category grouping + the category filter
 │   ├── freshness.ts            ← PURE: freshness/expiry warnings (F3) — expired/expiring certs, stale 'ongoing' items, isResumeStale; deterministic via injected `now`
 │   ├── importerLinkedIn.ts     ← PURE: LinkedIn data-export (CSV map) → ResumeStore; RFC4180 parseCsv. ZIP extraction lives in ImportScreen (lazy fflate)
 │   ├── importerEuropass.ts     ← Europass import: SkillsPassport XML (DOMParser) + profile JSON → ResumeStore

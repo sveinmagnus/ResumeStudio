@@ -23,8 +23,30 @@
  * UI can preview "N skills will be categorized" before applying.
  */
 
-import type { ResumeStore } from '../types'
+import type { ResumeStore, Skill } from '../types'
 import type { SkillDomains, SkillRelations } from './skillTaxonomy'
+
+/**
+ * A skill's category and its (legacy) `skill_type` are ONE concept in the UI —
+ * there is no separate "type". `skill_type` is just the coarse default a skill
+ * carries until it's given (or auto-assigned) a real category. The effective
+ * category is therefore the explicit `category` if set, else the title-cased
+ * type label. Everything user-facing — the list card, the By-category view, the
+ * category filter — groups on this so the three never disagree.
+ */
+export const SKILL_TYPE_LABELS: Record<Skill['skill_type'], string> = {
+  technical: 'Technical',
+  methodology: 'Methodology',
+  domain: 'Domain',
+  soft: 'Soft',
+}
+
+export function effectiveSkillCategory(
+  skill: Pick<Skill, 'category' | 'skill_type'>,
+): string {
+  const explicit = skill.category?.trim()
+  return explicit || SKILL_TYPE_LABELS[skill.skill_type]
+}
 
 export interface CategoryAssignment {
   skill_id: string

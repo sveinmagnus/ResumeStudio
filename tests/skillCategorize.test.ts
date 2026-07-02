@@ -1,7 +1,20 @@
 import { describe, it, expect } from 'vitest'
-import { autoCategorizeSkills } from '../src/lib/skillCategorize'
+import { autoCategorizeSkills, effectiveSkillCategory } from '../src/lib/skillCategorize'
 import { emptyStore, makeSkill } from './fixtures'
 import type { SkillDomains, SkillRelations } from '../src/lib/skillTaxonomy'
+
+describe('effectiveSkillCategory', () => {
+  it('returns the explicit category when set', () => {
+    expect(effectiveSkillCategory({ category: 'Cloud', skill_type: 'technical' })).toBe('Cloud')
+  })
+
+  it('falls back to the title-cased type label when no category', () => {
+    expect(effectiveSkillCategory({ category: null, skill_type: 'technical' })).toBe('Technical')
+    expect(effectiveSkillCategory({ category: '', skill_type: 'methodology' })).toBe('Methodology')
+    expect(effectiveSkillCategory({ category: '  ', skill_type: 'soft' })).toBe('Soft')
+    expect(effectiveSkillCategory({ category: undefined, skill_type: 'domain' })).toBe('Domain')
+  })
+})
 
 const DOMAINS: SkillDomains = {
   TypeScript: 'Software Development',

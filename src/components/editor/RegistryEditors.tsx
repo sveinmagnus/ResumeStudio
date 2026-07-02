@@ -6,7 +6,9 @@ import {
   suggestSkillNames, loadSkillRelations, relatedSkillSuggestions, loadSkillDomains,
   type SkillRelations, type SkillDomains,
 } from '../../lib/skillTaxonomy'
-import { autoCategorizeSkills } from '../../lib/skillCategorize'
+import {
+  autoCategorizeSkills, effectiveSkillCategory, SKILL_TYPE_LABELS,
+} from '../../lib/skillCategorize'
 import { DualField } from '../ui/DualField'
 import { TextField } from '../ui/Fields'
 import { EditorCard, AddButton, FieldRow } from '../ui/EditorCard'
@@ -198,7 +200,7 @@ function AutoCategorizePanel() {
       {pending > 0 ? (
         <>
           <span className="acp-text">
-            <Wand2 size={13} /> {pending} uncategorized skill{pending === 1 ? '' : 's'} can be grouped
+            <Wand2 size={13} /> {pending} skill{pending === 1 ? '' : 's'} can be categorized
             from the skill library{inferred > 0 ? ` (${inferred} inferred from related skills)` : ''}.
           </span>
           <button type="button" className="acp-btn" onClick={apply}>
@@ -232,14 +234,15 @@ function SkillEditBody({ skill, allSkills, categories, onMerge }: {
       <DualField label="Skill name" value={skill.name} onChange={(v) => updateItem('skills', skill.id, { name: v })} />
       <FieldRow>
         <label className="pf-wrap">
-          <span className="pf-label">Type</span>
-          <select className="pf-input" value={skill.skill_type}
-            onChange={(e) => updateItem('skills', skill.id, { skill_type: e.target.value as Skill['skill_type'] })}>
-            <option value="technical">Technical</option>
-            <option value="methodology">Methodology</option>
-            <option value="domain">Domain</option>
-            <option value="soft">Soft skill</option>
-          </select>
+          <span className="pf-label">Category</span>
+          <input
+            className="pf-input" list={catListId} value={skill.category ?? ''}
+            placeholder={SKILL_TYPE_LABELS[skill.skill_type]}
+            onChange={(e) => updateItem('skills', skill.id, { category: e.target.value.trim() || null })}
+          />
+          <datalist id={catListId}>
+            {categories.map((c) => <option key={c} value={c} />)}
+          </datalist>
         </label>
         <label className="pf-wrap">
           <span className="pf-label">Proficiency (0–5)</span>
@@ -248,16 +251,6 @@ function SkillEditBody({ skill, allSkills, categories, onMerge }: {
         </label>
         <TextField label="Total years" value={skill.total_duration_in_years.toFixed(1)}
           onChange={(v) => updateItem('skills', skill.id, { total_duration_in_years: parseFloat(v) || 0 })} />
-        <label className="pf-wrap">
-          <span className="pf-label">Category</span>
-          <input
-            className="pf-input" list={catListId} value={skill.category ?? ''} placeholder="Uncategorized"
-            onChange={(e) => updateItem('skills', skill.id, { category: e.target.value.trim() || null })}
-          />
-          <datalist id={catListId}>
-            {categories.map((c) => <option key={c} value={c} />)}
-          </datalist>
-        </label>
       </FieldRow>
       <label className="check-row">
         <input type="checkbox" checked={skill.is_highlighted} onChange={(e) => updateItem('skills', skill.id, { is_highlighted: e.target.checked })} />
@@ -277,6 +270,7 @@ function SkillEditBody({ skill, allSkills, categories, onMerge }: {
 export function SkillsEditor() {
   const { data, primaryLocale, secondaryLocale, addItem, updateItem, replaceData } = useStore()
   const [filter, setFilter] = useState<RegistryFilter>('all')
+  const [categoryFilter, setCategoryFilter] = useState<string>('all')
   const [view, setView] = useState<'list' | 'category'>('list')
   const [editingId, setEditingId] = useState<string | null>(null)
 
@@ -286,6 +280,17 @@ export function SkillsEditor() {
     ),
     [data.skills, primaryLocale],
   )
+
+  // Distinct effective categories (explicit category, else the type label) with
+  // a skill count each — drives both the filter dropdown and the editor datalist.
+  const categoryCounts = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const s of allItems) {
+      const c = effectiveSkillCategory(s)
+      m.set(c, (m.get(c) ?? 0) + 1)
+    }
+    return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0]))
+  }, [allItems])
 
   // Usage spans projects AND technology categories — countSkillReferences
   // already enumerates every reference site, so reuse it rather than an
@@ -306,12 +311,14 @@ export function SkillsEditor() {
   }, [allItems, usage, primaryLocale, secondaryLocale])
 
   const items = useMemo(() => {
-    if (filter === 'unused') return allItems.filter((s) => (usage.get(s.id) ?? 0) === 0)
-    if (filter === 'missing-translation') {
-      return allItems.filter((s) => isMissingTranslation(s.name, primaryLocale, secondaryLocale))
+    let base = allItems
+    if (filter === 'unused') base = base.filter((s) => (usage.get(s.id) ?? 0) === 0)
+    else if (filter === 'missing-translation') {
+      base = base.filter((s) => isMissingTranslation(s.name, primaryLocale, secondaryLocale))
     }
-    return allItems
-  }, [allItems, usage, filter, primaryLocale, secondaryLocale])
+    if (categoryFilter !== 'all') base = base.filter((s) => effectiveSkillCategory(s) === categoryFilter)
+    return base
+  }, [allItems, usage, filter, categoryFilter, primaryLocale, secondaryLocale])
   // Keep the item being edited present even once its translation is complete
   // (the missing-translation filter would otherwise drop it mid-typing).
   const displayItems = useStableExpanded('skills', items)
@@ -328,7 +335,13 @@ export function SkillsEditor() {
     skill_type: 'technical', total_duration_in_years: 0, proficiency: 0, is_highlighted: false,
     category: null, created_at: new Date().toISOString(),
   })
-  const categories = useMemo(() => categoriesOf(allItems), [allItems])
+  // Datalist for the editor: every effective category in use, plus the four
+  // type labels as ready-made defaults.
+  const categories = useMemo(() => {
+    const set = new Set<string>(categoryCounts.map(([c]) => c))
+    for (const label of Object.values(SKILL_TYPE_LABELS)) set.add(label)
+    return [...set].sort((a, b) => a.localeCompare(b))
+  }, [categoryCounts])
   const editingSkill = editingId ? data.skills.find((s) => s.id === editingId) ?? null : null
   const add = () => addItem('skills', makeSkill({}))
   // Add a library-suggested skill under the primary locale (matches the
@@ -353,14 +366,26 @@ export function SkillsEditor() {
       {view === 'list' ? (
         <>
           <FilterBar filter={filter} onChange={setFilter} counts={counts} />
-          {filter === 'all' && <RelatedSkillsPanel onAdd={addNamed} />}
+          {categoryCounts.length > 0 && (
+            <div className="skill-cat-filter">
+              <label htmlFor="skill-cat-filter-select" className="scf-label">Category</label>
+              <select id="skill-cat-filter-select" className="scf-select"
+                value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
+                <option value="all">All categories ({allItems.length})</option>
+                {categoryCounts.map(([c, n]) => <option key={c} value={c}>{c} ({n})</option>)}
+              </select>
+            </div>
+          )}
+          {filter === 'all' && categoryFilter === 'all' && <RelatedSkillsPanel onAdd={addNamed} />}
           {displayItems.length === 0 && (
             <div className="registry-empty">
-              {filter === 'unused'
-                ? 'No unused skills — every skill is referenced somewhere.'
-                : filter === 'missing-translation'
-                  ? 'No skills are missing a translation in the secondary language.'
-                  : 'No skills yet — add your first below.'}
+              {categoryFilter !== 'all'
+                ? 'No skills in this category (with the current filter).'
+                : filter === 'unused'
+                  ? 'No unused skills — every skill is referenced somewhere.'
+                  : filter === 'missing-translation'
+                    ? 'No skills are missing a translation in the secondary language.'
+                    : 'No skills yet — add your first below.'}
             </div>
           )}
           {displayItems.map((s) => {
@@ -370,7 +395,7 @@ export function SkillsEditor() {
             return (
               <EditorCard key={s.id} section="skills" id={s.id}
                 title={resolve(s.name, primaryLocale)}
-                subtitle={[s.skill_type, s.category].filter(Boolean).join(' · ')}
+                subtitle={effectiveSkillCategory(s)}
                 meta={`${projectCount} project${projectCount === 1 ? '' : 's'} | ${catCount} categor${catCount === 1 ? 'y' : 'ies'}`}
                 canStar={false} canDisable={false}
                 sortable={false}>
@@ -382,10 +407,10 @@ export function SkillsEditor() {
         </>
       ) : (
         <>
-          <p className="registry-note rcv-hint">Drag a skill onto another category header to recategorize it. Click a skill to edit it. Set a skill's category in its editor.</p>
+          <p className="registry-note rcv-hint">Drag a skill onto another category header to recategorize it. Click a skill to edit it. Skills with no explicit category are grouped by their type.</p>
           <AutoCategorizePanel />
           <RegistryCategoryView
-            items={allItems}
+            items={allItems.map((s) => ({ ...s, category: effectiveSkillCategory(s) }))}
             unnamed="(unnamed skill)"
             onOpen={setEditingId}
             onRecategorize={(id, cat) => updateItem('skills', id, { category: cat })}
@@ -1498,6 +1523,14 @@ function RegistryStyles() {
         border-radius: var(--r-sm); transition: background .12s; flex-shrink: 0;
       }
       .acp-btn:hover { background: var(--accent-bright, var(--accent)); }
+      /* Category filter dropdown (skills list view) */
+      .skill-cat-filter { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+      .scf-label { font-size: 12px; font-weight: 600; color: var(--ink-soft); }
+      .scf-select {
+        font: inherit; font-size: 13px; padding: 5px 8px;
+        border: 1px solid var(--line); border-radius: var(--r-sm);
+        background: var(--paper); color: var(--ink); max-width: 320px;
+      }
       /* .check-row lives in src/index.css */
       .sub-block { margin: 16px 0 0; padding: 14px; background: var(--paper-sunken); border-radius: var(--r-md); }
       .sub-head { font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--ink-soft); margin-bottom: 10px; }

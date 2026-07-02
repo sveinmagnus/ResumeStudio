@@ -95,6 +95,37 @@ await esbuild.build({
 log('copying client (dist/) …')
 fs.cpSync(distSrc, path.join(appDir, 'dist'), { recursive: true })
 
+// ── 3b. Verify the Quadim skill-library data is bundled ─────────────────────
+// The skill artifacts (taxonomy / relations / classifications / domains) are
+// imported as dynamic JSON chunks, so they ride along inside dist/assets and
+// the local server serves them — the skill autocomplete, import normalization,
+// related-skill suggestions and auto-categorization all work fully offline
+// (translation is the ONLY intentionally-external feature). Confirm the data
+// actually made it into the bundle so a client-build regression can't silently
+// ship a build that reaches out for — or simply lacks — the skill library.
+const assetsDir = path.join(appDir, 'dist', 'assets')
+const assetBlob = fs.existsSync(assetsDir)
+  ? fs.readdirSync(assetsDir)
+      .filter((f) => f.endsWith('.js'))
+      .map((f) => fs.readFileSync(path.join(assetsDir, f), 'utf8'))
+      .join('\n')
+  : ''
+// Distinctive string values unique to two of the generated artifacts; their
+// presence proves the build-time generation ran and the chunks are bundled.
+const skillSentinels = {
+  'skill domains': 'Software Development',
+  'skill classifications': 'Management_Leadership',
+}
+for (const [label, sentinel] of Object.entries(skillSentinels)) {
+  if (!assetBlob.includes(sentinel)) {
+    console.error(`[build-desktop] ERROR: ${label} not found in dist/assets — the ` +
+      'Quadim skill library would not be bundled. Regenerate the artifacts ' +
+      '(node scripts/build-skill-taxonomy.mjs) and rebuild the client.')
+    process.exit(1)
+  }
+}
+log('skill-library data present in bundle ✓')
+
 // ── 4. Vendor the deps esbuild left external ────────────────────────────────
 // better-sqlite3's closure (itself + bindings + file-uri-to-path) and systray2's
 // closure (itself + debug/ms + fs-extra/graceful-fs/jsonfile/universalify). The
