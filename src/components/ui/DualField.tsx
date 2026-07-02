@@ -6,6 +6,7 @@ import { LOCALE_LABELS, bcp47 } from '../../lib/locales'
 import { api } from '../../lib/api'
 import { canDraftBetween } from '../../lib/translateClient'
 import { useTranslationAvailable } from '../../store/useTranslation'
+import { confirmDialog } from './ConfirmDialog'
 
 /**
  * Resize a textarea to fit its content. Called on mount (so editing an
@@ -92,15 +93,31 @@ export function DualField({ label, value, onChange, multiline, rows = 3, placeho
 
   const primaryText = (value[primary] || '').trim()
 
-  const copyFromPrimary = () => {
+  // Copy / Draft overwrite the secondary input. If the user has already written
+  // (or reviewed) something there, confirm before clobbering it — a mis-click
+  // shouldn't silently discard a hand-made translation.
+  const confirmOverwriteIfNeeded = async (incoming: string): Promise<boolean> => {
+    const existing = secondary ? (value[secondary] || '').trim() : ''
+    if (!existing || existing === incoming.trim()) return true
+    return confirmDialog({
+      title: 'Replace existing text?',
+      message: 'The secondary field already has text. Replace it?',
+      confirmLabel: 'Replace', undoHint: true,
+    })
+  }
+
+  const copyFromPrimary = async () => {
     if (!secondary || !primaryText) return
-    set(secondary, value[primary] || '')
+    const incoming = value[primary] || ''
+    if (!await confirmOverwriteIfNeeded(incoming)) return
+    set(secondary, incoming)
     setDrafted(false)
     setError(null)
   }
 
   const draftTranslation = async () => {
     if (!secondary || !primaryText || busy) return
+    if (!await confirmOverwriteIfNeeded('')) return
     setBusy(true)
     setError(null)
     try {
@@ -182,7 +199,7 @@ export function DualField({ label, value, onChange, multiline, rows = 3, placeho
                 <button
                   type="button"
                   className="df-assist-btn"
-                  onClick={copyFromPrimary}
+                  onClick={() => void copyFromPrimary()}
                   disabled={!primaryText}
                   title="Copy the primary text here as a starting point"
                 >

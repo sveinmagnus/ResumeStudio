@@ -2,11 +2,12 @@
  * @vitest-environment jsdom
  */
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { AuthGate } from '../../src/components/AuthGate'
 import { UnauthorizedError, api } from '../../src/lib/api'
 import { savePending, loadPending } from '../../src/lib/localCache'
+import { resolveConfirm, confirmDialogVisible } from '../helpers/confirm'
 import { emptyStore } from '../fixtures'
 
 const pending = (id: string, dirty = true) =>
@@ -51,13 +52,12 @@ describe('<AuthGate>', () => {
     const logoutSpy = vi.spyOn(api, 'logout').mockResolvedValue(undefined)
     pending('r1', false)
     pending('r2', false)
-    const confirmSpy = vi.spyOn(window, 'confirm')
 
     render(<AuthGate onSubmit={vi.fn()} />)
     await userEvent.click(screen.getByRole('button', { name: /clear local data/i }))
 
-    expect(confirmSpy).not.toHaveBeenCalled()
-    expect(logoutSpy).toHaveBeenCalledOnce()
+    await waitFor(() => expect(logoutSpy).toHaveBeenCalledOnce())
+    expect(confirmDialogVisible()).toBe(false)
     expect(loadPending('r1')).toBeNull()
     expect(loadPending('r2')).toBeNull()
   })
@@ -65,22 +65,22 @@ describe('<AuthGate>', () => {
   it('prompts before wiping when there are unsynced changes, and clears on confirm', async () => {
     const logoutSpy = vi.spyOn(api, 'logout').mockResolvedValue(undefined)
     pending('r1', true)
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
 
     render(<AuthGate onSubmit={vi.fn()} />)
     await userEvent.click(screen.getByRole('button', { name: /clear local data/i }))
+    await resolveConfirm('confirm')
 
-    expect(logoutSpy).toHaveBeenCalledOnce()
+    await waitFor(() => expect(logoutSpy).toHaveBeenCalledOnce())
     expect(loadPending('r1')).toBeNull()
   })
 
   it('keeps the caches when the user cancels the unsynced-changes prompt', async () => {
     const logoutSpy = vi.spyOn(api, 'logout').mockResolvedValue(undefined)
     pending('r1', true)
-    vi.spyOn(window, 'confirm').mockReturnValue(false)
 
     render(<AuthGate onSubmit={vi.fn()} />)
     await userEvent.click(screen.getByRole('button', { name: /clear local data/i }))
+    await resolveConfirm('cancel')
 
     // Nothing discarded — unsynced work is preserved, no logout fired.
     expect(logoutSpy).not.toHaveBeenCalled()

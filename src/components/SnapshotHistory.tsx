@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { History, RotateCcw, X, Loader2, ChevronRight, ChevronDown } from 'lucide-react'
 import { useDialog } from './ui/useDialog'
+import { confirmDialog } from './ui/ConfirmDialog'
 import { useStore } from '../store/useStore'
 import { api, type SnapshotMeta, UnauthorizedError } from '../lib/api'
 import { fmtRelativeTime } from '../lib/locales'
@@ -95,9 +96,12 @@ export function SnapshotHistory({ resumeId, onClose, onUnauthorized }: SnapshotH
 
   const restore = async (snap: SnapshotMeta) => {
     const when = fmtRelativeTime(snap.saved_at)
-    if (!window.confirm(`Restore the version from ${when}? Your current data will be replaced — you can undo this afterwards.`)) {
-      return
-    }
+    const ok = await confirmDialog({
+      title: 'Restore this version?',
+      message: `This replaces your current data with the version from ${when}.`,
+      confirmLabel: 'Restore', undoHint: true,
+    })
+    if (!ok) return
     setRestoringId(snap.id)
     setError(null)
     try {

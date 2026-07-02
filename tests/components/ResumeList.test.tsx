@@ -8,6 +8,7 @@ import { ResumeList } from '../../src/components/ResumeList'
 import { api, type ResumeMeta } from '../../src/lib/api'
 import { savePending } from '../../src/lib/localCache'
 import { resetStore } from '../helpers/store-reset'
+import { resolveConfirm } from '../helpers/confirm'
 import { emptyStore } from '../fixtures'
 
 const META = (over: Partial<ResumeMeta> = {}): ResumeMeta => ({
@@ -88,13 +89,13 @@ describe('<ResumeList>', () => {
       META({ id: 'b', name: 'Delete Me' }),
     ])
     const delSpy = vi.spyOn(api, 'deleteResume').mockResolvedValue(undefined)
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
 
     render(<ResumeList onUnauthorized={() => {}} />)
     await screen.findByText('Delete Me')
 
     const delButton = screen.getByRole('button', { name: /delete delete me/i })
     await userEvent.click(delButton)
+    await resolveConfirm('confirm')
 
     await waitFor(() => expect(delSpy).toHaveBeenCalledWith('b'))
     await waitFor(() => expect(screen.queryByText('Delete Me')).not.toBeInTheDocument())
@@ -104,11 +105,11 @@ describe('<ResumeList>', () => {
   it('does not delete when the confirm is declined', async () => {
     vi.spyOn(api, 'listResumes').mockResolvedValue([META({ id: 'a', name: 'Safe CV' })])
     const delSpy = vi.spyOn(api, 'deleteResume').mockResolvedValue(undefined)
-    vi.spyOn(window, 'confirm').mockReturnValue(false)
 
     render(<ResumeList onUnauthorized={() => {}} />)
     await screen.findByText('Safe CV')
     await userEvent.click(screen.getByRole('button', { name: /delete safe cv/i }))
+    await resolveConfirm('cancel')
 
     expect(delSpy).not.toHaveBeenCalled()
     expect(screen.getByText('Safe CV')).toBeInTheDocument()

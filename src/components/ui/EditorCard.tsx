@@ -7,6 +7,7 @@ import {
 import type { SectionKey } from '../../types'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import { confirmDialog } from './ConfirmDialog'
 
 type ArraySection = SectionKey
 
@@ -137,7 +138,11 @@ export function EditorCard({
             </>
           )}
           <button className="ec-act ec-del" title="Delete" aria-label="Delete"
-            onClick={() => { if (confirm('Delete this item?')) removeItem(section, id) }}>
+            onClick={() => void confirmDialog({
+              title: 'Delete item?',
+              message: 'This removes it from the resume.',
+              confirmLabel: 'Delete', danger: true, undoHint: true,
+            }).then((ok) => { if (ok) removeItem(section, id) })}>
             <Trash2 size={15} />
           </button>
         </div>

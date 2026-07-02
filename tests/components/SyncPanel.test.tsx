@@ -6,6 +6,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { SyncPanel } from '../../src/components/SyncPanel'
 import { api, type BackupStatus } from '../../src/lib/api'
+import { resolveConfirm } from '../helpers/confirm'
 
 const configured = (over: Partial<Extract<BackupStatus, { configured: true }>> = {}): BackupStatus => ({
   configured: true,
@@ -61,12 +62,12 @@ describe('<SyncPanel>', () => {
   it('"Restore from folder" merges and notifies the parent when confirmed', async () => {
     vi.spyOn(api, 'backupStatus').mockResolvedValue(configured())
     const restoreSpy = vi.spyOn(api, 'restoreBackup').mockResolvedValue({ inserted: 1, updated: 1, skipped: 0, deleted: 0 })
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
     const onRestored = vi.fn()
     render(<SyncPanel onRestored={onRestored} onUnauthorized={() => {}} />)
 
     const btn = await screen.findByRole('button', { name: /restore from folder/i })
     await userEvent.click(btn)
+    await resolveConfirm('confirm')
 
     await waitFor(() => expect(restoreSpy).toHaveBeenCalledWith('merge'))
     expect(onRestored).toHaveBeenCalled()
@@ -76,11 +77,11 @@ describe('<SyncPanel>', () => {
   it('does not restore when the confirm dialog is declined', async () => {
     vi.spyOn(api, 'backupStatus').mockResolvedValue(configured())
     const restoreSpy = vi.spyOn(api, 'restoreBackup')
-    vi.spyOn(window, 'confirm').mockReturnValue(false)
     render(<SyncPanel onRestored={() => {}} onUnauthorized={() => {}} />)
 
     const btn = await screen.findByRole('button', { name: /restore from folder/i })
     await userEvent.click(btn)
+    await resolveConfirm('cancel')
     expect(restoreSpy).not.toHaveBeenCalled()
   })
 

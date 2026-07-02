@@ -8,6 +8,7 @@ import { SnapshotHistory } from '../../src/components/SnapshotHistory'
 import { useStore } from '../../src/store/useStore'
 import { api, type SnapshotMeta } from '../../src/lib/api'
 import { resetStore } from '../helpers/store-reset'
+import { resolveConfirm } from '../helpers/confirm'
 import { emptyStore, makeResume, makeProject } from '../fixtures'
 import type { ResumeStore } from '../../src/types'
 
@@ -54,12 +55,12 @@ describe('<SnapshotHistory>', () => {
     const restored = { ...emptyStore(), resume: makeResume({ full_name: 'Restored Person' }) }
     vi.spyOn(api, 'listSnapshots').mockResolvedValue(SNAPSHOTS)
     vi.spyOn(api, 'getSnapshot').mockResolvedValue(restored)
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
     const onClose = vi.fn()
 
     render(<SnapshotHistory resumeId="r1" onClose={onClose} />)
     const [firstRestore] = await screen.findAllByRole('button', { name: /restore/i })
     await userEvent.click(firstRestore)
+    await resolveConfirm('confirm')
 
     await waitFor(() => expect(onClose).toHaveBeenCalled())
     expect(api.getSnapshot).toHaveBeenCalledWith('r1', 2)
@@ -71,12 +72,12 @@ describe('<SnapshotHistory>', () => {
   it('does not restore when the confirm dialog is declined', async () => {
     vi.spyOn(api, 'listSnapshots').mockResolvedValue(SNAPSHOTS)
     const getSpy = vi.spyOn(api, 'getSnapshot')
-    vi.spyOn(window, 'confirm').mockReturnValue(false)
     const onClose = vi.fn()
 
     render(<SnapshotHistory resumeId="r1" onClose={onClose} />)
     const [firstRestore] = await screen.findAllByRole('button', { name: /restore/i })
     await userEvent.click(firstRestore)
+    await resolveConfirm('cancel')
 
     expect(getSpy).not.toHaveBeenCalled()
     expect(onClose).not.toHaveBeenCalled()

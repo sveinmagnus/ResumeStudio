@@ -3,6 +3,7 @@ import {
   UploadCloud, DownloadCloud, RefreshCw, Check, Loader2, AlertCircle, FolderSync,
 } from 'lucide-react'
 import { api, type BackupStatus, UnauthorizedError } from '../lib/api'
+import { confirmDialog } from './ui/ConfirmDialog'
 import { fmtRelativeTime } from '../lib/locales'
 
 interface SyncPanelProps {
@@ -50,13 +51,14 @@ export function SyncPanel({ onRestored, onUnauthorized, standalone }: SyncPanelP
   }, [refresh, onUnauthorized])
 
   const onRestore = useCallback(async () => {
-    const ok = window.confirm(
-      'Restore from your sync folder?\n\n' +
-      'This merges the backup into this computer: any resume that is newer in ' +
-      'the backup replaces the local copy, and resumes you don\'t have yet are ' +
-      'added. Nothing is deleted. A snapshot is kept so you can undo a restore ' +
-      'from History.',
-    )
+    const ok = await confirmDialog({
+      title: 'Restore from your sync folder?',
+      message:
+        'This merges the backup into this computer: any resume that is newer in the ' +
+        'backup replaces the local copy, and resumes you don\'t have yet are added. ' +
+        'Nothing is deleted. A snapshot is kept so you can undo a restore from History.',
+      confirmLabel: 'Restore',
+    })
     if (!ok) return
     setBusy('restore'); setMsg(null)
     try {

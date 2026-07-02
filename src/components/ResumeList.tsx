@@ -11,6 +11,7 @@ import { ImportScreen } from './ImportScreen'
 import { SyncPanel } from './SyncPanel'
 import { SettingsModal } from './SettingsModal'
 import { UpdateBanner } from './UpdateBanner'
+import { confirmDialog } from './ui/ConfirmDialog'
 import type { ResumeStore } from '../types'
 
 const YEAR = new Date().getFullYear()
@@ -126,9 +127,11 @@ export function ResumeList({ onUnauthorized }: ResumeListProps) {
   }, [create])
 
   const onDelete = useCallback(async (id: string, name: string) => {
-    const ok = window.confirm(
-      `Delete "${name}"?\n\nThis deletes all snapshots too — export a backup first if unsure.\nThis cannot be undone.`
-    )
+    const ok = await confirmDialog({
+      title: `Delete "${name}"?`,
+      message: 'This deletes the resume and all its snapshots. Export a backup first if unsure. This cannot be undone.',
+      confirmLabel: 'Delete', danger: true,
+    })
     if (!ok) return
     setDeleting(id)
     try {

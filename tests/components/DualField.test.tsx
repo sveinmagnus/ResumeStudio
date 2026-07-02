@@ -7,6 +7,7 @@ import userEvent from '@testing-library/user-event'
 import { DualField } from '../../src/components/ui/DualField'
 import { useStore } from '../../src/store/useStore'
 import { resetStore } from '../helpers/store-reset'
+import { resolveConfirm } from '../helpers/confirm'
 import { api } from '../../src/lib/api'
 import { resetTranslationAvailability } from '../../src/lib/translateClient'
 
@@ -100,6 +101,29 @@ describe('<DualField>', () => {
     useStore.setState({ primaryLocale: 'en', secondaryLocale: 'no' })
     render(<DualField label="Title" value={{ no: 'hei' }} onChange={() => {}} />)
     expect(screen.getByRole('button', { name: /copy/i })).toBeDisabled()
+  })
+
+  it('confirms before "Copy" overwrites non-empty secondary text', async () => {
+    useStore.setState({ primaryLocale: 'en', secondaryLocale: 'no' })
+    const onChange = vi.fn()
+    render(<DualField label="Title" value={{ en: 'hello', no: 'mitt' }} onChange={onChange} />)
+    await userEvent.click(screen.getByRole('button', { name: /copy/i }))
+    // Cancel keeps the hand-written translation.
+    await resolveConfirm('cancel')
+    expect(onChange).not.toHaveBeenCalled()
+    // Confirm replaces it.
+    await userEvent.click(screen.getByRole('button', { name: /copy/i }))
+    await resolveConfirm('confirm')
+    expect(onChange).toHaveBeenLastCalledWith({ en: 'hello', no: 'hello' })
+  })
+
+  it('does not confirm when the secondary is empty (no dialog)', async () => {
+    useStore.setState({ primaryLocale: 'en', secondaryLocale: 'no' })
+    const onChange = vi.fn()
+    render(<DualField label="Title" value={{ en: 'hello' }} onChange={onChange} />)
+    await userEvent.click(screen.getByRole('button', { name: /copy/i }))
+    expect(onChange).toHaveBeenLastCalledWith({ en: 'hello', no: 'hello' })
+    expect(document.querySelector('.confirm-modal')).toBeNull()
   })
 
   it('shows a Draft button only when translation is configured, and fills a draft', async () => {

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { UnauthorizedError, api } from '../lib/api'
 import { clearAllCaches, listDirty } from '../lib/localCache'
+import { confirmDialog } from './ui/ConfirmDialog'
 
 const YEAR = new Date().getFullYear()
 
@@ -71,25 +72,27 @@ export function AuthGate({ onSubmit }: AuthGateProps) {
         </form>
         <button
           className="auth-clear"
-          onClick={() => {
+          onClick={() => void (async () => {
             // Deliberate logout: clear the server session cookie AND the
             // plaintext resume caches in localStorage. Closes the shared-machine
             // data-leak residual (security skill). Guard first — clearing the
             // caches also discards any unsynced offline edits, so warn if the
             // queue is non-empty and let the user back out to export a backup.
             const dirty = listDirty().length
-            if (
-              dirty > 0 &&
-              !window.confirm(
-                `You have ${dirty} resume(s) with unsynced changes. ` +
-                `Clearing local data also deletes the local copies — ` +
-                `export a backup first if unsure. Clear anyway?`,
-              )
-            ) return
+            if (dirty > 0) {
+              const ok = await confirmDialog({
+                title: 'Clear local data?',
+                message:
+                  `You have ${dirty} resume(s) with unsynced changes. Clearing local data ` +
+                  `also deletes the local copies — export a backup first if unsure.`,
+                confirmLabel: 'Clear anyway', danger: true,
+              })
+              if (!ok) return
+            }
             void api.logout()
             clearAllCaches()
             setTokenInput('')
-          }}
+          })()}
         >
           Clear local data
         </button>

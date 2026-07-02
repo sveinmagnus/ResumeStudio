@@ -10,6 +10,7 @@ import {
 import { useStore } from '../../src/store/useStore'
 import { setSkillRelationsForTest, setSkillDomainsForTest } from '../../src/lib/skillTaxonomy'
 import { resetStore } from '../helpers/store-reset'
+import { resolveConfirm } from '../helpers/confirm'
 import { emptyStore, makeSkill, makeProject, makeIndustry, makeRole } from '../fixtures'
 import type { ResumeStore } from '../../src/types'
 
@@ -128,15 +129,14 @@ describe('<SkillsEditor> — add + merge', () => {
     })
     seed({ ...emptyStore(), skills: [a, b], projects: [project] })
     useStore.setState({ expandedItemId: a.id })
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
 
     render(<SkillsEditor />)
     await userEvent.selectOptions(
       screen.getByDisplayValue('— pick a target —'),
       screen.getByRole('option', { name: 'React' }),
     )
+    await resolveConfirm('confirm')
 
-    expect(confirmSpy).toHaveBeenCalled()
     const skills = useStore.getState().data.skills
     expect(skills).toHaveLength(1)        // source removed
     expect(skills[0].name.en).toBe('React')
@@ -149,13 +149,13 @@ describe('<SkillsEditor> — add + merge', () => {
     const b = makeSkill({ name: { en: 'React' } })
     seed({ ...emptyStore(), skills: [a, b] })
     useStore.setState({ expandedItemId: a.id })
-    vi.spyOn(window, 'confirm').mockReturnValue(false)
 
     render(<SkillsEditor />)
     await userEvent.selectOptions(
       screen.getByDisplayValue('— pick a target —'),
       screen.getByRole('option', { name: 'React' }),
     )
+    await resolveConfirm('cancel')
     expect(useStore.getState().data.skills).toHaveLength(2)
   })
 })
@@ -247,13 +247,13 @@ describe('<IndustriesEditor> (A8.1)', () => {
     const project = makeProject({ id: 'p', industries: [{ id: 'pi1', industry_id: 'a', name: { en: 'finance' }, sort_order: 0 }] })
     seedInd({ ...emptyStore(), industries: [a, b], projects: [project] })
     useStore.setState({ expandedItemId: 'a' })
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
 
     render(<IndustriesEditor />)
     await userEvent.selectOptions(
       screen.getByRole('combobox', { name: /merge this industry/i }),
       screen.getByRole('option', { name: 'Finance' }),
     )
+    await resolveConfirm('confirm')
 
     const industries = useStore.getState().data.industries
     expect(industries).toHaveLength(1)         // source removed

@@ -8,6 +8,7 @@ import { EditorCard } from '../../src/components/ui/EditorCard'
 import { useStore } from '../../src/store/useStore'
 import { resetStore } from '../helpers/store-reset'
 import { emptyStore, makeCourse } from '../fixtures'
+import { resolveConfirm } from '../helpers/confirm'
 
 function seedWithCourse(id = 'c1') {
   useStore.setState({
@@ -64,17 +65,17 @@ describe('<EditorCard>', () => {
 
   it('deletes after confirmation', async () => {
     seedWithCourse()
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
     render(card())
     await userEvent.click(screen.getByTitle('Delete'))
+    await resolveConfirm('confirm')
     expect(useStore.getState().data.courses).toHaveLength(0)
   })
 
   it('does not delete when confirmation is declined', async () => {
     seedWithCourse()
-    vi.spyOn(window, 'confirm').mockReturnValue(false)
     render(card())
     await userEvent.click(screen.getByTitle('Delete'))
+    await resolveConfirm('cancel')
     expect(useStore.getState().data.courses).toHaveLength(1)
   })
 

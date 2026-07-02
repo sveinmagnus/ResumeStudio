@@ -15,6 +15,7 @@ import { EditorCard, AddButton, FieldRow } from '../ui/EditorCard'
 import { SortableList } from '../ui/SortableList'
 import { SortBar } from '../ui/SortBar'
 import { Autocomplete } from '../ui/Autocomplete'
+import { confirmDialog } from '../ui/ConfirmDialog'
 import { resolve, fmtRange } from '../../lib/locales'
 import {
   mergeSkills, mergeRoles, mergeIndustries,
@@ -323,12 +324,12 @@ export function SkillsEditor() {
   // (the missing-translation filter would otherwise drop it mid-typing).
   const displayItems = useStableExpanded('skills', items)
 
-  const onMerge = (sourceId: string, targetId: string) => {
-    if (!confirmMerge('skill', sourceId, targetId, data.skills, primaryLocale, countSkillReferences(data, sourceId))) return
+  const onMerge = (sourceId: string, targetId: string) => void (async () => {
+    if (!await confirmMerge('skill', sourceId, targetId, data.skills, primaryLocale, countSkillReferences(data, sourceId))) return
     // replaceData (not loadStore) so the merge enters the undo stack and is
     // picked up by the auto-save effect.
     replaceData(mergeSkills(data, sourceId, targetId))
-  }
+  })()
 
   const makeSkill = (name: Skill['name']): Skill => ({
     id: newId(), resume_id: data.resume!.id, name, default_category: null,
@@ -521,10 +522,10 @@ export function RolesEditor() {
     addItem('roles', r)
   }
 
-  const onMerge = (sourceId: string, targetId: string) => {
-    if (!confirmMerge('role', sourceId, targetId, data.roles, primaryLocale, countRoleReferences(data, sourceId))) return
+  const onMerge = (sourceId: string, targetId: string) => void (async () => {
+    if (!await confirmMerge('role', sourceId, targetId, data.roles, primaryLocale, countRoleReferences(data, sourceId))) return
     replaceData(mergeRoles(data, sourceId, targetId))
-  }
+  })()
 
   const editingRole = editingId ? data.roles.find((r) => r.id === editingId) ?? null : null
 
@@ -777,10 +778,10 @@ export function IndustriesEditor() {
     addItem('industries', ind)
   }
 
-  const onMerge = (sourceId: string, targetId: string) => {
-    if (!confirmMerge('industry', sourceId, targetId, data.industries, primaryLocale, countIndustryReferences(data, sourceId))) return
+  const onMerge = (sourceId: string, targetId: string) => void (async () => {
+    if (!await confirmMerge('industry', sourceId, targetId, data.industries, primaryLocale, countIndustryReferences(data, sourceId))) return
     replaceData(mergeIndustries(data, sourceId, targetId))
-  }
+  })()
 
   return (
     <div className="section-pane">
@@ -971,14 +972,14 @@ function IndustryUsagePanel({ projects }: { projects: Project[] }) {
  * Show the per-merge confirmation dialog. Returns true if the user accepted
  * AND the merge has a valid (different, both-present) source/target pair.
  */
-function confirmMerge(
+async function confirmMerge(
   kind: 'skill' | 'role' | 'industry',
   sourceId: string,
   targetId: string,
   registry: ReadonlyArray<{ id: string; name: LocalizedString }>,
   locale: string,
   refs: number,
-): boolean {
+): Promise<boolean> {
   if (!targetId || sourceId === targetId) return false
   const source = registry.find((x) => x.id === sourceId)
   const target = registry.find((x) => x.id === targetId)
@@ -986,9 +987,11 @@ function confirmMerge(
   const sName = resolve(source.name, locale) || `(unnamed ${kind})`
   const tName = resolve(target.name, locale) || `(unnamed ${kind})`
   const plural = refs === 1 ? '' : 's'
-  return confirm(
-    `Merge "${sName}" into "${tName}"? This will rewrite ${refs} reference${plural} and delete "${sName}".`,
-  )
+  return confirmDialog({
+    title: `Merge ${kind}`,
+    message: `Merge "${sName}" into "${tName}"? This rewrites ${refs} reference${plural} and deletes "${sName}".`,
+    confirmLabel: 'Merge', undoHint: true,
+  })
 }
 
 interface MergeOption { id: string; label: string }

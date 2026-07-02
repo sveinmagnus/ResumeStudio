@@ -1,6 +1,7 @@
 import { useCallback } from 'react'
 import { useStore } from './useStore'
 import { SORT_LABELS } from '../lib/sectionSort'
+import { confirmDialog } from '../components/ui/ConfirmDialog'
 import type { SectionKey } from '../types'
 
 type ArraySection = SectionKey
@@ -19,14 +20,14 @@ type ArraySection = SectionKey
 export function useReorderGuard(section: ArraySection): (proceed: () => void) => void {
   const mode = useStore((s) => s.sectionSort[section] ?? 'custom')
   return useCallback((proceed: () => void) => {
-    if (mode !== 'custom') {
-      const ok = window.confirm(
-        `This section is sorted by “${SORT_LABELS[mode]}”.\n\n` +
-        `Moving an item by hand will replace your saved custom order with the ` +
-        `current arrangement and switch the section back to Custom order.\n\nContinue?`,
-      )
-      if (!ok) return
-    }
-    proceed()
+    if (mode === 'custom') { proceed(); return }
+    void confirmDialog({
+      title: 'Switch to custom order?',
+      message:
+        `This section is sorted by “${SORT_LABELS[mode]}”. Moving an item by hand will ` +
+        `replace your saved custom order with the current arrangement and switch the ` +
+        `section back to Custom order.`,
+      confirmLabel: 'Move & switch to Custom',
+    }).then((ok) => { if (ok) proceed() })
   }, [mode, section])
 }

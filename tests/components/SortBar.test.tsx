@@ -7,6 +7,7 @@ import userEvent from '@testing-library/user-event'
 import { WorkEditor } from '../../src/components/editor/SimpleEditors'
 import { useStore } from '../../src/store/useStore'
 import { resetStore } from '../helpers/store-reset'
+import { resolveConfirm, confirmDialogVisible } from '../helpers/confirm'
 import { emptyStore, makeWork } from '../fixtures'
 
 function seedTwoWork() {
@@ -53,7 +54,6 @@ describe('<SortBar> + reorder guard (via WorkEditor)', () => {
 
   it('warns before a manual reorder in a computed mode and bakes the order on accept', async () => {
     seedTwoWork()
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
     render(<WorkEditor />)
     await userEvent.selectOptions(screen.getByLabelText('Sort'), 'start')
     expect(cardOrder()).toEqual(['NewCo', 'OldCo'])
@@ -61,8 +61,8 @@ describe('<SortBar> + reorder guard (via WorkEditor)', () => {
     // Move the first card (NewCo) down → confirm fires, order becomes OldCo,NewCo,
     // baked into sort_order, and the mode flips back to custom.
     await userEvent.click(screen.getAllByTitle('Move down')[0])
+    await resolveConfirm('confirm')
 
-    expect(confirmSpy).toHaveBeenCalledOnce()
     expect(useStore.getState().sectionSort.work_experiences).toBe('custom')
     const ordered = [...useStore.getState().data.work_experiences].sort((a, b) => a.sort_order - b.sort_order)
     expect(ordered.map((w) => w.id)).toEqual(['old', 'new'])
@@ -70,11 +70,11 @@ describe('<SortBar> + reorder guard (via WorkEditor)', () => {
 
   it('does not reorder when the warning is declined', async () => {
     seedTwoWork()
-    vi.spyOn(window, 'confirm').mockReturnValue(false)
     render(<WorkEditor />)
     await userEvent.selectOptions(screen.getByLabelText('Sort'), 'start')
 
     await userEvent.click(screen.getAllByTitle('Move down')[0])
+    await resolveConfirm('cancel')
 
     // Still in start mode; sort_order untouched (OldCo=0, NewCo=1).
     expect(useStore.getState().sectionSort.work_experiences).toBe('start')
@@ -84,11 +84,10 @@ describe('<SortBar> + reorder guard (via WorkEditor)', () => {
 
   it('does not warn for reordering while in custom mode', async () => {
     seedTwoWork()
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
     render(<WorkEditor />)
     // Default custom mode — move down without any prompt.
     await userEvent.click(screen.getAllByTitle('Move down')[0])
-    expect(confirmSpy).not.toHaveBeenCalled()
+    expect(confirmDialogVisible()).toBe(false)
     const ordered = [...useStore.getState().data.work_experiences].sort((a, b) => a.sort_order - b.sort_order)
     expect(ordered.map((w) => w.id)).toEqual(['new', 'old'])
   })
