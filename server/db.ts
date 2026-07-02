@@ -404,6 +404,15 @@ export function createResumeDb(dbPath: string): ResumeDb {
   const getResume = (id: string): ResumeFull | null => {
     const row = selectResumeFull.get(id) as FullRow | undefined
     if (!row) return null
+    let data: Record<string, unknown>
+    try {
+      data = JSON.parse(row.data) as Record<string, unknown>
+    } catch (err) {
+      // A corrupt stored blob (e.g. after a bad cloud-folder sync) shouldn't
+      // masquerade as "not found" — surface it so the API's error handler
+      // returns a clean 500 rather than the client silently losing the resume.
+      throw new Error(`Corrupt data for resume ${id}: ${(err as Error).message}`)
+    }
     return {
       meta: {
         id: row.id,
@@ -415,7 +424,7 @@ export function createResumeDb(dbPath: string): ResumeDb {
         version: row.version,
         saved_by: row.saved_by,
       },
-      data: JSON.parse(row.data) as Record<string, unknown>,
+      data,
     }
   }
 
@@ -507,16 +516,30 @@ export function createResumeDb(dbPath: string): ResumeDb {
     return { db_bytes: pageCount * pageSize, resumes }
   }
 
-  const dumpResumes = (): ResumeBackupEntry[] =>
-    (selectAllFull.all() as FullRow[]).map((row) => ({
-      id: row.id,
-      name: row.name,
-      primary_locale: row.primary_locale,
-      secondary_locale: row.secondary_locale,
-      saved_at: row.saved_at,
-      created_at: row.created_at,
-      data: JSON.parse(row.data) as Record<string, unknown>,
-    }))
+  const dumpResumes = (): ResumeBackupEntry[] => {
+    const out: ResumeBackupEntry[] = []
+    for (const row of selectAllFull.all() as FullRow[]) {
+      let data: Record<string, unknown>
+      try {
+        data = JSON.parse(row.data) as Record<string, unknown>
+      } catch (err) {
+        // One corrupt row must not sink the whole backup / sync dump. Skip it
+        // (a warning in the log) so the rest of the resumes still back up.
+        console.warn(`[db] skipping resume ${row.id} in dump — corrupt data:`, (err as Error).message)
+        continue
+      }
+      out.push({
+        id: row.id,
+        name: row.name,
+        primary_locale: row.primary_locale,
+        secondary_locale: row.secondary_locale,
+        saved_at: row.saved_at,
+        created_at: row.created_at,
+        data,
+      })
+    }
+    return out
+  }
 
   const restoreResumes = (
     entries: ResumeBackupEntry[],

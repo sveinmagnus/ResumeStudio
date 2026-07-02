@@ -100,7 +100,15 @@ function parseCookies(header: string | undefined): Record<string, string> {
     if (eq < 0) continue
     const k = part.slice(0, eq).trim()
     if (!k) continue
-    out[k] = decodeURIComponent(part.slice(eq + 1).trim())
+    const rawVal = part.slice(eq + 1).trim()
+    // A malformed percent-escape (e.g. `%zz`) makes decodeURIComponent throw a
+    // URIError — which would otherwise become a 500 on every auth-gated route.
+    // Fall back to the raw value so a bad cookie is treated as a bad token (401).
+    try {
+      out[k] = decodeURIComponent(rawVal)
+    } catch {
+      out[k] = rawVal
+    }
   }
   return out
 }

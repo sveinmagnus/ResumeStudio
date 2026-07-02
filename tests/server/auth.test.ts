@@ -55,6 +55,27 @@ describe('authMiddleware', () => {
     expect(state.statusCode).toBe(401)
   })
 
+  it('treats a cookie with a malformed percent-escape as a bad token (401, not a thrown 500)', () => {
+    vi.stubEnv('RESUME_API_TOKEN', 's3kret')
+    const { res, state } = makeRes()
+    const next = vi.fn() as unknown as NextFunction
+    // `%zz` is an invalid escape — decodeURIComponent would throw. The parser
+    // must fall back to the raw value so this resolves to a clean 401.
+    expect(() =>
+      authMiddleware(makeReq({ cookie: 'rs_token=%zz' }), res, next),
+    ).not.toThrow()
+    expect(next).not.toHaveBeenCalled()
+    expect(state.statusCode).toBe(401)
+  })
+
+  it('accepts the correct token from the session cookie', () => {
+    vi.stubEnv('RESUME_API_TOKEN', 's3kret')
+    const { res } = makeRes()
+    const next = vi.fn() as unknown as NextFunction
+    authMiddleware(makeReq({ cookie: 'rs_token=s3kret' }), res, next)
+    expect(next).toHaveBeenCalledOnce()
+  })
+
   // ── Named tokens (F10: RESUME_API_TOKENS=name:token,…) ────────────────────
 
   it('accepts a named token and exposes the name for attribution', () => {

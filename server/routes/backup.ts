@@ -82,7 +82,9 @@ router.post('/now', (_req: Request, res: Response): void => {
     const { file, bytes } = writeBackupAtomic(dir, buildStoreBackup(entries))
     res.json({ ok: true, file, bytes, resumeCount: entries.length, saved_at: new Date().toISOString() })
   } catch (err) {
-    res.status(500).json({ error: `Backup failed: ${(err as Error).message}` })
+    // Don't echo the raw message — it can carry a filesystem path.
+    console.error('[backup] write failed:', err)
+    res.status(500).json({ error: 'Backup failed' })
   }
 })
 
@@ -109,10 +111,12 @@ router.post('/restore', (req: Request, res: Response): void => {
     res.json({ ok: true, mode, ...summary })
   } catch (err) {
     if (err instanceof UnreadableBackupError) {
+      // A controlled, path-free message describing why the backup won't parse.
       res.status(422).json({ error: err.message })
       return
     }
-    res.status(500).json({ error: `Restore failed: ${(err as Error).message}` })
+    console.error('[backup] restore failed:', err)
+    res.status(500).json({ error: 'Restore failed' })
   }
 })
 

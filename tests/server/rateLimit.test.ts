@@ -82,3 +82,37 @@ describe('API rate limiting — successful traffic is exempt', () => {
     }
   })
 })
+
+describe('Translation rate limiting — successful (billable) calls ARE counted', () => {
+  let app: Express
+  const T_MAX = 3
+
+  beforeAll(async () => {
+    process.env.RESUME_DB_PATH = ':memory:'
+    delete process.env.RESUME_API_TOKEN // no auth so the request reaches the limiter/route
+    process.env.RESUME_RATE_LIMIT_MAX = '100000' // keep the main (failure) limiter out of the way
+    process.env.RESUME_TRANSLATE_RATE_LIMIT_MAX = String(T_MAX)
+    app = await buildApp()
+  })
+  afterAll(() => {
+    delete process.env.RESUME_DB_PATH
+    delete process.env.RESUME_RATE_LIMIT_MAX
+    delete process.env.RESUME_TRANSLATE_RATE_LIMIT_MAX
+  })
+
+  it('429s after too many translate calls even without any failures', async () => {
+    // Translation isn't configured here, so each call is a 503 — but the point
+    // is the *count*: unlike the main limiter, this one tallies every response.
+    for (let i = 0; i < T_MAX; i++) {
+      const res = await request(app)
+        .post('/api/translate')
+        .send({ text: 'hei', source: 'no', target: 'en' })
+      expect(res.status).not.toBe(429)
+    }
+    const blocked = await request(app)
+      .post('/api/translate')
+      .send({ text: 'hei', source: 'no', target: 'en' })
+    expect(blocked.status).toBe(429)
+    expect(blocked.body).toEqual({ error: 'Too many translation requests' })
+  })
+})

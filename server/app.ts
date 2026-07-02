@@ -49,6 +49,18 @@ export function createApp(): Express {
   // Trim default Express fingerprinting header.
   app.disable('x-powered-by')
 
+  // Behind a reverse proxy (nginx/caddy on a VPS), the socket peer is the proxy,
+  // so `req.ip` (and thus the rate limiter's key) collapses to one address for
+  // every user — one attacker's bad-token flood would 429 the whole team. When
+  // RESUME_TRUST_PROXY is set we trust X-Forwarded-* so the limiter keys on the
+  // real client IP. Value: a hop count ("1"), a boolean ("true"), or an Express
+  // preset ("loopback"). Left OFF by default (direct-bind dev/desktop) so a
+  // spoofable header is never trusted unless the operator opts in.
+  const trustProxy = process.env.RESUME_TRUST_PROXY?.trim()
+  if (trustProxy) {
+    app.set('trust proxy', /^\d+$/.test(trustProxy) ? Number(trustProxy) : trustProxy === 'true' ? true : trustProxy)
+  }
+
   // Content-Security-Policy for the SPA shell — the second line of defence
   // behind the escape-at-render discipline in viewFilter/exporter. Tuned to
   // the app's real resource usage:
@@ -163,6 +175,22 @@ export function createApp(): Express {
     handler: (_req, res) => { res.status(429).json({ error: 'Too many requests' }) },
   })
 
+  // A SECOND, success-inclusive limiter for the translation proxy only. The
+  // main limiter deliberately skips 2xx responses (so auto-save isn't throttled)
+  // — but a *successful* translate call can cost real money with a paid DeepL /
+  // Google / Azure key, so a token holder (or a leaked token) could otherwise
+  // run up the provider bill at wire speed. This caps calls per window
+  // regardless of status. Default 60/min is far above human drafting pace.
+  const translateMax = Number(process.env.RESUME_TRANSLATE_RATE_LIMIT_MAX) || 60
+  const translateWindowMs = Number(process.env.RESUME_TRANSLATE_RATE_LIMIT_WINDOW_MS) || 60 * 1000
+  const translateLimiter = rateLimit({
+    windowMs: translateWindowMs,
+    limit: translateMax,
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler: (_req, res) => { res.status(429).json({ error: 'Too many translation requests' }) },
+  })
+
   // ── Health check (no auth, no rate limit — frontend reachability probe) ────
   app.get('/api/health', (_req, res) => {
     res.json({ ok: true })
@@ -178,7 +206,9 @@ export function createApp(): Express {
   app.use('/api/resumes', apiLimiter, authMiddleware, resumeRouter)
 
   // ── Translation proxy (auth-gated) — drafts via self-hosted LibreTranslate ─
-  app.use('/api/translate', apiLimiter, authMiddleware, translateRouter)
+  // Both limiters: apiLimiter brakes failure-floods (401s), translateLimiter
+  // caps successful (billable) calls too.
+  app.use('/api/translate', apiLimiter, translateLimiter, authMiddleware, translateRouter)
 
   // ── Store backup / sync (auth-gated) — desktop build's Drive-folder sync ───
   app.use('/api/backup', apiLimiter, authMiddleware, backupRouter)
@@ -188,6 +218,22 @@ export function createApp(): Express {
 
   // ── Auto-update (auth-gated) — desktop build only; reports unsupported on VPS ─
   app.use('/api/update', apiLimiter, authMiddleware, updateRouter)
+
+  // ── JSON error handler for the API ─────────────────────────────────────────
+  // Express's default handler renders an HTML error page; for /api that breaks
+  // JSON clients (and a corrupt stored row surfacing as an HTML 500 is a poor
+  // failure mode). Honour a status the error already carries (body-parser sets
+  // 400 on malformed JSON); everything else is a real server fault → 500. Never
+  // echo the underlying message (it could carry a path).
+  app.use('/api', (err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    const carried = (err as { status?: unknown; statusCode?: unknown })
+    const status = typeof carried?.status === 'number' ? carried.status
+      : typeof carried?.statusCode === 'number' ? carried.statusCode
+      : 500
+    if (status >= 500) console.error('[api] unhandled error:', err)
+    if (res.headersSent) return
+    res.status(status).json({ error: status < 500 ? 'Invalid request' : 'Internal server error' })
+  })
 
   // ── Serve the built frontend ──────────────────────────────────────────────
   // VPS prod sets NODE_ENV=production and ships dist/ next to the server; the
