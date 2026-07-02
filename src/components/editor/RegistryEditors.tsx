@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useEffect, type ReactNode } from 'react'
+import { useState, useMemo, useRef, useEffect } from 'react'
 import { useStore, newId } from '../../store/useStore'
 import { useSortedItems } from '../../store/useSortedItems'
 import { useStableExpanded } from '../../store/useStableExpanded'
@@ -16,6 +16,7 @@ import { SortableList } from '../ui/SortableList'
 import { SortBar } from '../ui/SortBar'
 import { Autocomplete } from '../ui/Autocomplete'
 import { confirmDialog } from '../ui/ConfirmDialog'
+import { RegistryCategoryView, RegistryLightbox, categoriesOf } from './RegistryCategoryView'
 import { resolve, fmtRange } from '../../lib/locales'
 import {
   mergeSkills, mergeRoles, mergeIndustries,
@@ -27,10 +28,6 @@ import type {
   LocalizedString, Project, WorkExperience,
 } from '../../types'
 import { X, Plus, Sparkles, Combine, Filter as FilterIcon, Briefcase, FolderKanban, List, LayoutGrid, Wand2 } from 'lucide-react'
-import {
-  DndContext, PointerSensor, useSensor, useSensors, useDraggable, useDroppable, type DragEndEvent,
-} from '@dnd-kit/core'
-import { useDialog } from '../ui/useDialog'
 
 // ── Shared registry-filter bar ──────────────────────────────────────────────
 
@@ -598,141 +595,6 @@ export function RolesEditor() {
         </RegistryLightbox>
       )}
       <RegistryStyles />
-    </div>
-  )
-}
-
-// ── Registry "by category" view (grouped, compact, drag-to-recategorize) ──────
-// Shared by the Skill and Role registries: any item with a free-text
-// `category` groups under category headers; drag a chip onto another header to
-// recategorize it, click a chip to open its editor in a lightbox.
-
-const UNCATEGORIZED = '__uncategorized__'
-
-interface CatItem { id: string; name: LocalizedString; category?: string | null }
-
-/** Distinct, sorted category labels (non-empty) across items. */
-function categoriesOf(items: CatItem[]): string[] {
-  const set = new Set<string>()
-  for (const it of items) {
-    const c = (it.category ?? '').trim()
-    if (c) set.add(c)
-  }
-  return [...set].sort((a, b) => a.localeCompare(b))
-}
-
-function RegistryCategoryView({ items, unnamed, onOpen, onRecategorize }: {
-  items: CatItem[]
-  /** Label for an item with no name yet, e.g. "(unnamed skill)". */
-  unnamed: string
-  onOpen: (id: string) => void
-  onRecategorize: (id: string, category: string | null) => void
-}) {
-  const locale = useStore((s) => s.primaryLocale)
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
-
-  // Group by category (Uncategorized last), categories A→Z.
-  const groups = useMemo(() => {
-    const m = new Map<string, CatItem[]>()
-    for (const it of items) {
-      const key = (it.category ?? '').trim() || UNCATEGORIZED
-      if (!m.has(key)) m.set(key, [])
-      m.get(key)!.push(it)
-    }
-    return [...m.entries()].sort(([a], [b]) => {
-      if (a === UNCATEGORIZED) return 1
-      if (b === UNCATEGORIZED) return -1
-      return a.localeCompare(b)
-    })
-  }, [items])
-
-  const onDragEnd = (e: DragEndEvent) => {
-    const { active, over } = e
-    if (!over) return
-    const target = String(over.id) === UNCATEGORIZED ? null : String(over.id)
-    const it = items.find((x) => x.id === String(active.id))
-    if (!it || (it.category ?? null) === target) return
-    onRecategorize(String(active.id), target)
-  }
-
-  return (
-    <DndContext sensors={sensors} onDragEnd={onDragEnd}>
-      <div className="rcv">
-        {groups.map(([key, list]) => (
-          <CatGroup key={key} catKey={key} label={key === UNCATEGORIZED ? 'Uncategorized' : key}
-            items={list} locale={locale} unnamed={unnamed} onOpen={onOpen} />
-        ))}
-      </div>
-    </DndContext>
-  )
-}
-
-function CatGroup({ catKey, label, items, locale, unnamed, onOpen }: {
-  catKey: string; label: string; items: CatItem[]; locale: string; unnamed: string; onOpen: (id: string) => void
-}) {
-  const { setNodeRef, isOver } = useDroppable({ id: catKey })
-  return (
-    <div className="rcv-group">
-      <div ref={setNodeRef} className={`rcv-head ${isOver ? 'is-over' : ''}`}>
-        {label} <span className="rcv-count">{items.length}</span>
-      </div>
-      <div className="rcv-chips">
-        {items.map((it) => <CatChip key={it.id} item={it} locale={locale} unnamed={unnamed} onOpen={onOpen} />)}
-      </div>
-    </div>
-  )
-}
-
-function CatChip({ item, locale, unnamed, onOpen }: { item: CatItem; locale: string; unnamed: string; onOpen: (id: string) => void }) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: item.id })
-  const style = transform
-    ? { transform: `translate3d(${Math.round(transform.x)}px, ${Math.round(transform.y)}px, 0)` }
-    : undefined
-  return (
-    <button
-      ref={setNodeRef}
-      type="button"
-      className={`rcv-chip ${isDragging ? 'is-dragging' : ''}`}
-      style={style}
-      {...attributes}
-      {...listeners}
-      onClick={() => onOpen(item.id)}
-      title="Drag to another category · click to edit"
-    >
-      {resolve(item.name, locale) || unnamed}
-    </button>
-  )
-}
-
-/** Lightbox chrome for the category-view editor (content passed as children). */
-function RegistryLightbox({ title, ariaLabel, onClose, children }: {
-  title: string; ariaLabel: string; onClose: () => void; children: ReactNode
-}) {
-  const dialogRef = useDialog(onClose)
-  return (
-    <div className="rcv-modal-backdrop" role="presentation" onClick={onClose}>
-      <div className="rcv-modal" ref={dialogRef} role="dialog" aria-modal="true" aria-label={ariaLabel} onClick={(e) => e.stopPropagation()}>
-        <div className="rcv-modal-head">
-          <h3>{title}</h3>
-          <button className="rcv-modal-close" onClick={onClose} aria-label="Close"><X size={16} /></button>
-        </div>
-        {children}
-      </div>
-      <style>{`
-        .rcv-modal-backdrop {
-          position: fixed; inset: 0; background: rgba(15,23,42,.45);
-          display: grid; place-items: center; z-index: 100; padding: 24px; animation: fadeIn .15s ease;
-        }
-        .rcv-modal {
-          background: var(--paper); border-radius: var(--r-lg); box-shadow: var(--shadow-lg);
-          width: min(640px, 94vw); max-height: 88vh; overflow-y: auto; overscroll-behavior: contain;
-          padding: 20px 24px 24px; animation: fadeUp .2s ease;
-        }
-        .rcv-modal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
-        .rcv-modal-head h3 { font-size: 20px; }
-        .rcv-modal-close { width: 30px; height: 30px; display: grid; place-items: center; border-radius: var(--r-sm); color: var(--ink-faint); }
-        .rcv-modal-close:hover { background: var(--paper-sunken); color: var(--accent); }
-      `}</style>
     </div>
   )
 }
