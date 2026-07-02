@@ -35,6 +35,7 @@ import { parseRichBlocks, type RichRun } from './richText'
 import { deriveTokens, resolveSectionStyle, withDefaults, resolveFontDocx, type ResolvedSectionStyle, type StyleTokens } from './viewStyle'
 import { withHeaderDefaults, withFooterDefaults, buildHeaderLines, buildCopyrightLine } from './viewHeader'
 import { imageInfoFromDataUrl, applyShapeMaskToDataUrl, type ImageInfo } from './image'
+import { exportFilename } from './exportFilename'
 
 const SUBTLE_HEX = '666666'
 const FAINT_HEX  = '888888'
@@ -430,9 +431,7 @@ export async function exportDocx(store: ResumeStore, view: ResumeView, locale: s
   })
 
   const blob = await Packer.toBlob(doc)
-  const slugName = (store.resume?.full_name || 'resume').replace(/\s+/g, '_')
-  const slugView = view.name.replace(/\s+/g, '_')
-  downloadBlob(blob, `${slugName}_${slugView}.docx`)
+  downloadBlob(blob, exportFilename(store.resume?.full_name, view.name, 'docx'))
 }
 
 // ─── Section dispatcher ───────────────────────────────────────────────────────

@@ -14,6 +14,19 @@
 
 // ─── Upload → resized data URL (browser only) ────────────────────────────────
 
+/**
+ * Accept only raster image files. `image/*` alone would admit `image/svg+xml`,
+ * which can carry markup/script; while every upload is canvas-re-encoded to
+ * PNG/JPEG (stripping any script) and the render boundary rejects SVG data URLs
+ * anyway, refusing SVG here — before it ever touches an <img>/canvas — removes
+ * the question entirely (an SVG referencing external resources can also taint
+ * the canvas and make toDataURL throw a confusing error). Mirrors the
+ * raster-only guard in viewFilter.isDataImage.
+ */
+function isRasterImageFile(file: File): boolean {
+  return file.type.startsWith('image/') && file.type !== 'image/svg+xml'
+}
+
 export interface ResizeOptions {
   /** Longest-edge cap in pixels. */
   maxDim?: number
@@ -30,8 +43,8 @@ export interface ResizeOptions {
 export function fileToResizedDataUrl(file: File, opts: ResizeOptions = {}): Promise<string> {
   const { maxDim = 600, format = 'jpeg', quality = 0.82 } = opts
   return new Promise((resolve, reject) => {
-    if (!file.type.startsWith('image/')) {
-      reject(new Error('Selected file is not an image.'))
+    if (!isRasterImageFile(file)) {
+      reject(new Error('Please choose a PNG, JPEG, GIF, or WebP image (SVG is not supported).'))
       return
     }
     const url = URL.createObjectURL(file)
@@ -122,8 +135,8 @@ export function cropImageToDataUrl(
  */
 export function fileToImage(file: File): Promise<{ image: HTMLImageElement; objectUrl: string }> {
   return new Promise((resolveImg, reject) => {
-    if (!file.type.startsWith('image/')) {
-      reject(new Error('Selected file is not an image.'))
+    if (!isRasterImageFile(file)) {
+      reject(new Error('Please choose a PNG, JPEG, GIF, or WebP image (SVG is not supported).'))
       return
     }
     const objectUrl = URL.createObjectURL(file)

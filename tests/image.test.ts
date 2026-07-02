@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { imageInfoFromDataUrl, clampCropRect, computeCropRect } from '../src/lib/image'
+import { imageInfoFromDataUrl, clampCropRect, computeCropRect, fileToResizedDataUrl, fileToImage } from '../src/lib/image'
 
 // Build a base64 data URL from raw bytes (Buffer is available in the node test env).
 function dataUrl(mime: string, bytes: number[]): string {
@@ -108,6 +108,21 @@ describe('imageInfoFromDataUrl()', () => {
 // Tiny stand-in for HTMLImageElement (only the bits clampCropRect / computeCropRect read).
 const img = (w: number, h: number) =>
   ({ naturalWidth: w, naturalHeight: h } as HTMLImageElement)
+
+describe('upload guard rejects non-raster files (before any decode)', () => {
+  // Both entry points bail on the MIME check before touching URL.createObjectURL
+  // or an <img>, so this exercises the guard without a DOM.
+  it('rejects an SVG upload with a helpful message', async () => {
+    const svg = new File(['<svg/>'], 'logo.svg', { type: 'image/svg+xml' })
+    await expect(fileToResizedDataUrl(svg)).rejects.toThrow(/SVG is not supported/i)
+    await expect(fileToImage(svg)).rejects.toThrow(/SVG is not supported/i)
+  })
+
+  it('rejects a non-image file', async () => {
+    const pdf = new File(['%PDF'], 'cv.pdf', { type: 'application/pdf' })
+    await expect(fileToResizedDataUrl(pdf)).rejects.toThrow(/PNG, JPEG/i)
+  })
+})
 
 describe('clampCropRect()', () => {
   it('caps the side at the shorter image edge', () => {

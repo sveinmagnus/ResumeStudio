@@ -12,6 +12,7 @@ import { DEFAULT_VIEW_STYLE } from '../../../lib/viewStyle'
 import { withHeaderDefaults, withFooterDefaults } from '../../../lib/viewHeader'
 import { VIEW_TEMPLATES, getTemplate, applyTemplate } from '../../../lib/viewTemplates'
 import { buildViewText, buildViewMarkdown } from '../../../lib/viewText'
+import { exportFilename } from '../../../lib/exportFilename'
 import type {
   ResumeView, ViewStyle, SectionStyle, SectionDetail,
   ViewHeaderConfig, ViewFooterConfig,
@@ -84,7 +85,7 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
 
   const popOut = () => {
     const win = window.open('', 'rs-view-preview', 'width=900,height=1200')
-    if (!win) { alert('Please allow pop-ups to open the preview window.'); return }
+    if (!win) { setExportError('Please allow pop-ups to open the preview window.'); return }
     popoutRef.current = win
     win.document.open()
     win.document.write(previewHtml)
@@ -168,14 +169,23 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
   }
 
   const [docxBusy, setDocxBusy] = useState(false)
+  const [exportError, setExportError] = useState<string | null>(null)
 
   const handleExport = () => {
+    setExportError(null)
     const html = buildViewHtml(data, view, exportLocale)
     const win = window.open('', '_blank')
-    if (!win) { alert('Please allow pop-ups to export.'); return }
+    if (!win) { setExportError('Please allow pop-ups to export the PDF.'); return }
     win.document.write(html)
     win.document.close()
-    setTimeout(() => win.print(), 600)
+    // Print only once the self-hosted brand fonts have loaded, so the pages
+    // aren't measured with fallback-font metrics (wrong line breaks / page
+    // count). Cap the wait so a slow or blocked font load still prints.
+    let printed = false
+    const doPrint = () => { if (printed) return; printed = true; try { win.focus(); win.print() } catch { /* window closed */ } }
+    const fonts = (win.document as Document & { fonts?: { ready?: Promise<unknown> } }).fonts
+    if (fonts?.ready) fonts.ready.then(doPrint, doPrint)
+    window.setTimeout(doPrint, 1500) // fallback ceiling
     onUpdate({ last_exported_at: new Date().toISOString() })
   }
 
@@ -184,13 +194,11 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
     const content = ext === 'txt'
       ? buildViewText(data, view, exportLocale)
       : buildViewMarkdown(data, view, exportLocale)
-    const slugName = (data.resume?.full_name || 'resume').replace(/\s+/g, '_')
-    const slugView = view.name.replace(/\s+/g, '_')
     const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `${slugName}_${slugView}.${ext}`
+    a.download = exportFilename(data.resume?.full_name, view.name, ext)
     a.click()
     setTimeout(() => URL.revokeObjectURL(url), 100)
     onUpdate({ last_exported_at: new Date().toISOString() })
@@ -199,12 +207,13 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
   // The docx library is ~400 kB — lazy-load only when the user clicks Export DOCX.
   const handleExportDocx = async () => {
     setDocxBusy(true)
+    setExportError(null)
     try {
       const { exportDocx } = await import('../../../lib/exporter')
       await exportDocx(data, view, exportLocale)
       onUpdate({ last_exported_at: new Date().toISOString() })
     } catch (e) {
-      alert(`Could not export DOCX: ${(e as Error).message}`)
+      setExportError(`Could not export DOCX: ${(e as Error).message}`)
     } finally {
       setDocxBusy(false)
     }
@@ -513,6 +522,12 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
         {view.last_exported_at && (
           <div className="rv-last-export">
             Last exported {new Date(view.last_exported_at).toLocaleDateString()}
+          </div>
+        )}
+        {exportError && (
+          <div className="rv-export-error" role="alert">
+            {exportError}
+            <button className="rv-export-error-x" onClick={() => setExportError(null)} aria-label="Dismiss">×</button>
           </div>
         )}
       </div>

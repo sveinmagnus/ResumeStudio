@@ -322,6 +322,15 @@ export function Styles() {
       }
       .rv-export-docx:hover:not(:disabled) { background: var(--accent-wash); color: var(--accent); }
       .rv-last-export { margin-top: 10px; font-size: 12px; color: var(--ink-faint); }
+      .rv-export-error {
+        margin-top: 10px; display: flex; align-items: flex-start; gap: 8px;
+        font-size: 12.5px; color: var(--err-ink); background: var(--err-wash);
+        border: 1px solid var(--err-ink); border-radius: var(--r-sm); padding: 8px 10px;
+      }
+      .rv-export-error-x {
+        margin-left: auto; flex-shrink: 0; color: var(--err-ink); font-size: 16px;
+        line-height: 1; padding: 0 2px; cursor: pointer;
+      }
 
       /* ── Live preview pane ── */
       .rv-editor-grid {
