@@ -142,7 +142,7 @@ describe('<SkillsEditor> — add + merge', () => {
 
     // Filter to Frontend, then clear its two skills' categories in one action.
     await userEvent.selectOptions(screen.getByLabelText('Category'), 'Frontend')
-    await userEvent.click(screen.getByRole('button', { name: /clear all skills from category \(2\)/i }))
+    await userEvent.click(screen.getByRole('button', { name: /clear all \(2\)/i }))
 
     const skills = useStore.getState().data.skills
     expect(skills.find((s) => s.id === 's1')!.category).toBeNull()
@@ -333,6 +333,44 @@ describe('<SkillsEditor> — batch missing-translation view', () => {
     expect(screen.getByLabelText(/Skill name \(Norsk\)/i)).toBeInTheDocument()
     expect(screen.getByText(/done/i)).toBeInTheDocument()
   })
+
+  function seedTwo() {
+    useStore.setState({
+      data: {
+        ...emptyStore(),
+        skills: [
+          makeSkill({ id: 's1', name: { en: 'TypeScript' } }),          // missing 'no'
+          makeSkill({ id: 's2', name: { en: 'React', no: 'React' } }),  // complete
+        ],
+      },
+      hasData: true, primaryLocale: 'en', secondaryLocale: 'no',
+      activeSection: 'skills', expandedItemId: null, mutationCount: 0,
+    })
+  }
+
+  it('the "Show all" toggle reveals already-translated entries for review', async () => {
+    seedTwo()
+    render(<SkillsEditor />)
+    await userEvent.click(screen.getByRole('button', { name: /missing translation/i }))
+
+    // Only the missing skill is shown by default (one Norwegian input).
+    expect(screen.getAllByLabelText(/Skill name \(Norsk\)/i)).toHaveLength(1)
+
+    // Toggling "Show all" reveals both (the completed React too).
+    await userEvent.click(screen.getByLabelText(/show all/i))
+    expect(screen.getAllByLabelText(/Skill name \(Norsk\)/i)).toHaveLength(2)
+  })
+
+  it('opens the full editor inline for a batch row', async () => {
+    seedTwo()
+    render(<SkillsEditor />)
+    await userEvent.click(screen.getByRole('button', { name: /missing translation/i }))
+
+    // The compact row has no Proficiency field; opening the full editor reveals it.
+    expect(screen.queryByText(/Proficiency/i)).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: /open full editor/i }))
+    expect(screen.getByText(/Proficiency/i)).toBeInTheDocument()
+  })
 })
 
 describe('<RolesEditor> — category view', () => {
@@ -373,6 +411,7 @@ describe('<RolesEditor> — category view', () => {
     expect(within(dialog).getByLabelText(/Role name/i)).toBeInTheDocument()
 
     await userEvent.type(within(dialog).getByPlaceholderText('Uncategorized'), 'Agile')
+    await userEvent.tab() // the category field commits on blur
     expect(useStore.getState().data.roles.find((r) => r.id === 'r3')!.category).toBe('Agile')
   })
 })
@@ -417,8 +456,41 @@ describe('<SkillsEditor> — category view', () => {
     expect(within(dialog).getByLabelText(/Skill name/i)).toBeInTheDocument()
 
     // The category input's placeholder is the empty-state label ('Uncategorized').
+    // The field commits on blur (Tab), like a normal autocomplete.
     await userEvent.type(within(dialog).getByPlaceholderText('Uncategorized'), 'DevOps')
+    await userEvent.tab()
     expect(useStore.getState().data.skills.find((s) => s.id === 's3')!.category).toBe('DevOps')
+  })
+
+  it('lets you type a multi-word category (spaces are not stripped mid-typing)', async () => {
+    seedSkills()
+    render(<SkillsEditor />)
+    await userEvent.click(screen.getByRole('button', { name: /by category/i }))
+    await userEvent.click(screen.getByRole('button', { name: 'Docker' }))
+    const dialog = await screen.findByRole('dialog', { name: /edit skill/i })
+
+    const input = within(dialog).getByPlaceholderText('Uncategorized')
+    await userEvent.type(input, 'Cloud Native')
+    expect((input as HTMLInputElement).value).toBe('Cloud Native') // space kept while typing
+    await userEvent.tab()
+    expect(useStore.getState().data.skills.find((s) => s.id === 's3')!.category).toBe('Cloud Native')
+  })
+
+  it('offers a distinct "New category" row when typing a value that does not exist', async () => {
+    seedSkills()
+    render(<SkillsEditor />)
+    await userEvent.click(screen.getByRole('button', { name: /by category/i }))
+    await userEvent.click(screen.getByRole('button', { name: 'Docker' }))
+    const dialog = await screen.findByRole('dialog', { name: /edit skill/i })
+
+    // Typing an existing category surfaces it as an option (pick, not create)…
+    const input = within(dialog).getByPlaceholderText('Uncategorized')
+    await userEvent.type(input, 'Front')
+    expect(within(dialog).getByRole('option', { name: 'Frontend' })).toBeInTheDocument()
+    // …typing a novel value shows the explicit "New category" affordance.
+    await userEvent.clear(input)
+    await userEvent.type(input, 'Observability')
+    expect(within(dialog).getByRole('option', { name: /New category/i })).toBeInTheDocument()
   })
 
   it('clears a whole category via the "x" in its header', async () => {

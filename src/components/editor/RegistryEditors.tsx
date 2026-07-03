@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useEffect } from 'react'
+import { useState, useMemo, useRef, useEffect, useId, type ReactNode } from 'react'
 import { useStore, newId } from '../../store/useStore'
 import { useSortedItems } from '../../store/useSortedItems'
 import { useStableExpanded } from '../../store/useStableExpanded'
@@ -35,11 +35,13 @@ import { X, Plus, Sparkles, Combine, Filter as FilterIcon, Briefcase, FolderKanb
 type RegistryFilter = 'all' | 'unused' | 'missing-translation'
 
 function FilterBar({
-  filter, onChange, counts,
+  filter, onChange, counts, extra,
 }: {
   filter: RegistryFilter
   onChange: (f: RegistryFilter) => void
   counts: { all: number; unused: number; missing: number }
+  /** Optional right-aligned controls (e.g. the Skills category selector). */
+  extra?: ReactNode
 }) {
   const Btn = ({ value, label, count }: { value: RegistryFilter; label: string; count: number }) => (
     <button
@@ -57,11 +59,13 @@ function FilterBar({
       <Btn value="all" label="All" count={counts.all} />
       <Btn value="unused" label="Unused" count={counts.unused} />
       <Btn value="missing-translation" label="Missing translation" count={counts.missing} />
+      {extra && <div className="fb-extra">{extra}</div>}
       <style>{`
         .fb-wrap {
-          display: flex; align-items: center; gap: 6px; margin-bottom: 14px;
+          display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-bottom: 14px;
           padding: 8px 10px; background: var(--paper-sunken); border-radius: var(--r-md);
         }
+        .fb-extra { margin-left: auto; display: flex; align-items: center; gap: 6px; }
         .fb-icon { color: var(--ink-faint); margin-right: 2px; }
         .fb-btn {
           display: inline-flex; align-items: center; gap: 5px;
@@ -126,44 +130,89 @@ function useFrozenMissing<T extends NamedItem>(active: boolean, missing: T[], al
  * Batch translation surface for the "Missing translation" filter: a compact
  * list of DualFields (name only — the one translatable registry field) so the
  * consultant can type/Copy translations for many entries without opening each
- * card. `items` should come from useFrozenMissing so rows don't vanish on the
- * first keystroke.
+ * card. `missing` should come from useFrozenMissing so rows don't vanish on the
+ * first keystroke; a **Show all** toggle swaps to `all` for reviewing/correcting
+ * every translation. Any row can expand to the **full editor** in place
+ * (`renderEditor`) — the quick DualField is replaced by the full body (which
+ * still carries the name field), so nothing is lost.
  */
-function MissingTranslationList({ label, items, onSet }: {
+function MissingTranslationList({ label, missing, all, onSet, renderEditor }: {
   label: string
-  items: NamedItem[]
+  missing: NamedItem[]
+  all: NamedItem[]
   onSet: (id: string, name: LocalizedString) => void
+  renderEditor: (id: string) => ReactNode
 }) {
   const primary = useStore((s) => s.primaryLocale)
   const secondary = useStore((s) => s.secondaryLocale)
+  const [showAll, setShowAll] = useState(false)
+  const [openId, setOpenId] = useState<string | null>(null)
+  const items = showAll ? all : missing
+
   return (
     <div className="mtl">
-      <p className="registry-note mtl-hint">
-        Type or <strong>Copy</strong> the secondary-language name for each. Completed rows stay (✓) until you switch filters.
-      </p>
+      <div className="mtl-toolbar">
+        <label className="check-row mtl-toggle">
+          <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} />
+          Show all ({all.length})
+        </label>
+        <span className="mtl-note">
+          {showAll
+            ? `${missing.length} still missing a translation`
+            : 'Type or Copy each secondary-language name. Completed rows stay (✓) until you switch filters.'}
+        </span>
+      </div>
+      {items.length === 0 && (
+        <div className="registry-empty">
+          {showAll ? 'Nothing to show yet.' : 'No entries are missing a translation — toggle "Show all" to review everything.'}
+        </div>
+      )}
       {items.map((it) => {
         const done = !isMissingTranslation(it.name, primary, secondary)
+        const open = openId === it.id
         return (
-          <div key={it.id} className={`mtl-row ${done ? 'is-done' : ''}`}>
-            <DualField label={label} value={it.name} onChange={(v) => onSet(it.id, v)} />
-            {done && <span className="mtl-done" role="status"><Check size={13} /> done</span>}
+          <div key={it.id} className={`mtl-row ${done ? 'is-done' : ''} ${open ? 'is-open' : ''}`}>
+            <div className="mtl-row-actions">
+              {done && !open && <span className="mtl-done" role="status"><Check size={13} /> done</span>}
+              <button type="button" className="mtl-open"
+                onClick={() => setOpenId(open ? null : it.id)}
+                aria-expanded={open}>
+                {open ? 'Close editor' : 'Open full editor'}
+              </button>
+            </div>
+            {open
+              ? <div className="mtl-full">{renderEditor(it.id)}</div>
+              : <DualField label={label} value={it.name} onChange={(v) => onSet(it.id, v)} />}
           </div>
         )
       })}
       <style>{`
         .mtl { margin-top: 4px; }
-        .mtl-hint { margin-bottom: 12px; }
+        .mtl-toolbar {
+          display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; margin-bottom: 12px;
+        }
+        .mtl-toggle { font-weight: 600; }
+        .mtl-note { font-size: 12px; color: var(--ink-faint); }
         .mtl-row {
-          position: relative; padding: 12px 14px; margin-bottom: 8px;
+          position: relative; padding: 12px 14px 12px; margin-bottom: 8px;
           background: var(--paper-raised); border: 1px solid var(--line); border-radius: var(--r-md);
         }
         .mtl-row .df-wrap { margin-bottom: 0; }
         .mtl-row.is-done { border-color: var(--ok-ink); background: var(--ok-wash); }
-        .mtl-done {
+        .mtl-row.is-open { background: var(--paper-sunken); }
+        .mtl-row-actions {
           position: absolute; top: 10px; right: 12px; z-index: 1;
-          display: inline-flex; align-items: center; gap: 3px;
-          font-size: 11px; font-weight: 700; color: var(--ok-ink);
+          display: flex; align-items: center; gap: 10px;
         }
+        .mtl-done { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; font-weight: 700; color: var(--ok-ink); }
+        .mtl-open {
+          font-size: 11.5px; font-weight: 600; color: var(--accent);
+          padding: 3px 9px; border: 1px solid var(--line); border-radius: var(--r-sm);
+          background: var(--paper); transition: color .12s, border-color .12s, background .12s;
+        }
+        .mtl-open:hover { border-color: var(--accent); background: var(--accent-wash); }
+        /* Give the quick DualField room so its locale tags clear the actions. */
+        .mtl-row:not(.is-open) .df-label { padding-right: 120px; }
       `}</style>
     </div>
   )
@@ -288,6 +337,133 @@ function AutoCategorizePanel() {
 }
 
 /**
+ * The Skill/Role registry **category** control: a styled autocomplete bound to
+ * the free-text category value. Unlike a native `<datalist>` it (a) stores the
+ * raw text so spaces work while typing (trims only on blur), (b) renders a real
+ * custom dropdown of existing categories, and (c) shows a distinct "New
+ * category" row so it's obvious when you're creating one vs. picking an existing.
+ */
+function CategoryField({ value, categories, onChange, ariaLabel }: {
+  value: string | null
+  categories: string[]
+  onChange: (v: string | null) => void
+  ariaLabel?: string
+}) {
+  // Local input state so spaces type freely; the store is updated only on
+  // commit (pick / Enter / blur), which also keeps the suggestion list from
+  // matching the in-progress text against the item's own (uncommitted) value.
+  const [input, setInput] = useState(value ?? '')
+  const [open, setOpen] = useState(false)
+  const [hl, setHl] = useState(-1)
+  const wrapRef = useRef<HTMLDivElement>(null)
+  const focused = useRef(false)
+  const listId = useId()
+
+  // Re-seed from the external value when it changes and we're not editing
+  // (e.g. the lightbox switches to a different item).
+  useEffect(() => { if (!focused.current) setInput(value ?? '') }, [value])
+
+  const q = input.trim().toLowerCase()
+  const matches = useMemo(() => {
+    return categories
+      .map((c) => {
+        const lc = c.toLowerCase()
+        if (!q) return { c, s: 1 }
+        if (lc === q) return { c, s: 0 }
+        if (lc.startsWith(q)) return { c, s: 1 }
+        if (lc.includes(q)) return { c, s: 2 }
+        return { c, s: -1 }
+      })
+      .filter((x) => x.s >= 0)
+      .sort((a, b) => a.s - b.s || a.c.localeCompare(b.c))
+      .map((x) => x.c)
+      .slice(0, 8)
+  }, [categories, q])
+
+  const exact = q.length > 0 && categories.some((c) => c.trim().toLowerCase() === q)
+  const showAdd = q.length > 0 && !exact
+  const rowCount = matches.length + (showAdd ? 1 : 0)
+
+  const commit = (v: string) => {
+    setInput(v)
+    onChange(v.trim() || null)
+    setOpen(false)
+    setHl(-1)
+  }
+
+  const onKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); setOpen(true); setHl((h) => Math.min(rowCount - 1, h + 1)) }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setHl((h) => Math.max(-1, h - 1)) }
+    else if (e.key === 'Enter' && open && hl >= 0) {
+      e.preventDefault()
+      if (hl < matches.length) commit(matches[hl])
+      else if (showAdd) commit(input)
+    } else if (e.key === 'Escape') { setOpen(false); setHl(-1) }
+  }
+
+  return (
+    <div className="cf-wrap" ref={wrapRef}>
+      <input
+        type="text"
+        className="pf-input"
+        role="combobox"
+        aria-label={ariaLabel}
+        aria-expanded={open && rowCount > 0}
+        aria-controls={listId}
+        aria-autocomplete="list"
+        value={input}
+        placeholder="Uncategorized"
+        onChange={(e) => { setInput(e.target.value); setOpen(true); setHl(-1) }}
+        onFocus={() => { focused.current = true; setOpen(true) }}
+        // Commit (and trim) on blur. Option clicks preventDefault, so blur won't
+        // fire before them; a genuine blur (Tab/click-away) commits the text.
+        onBlur={() => { focused.current = false; commit(input) }}
+        onKeyDown={onKey}
+      />
+      {open && rowCount > 0 && (
+        <div className="cf-pop" role="listbox" id={listId}>
+          {matches.map((c, i) => (
+            <button key={c} type="button" role="option" aria-selected={i === hl}
+              className={`cf-row ${i === hl ? 'is-hl' : ''}`}
+              onMouseEnter={() => setHl(i)}
+              onMouseDown={(e) => { e.preventDefault(); commit(c) }}>
+              {c}
+            </button>
+          ))}
+          {showAdd && (
+            <button type="button" role="option" aria-selected={hl === matches.length}
+              className={`cf-row cf-row-add ${hl === matches.length ? 'is-hl' : ''}`}
+              onMouseDown={(e) => { e.preventDefault(); commit(input) }}>
+              <Plus size={12} /> <span>New category <em>“{input.trim()}”</em></span>
+            </button>
+          )}
+        </div>
+      )}
+      <style>{`
+        .cf-wrap { position: relative; display: block; }
+        .cf-pop {
+          position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 30;
+          background: var(--paper-raised); border: 1px solid var(--line-strong);
+          border-radius: var(--r-sm); box-shadow: var(--shadow-md);
+          max-height: 240px; overflow-y: auto; padding: 4px;
+        }
+        .cf-row {
+          display: flex; align-items: center; gap: 6px; width: 100%; text-align: left;
+          padding: 6px 10px; border-radius: var(--r-sm); font-size: 13px; color: var(--ink);
+          background: transparent; transition: background .08s; cursor: pointer;
+        }
+        .cf-row.is-hl, .cf-row:hover { background: var(--accent-wash); }
+        .cf-row-add {
+          border-top: 1px solid var(--line); margin-top: 2px; padding-top: 8px;
+          color: var(--accent); font-weight: 600; font-size: 12.5px;
+        }
+        .cf-row-add em { font-style: normal; font-weight: 500; }
+      `}</style>
+    </div>
+  )
+}
+
+/**
  * A skill's edit fields — shared by the list-view card and the category-view
  * lightbox so both surfaces show the same editor.
  */
@@ -299,22 +475,19 @@ function SkillEditBody({ skill, allSkills, categories, onMerge }: {
 }) {
   const { data, primaryLocale, updateItem } = useStore()
   const u = usageOfSkill(data, skill.id)
-  const catListId = `skill-cat-${skill.id}`
   return (
     <>
       <DualField label="Skill name" value={skill.name} onChange={(v) => updateItem('skills', skill.id, { name: v })} />
       <FieldRow>
-        <label className="pf-wrap">
+        <div className="pf-wrap">
           <span className="pf-label">Category</span>
-          <input
-            className="pf-input" list={catListId} value={skill.category ?? ''}
-            placeholder="Uncategorized"
-            onChange={(e) => updateItem('skills', skill.id, { category: e.target.value.trim() || null })}
+          <CategoryField
+            value={skill.category ?? null}
+            categories={categories}
+            ariaLabel="Category"
+            onChange={(v) => updateItem('skills', skill.id, { category: v })}
           />
-          <datalist id={catListId}>
-            {categories.map((c) => <option key={c} value={c} />)}
-          </datalist>
-        </label>
+        </div>
         <label className="pf-wrap">
           <span className="pf-label">Proficiency (0–5)</span>
           <input className="pf-input" type="number" min={0} max={5} value={skill.proficiency}
@@ -455,32 +628,32 @@ export function SkillsEditor() {
 
       {view === 'list' ? (
         <>
-          <FilterBar filter={filter} onChange={setFilter} counts={counts} />
+          <FilterBar filter={filter} onChange={setFilter} counts={counts}
+            extra={filter !== 'missing-translation' && categoryCounts.length > 0 ? (
+              <>
+                <label htmlFor="skill-cat-filter-select" className="scf-label">Category</label>
+                <select id="skill-cat-filter-select" className="scf-select"
+                  value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
+                  <option value="all">All categories ({allItems.length})</option>
+                  {categoryCounts.map(([c, n]) => <option key={c} value={c}>{c} ({n})</option>)}
+                </select>
+                {clearableIds.length > 0 && (
+                  <button type="button" className="scf-clear" onClick={clearCategories}
+                    title="Remove this category from these skills so they can be auto-categorized again">
+                    Clear all ({clearableIds.length})
+                  </button>
+                )}
+              </>
+            ) : undefined} />
           {filter === 'missing-translation' ? (
-            batchRows.length === 0 ? (
-              <div className="registry-empty">No skills are missing a translation in the secondary language.</div>
-            ) : (
-              <MissingTranslationList label="Skill name" items={batchRows}
-                onSet={(id, name) => updateItem('skills', id, { name })} />
-            )
+            <MissingTranslationList label="Skill name" missing={batchRows} all={allItems}
+              onSet={(id, name) => updateItem('skills', id, { name })}
+              renderEditor={(id) => {
+                const s = allItems.find((x) => x.id === id)
+                return s ? <SkillEditBody skill={s} allSkills={allItems} categories={categories} onMerge={onMerge} /> : null
+              }} />
           ) : (
           <>
-          {categoryCounts.length > 0 && (
-            <div className="skill-cat-filter">
-              <label htmlFor="skill-cat-filter-select" className="scf-label">Category</label>
-              <select id="skill-cat-filter-select" className="scf-select"
-                value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
-                <option value="all">All categories ({allItems.length})</option>
-                {categoryCounts.map(([c, n]) => <option key={c} value={c}>{c} ({n})</option>)}
-              </select>
-              {clearableIds.length > 0 && (
-                <button type="button" className="scf-clear" onClick={clearCategories}
-                  title="Remove this category from these skills so they can be auto-categorized again">
-                  Clear all skills from category ({clearableIds.length})
-                </button>
-              )}
-            </div>
-          )}
           {filter === 'all' && categoryFilter === 'all' && <RelatedSkillsPanel onAdd={addNamed} />}
           {displayItems.length === 0 && (
             <div className="registry-empty">
@@ -560,7 +733,6 @@ function RoleEditBody({ role, allRoles, categories, onMerge }: {
 }) {
   const { data, primaryLocale, updateItem } = useStore()
   const u = usageOfRole(data, role.id)
-  const catListId = `role-cat-${role.id}`
   return (
     <>
       <DualField label="Role name" value={role.name} onChange={(v) => updateItem('roles', role.id, { name: v })} />
@@ -569,16 +741,15 @@ function RoleEditBody({ role, allRoles, categories, onMerge }: {
           onChange={(v) => updateItem('roles', role.id, { years_of_experience: parseFloat(v) || 0 })} />
         <TextField label="Manual offset (±)" value={role.years_of_experience_offset.toString()} type="number"
           onChange={(v) => updateItem('roles', role.id, { years_of_experience_offset: parseFloat(v) || 0 })} />
-        <label className="pf-wrap">
+        <div className="pf-wrap">
           <span className="pf-label">Category</span>
-          <input
-            className="pf-input" list={catListId} value={role.category ?? ''} placeholder="Uncategorized"
-            onChange={(e) => updateItem('roles', role.id, { category: e.target.value.trim() || null })}
+          <CategoryField
+            value={role.category ?? null}
+            categories={categories}
+            ariaLabel="Category"
+            onChange={(v) => updateItem('roles', role.id, { category: v })}
           />
-          <datalist id={catListId}>
-            {categories.map((c) => <option key={c} value={c} />)}
-          </datalist>
-        </label>
+        </div>
       </FieldRow>
       <RoleUsagePanel projects={u.projects} employments={u.work_experiences} />
       <MergeRow
@@ -662,12 +833,12 @@ export function RolesEditor() {
       {view === 'list' && filter === 'missing-translation' ? (
         <>
           <FilterBar filter={filter} onChange={setFilter} counts={counts} />
-          {batchRows.length === 0 ? (
-            <div className="registry-empty">No roles are missing a translation in the secondary language.</div>
-          ) : (
-            <MissingTranslationList label="Role name" items={batchRows}
-              onSet={(id, name) => updateItem('roles', id, { name })} />
-          )}
+          <MissingTranslationList label="Role name" missing={batchRows} all={sortedItems}
+            onSet={(id, name) => updateItem('roles', id, { name })}
+            renderEditor={(id) => {
+              const r = sortedItems.find((x) => x.id === id)
+              return r ? <RoleEditBody role={r} allRoles={sortedItems} categories={categories} onMerge={onMerge} /> : null
+            }} />
         </>
       ) : view === 'list' ? (
         <>
@@ -796,12 +967,25 @@ export function IndustriesEditor() {
       </p>
       <FilterBar filter={filter} onChange={setFilter} counts={counts} />
       {filter === 'missing-translation' ? (
-        batchRows.length === 0 ? (
-          <div className="registry-empty">No industries are missing a translation in the secondary language.</div>
-        ) : (
-          <MissingTranslationList label="Industry name" items={batchRows}
-            onSet={(id, name) => updateItem('industries', id, { name })} />
-        )
+        <MissingTranslationList label="Industry name" missing={batchRows} all={sortedItems}
+          onSet={(id, name) => updateItem('industries', id, { name })}
+          renderEditor={(id) => {
+            const ind = sortedItems.find((x) => x.id === id)
+            if (!ind) return null
+            const u = usageOfIndustry(data, ind.id)
+            return (
+              <>
+                <DualField label="Industry name" value={ind.name} onChange={(v) => updateItem('industries', ind.id, { name: v })} />
+                <IndustryUsagePanel projects={u.projects} />
+                <MergeRow
+                  kind="industry"
+                  sourceId={ind.id}
+                  allItems={sortedItems.filter((x) => x.id !== ind.id).map((x) => ({ id: x.id, label: resolve(x.name, primaryLocale) }))}
+                  onMerge={onMerge}
+                />
+              </>
+            )
+          }} />
       ) : (
       <>
       <SortBar section="industries" count={sortedItems.length} />

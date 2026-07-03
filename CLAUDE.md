@@ -161,7 +161,14 @@ What works today:
   (name only — the one translatable registry field) with the Copy button, so a
   consultant can type/Copy many translations without opening each entry;
   completed rows stay (✓) until the filter changes so they don't vanish
-  mid-keystroke. Project / tech-category skill chips are added through an
+  mid-keystroke. A **"Show all" toggle** swaps the frozen-missing list for every
+  entry (review/correct any translation), and each row can **expand to the full
+  editor** in place (`renderEditor`). The **category field** in the Skill/Role
+  editor is a bound styled autocomplete (`CategoryField`) — NOT a native
+  `<datalist>`: it stores raw text so spaces type freely (commits/trims on
+  blur), and shows a distinct "New category" row so creating vs. picking an
+  existing category is obvious. The Skills list's **category selector lives in
+  the filter bar** (`FilterBar`'s `extra` slot), not on its own line. Project / tech-category skill chips are added through an
   **autocomplete** (existing skill OR auto-create from typed text); clicking
   an already-attached chip opens a `DualField` popover (the shared
   `TranslationPopover`) that edits the **registry** entry's translation (so the
