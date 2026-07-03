@@ -7,7 +7,8 @@ import {
   loadSkillDomainModel, type SkillRelations, type SkillDomains, type SkillDomainModel,
 } from '../../lib/skillTaxonomy'
 import {
-  autoCategorizeSkills, clearSkillCategories, effectiveSkillCategory, UNCATEGORIZED_LABEL,
+  autoCategorizeSkills, effectiveSkillCategory, UNCATEGORIZED_LABEL,
+  skillCategoryList, assignSkillCategory, deleteSkillCategory,
 } from '../../lib/skillCategorize'
 import { INFERRED_TIERS } from '../../lib/skillMatch'
 import { DualField } from '../ui/DualField'
@@ -473,7 +474,7 @@ function SkillEditBody({ skill, allSkills, categories, onMerge }: {
   categories: string[]
   onMerge: (sourceId: string, targetId: string) => void
 }) {
-  const { data, primaryLocale, updateItem } = useStore()
+  const { data, primaryLocale, updateItem, replaceData } = useStore()
   const u = usageOfSkill(data, skill.id)
   return (
     <>
@@ -485,7 +486,8 @@ function SkillEditBody({ skill, allSkills, categories, onMerge }: {
             value={skill.category ?? null}
             categories={categories}
             ariaLabel="Category"
-            onChange={(v) => updateItem('skills', skill.id, { category: v })}
+            // assignSkillCategory remembers a new category so it persists if emptied.
+            onChange={(v) => replaceData(assignSkillCategory(data, skill.id, v))}
           />
         </div>
         <label className="pf-wrap">
@@ -512,7 +514,7 @@ function SkillEditBody({ skill, allSkills, categories, onMerge }: {
 }
 
 export function SkillsEditor() {
-  const { data, primaryLocale, secondaryLocale, addItem, updateItem, replaceData } = useStore()
+  const { data, primaryLocale, secondaryLocale, addItem, updateItem, removeItem, replaceData } = useStore()
   const [filter, setFilter] = useState<RegistryFilter>('all')
   const [categoryFilter, setCategoryFilter] = useState<string>('all')
   const [view, setView] = useState<'list' | 'category'>('list')
@@ -525,16 +527,25 @@ export function SkillsEditor() {
     [data.skills, primaryLocale],
   )
 
-  // Distinct effective categories (explicit category, else the type label) with
-  // a skill count each — drives both the filter dropdown and the editor datalist.
+  // All known categories (persisted + in-use) — empty ones included so a
+  // category survives until it's explicitly deleted.
+  const knownCats = useMemo(() => skillCategoryList(data), [data.skills, data.skill_categories])
+
+  // Per-category skill counts (empty categories show as 0), plus Uncategorized
+  // last when any skill lacks a category — drives the filter dropdown.
   const categoryCounts = useMemo(() => {
     const m = new Map<string, number>()
+    for (const c of knownCats) m.set(c, 0)
+    let uncat = 0
     for (const s of allItems) {
-      const c = effectiveSkillCategory(s)
-      m.set(c, (m.get(c) ?? 0) + 1)
+      const c = s.category?.trim()
+      if (c) m.set(c, (m.get(c) ?? 0) + 1)
+      else uncat++
     }
-    return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0]))
-  }, [allItems])
+    const entries = [...m.entries()].sort((a, b) => a[0].localeCompare(b[0]))
+    if (uncat > 0) entries.push([UNCATEGORIZED_LABEL, uncat])
+    return entries
+  }, [knownCats, allItems])
 
   // Usage spans projects AND technology categories — countSkillReferences
   // already enumerates every reference site, so reuse it rather than an
@@ -574,18 +585,15 @@ export function SkillsEditor() {
   )
   const batchRows = useFrozenMissing(filter === 'missing-translation', missingItems, allItems)
 
-  // Bulk-clear: when a specific category is filtered, offer to strip the
-  // explicit category off the shown skills so they're auto-categorizable again.
-  const clearableIds = useMemo(
-    () => (categoryFilter === 'all'
-      ? []
-      : displayItems.filter((s) => s.category && s.category.trim()).map((s) => s.id)),
-    [categoryFilter, displayItems],
-  )
-  const clearCategories = () => {
-    const res = clearSkillCategories(data, clearableIds)
-    if (res.cleared > 0) replaceData(res.store)
+  // A real (non-Uncategorized) category is selected → offer to DELETE it.
+  const canDeleteFilteredCat = categoryFilter !== 'all' && categoryFilter !== UNCATEGORIZED_LABEL
+  const deleteFilteredCategory = () => {
+    replaceData(deleteSkillCategory(data, categoryFilter))
+    setCategoryFilter('all')
   }
+  const deleteCategory = (category: string) => replaceData(deleteSkillCategory(data, category))
+  const setSkillCategory = (id: string, category: string | null) =>
+    replaceData(assignSkillCategory(data, id, category))
 
   const onMerge = (sourceId: string, targetId: string) => void (async () => {
     if (!await confirmMerge('skill', sourceId, targetId, data.skills, primaryLocale, countSkillReferences(data, sourceId))) return
@@ -599,14 +607,27 @@ export function SkillsEditor() {
     total_duration_in_years: 0, proficiency: 0, is_highlighted: false,
     category: null, created_at: new Date().toISOString(),
   })
-  // Datalist for the editor: every real category in use (never "Uncategorized",
-  // which is the empty state, not an assignable label).
-  const categories = useMemo(
-    () => categoryCounts.map(([c]) => c).filter((c) => c !== UNCATEGORIZED_LABEL),
-    [categoryCounts],
-  )
+  // Datalist for the editor: every known category (empty ones included).
+  const categories = knownCats
   const editingSkill = editingId ? data.skills.find((s) => s.id === editingId) ?? null : null
   const add = () => addItem('skills', makeSkill({}))
+  // From the By-category view: create a skill and open its editor lightbox
+  // (rather than dropping an empty chip into Uncategorized).
+  const addInCategory = () => {
+    const sk = makeSkill({})
+    addItem('skills', sk, { open: false })
+    setEditingId(sk.id)
+  }
+  const deleteEditingSkill = () => void (async () => {
+    if (!editingSkill) return
+    if (!await confirmDialog({
+      title: 'Delete skill?',
+      message: `Delete "${resolve(editingSkill.name, primaryLocale) || '(unnamed skill)'}" from the registry? This removes it everywhere it's referenced.`,
+      confirmLabel: 'Delete', undoHint: true,
+    })) return
+    removeItem('skills', editingSkill.id)
+    setEditingId(null)
+  })()
   // Add a library-suggested skill under the primary locale (matches the
   // autocomplete add path); the user translates via the normal workflow.
   const addNamed = (name: string) => addItem('skills', makeSkill({ [primaryLocale]: name }))
@@ -637,10 +658,10 @@ export function SkillsEditor() {
                   <option value="all">All categories ({allItems.length})</option>
                   {categoryCounts.map(([c, n]) => <option key={c} value={c}>{c} ({n})</option>)}
                 </select>
-                {clearableIds.length > 0 && (
-                  <button type="button" className="scf-clear" onClick={clearCategories}
-                    title="Remove this category from these skills so they can be auto-categorized again">
-                    Clear all ({clearableIds.length})
+                {canDeleteFilteredCat && (
+                  <button type="button" className="scf-clear" onClick={deleteFilteredCategory}
+                    title="Delete this category; its skills become Uncategorized">
+                    Delete category and all skill assignments
                   </button>
                 )}
               </>
@@ -685,23 +706,21 @@ export function SkillsEditor() {
         </>
       ) : (
         <>
-          <p className="registry-note rcv-hint">Drag a skill onto a category — a quick-drop panel appears on the right so you needn't scroll. The × in a header clears that category from all its skills; click a skill to edit it. Skills with no category are grouped under "Uncategorized".</p>
+          <p className="registry-note rcv-hint">Drag a skill onto a category — it follows the cursor and a quick-drop panel appears on the right. The trash button in a header deletes that category (its skills become Uncategorized); the × on a chip just removes that one skill's category. Click a skill to edit it. Categories stay until you delete them, even when empty.</p>
           <AutoCategorizePanel />
           <RegistryCategoryView
             items={allItems.map((s) => ({
               ...s,
               removable: !!(s.category && s.category.trim()),
             }))}
+            categories={knownCats}
             unnamed="(unnamed skill)"
             onOpen={setEditingId}
-            onRecategorize={(id, cat) => updateItem('skills', id, { category: cat })}
+            onRecategorize={setSkillCategory}
             onRemove={(id) => updateItem('skills', id, { category: null })}
-            onClearCategory={(ids) => {
-              const res = clearSkillCategories(data, ids)
-              if (res.cleared > 0) replaceData(res.store)
-            }}
+            onDeleteCategory={deleteCategory}
           />
-          <AddButton label="Add skill" onClick={add} />
+          <AddButton label="Add skill" onClick={addInCategory} />
         </>
       )}
 
@@ -710,6 +729,7 @@ export function SkillsEditor() {
           title={resolve(editingSkill.name, primaryLocale) || '(unnamed skill)'}
           ariaLabel="Edit skill"
           onClose={() => setEditingId(null)}
+          onDelete={deleteEditingSkill}
         >
           <SkillEditBody skill={editingSkill} allSkills={allItems} categories={categories} onMerge={onMerge} />
         </RegistryLightbox>
@@ -763,7 +783,7 @@ function RoleEditBody({ role, allRoles, categories, onMerge }: {
 }
 
 export function RolesEditor() {
-  const { data, primaryLocale, secondaryLocale, addItem, updateItem, replaceData } = useStore()
+  const { data, primaryLocale, secondaryLocale, addItem, updateItem, removeItem, replaceData } = useStore()
   const [filter, setFilter] = useState<RegistryFilter>('all')
   const [view, setView] = useState<'list' | 'category'>('list')
   // Category view opens the full editor in a lightbox for the clicked role.
@@ -803,12 +823,25 @@ export function RolesEditor() {
   )
   const batchRows = useFrozenMissing(filter === 'missing-translation', missingItems, sortedItems)
 
-  const add = () => {
-    const r: Role = {
-      id: newId(), resume_id: data.resume!.id, name: {}, years_of_experience: 0,
-      years_of_experience_offset: 0, starred: false, sort_order: sortedItems.length, disabled: false, category: null,
-    }
-    addItem('roles', r)
+  const makeRole = (): Role => ({
+    id: newId(), resume_id: data.resume!.id, name: {}, years_of_experience: 0,
+    years_of_experience_offset: 0, starred: false, sort_order: sortedItems.length, disabled: false, category: null,
+  })
+  const add = () => addItem('roles', makeRole())
+  // From By-category: create the role and open its editor lightbox.
+  const addInCategory = () => {
+    const r = makeRole()
+    addItem('roles', r, { open: false })
+    setEditingId(r.id)
+  }
+  // Deleting a category clears it off every role that had it (roles don't
+  // persist empty categories the way skills do).
+  const deleteCategory = (category: string) => {
+    const target = category.trim().toLowerCase()
+    replaceData({
+      ...data,
+      roles: data.roles.map((r) => ((r.category ?? '').trim().toLowerCase() === target ? { ...r, category: null } : r)),
+    })
   }
 
   const onMerge = (sourceId: string, targetId: string) => void (async () => {
@@ -817,6 +850,16 @@ export function RolesEditor() {
   })()
 
   const editingRole = editingId ? data.roles.find((r) => r.id === editingId) ?? null : null
+  const deleteEditingRole = () => void (async () => {
+    if (!editingRole) return
+    if (!await confirmDialog({
+      title: 'Delete role?',
+      message: `Delete "${resolve(editingRole.name, primaryLocale) || '(unnamed role)'}" from the registry? This removes it everywhere it's referenced.`,
+      confirmLabel: 'Delete', undoHint: true,
+    })) return
+    removeItem('roles', editingRole.id)
+    setEditingId(null)
+  })()
 
   return (
     <div className="section-pane">
@@ -874,22 +917,16 @@ export function RolesEditor() {
         </>
       ) : (
         <>
-          <p className="registry-note rcv-hint">Drag a role onto a category — a quick-drop panel appears on the right so you needn't scroll. The × in a header clears that category from all its roles; click a role to edit it.</p>
+          <p className="registry-note rcv-hint">Drag a role onto a category — it follows the cursor and a quick-drop panel appears on the right. The trash button in a header deletes that category (its roles become Uncategorized); the × on a chip removes one role's category. Click a role to edit it.</p>
           <RegistryCategoryView
             items={sortedItems.map((r) => ({ ...r, removable: !!(r.category && r.category.trim()) }))}
             unnamed="(unnamed role)"
             onOpen={setEditingId}
             onRecategorize={(id, cat) => updateItem('roles', id, { category: cat })}
             onRemove={(id) => updateItem('roles', id, { category: null })}
-            onClearCategory={(ids) => {
-              const set = new Set(ids)
-              replaceData({
-                ...data,
-                roles: data.roles.map((r) => (set.has(r.id) && r.category ? { ...r, category: null } : r)),
-              })
-            }}
+            onDeleteCategory={deleteCategory}
           />
-          <AddButton label="Add role" onClick={add} />
+          <AddButton label="Add role" onClick={addInCategory} />
         </>
       )}
 
@@ -898,6 +935,7 @@ export function RolesEditor() {
           title={resolve(editingRole.name, primaryLocale) || '(unnamed role)'}
           ariaLabel="Edit role"
           onClose={() => setEditingId(null)}
+          onDelete={deleteEditingRole}
         >
           <RoleEditBody role={editingRole} allRoles={sortedItems} categories={categories} onMerge={onMerge} />
         </RegistryLightbox>
@@ -1699,13 +1737,21 @@ function RegistryStyles() {
       }
       .rcv-drop-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .rcv-chips { display: flex; flex-wrap: wrap; gap: 7px; padding: 12px 13px; min-height: 20px; }
+      .rcv-empty-note { font-size: 12px; color: var(--ink-faint); font-style: italic; padding: 2px 0; }
       .rcv-chip-wrap { display: inline-flex; align-items: stretch; }
-      .rcv-chip-wrap.is-dragging { opacity: .6; box-shadow: var(--shadow-md); z-index: 20; position: relative; border-radius: 16px; }
+      /* Original dims in place while a DragOverlay copy follows the cursor. */
+      .rcv-chip-wrap.is-dragging { opacity: .35; }
       .rcv-chip-wrap.is-dragging .rcv-chip { cursor: grabbing; }
       .rcv-chip {
         padding: 6px 12px; font-size: 13px; font-weight: 500; color: var(--ink);
         background: var(--paper-raised); border: 1px solid var(--line); border-radius: 16px;
         cursor: grab; touch-action: none; transition: color .12s, border-color .12s, background .12s;
+      }
+      /* The floating drag copy. */
+      .rcv-chip-overlay {
+        display: inline-flex; align-items: center; cursor: grabbing;
+        border-color: var(--accent); color: var(--accent); background: #fff;
+        box-shadow: var(--shadow-lg); transform: scale(1.03);
       }
       .rcv-chip:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-wash); }
       .rcv-chip.has-x { border-top-right-radius: 0; border-bottom-right-radius: 0; border-right: none; }

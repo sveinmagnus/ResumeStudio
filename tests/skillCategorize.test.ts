@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   autoCategorizeSkills, clearSkillCategories, effectiveSkillCategory,
+  skillCategoryList, assignSkillCategory, deleteSkillCategory,
 } from '../src/lib/skillCategorize'
 import { emptyStore, makeSkill } from './fixtures'
 import type { SkillDomains, SkillRelations } from '../src/lib/skillTaxonomy'
@@ -143,6 +144,44 @@ describe('autoCategorizeSkills — widened matching tiers', () => {
     const model = { cloud: { 'Cloud & Infrastructure': 10 } }
     const { changed } = autoCategorizeSkills(store, DOMAINS, { model, semantic: false })
     expect(changed).toBe(0)
+  })
+})
+
+describe('skill category persistence', () => {
+  it('skillCategoryList unions persisted + used categories, sorted', () => {
+    const store = emptyStore()
+    store.skills.push(makeSkill({ id: 'a', name: { en: 'A' }, category: 'Frontend' }))
+    store.skill_categories = ['Cloud', 'Frontend'] // Cloud is empty (persisted)
+    expect(skillCategoryList(store)).toEqual(['Cloud', 'Frontend'])
+  })
+
+  it('assignSkillCategory sets the skill AND remembers a new category', () => {
+    const store = emptyStore()
+    store.skills.push(makeSkill({ id: 'a', name: { en: 'A' }, category: null }))
+    const out = assignSkillCategory(store, 'a', 'Cloud & Infra')
+    expect(out.skills[0].category).toBe('Cloud & Infra')
+    expect(out.skill_categories).toContain('Cloud & Infra')
+  })
+
+  it('an emptied category persists in skill_categories (not removed on unassign)', () => {
+    const store = emptyStore()
+    store.skills.push(makeSkill({ id: 'a', name: { en: 'A' }, category: 'Cloud' }))
+    store.skill_categories = ['Cloud']
+    const out = assignSkillCategory(store, 'a', null) // unassign the last skill
+    expect(out.skills[0].category).toBeNull()
+    expect(out.skill_categories).toEqual(['Cloud']) // still there
+    expect(skillCategoryList(out)).toEqual(['Cloud'])
+  })
+
+  it('deleteSkillCategory forgets the category and unassigns its skills', () => {
+    const store = emptyStore()
+    store.skills.push(makeSkill({ id: 'a', name: { en: 'A' }, category: 'Cloud' }))
+    store.skills.push(makeSkill({ id: 'b', name: { en: 'B' }, category: 'Data' }))
+    store.skill_categories = ['Cloud', 'Data']
+    const out = deleteSkillCategory(store, 'Cloud')
+    expect(out.skill_categories).toEqual(['Data'])
+    expect(out.skills.find((s) => s.id === 'a')!.category).toBeNull()
+    expect(out.skills.find((s) => s.id === 'b')!.category).toBe('Data')
   })
 })
 

@@ -43,6 +43,47 @@ export function effectiveSkillCategory(
   return skill.category?.trim() || UNCATEGORIZED_LABEL
 }
 
+/**
+ * All known skill categories: the persisted `skill_categories` list (which keeps
+ * emptied categories alive) unioned with the categories skills actually use,
+ * sorted. This is the source for the datalist, the filter and the By-category
+ * headers — so a category shows until it's explicitly deleted. PURE.
+ */
+export function skillCategoryList(store: Pick<ResumeStore, 'skills' | 'skill_categories'>): string[] {
+  const set = new Set<string>()
+  for (const c of store.skill_categories ?? []) { const t = c.trim(); if (t) set.add(t) }
+  for (const s of store.skills) { const c = (s.category ?? '').trim(); if (c) set.add(c) }
+  return [...set].sort((a, b) => a.localeCompare(b))
+}
+
+/**
+ * Set a skill's category and remember a new non-empty category in
+ * `skill_categories` so it survives its last skill leaving. PURE (new store).
+ */
+export function assignSkillCategory(store: ResumeStore, id: string, category: string | null): ResumeStore {
+  const cat = category?.trim() || null
+  const skills = store.skills.map((s) => (s.id === id ? { ...s, category: cat } : s))
+  let skill_categories = store.skill_categories ?? []
+  if (cat && !skill_categories.some((c) => c.trim() === cat)) skill_categories = [...skill_categories, cat]
+  return { ...store, skills, skill_categories }
+}
+
+/**
+ * DELETE a category outright: forget it from `skill_categories` and clear it off
+ * every skill that had it (they become Uncategorized). This is the ONLY path
+ * that removes a category — removing/recategorizing the last skill does not.
+ * PURE (new store).
+ */
+export function deleteSkillCategory(store: ResumeStore, category: string): ResumeStore {
+  const target = category.trim().toLowerCase()
+  if (!target) return store
+  const skill_categories = (store.skill_categories ?? []).filter((c) => c.trim().toLowerCase() !== target)
+  const skills = store.skills.map((s) =>
+    (s.category ?? '').trim().toLowerCase() === target ? { ...s, category: null } : s,
+  )
+  return { ...store, skill_categories, skills }
+}
+
 export interface CategoryAssignment {
   skill_id: string
   /** Resolved skill name (best available locale) — for the preview UI. */
@@ -172,7 +213,14 @@ export function autoCategorizeSkills(
   })
 
   if (assignments.length === 0) return { store, changed: 0, assignments: [] }
-  return { store: { ...store, skills }, changed: assignments.length, assignments }
+
+  // Remember the assigned (library) categories so they persist if emptied later.
+  let skill_categories = store.skill_categories ?? []
+  const known = new Set(skill_categories.map((c) => c.trim()))
+  for (const a of assignments) {
+    if (!known.has(a.category)) { known.add(a.category); skill_categories = [...skill_categories, a.category] }
+  }
+  return { store: { ...store, skills, skill_categories }, changed: assignments.length, assignments }
 }
 
 /**

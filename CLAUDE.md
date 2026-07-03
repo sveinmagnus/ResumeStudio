@@ -179,18 +179,25 @@ What works today:
   employment. The **Skill and Role registries** also have a **"By category"
   view** (`Skill.category` / `Role.category`, optional free-text): a compact
   grouping of item titles under category headers, where dragging an item onto
-  another header recategorizes it (dnd-kit `useDraggable`/`useDroppable`) and
-  clicking one opens the normal editor in a lightbox. **While dragging, a fixed
-  quick-select panel** lists every category as a drop target on the right, so a
-  long list needs no scrolling (its droppables mount mid-drag, hence
-  `MeasuringStrategy.Always` + `pointerWithin`; `dropTargetCategory` resolves a
-  header/panel drop id to the category). Each category **header carries an "×"**
-  that clears that category off all its items (per-chip "×" clears one).
-  Categories are assigned via the Category field in the editor; the distinct
-  values form the headers. Both editors share the generic
-  `RegistryCategoryView` / `CatGroup` / `CatChip` / `RegistryLightbox` (a skill's
-  category is the consultant's own organisation; distinct from the Quadim
-  `classification`).
+  another header recategorizes it (dnd-kit `useDraggable`/`useDroppable`). While
+  dragging, a **`DragOverlay`** floats a copy of the chip under the cursor (the
+  original dims), and a **fixed quick-select panel** lists every category as a
+  drop target on the right, so a long list needs no scrolling (panel droppables
+  mount mid-drag, hence `MeasuringStrategy.Always` + `pointerWithin`;
+  `dropTargetCategory` resolves a header/panel drop id to the category).
+  Clicking a chip opens the full editor in a **lightbox** (with a trash
+  **delete** button); the "Add" button here creates the item AND opens that
+  lightbox. Each header has a **trash button** that DELETES the category
+  ("Delete category and all skill assignments") — the per-chip "×" only removes
+  one item's assignment. **Skill categories are first-class**
+  (`ResumeStore.skill_categories`, shape v5, seeded by `internSkillCategories`):
+  a category persists in the list/filter/By-category view after its last skill
+  leaves, and is removed ONLY by an explicit delete — see `skillCategoryList` /
+  `assignSkillCategory` / `deleteSkillCategory` in `lib/skillCategorize.ts`.
+  (Role categories are still purely derived — no empty-persistence.) Both
+  editors share the generic `RegistryCategoryView` / `CatGroup` / `CatChip` /
+  `RegistryLightbox` (a skill's category is the consultant's own organisation;
+  distinct from the Quadim `classification`).
 - **React error boundary** around the editor so a crashed view never traps the
   user.
 - **Downloadable desktop build** — a portable folder (bundled Node + esbuild'd

@@ -35,6 +35,9 @@ import { v4 as uuidv4 } from 'uuid'
  *                 `industry`/`industry_id` pair becomes `Project.industries[]`
  *                 (ProjectIndustry links, snapshot names), mirroring
  *                 `roles`/`skills`.
+ *  - 5          — `skill_categories[]` seeded from the categories skills already
+ *                 use, so a category persists after its last skill leaves (it's
+ *                 removed only by an explicit "Delete category").
  *
  * Bump this ONLY for structural changes that need a migration (moving or
  * reshaping data). Additive optional fields are handled by render-boundary
@@ -43,7 +46,7 @@ import { v4 as uuidv4 } from 'uuid'
  * (like `industries`) is NOT a tolerable "optional field" — it must be
  * guaranteed present, hence the bump + migration.
  */
-export const CURRENT_SHAPE_VERSION = 4
+export const CURRENT_SHAPE_VERSION = 5
 
 /**
  * True when `store` was written by a build with a NEWER shape than this one
@@ -71,9 +74,11 @@ export function isNewerShape(store: ResumeStore): boolean {
 export function migrateStore(store: ResumeStore): ResumeStore {
   const stored = store.shape_version ?? 1
   if (stored >= CURRENT_SHAPE_VERSION) return store
-  const migrated = internProjectIndustries(
-    defaultEmploymentRoleLinks(
-      extractKeyPointsToCompetencies(foldRoleDescriptions(store)),
+  const migrated = internSkillCategories(
+    internProjectIndustries(
+      defaultEmploymentRoleLinks(
+        extractKeyPointsToCompetencies(foldRoleDescriptions(store)),
+      ),
     ),
   )
   return { ...migrated, shape_version: CURRENT_SHAPE_VERSION }
@@ -297,6 +302,29 @@ export function internProjectIndustries(store: ResumeStore): ResumeStore {
 
   if (!changed) return store
   return { ...store, industries: existing, projects }
+}
+
+// ─── Persist skill categories (shape v5) ─────────────────────────────────────
+//
+// Categories used to exist only as `Skill.category` values, so an emptied
+// category vanished. `skill_categories[]` makes them first-class: seed it from
+// the categories skills already use (union with any existing list) so old data
+// keeps every category it had, persisting after the last skill leaves until an
+// explicit delete. Idempotent — once the list covers the used categories, the
+// same store reference is returned.
+
+export function internSkillCategories(store: ResumeStore): ResumeStore {
+  const existing = Array.isArray(store.skill_categories) ? store.skill_categories : []
+  const set = new Set<string>()
+  for (const c of existing) { const t = c.trim(); if (t) set.add(t) }
+  const before = set.size
+  for (const s of store.skills) {
+    const c = (s.category ?? '').trim()
+    if (c) set.add(c)
+  }
+  // No change and the field already exists → keep the same reference.
+  if (Array.isArray(store.skill_categories) && set.size === before) return store
+  return { ...store, skill_categories: [...set].sort((a, b) => a.localeCompare(b)) }
 }
 
 export function extractKeyPointsToCompetencies(store: ResumeStore): ResumeStore {

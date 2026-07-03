@@ -10,11 +10,11 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { useStore } from '../../store/useStore'
 import {
-  DndContext, PointerSensor, useSensor, useSensors, useDraggable, useDroppable,
-  pointerWithin, MeasuringStrategy, type DragEndEvent,
+  DndContext, DragOverlay, PointerSensor, useSensor, useSensors, useDraggable, useDroppable,
+  pointerWithin, MeasuringStrategy, type DragEndEvent, type DragStartEvent,
 } from '@dnd-kit/core'
 import { useDialog } from '../ui/useDialog'
-import { X } from 'lucide-react'
+import { X, Trash2 } from 'lucide-react'
 import { resolve } from '../../lib/locales'
 import type { LocalizedString } from '../../types'
 
@@ -51,24 +51,32 @@ export function categoriesOf(items: CatItem[]): string[] {
   return [...set].sort((a, b) => a.localeCompare(b))
 }
 
-export function RegistryCategoryView({ items, unnamed, onOpen, onRecategorize, onRemove, onClearCategory }: {
+export function RegistryCategoryView({ items, categories, unnamed, onOpen, onRecategorize, onRemove, onDeleteCategory }: {
   items: CatItem[]
+  /** Known category names to always render as headers, even when they have no
+   *  items (so an emptied category persists until it's explicitly deleted). */
+  categories?: string[]
   /** Label for an item with no name yet, e.g. "(unnamed skill)". */
   unnamed: string
   onOpen: (id: string) => void
   onRecategorize: (id: string, category: string | null) => void
   /** Optional: clear an item's explicit category (renders an "x" on removable chips). */
   onRemove?: (id: string) => void
-  /** Optional: clear the category off every item in a group (renders an "x" in the header). */
-  onClearCategory?: (ids: string[]) => void
+  /** Optional: DELETE a whole category (renders a trash "x" in the header). */
+  onDeleteCategory?: (category: string) => void
 }) {
   const locale = useStore((s) => s.primaryLocale)
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
-  const [dragging, setDragging] = useState(false)
+  const [activeId, setActiveId] = useState<string | null>(null)
 
-  // Group by category (Uncategorized last), categories A→Z.
+  // Group by category (Uncategorized last), categories A→Z. Seed with the known
+  // category names so empty categories still get a header.
   const groups = useMemo(() => {
     const m = new Map<string, CatItem[]>()
+    for (const c of categories ?? []) {
+      const key = c.trim()
+      if (key) m.set(key, [])
+    }
     for (const it of items) {
       const key = (it.category ?? '').trim() || UNCATEGORIZED
       if (!m.has(key)) m.set(key, [])
@@ -79,10 +87,13 @@ export function RegistryCategoryView({ items, unnamed, onOpen, onRecategorize, o
       if (b === UNCATEGORIZED) return -1
       return a.localeCompare(b)
     })
-  }, [items])
+  }, [items, categories])
 
+  const activeItem = activeId ? items.find((x) => x.id === activeId) ?? null : null
+
+  const onDragStart = (e: DragStartEvent) => setActiveId(String(e.active.id))
   const onDragEnd = (e: DragEndEvent) => {
-    setDragging(false)
+    setActiveId(null)
     const { active, over } = e
     if (!over) return
     const target = dropTargetCategory(String(over.id))
@@ -99,20 +110,27 @@ export function RegistryCategoryView({ items, unnamed, onOpen, onRecategorize, o
       // measure droppables continuously — otherwise dnd-kit never learns their
       // rects and dropping on a panel row is a no-op.
       measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
-      onDragStart={() => setDragging(true)}
+      onDragStart={onDragStart}
       onDragEnd={onDragEnd}
-      onDragCancel={() => setDragging(false)}
+      onDragCancel={() => setActiveId(null)}
     >
       <div className="rcv">
         {groups.map(([key, list]) => (
           <CatGroup key={key} catKey={key} label={key === UNCATEGORIZED ? 'Uncategorized' : key}
             items={list} locale={locale} unnamed={unnamed} onOpen={onOpen} onRemove={onRemove}
-            onClearCategory={onClearCategory} />
+            onDeleteCategory={onDeleteCategory} />
         ))}
       </div>
-      {dragging && groups.length > 1 && (
+      {activeId && groups.length > 1 && (
         <CategoryDropPanel groups={groups} />
       )}
+      {/* A floating copy of the dragged chip that follows the cursor, so it's
+          obvious what's being moved (the original dims in place). */}
+      <DragOverlay dropAnimation={null}>
+        {activeItem
+          ? <span className="rcv-chip rcv-chip-overlay">{resolve(activeItem.name, locale) || unnamed}</span>
+          : null}
+      </DragOverlay>
     </DndContext>
   )
 }
@@ -147,30 +165,31 @@ function DropRow({ catKey, label, count }: { catKey: string; label: string; coun
   )
 }
 
-function CatGroup({ catKey, label, items, locale, unnamed, onOpen, onRemove, onClearCategory }: {
+function CatGroup({ catKey, label, items, locale, unnamed, onOpen, onRemove, onDeleteCategory }: {
   catKey: string; label: string; items: CatItem[]; locale: string; unnamed: string
   onOpen: (id: string) => void; onRemove?: (id: string) => void
-  onClearCategory?: (ids: string[]) => void
+  onDeleteCategory?: (category: string) => void
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: catKey })
-  const canClear = !!onClearCategory && catKey !== UNCATEGORIZED
+  const canDelete = !!onDeleteCategory && catKey !== UNCATEGORIZED
   return (
     <div className="rcv-group">
       <div ref={setNodeRef} className={`rcv-head ${isOver ? 'is-over' : ''}`}>
         <span className="rcv-head-label">{label} <span className="rcv-count">{items.length}</span></span>
-        {canClear && (
+        {canDelete && (
           <button
             type="button"
             className="rcv-head-x"
-            onClick={() => onClearCategory!(items.map((i) => i.id))}
-            aria-label={`Clear category "${label}" from all ${items.length} item(s)`}
-            title="Remove this category from all its items (they become Uncategorized)"
+            onClick={() => onDeleteCategory!(label)}
+            aria-label={`Delete category "${label}" and all skill assignments`}
+            title="Delete this category (its skills become Uncategorized)"
           >
-            <X size={14} />
+            <Trash2 size={14} />
           </button>
         )}
       </div>
       <div className="rcv-chips">
+        {items.length === 0 && <span className="rcv-empty-note">No skills — drag one here, or delete the category.</span>}
         {items.map((it) => (
           <CatChip key={it.id} item={it} locale={locale} unnamed={unnamed} onOpen={onOpen} onRemove={onRemove} />
         ))}
@@ -183,16 +202,13 @@ function CatChip({ item, locale, unnamed, onOpen, onRemove }: {
   item: CatItem; locale: string; unnamed: string
   onOpen: (id: string) => void; onRemove?: (id: string) => void
 }) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: item.id })
-  // Transform (drag movement) applies to the wrapper so the chip + its "x" move
-  // together; the draggable ref/listeners stay on the label button.
-  const style = transform
-    ? { transform: `translate3d(${Math.round(transform.x)}px, ${Math.round(transform.y)}px, 0)` }
-    : undefined
+  // No transform here — a DragOverlay renders the moving copy; the original just
+  // dims in place (.is-dragging) so you can see where it came from.
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: item.id })
   const label = resolve(item.name, locale) || unnamed
   const showRemove = !!(onRemove && item.removable)
   return (
-    <span className={`rcv-chip-wrap ${isDragging ? 'is-dragging' : ''}`} style={style}>
+    <span className={`rcv-chip-wrap ${isDragging ? 'is-dragging' : ''}`}>
       <button
         ref={setNodeRef}
         type="button"
@@ -220,8 +236,8 @@ function CatChip({ item, locale, unnamed, onOpen, onRemove }: {
 }
 
 /** Lightbox chrome for the category-view editor (content passed as children). */
-export function RegistryLightbox({ title, ariaLabel, onClose, children }: {
-  title: string; ariaLabel: string; onClose: () => void; children: ReactNode
+export function RegistryLightbox({ title, ariaLabel, onClose, onDelete, children }: {
+  title: string; ariaLabel: string; onClose: () => void; onDelete?: () => void; children: ReactNode
 }) {
   const dialogRef = useDialog(onClose)
   return (
@@ -229,7 +245,12 @@ export function RegistryLightbox({ title, ariaLabel, onClose, children }: {
       <div className="rcv-modal" ref={dialogRef} role="dialog" aria-modal="true" aria-label={ariaLabel} onClick={(e) => e.stopPropagation()}>
         <div className="rcv-modal-head">
           <h3>{title}</h3>
-          <button className="rcv-modal-close" onClick={onClose} aria-label="Close"><X size={16} /></button>
+          <div className="rcv-modal-head-actions">
+            {onDelete && (
+              <button className="rcv-modal-del" onClick={onDelete} aria-label="Delete" title="Delete"><Trash2 size={16} /></button>
+            )}
+            <button className="rcv-modal-close" onClick={onClose} aria-label="Close"><X size={16} /></button>
+          </div>
         </div>
         {children}
       </div>
@@ -245,8 +266,10 @@ export function RegistryLightbox({ title, ariaLabel, onClose, children }: {
         }
         .rcv-modal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
         .rcv-modal-head h3 { font-size: 20px; }
-        .rcv-modal-close { width: 30px; height: 30px; display: grid; place-items: center; border-radius: var(--r-sm); color: var(--ink-faint); }
+        .rcv-modal-head-actions { display: flex; align-items: center; gap: 4px; }
+        .rcv-modal-close, .rcv-modal-del { width: 30px; height: 30px; display: grid; place-items: center; border-radius: var(--r-sm); color: var(--ink-faint); }
         .rcv-modal-close:hover { background: var(--paper-sunken); color: var(--accent); }
+        .rcv-modal-del:hover { background: #fef2f2; color: #b91c1c; }
       `}</style>
     </div>
   )

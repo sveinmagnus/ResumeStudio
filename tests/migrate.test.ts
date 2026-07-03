@@ -2,9 +2,9 @@ import { describe, it, expect } from 'vitest'
 import {
   appendLocalized, buildRoleParagraph, foldRoleDescriptions,
   extractKeyPointsToCompetencies, defaultEmploymentRoleLinks, internProjectIndustries,
-  migrateStore, isNewerShape, CURRENT_SHAPE_VERSION,
+  internSkillCategories, migrateStore, isNewerShape, CURRENT_SHAPE_VERSION,
 } from '../src/lib/migrate'
-import { emptyStore, makeProject, makeWork } from './fixtures'
+import { emptyStore, makeProject, makeWork, makeSkill } from './fixtures'
 import type { ProjectRole, KeyQualification, KeyPoint, WorkExperience, Project, LocalizedString } from '../src/types'
 
 /** A project carrying the pre-v4 single `industry`/`industry_id` pair. */
@@ -286,6 +286,28 @@ describe('migrateStore() / isNewerShape()', () => {
     const before = JSON.stringify(store)
     migrateStore(store)
     expect(JSON.stringify(store)).toBe(before)
+  })
+})
+
+// ─── internSkillCategories (shape v5) ────────────────────────────────────────
+
+describe('internSkillCategories()', () => {
+  it('seeds skill_categories from the categories skills already use', () => {
+    const store = emptyStore()
+    store.skills.push(makeSkill({ id: 'a', name: { en: 'A' }, category: 'Frontend' }))
+    store.skills.push(makeSkill({ id: 'b', name: { en: 'B' }, category: 'Cloud' }))
+    store.skills.push(makeSkill({ id: 'c', name: { en: 'C' }, category: null }))
+    const out = internSkillCategories(store)
+    expect(out.skill_categories).toEqual(['Cloud', 'Frontend'])
+  })
+
+  it('unions with an existing list and is idempotent', () => {
+    const store = emptyStore()
+    store.skills.push(makeSkill({ id: 'a', name: { en: 'A' }, category: 'Frontend' }))
+    store.skill_categories = ['Cloud'] // an empty (persisted) category
+    const out = internSkillCategories(store)
+    expect(out.skill_categories).toEqual(['Cloud', 'Frontend'])
+    expect(internSkillCategories(out)).toBe(out) // no change → same reference
   })
 })
 

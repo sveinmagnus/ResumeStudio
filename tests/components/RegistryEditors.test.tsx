@@ -129,7 +129,7 @@ describe('<SkillsEditor> — add + merge', () => {
     expect(useStore.getState().data.skills.find((s) => s.id === 's2')!.category).toBe('Frontend')
   })
 
-  it('bulk-clears the categories of the filtered group so they can be re-categorized', async () => {
+  it('deletes a category from the filter bar, unassigning its skills', async () => {
     seed({
       ...emptyStore(),
       skills: [
@@ -140,9 +140,9 @@ describe('<SkillsEditor> — add + merge', () => {
     })
     render(<SkillsEditor />)
 
-    // Filter to Frontend, then clear its two skills' categories in one action.
+    // Filter to Frontend, then delete the category outright.
     await userEvent.selectOptions(screen.getByLabelText('Category'), 'Frontend')
-    await userEvent.click(screen.getByRole('button', { name: /clear all \(2\)/i }))
+    await userEvent.click(screen.getByRole('button', { name: /delete category and all skill assignments/i }))
 
     const skills = useStore.getState().data.skills
     expect(skills.find((s) => s.id === 's1')!.category).toBeNull()
@@ -493,15 +493,40 @@ describe('<SkillsEditor> — category view', () => {
     expect(within(dialog).getByRole('option', { name: /New category/i })).toBeInTheDocument()
   })
 
-  it('clears a whole category via the "x" in its header', async () => {
+  it('deletes a whole category via the trash button in its header', async () => {
     seedSkills()
     render(<SkillsEditor />)
     await userEvent.click(screen.getByRole('button', { name: /by category/i }))
 
-    // Frontend has one skill (React); the header "x" clears it → Uncategorized.
-    await userEvent.click(screen.getByRole('button', { name: /Clear category "Frontend"/i }))
+    // Frontend has one skill (React); deleting the category unassigns it.
+    await userEvent.click(screen.getByRole('button', { name: /Delete category "Frontend"/i }))
     expect(useStore.getState().data.skills.find((s) => s.id === 's1')!.category).toBeNull()
-    // The Uncategorized group has no clear "x".
-    expect(screen.queryByRole('button', { name: /Clear category "Uncategorized"/i })).not.toBeInTheDocument()
+    // The Uncategorized group has no delete button.
+    expect(screen.queryByRole('button', { name: /Delete category "Uncategorized"/i })).not.toBeInTheDocument()
+  })
+
+  it('keeps an emptied category in the By-category view until it is deleted', async () => {
+    // skill_categories is what makes a category persist (populated by
+    // assignment/migration in real use).
+    useStore.setState({
+      data: {
+        ...emptyStore(),
+        skills: [makeSkill({ id: 's1', name: { en: 'React' }, category: 'Frontend' })],
+        skill_categories: ['Frontend'],
+      },
+      hasData: true, primaryLocale: 'en', secondaryLocale: null,
+      activeSection: 'skills', expandedItemId: null, mutationCount: 0,
+    })
+    render(<SkillsEditor />)
+    await userEvent.click(screen.getByRole('button', { name: /by category/i }))
+
+    // Remove React's category via the chip "×": Frontend becomes empty but stays.
+    await userEvent.click(screen.getByRole('button', { name: /remove category from React/i }))
+    expect(useStore.getState().data.skills.find((s) => s.id === 's1')!.category).toBeNull()
+    expect(screen.getByText('Frontend')).toBeInTheDocument() // header persists (0 skills)
+    // Deleting it (trash) removes the category for good.
+    await userEvent.click(screen.getByRole('button', { name: /Delete category "Frontend"/i }))
+    expect(screen.queryByText('Frontend')).not.toBeInTheDocument()
+    expect(useStore.getState().data.skill_categories).toEqual([])
   })
 })

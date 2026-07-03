@@ -22,6 +22,7 @@ export function emptyStore(): ResumeStore {
     spoken_languages: [], technology_categories: [], positions: [],
     presentations: [], honor_awards: [], publications: [], references: [],
     views: [],
+    skill_categories: [],
   }
 }
 

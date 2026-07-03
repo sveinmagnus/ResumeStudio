@@ -617,6 +617,15 @@ export interface ResumeStore {
   publications: Publication[]
   references: Reference[]
   views: ResumeView[]
+  /**
+   * Known skill-category names, kept independent of skill assignments so an
+   * emptied category (last skill removed or recategorized) persists in the
+   * By-category view and filters until it's EXPLICITLY deleted (the header
+   * trash button / "Delete category…"). Additive/optional; the displayed list
+   * is the union of this and the categories actually used by skills. Not a
+   * CRUD section (plain strings) — see `SectionKey` below.
+   */
+  skill_categories?: string[]
 }
 
 // ─── UI state ────────────────────────────────────────────────────────────────
@@ -626,7 +635,7 @@ export interface ResumeStore {
  * `resume` object and non-content metadata like `shape_version`. This is the
  * canonical "all sections" type; generic CRUD and sortable components alias it.
  */
-export type SectionKey = Exclude<keyof ResumeStore, 'resume' | 'shape_version'>
+export type SectionKey = Exclude<keyof ResumeStore, 'resume' | 'shape_version' | 'skill_categories'>
 
 export interface UIState {
   activeSection: string
