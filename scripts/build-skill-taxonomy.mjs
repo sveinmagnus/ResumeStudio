@@ -4,6 +4,7 @@
  *   - src/generated/skillRelations.json      — name → related names map (F12 pt3)
  *   - src/generated/skillClassifications.json — name → authoritative classification (F12 pt4)
  *   - src/generated/skillDomains.json        — name → fine-grained domain (auto-categorization)
+ *   - src/generated/skillDomainModel.json    — token → domain weights (semantic auto-categorization tier)
  *
  * Both are lazy-loaded by lib/skillTaxonomy.ts so the runtime never fetches
  * anything and CI never needs the source repo. Re-run this script (and commit
@@ -27,6 +28,7 @@ const namesTarget = path.join(root, 'src', 'generated', 'skillTaxonomy.json')
 const relTarget = path.join(root, 'src', 'generated', 'skillRelations.json')
 const classTarget = path.join(root, 'src', 'generated', 'skillClassifications.json')
 const domainTarget = path.join(root, 'src', 'generated', 'skillDomains.json')
+const modelTarget = path.join(root, 'src', 'generated', 'skillDomainModel.json')
 
 const index = JSON.parse(fs.readFileSync(source, 'utf8'))
 if (!Array.isArray(index)) throw new Error('skills-index.json: expected an array')
@@ -117,3 +119,57 @@ for (const name of Object.keys(domains).sort((a, b) => a.localeCompare(b, 'en'))
 }
 fs.writeFileSync(domainTarget, JSON.stringify(sortedDomains, null, 0) + '\n', 'utf8')
 console.log(`Wrote ${Object.keys(sortedDomains).length} domains (${fs.statSync(domainTarget).size} bytes) to ${path.relative(root, domainTarget)}`)
+
+// ── Semantic token→domain model (auto-categorization tier "semantic") ────────
+// A compact bag-of-words classifier so skills that never match a library name
+// exactly can still be placed by their WORDS: "Cloud Security Engineer" →
+// tokens cloud/security/engineer → the domain those tokens point at. Built from
+// the tokens of each domained library NAME plus the DOMAIN's own name tokens
+// (strong, self-reinforcing signal). Weighted by IDF so a token shared across
+// many domains ("management", "engineer") counts little and a discriminative
+// one ("kubernetes", "gdpr") counts a lot. Kept precise + small: top 3 domains
+// per token, low-signal tokens pruned. The runtime matcher (lib/skillMatch.ts)
+// sums these weights over a query's tokens and only assigns above a confidence
+// margin, so this tier stays review-worthy but conservative.
+const STOP = new Set([
+  'and', 'or', 'the', 'of', 'for', 'to', 'in', 'on', 'with', 'a', 'an', 'at',
+  'by', 'as', 'is', 'be', 'using', 'based', 'via', 'from', 'into', 'per',
+])
+function tokenize(s) {
+  return String(s)
+    .toLowerCase()
+    .normalize('NFKD').replace(/[̀-ͯ]/g, '')  // strip diacritics
+    .replace(/[^a-z0-9]+/g, ' ')
+    .split(' ')
+    .filter((t) => t.length >= 2 && !STOP.has(t))
+}
+// raw[token][domain] = occurrence count
+const raw = new Map()
+const bump = (token, domain, n) => {
+  let m = raw.get(token)
+  if (!m) { m = new Map(); raw.set(token, m) }
+  m.set(domain, (m.get(domain) ?? 0) + n)
+}
+const domainSet = new Set(Object.values(sortedDomains))
+// Domain-name tokens: strong signal (weight 3).
+for (const domain of domainSet) for (const t of tokenize(domain)) bump(t, domain, 3)
+// Library-name tokens: weight 1 each.
+for (const [name, domain] of Object.entries(sortedDomains)) {
+  for (const t of tokenize(name)) bump(t, domain, 1)
+}
+const totalDomains = domainSet.size
+const model = {}
+for (const [token, m] of raw) {
+  const idf = Math.log(totalDomains / m.size)          // 0 when in every domain
+  if (idf <= 0) continue                                // non-discriminative
+  const scored = [...m.entries()]
+    .map(([domain, count]) => [domain, +(count * idf).toFixed(3)])
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)                                        // top 3 domains/token
+    .filter(([, w]) => w >= 0.5)                        // drop weak signal
+  if (scored.length) model[token] = Object.fromEntries(scored)
+}
+const sortedModel = {}
+for (const token of Object.keys(model).sort()) sortedModel[token] = model[token]
+fs.writeFileSync(modelTarget, JSON.stringify(sortedModel, null, 0) + '\n', 'utf8')
+console.log(`Wrote ${Object.keys(sortedModel).length} model tokens (${fs.statSync(modelTarget).size} bytes) to ${path.relative(root, modelTarget)}`)

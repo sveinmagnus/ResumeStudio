@@ -25,6 +25,9 @@
 
 import type { ResumeStore, Skill } from '../types'
 import type { SkillDomains, SkillRelations } from './skillTaxonomy'
+import {
+  buildDomainIndex, matchSkillDomain, type DomainMatch, type MatchTier, type SkillDomainModel,
+} from './skillMatch'
 
 /** Label for a skill with no explicit `category` (the list card + filter). */
 export const UNCATEGORIZED_LABEL = 'Uncategorized'
@@ -46,8 +49,8 @@ export interface CategoryAssignment {
   name: string
   /** The category (library domain) that will be assigned. */
   category: string
-  /** Which tier produced the match. */
-  tier: 1 | 2
+  /** Which match tier produced it (exact/token high-confidence; the rest inferred). */
+  tier: MatchTier
 }
 
 export interface CategorizeResult {
@@ -58,8 +61,21 @@ export interface CategorizeResult {
 }
 
 export interface CategorizeOptions {
+  /** Relations graph — enables the 'graph' tier for domainless library nodes. */
+  relations?: SkillRelations
+  /** Semantic token→domain model — enables the 'semantic' tier. */
+  model?: SkillDomainModel
+  /** Enable the fuzzy (edit-distance) tier. Default true. */
+  fuzzy?: boolean
+  /** Enable the semantic tier (needs `model`). Default true. */
+  semantic?: boolean
   /** Overwrite a category the user already set. Default false (fill blanks only). */
   overwrite?: boolean
+}
+
+/** Confidence order for picking the best match across a skill's locale values. */
+const TIER_RANK: Record<MatchTier, number> = {
+  exact: 0, token: 1, graph: 2, fuzzy: 3, semantic: 4,
 }
 
 /** Case-insensitive lookup keyed by trimmed-lowercased name. */
@@ -81,17 +97,8 @@ function anyName(name: Record<string, string>): string {
   return ''
 }
 
-/** Tier 1: the domain for a skill whose name matches the library, else null. */
-function exactDomain(name: Record<string, string>, domains: Map<string, string>): string | null {
-  for (const v of Object.values(name)) {
-    const d = domains.get(v.trim().toLowerCase())
-    if (d) return d
-  }
-  return null
-}
-
 /**
- * Tier 2: the majority domain among a skill's graph neighbours. The skill's
+ * Graph tier: the majority domain among a skill's graph neighbours. The skill's
  * name must be a node in `relations`; each neighbour that has a library domain
  * casts one vote. Returns the winning domain (ties → alphabetical) or null.
  */
@@ -120,40 +127,48 @@ function neighbourDomain(
 }
 
 /**
- * Auto-categorize a store's skills from library domains (Tier 1) with an
- * optional graph-vote fallback (Tier 2). Pure — the input store is not mutated.
+ * Auto-categorize a store's skills from the Quadim library. The layered matcher
+ * (`lib/skillMatch`) tries exact → token → fuzzy → semantic on each skill name,
+ * with a graph-vote fallback for domainless library nodes. Only BLANK categories
+ * are filled unless `overwrite`. Pure — the input store is not mutated.
  */
 export function autoCategorizeSkills(
   store: ResumeStore,
   domains: SkillDomains,
-  relations?: SkillRelations,
   opts: CategorizeOptions = {},
 ): CategorizeResult {
-  const domainMap = lowerMap(domains)
-  if (domainMap.size === 0) return { store, changed: 0, assignments: [] }
+  const index = buildDomainIndex(domains)
+  if (index.entries.length === 0) return { store, changed: 0, assignments: [] }
 
-  // Case-insensitive relations lookup (built once) for Tier 2.
+  const domainMap = lowerMap(domains) // graph tier: neighbour name → domain
   const relMap = new Map<string, string[]>()
-  if (relations) {
-    for (const [k, v] of Object.entries(relations)) relMap.set(k.trim().toLowerCase(), v)
+  if (opts.relations) {
+    for (const [k, v] of Object.entries(opts.relations)) relMap.set(k.trim().toLowerCase(), v)
   }
+  const matchOpts = { model: opts.model, fuzzy: opts.fuzzy, semantic: opts.semantic }
 
   const assignments: CategoryAssignment[] = []
   const skills = store.skills.map((s) => {
     // Respect a manually-set category unless the caller opts into overwrite.
-    const hasCategory = !!(s.category && s.category.trim())
-    if (hasCategory && !opts.overwrite) return s
+    if (s.category && s.category.trim() && !opts.overwrite) return s
 
-    let category = exactDomain(s.name, domainMap)
-    let tier: 1 | 2 = 1
-    if (!category && relMap.size) {
-      category = neighbourDomain(s.name, relMap, domainMap)
-      tier = 2
+    // Best match across the skill's locale values (prefer the higher tier).
+    let match: DomainMatch | null = null
+    for (const v of Object.values(s.name)) {
+      if (!v || !v.trim()) continue
+      const m = matchSkillDomain(v, index, matchOpts)
+      if (m && (!match || TIER_RANK[m.tier] < TIER_RANK[match.tier])) match = m
+      if (match && match.tier === 'exact') break
     }
-    if (!category || category === s.category) return s
+    // Graph fallback for a library node with no domain of its own.
+    if (!match && relMap.size) {
+      const d = neighbourDomain(s.name, relMap, domainMap)
+      if (d) match = { domain: d, tier: 'graph' }
+    }
+    if (!match || match.domain === s.category) return s
 
-    assignments.push({ skill_id: s.id, name: anyName(s.name), category, tier })
-    return { ...s, category }
+    assignments.push({ skill_id: s.id, name: anyName(s.name), category: match.domain, tier: match.tier })
+    return { ...s, category: match.domain }
   })
 
   if (assignments.length === 0) return { store, changed: 0, assignments: [] }

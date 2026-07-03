@@ -135,6 +135,27 @@ export function setSkillDomainsForTest(d: SkillDomains | null): void {
   cachedDomains = d
 }
 
+// ─── Semantic token→domain model (auto-categorization "semantic" tier) ────────
+
+/** token → (domain → weight); see lib/skillMatch.ts. */
+export type SkillDomainModel = Record<string, Record<string, number>>
+
+let cachedModel: SkillDomainModel | null = null
+
+/** Load (and memoize) the semantic model. Lazy chunk on first call. */
+export async function loadSkillDomainModel(): Promise<SkillDomainModel> {
+  if (!cachedModel) {
+    const mod = await import('../generated/skillDomainModel.json')
+    cachedModel = mod.default as SkillDomainModel
+  }
+  return cachedModel
+}
+
+/** Test seam: replace/clear the memoized model. */
+export function setSkillDomainModelForTest(m: SkillDomainModel | null): void {
+  cachedModel = m
+}
+
 export interface RelatedSuggestion {
   name: string
   /** How many of the user's skills point to this one — drives ranking. */

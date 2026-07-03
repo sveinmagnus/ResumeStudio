@@ -4,11 +4,12 @@ import { useSortedItems } from '../../store/useSortedItems'
 import { useStableExpanded } from '../../store/useStableExpanded'
 import {
   suggestSkillNames, loadSkillRelations, relatedSkillSuggestions, loadSkillDomains,
-  type SkillRelations, type SkillDomains,
+  loadSkillDomainModel, type SkillRelations, type SkillDomains, type SkillDomainModel,
 } from '../../lib/skillTaxonomy'
 import {
   autoCategorizeSkills, clearSkillCategories, effectiveSkillCategory, UNCATEGORIZED_LABEL,
 } from '../../lib/skillCategorize'
+import { INFERRED_TIERS } from '../../lib/skillMatch'
 import { DualField } from '../ui/DualField'
 import { TextField } from '../ui/Fields'
 import { EditorCard, AddButton, FieldRow } from '../ui/EditorCard'
@@ -157,30 +158,34 @@ function RelatedSkillsPanel({ onAdd }: { onAdd: (name: string) => void }) {
 
 /**
  * Auto-categorize the skill registry from the Quadim library (fully offline).
- * Lazy-loads the domain map (+ relations for the Tier-2 graph vote), previews
- * how many currently-uncategorized skills would get a category, and applies via
- * replaceData so the change is undoable + auto-saved. Only fills blanks — a
- * category set by hand is never overwritten. Renders null when nothing applies.
+ * Lazy-loads the domain map, the relations graph and the semantic token model,
+ * previews how many uncategorized skills the layered matcher (exact → token →
+ * fuzzy → semantic → graph) would place, and applies via replaceData so the
+ * change is undoable + auto-saved. Only fills blanks — a category set by hand is
+ * never overwritten. Renders null when nothing applies.
  */
 function AutoCategorizePanel() {
   const data = useStore((s) => s.data)
   const replaceData = useStore((s) => s.replaceData)
   const [domains, setDomains] = useState<SkillDomains | null>(null)
   const [relations, setRelations] = useState<SkillRelations | null>(null)
+  const [model, setModel] = useState<SkillDomainModel | null>(null)
   const [justRan, setJustRan] = useState<number | null>(null)
 
   useEffect(() => {
     let alive = true
     void loadSkillDomains().then((d) => { if (alive) setDomains(d) }).catch(() => { /* feature just hides */ })
-    void loadSkillRelations().then((r) => { if (alive) setRelations(r) }).catch(() => { /* Tier 2 just skips */ })
+    void loadSkillRelations().then((r) => { if (alive) setRelations(r) }).catch(() => { /* graph tier skips */ })
+    void loadSkillDomainModel().then((m) => { if (alive) setModel(m) }).catch(() => { /* semantic tier skips */ })
     return () => { alive = false }
   }, [])
 
-  // Preview only — nothing is applied until the user clicks.
+  // Preview only — nothing is applied until the user clicks. Wait for the model
+  // too so the first preview already reflects the semantic tier.
   const preview = useMemo(() => {
-    if (!domains) return null
-    return autoCategorizeSkills(data, domains, relations ?? undefined)
-  }, [data, domains, relations])
+    if (!domains || !model) return null
+    return autoCategorizeSkills(data, domains, { relations: relations ?? undefined, model })
+  }, [data, domains, relations, model])
 
   const pending = preview?.changed ?? 0
   if (pending === 0 && justRan === null) return null
@@ -191,7 +196,8 @@ function AutoCategorizePanel() {
     setJustRan(preview.changed)
   }
 
-  const inferred = preview?.assignments.filter((a) => a.tier === 2).length ?? 0
+  // fuzzy/semantic/graph matches are best-effort — surface them as "review".
+  const inferred = preview?.assignments.filter((a) => INFERRED_TIERS.has(a.tier)).length ?? 0
 
   return (
     <div className="acp" role="group" aria-label="Auto-categorize skills">
@@ -199,7 +205,7 @@ function AutoCategorizePanel() {
         <>
           <span className="acp-text">
             <Wand2 size={13} /> {pending} skill{pending === 1 ? '' : 's'} can be categorized
-            from the skill library{inferred > 0 ? ` (${inferred} inferred from related skills)` : ''}.
+            from the skill library{inferred > 0 ? ` (${inferred} inferred — worth a review)` : ''}.
           </span>
           <button type="button" className="acp-btn" onClick={apply}>
             Auto-categorize {pending}

@@ -8,7 +8,9 @@ import {
   SkillsEditor, RolesEditor, IndustriesEditor, ReferencesEditor, TechCategoriesEditor,
 } from '../../src/components/editor/RegistryEditors'
 import { useStore } from '../../src/store/useStore'
-import { setSkillRelationsForTest, setSkillDomainsForTest } from '../../src/lib/skillTaxonomy'
+import {
+  setSkillRelationsForTest, setSkillDomainsForTest, setSkillDomainModelForTest,
+} from '../../src/lib/skillTaxonomy'
 import { resetStore } from '../helpers/store-reset'
 import { resolveConfirm } from '../helpers/confirm'
 import { emptyStore, makeSkill, makeProject, makeIndustry, makeRole } from '../fixtures'
@@ -25,6 +27,7 @@ afterEach(() => {
   vi.restoreAllMocks()
   setSkillRelationsForTest(null)
   setSkillDomainsForTest(null)
+  setSkillDomainModelForTest(null)
 })
 
 describe('<SkillsEditor> — add + merge', () => {
@@ -59,6 +62,7 @@ describe('<SkillsEditor> — add + merge', () => {
   it('auto-categorizes uncategorized skills from the library in the By category view', async () => {
     setSkillDomainsForTest({ TypeScript: 'Software Development', Kubernetes: 'Cloud & Infrastructure' })
     setSkillRelationsForTest({})
+    setSkillDomainModelForTest({}) // exact matches only — no semantic guessing here
     seed({
       ...emptyStore(),
       skills: [

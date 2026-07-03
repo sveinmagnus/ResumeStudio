@@ -33,7 +33,7 @@ describe('autoCategorizeSkills — Tier 1 (exact match)', () => {
     const { store: out, changed, assignments } = autoCategorizeSkills(store, DOMAINS)
     expect(changed).toBe(1)
     expect(out.skills[0].category).toBe('Software Development')
-    expect(assignments[0]).toMatchObject({ skill_id: 'ts', category: 'Software Development', tier: 1 })
+    expect(assignments[0]).toMatchObject({ skill_id: 'ts', category: 'Software Development', tier: 'exact' })
   })
 
   it('matches case-insensitively on any locale value', () => {
@@ -54,7 +54,7 @@ describe('autoCategorizeSkills — Tier 1 (exact match)', () => {
   it('overwrites when opts.overwrite is set', () => {
     const store = emptyStore()
     store.skills.push(makeSkill({ id: 'ts', name: { en: 'TypeScript' }, category: 'My Frontend' }))
-    const { store: out, changed } = autoCategorizeSkills(store, DOMAINS, undefined, { overwrite: true })
+    const { store: out, changed } = autoCategorizeSkills(store, DOMAINS, { overwrite: true })
     expect(changed).toBe(1)
     expect(out.skills[0].category).toBe('Software Development')
   })
@@ -68,9 +68,9 @@ describe('autoCategorizeSkills — Tier 1 (exact match)', () => {
   })
 })
 
-describe('autoCategorizeSkills — Tier 2 (graph vote)', () => {
-  // "Løsningsarkitektur" isn't a library domain node, but it relates to skills
-  // that are — two Cloud, one Software → Cloud wins.
+describe('autoCategorizeSkills — graph tier', () => {
+  // "Løsningsarkitektur" isn't a library domain node (and won't fuzzy/semantic
+  // match with no model), but it relates to skills that are — Cloud wins.
   const RELATIONS: SkillRelations = {
     Løsningsarkitektur: ['Kubernetes', 'Terraform', 'React'],
   }
@@ -78,10 +78,10 @@ describe('autoCategorizeSkills — Tier 2 (graph vote)', () => {
   it('inherits the majority domain of graph neighbours', () => {
     const store = emptyStore()
     store.skills.push(makeSkill({ id: 'la', name: { no: 'Løsningsarkitektur' } }))
-    const { store: out, changed, assignments } = autoCategorizeSkills(store, DOMAINS, RELATIONS)
+    const { store: out, changed, assignments } = autoCategorizeSkills(store, DOMAINS, { relations: RELATIONS })
     expect(changed).toBe(1)
     expect(out.skills[0].category).toBe('Cloud & Infrastructure')
-    expect(assignments[0].tier).toBe(2)
+    expect(assignments[0].tier).toBe('graph')
   })
 
   it('breaks ties alphabetically', () => {
@@ -89,25 +89,59 @@ describe('autoCategorizeSkills — Tier 2 (graph vote)', () => {
     store.skills.push(makeSkill({ id: 'la', name: { no: 'Løsningsarkitektur' } }))
     // One Cloud, one Software → tie → "Cloud & Infrastructure" sorts first.
     const rel: SkillRelations = { Løsningsarkitektur: ['Kubernetes', 'React'] }
-    const { store: out } = autoCategorizeSkills(store, DOMAINS, rel)
+    const { store: out } = autoCategorizeSkills(store, DOMAINS, { relations: rel })
     expect(out.skills[0].category).toBe('Cloud & Infrastructure')
   })
 
-  it('prefers an exact Tier 1 match over the graph vote', () => {
+  it('prefers an exact match over the graph vote', () => {
     const store = emptyStore()
     // React is itself a library node (Software Development); the graph is ignored.
     store.skills.push(makeSkill({ id: 'r', name: { en: 'React' } }))
     const rel: SkillRelations = { React: ['Kubernetes', 'Terraform'] }
-    const { store: out, assignments } = autoCategorizeSkills(store, DOMAINS, rel)
+    const { store: out, assignments } = autoCategorizeSkills(store, DOMAINS, { relations: rel })
     expect(out.skills[0].category).toBe('Software Development')
-    expect(assignments[0].tier).toBe(1)
+    expect(assignments[0].tier).toBe('exact')
   })
 
   it('leaves a graph node uncategorized when no neighbour has a domain', () => {
     const store = emptyStore()
     store.skills.push(makeSkill({ id: 'la', name: { no: 'Løsningsarkitektur' } }))
     const rel: SkillRelations = { Løsningsarkitektur: ['Some Unknown Skill'] }
-    const { changed } = autoCategorizeSkills(store, DOMAINS, rel)
+    const { changed } = autoCategorizeSkills(store, DOMAINS, { relations: rel })
+    expect(changed).toBe(0)
+  })
+})
+
+describe('autoCategorizeSkills — widened matching tiers', () => {
+  it('exact-matches formatting variants (normalization)', () => {
+    const store = emptyStore()
+    store.skills.push(makeSkill({ id: 'r', name: { en: 'React.js' } }))
+    store.skills.push(makeSkill({ id: 'k', name: { en: 'Kubernetes 1.29' } }))
+    const { store: out } = autoCategorizeSkills(store, DOMAINS)
+    expect(out.skills.find((s) => s.id === 'r')!.category).toBe('Software Development')
+    expect(out.skills.find((s) => s.id === 'k')!.category).toBe('Cloud & Infrastructure')
+  })
+
+  it('fuzzy-matches a typo, flagged as the fuzzy tier', () => {
+    const store = emptyStore()
+    store.skills.push(makeSkill({ id: 'k', name: { en: 'Kubernets' } }))
+    const { assignments } = autoCategorizeSkills(store, DOMAINS)
+    expect(assignments[0]).toMatchObject({ category: 'Cloud & Infrastructure', tier: 'fuzzy' })
+  })
+
+  it('semantic-matches by words when a model is supplied', () => {
+    const store = emptyStore()
+    store.skills.push(makeSkill({ id: 'c', name: { en: 'Cloud Infrastructure Automation' } }))
+    const model = { cloud: { 'Cloud & Infrastructure': 10 } }
+    const { assignments } = autoCategorizeSkills(store, DOMAINS, { model })
+    expect(assignments[0]).toMatchObject({ category: 'Cloud & Infrastructure', tier: 'semantic' })
+  })
+
+  it('the semantic tier can be disabled', () => {
+    const store = emptyStore()
+    store.skills.push(makeSkill({ id: 'c', name: { en: 'Cloud Infrastructure Automation' } }))
+    const model = { cloud: { 'Cloud & Infrastructure': 10 } }
+    const { changed } = autoCategorizeSkills(store, DOMAINS, { model, semantic: false })
     expect(changed).toBe(0)
   })
 })

@@ -104,26 +104,28 @@ fs.cpSync(distSrc, path.join(appDir, 'dist'), { recursive: true })
 // actually made it into the bundle so a client-build regression can't silently
 // ship a build that reaches out for — or simply lacks — the skill library.
 const assetsDir = path.join(appDir, 'dist', 'assets')
-const assetBlob = fs.existsSync(assetsDir)
-  ? fs.readdirSync(assetsDir)
-      .filter((f) => f.endsWith('.js'))
-      .map((f) => fs.readFileSync(path.join(assetsDir, f), 'utf8'))
-      .join('\n')
-  : ''
-// Distinctive string values unique to two of the generated artifacts; their
-// presence proves the build-time generation ran and the chunks are bundled.
-const skillSentinels = {
+const assetFiles = fs.existsSync(assetsDir) ? fs.readdirSync(assetsDir) : []
+const assetBlob = assetFiles
+  .filter((f) => f.endsWith('.js'))
+  .map((f) => fs.readFileSync(path.join(assetsDir, f), 'utf8'))
+  .join('\n')
+const failGuard = (label) => {
+  console.error(`[build-desktop] ERROR: ${label} not found in dist/assets — the ` +
+    'Quadim skill library would not be bundled. Regenerate the artifacts ' +
+    '(node scripts/build-skill-taxonomy.mjs) and rebuild the client.')
+  process.exit(1)
+}
+// Distinctive string VALUES prove the data content is bundled (Vite keeps
+// space-containing domain names quoted; token keys get hoisted to consts, so
+// the model is verified by its own emitted chunk file instead).
+const contentSentinels = {
   'skill domains': 'Software Development',
   'skill classifications': 'Management_Leadership',
 }
-for (const [label, sentinel] of Object.entries(skillSentinels)) {
-  if (!assetBlob.includes(sentinel)) {
-    console.error(`[build-desktop] ERROR: ${label} not found in dist/assets — the ` +
-      'Quadim skill library would not be bundled. Regenerate the artifacts ' +
-      '(node scripts/build-skill-taxonomy.mjs) and rebuild the client.')
-    process.exit(1)
-  }
+for (const [label, sentinel] of Object.entries(contentSentinels)) {
+  if (!assetBlob.includes(sentinel)) failGuard(label)
 }
+if (!assetFiles.some((f) => /^skillDomainModel-.*\.js$/.test(f))) failGuard('skill domain model')
 log('skill-library data present in bundle ✓')
 
 // ── 4. Vendor the deps esbuild left external ────────────────────────────────

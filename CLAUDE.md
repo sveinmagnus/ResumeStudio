@@ -42,11 +42,17 @@ What works today:
   Registry suggests **related skills** from the relatesTo graph; and imported
   skills carry an authoritative **classification** surfaced as the skill-matrix
   Category column. The Skill Registry's "By category" view also offers
-  **offline auto-categorization** (`lib/skillCategorize.ts`): a one-click action
-  fills each skill's `category` from the library's fine-grained `domain` — Tier 1
-  by exact name match, Tier 2 by a relations-graph majority vote — never
-  overwriting a manually-set category, applied via `replaceData` (undoable +
-  auto-saved). **`category` is a skill's SINGLE grouping concept** — the old
+  **offline auto-categorization** (`lib/skillCategorize.ts` +
+  `lib/skillMatch.ts`): a one-click action fills each skill's `category` from the
+  library's fine-grained `domain` via a **layered matcher** — `exact`
+  (normalized: case/punctuation/version-insensitive, "React.js"/"Java 8" land) →
+  `token` (a multi-word library name contained in the query) → `fuzzy` (bounded
+  edit distance for typos) → `semantic` (a compact token→domain model,
+  `generated/skillDomainModel.json`, places a skill by its words) → `graph`
+  (relations-graph vote for domainless library nodes). Only `exact` is
+  high-confidence; the rest are surfaced as "**inferred — worth a review**"
+  (`INFERRED_TIERS`). Never overwrites a manually-set category; applied via
+  `replaceData` (undoable + auto-saved). **`category` is a skill's SINGLE grouping concept** — the old
   `skill_type` enum was fully removed (there is no "type" control or field; only
   importers/backups may carry legacy leftovers, ignored on read).
   `effectiveSkillCategory(skill)` (explicit `category`, else **"Uncategorized"**)
@@ -292,9 +298,10 @@ src/
 │   ├── skillMatrix.ts          ← PURE: skill-matrix rows (F9) — registry + project usage → years/proficiency/last-used + authoritative Category (F12 pt4)
 │   ├── careerTimeline.ts       ← PURE: career-timeline model (F15) — employment/project bars, lane packing, employment-gap detection, year ticks
 │   ├── contentSearch.ts        ← PURE: global content search (F16) — recursive string collector over the store + ranked hits with snippet + authoritative Category (F12 pt4)
-│   ├── skillTaxonomy.ts        ← Quadim skill-library data (F12): lazy generated JSON (names/relations/classifications/domains) + PURE matchTaxonomy / relatedSkillSuggestions (regen: scripts/build-skill-taxonomy.mjs)
+│   ├── skillTaxonomy.ts        ← Quadim skill-library data (F12): lazy generated JSON (names/relations/classifications/domains/domain-model) + PURE matchTaxonomy / relatedSkillSuggestions (regen: scripts/build-skill-taxonomy.mjs)
 │   ├── skillNormalize.ts       ← PURE: canonicalize imported skill names to library spelling + stamp classifications (F12 pt2/4); free-text importers only, not backups
-│   ├── skillCategorize.ts      ← PURE: offline auto-categorization of the Skill registry — Tier 1 exact name→domain match + Tier 2 relations-graph majority vote; fills BLANK `category` only (never overwrites manual). `clearSkillCategories()` strips explicit categories (per-chip "x" or the filtered list's bulk "Clear category") so skills are auto-categorizable again. Source: generated/skillDomains.json. Also `effectiveSkillCategory()` — explicit `category` else "Uncategorized". `category` is the single grouping concept; the `skill_type` enum was removed entirely. Used by the list subtitle, By-category grouping + the category filter
+│   ├── skillMatch.ts           ← PURE: layered name→domain matcher for auto-categorization — normalizeKey/tokenize, exact/token/fuzzy(editDistance)/semantic(token-model) tiers; matchSkillDomain returns {domain,tier}; INFERRED_TIERS marks the review-worthy ones
+│   ├── skillCategorize.ts      ← PURE: offline auto-categorization of the Skill registry — runs the lib/skillMatch tiers (exact→token→fuzzy→semantic) + a relations-graph fallback; fills BLANK `category` only (never overwrites manual). `clearSkillCategories()` strips explicit categories (per-chip "x" or the filtered list's bulk "Clear all skills from category") so skills are auto-categorizable again. Source: generated/skillDomains.json + skillDomainModel.json. Also `effectiveSkillCategory()` — explicit `category` else "Uncategorized". `category` is the single grouping concept; the `skill_type` enum was removed entirely. Used by the list subtitle, By-category grouping + the category filter
 │   ├── freshness.ts            ← PURE: freshness/expiry warnings (F3) — expired/expiring certs, stale 'ongoing' items, isResumeStale; deterministic via injected `now`
 │   ├── importerLinkedIn.ts     ← PURE: LinkedIn data-export (CSV map) → ResumeStore; RFC4180 parseCsv. ZIP extraction lives in ImportScreen (lazy fflate)
 │   ├── importerEuropass.ts     ← Europass import: SkillsPassport XML (DOMParser) + profile JSON → ResumeStore
