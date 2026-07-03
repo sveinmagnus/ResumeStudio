@@ -7,10 +7,11 @@
  * lightbox. Purely presentational — all mutations happen through the callbacks
  * the parent editor passes in.
  */
-import { useMemo, type ReactNode } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { useStore } from '../../store/useStore'
 import {
-  DndContext, PointerSensor, useSensor, useSensors, useDraggable, useDroppable, type DragEndEvent,
+  DndContext, PointerSensor, useSensor, useSensors, useDraggable, useDroppable,
+  pointerWithin, MeasuringStrategy, type DragEndEvent,
 } from '@dnd-kit/core'
 import { useDialog } from '../ui/useDialog'
 import { X } from 'lucide-react'
@@ -18,6 +19,9 @@ import { resolve } from '../../lib/locales'
 import type { LocalizedString } from '../../types'
 
 const UNCATEGORIZED = '__uncategorized__'
+/** Droppable-id prefix for the floating quick-select panel (kept distinct from
+ *  the header droppables, which share the plain category key). */
+const PANEL = 'panel:'
 
 export interface CatItem {
   id: string
@@ -25,6 +29,16 @@ export interface CatItem {
   category?: string | null
   /** Whether this item carries an explicit category that the "x" can remove. */
   removable?: boolean
+}
+
+/**
+ * Resolve a dnd-kit droppable id to the category to assign. Drops land on either
+ * a category header (plain key) or a floating quick-panel row (PANEL-prefixed);
+ * the Uncategorized sentinel maps to `null` (clear the category). PURE.
+ */
+export function dropTargetCategory(overId: string): string | null {
+  const key = overId.startsWith(PANEL) ? overId.slice(PANEL.length) : overId
+  return key === UNCATEGORIZED ? null : key
 }
 
 /** Distinct, sorted category labels (non-empty) across items. */
@@ -37,7 +51,7 @@ export function categoriesOf(items: CatItem[]): string[] {
   return [...set].sort((a, b) => a.localeCompare(b))
 }
 
-export function RegistryCategoryView({ items, unnamed, onOpen, onRecategorize, onRemove }: {
+export function RegistryCategoryView({ items, unnamed, onOpen, onRecategorize, onRemove, onClearCategory }: {
   items: CatItem[]
   /** Label for an item with no name yet, e.g. "(unnamed skill)". */
   unnamed: string
@@ -45,9 +59,12 @@ export function RegistryCategoryView({ items, unnamed, onOpen, onRecategorize, o
   onRecategorize: (id: string, category: string | null) => void
   /** Optional: clear an item's explicit category (renders an "x" on removable chips). */
   onRemove?: (id: string) => void
+  /** Optional: clear the category off every item in a group (renders an "x" in the header). */
+  onClearCategory?: (ids: string[]) => void
 }) {
   const locale = useStore((s) => s.primaryLocale)
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
+  const [dragging, setDragging] = useState(false)
 
   // Group by category (Uncategorized last), categories A→Z.
   const groups = useMemo(() => {
@@ -65,35 +82,93 @@ export function RegistryCategoryView({ items, unnamed, onOpen, onRecategorize, o
   }, [items])
 
   const onDragEnd = (e: DragEndEvent) => {
+    setDragging(false)
     const { active, over } = e
     if (!over) return
-    const target = String(over.id) === UNCATEGORIZED ? null : String(over.id)
+    const target = dropTargetCategory(String(over.id))
     const it = items.find((x) => x.id === String(active.id))
     if (!it || (it.category ?? null) === target) return
     onRecategorize(String(active.id), target)
   }
 
   return (
-    <DndContext sensors={sensors} onDragEnd={onDragEnd}>
+    <DndContext
+      sensors={sensors}
+      collisionDetection={pointerWithin}
+      // The quick-select panel's droppables mount only after the drag starts, so
+      // measure droppables continuously — otherwise dnd-kit never learns their
+      // rects and dropping on a panel row is a no-op.
+      measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
+      onDragStart={() => setDragging(true)}
+      onDragEnd={onDragEnd}
+      onDragCancel={() => setDragging(false)}
+    >
       <div className="rcv">
         {groups.map(([key, list]) => (
           <CatGroup key={key} catKey={key} label={key === UNCATEGORIZED ? 'Uncategorized' : key}
-            items={list} locale={locale} unnamed={unnamed} onOpen={onOpen} onRemove={onRemove} />
+            items={list} locale={locale} unnamed={unnamed} onOpen={onOpen} onRemove={onRemove}
+            onClearCategory={onClearCategory} />
         ))}
       </div>
+      {dragging && groups.length > 1 && (
+        <CategoryDropPanel groups={groups} />
+      )}
     </DndContext>
   )
 }
 
-function CatGroup({ catKey, label, items, locale, unnamed, onOpen, onRemove }: {
+/**
+ * Floating quick-select drop target: appears on the right while a chip is being
+ * dragged so the destination category is always one short move away, no matter
+ * how long the list is. Each row mirrors a category header as its own droppable
+ * (PANEL-prefixed id so it doesn't collide with the header's).
+ */
+function CategoryDropPanel({ groups }: { groups: [string, CatItem[]][] }) {
+  return (
+    <div className="rcv-drop-panel" role="presentation">
+      <div className="rcv-drop-title">Drop on a category</div>
+      <div className="rcv-drop-list">
+        {groups.map(([key, list]) => (
+          <DropRow key={key} catKey={key}
+            label={key === UNCATEGORIZED ? 'Uncategorized' : key} count={list.length} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function DropRow({ catKey, label, count }: { catKey: string; label: string; count: number }) {
+  const { setNodeRef, isOver } = useDroppable({ id: PANEL + catKey })
+  return (
+    <div ref={setNodeRef} className={`rcv-drop-row ${isOver ? 'is-over' : ''}`}>
+      <span className="rcv-drop-label">{label}</span>
+      <span className="rcv-count">{count}</span>
+    </div>
+  )
+}
+
+function CatGroup({ catKey, label, items, locale, unnamed, onOpen, onRemove, onClearCategory }: {
   catKey: string; label: string; items: CatItem[]; locale: string; unnamed: string
   onOpen: (id: string) => void; onRemove?: (id: string) => void
+  onClearCategory?: (ids: string[]) => void
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: catKey })
+  const canClear = !!onClearCategory && catKey !== UNCATEGORIZED
   return (
     <div className="rcv-group">
       <div ref={setNodeRef} className={`rcv-head ${isOver ? 'is-over' : ''}`}>
-        {label} <span className="rcv-count">{items.length}</span>
+        <span className="rcv-head-label">{label} <span className="rcv-count">{items.length}</span></span>
+        {canClear && (
+          <button
+            type="button"
+            className="rcv-head-x"
+            onClick={() => onClearCategory!(items.map((i) => i.id))}
+            aria-label={`Clear category "${label}" from all ${items.length} item(s)`}
+            title="Remove this category from all its items (they become Uncategorized)"
+          >
+            <X size={14} />
+          </button>
+        )}
       </div>
       <div className="rcv-chips">
         {items.map((it) => (

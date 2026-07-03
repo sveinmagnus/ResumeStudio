@@ -304,10 +304,10 @@ describe('<IndustriesEditor> (A8.1)', () => {
   })
 })
 
-describe('<SkillsEditor> — active item stays put while editing (missing-translation filter)', () => {
+describe('<SkillsEditor> — batch missing-translation view', () => {
   beforeEach(() => resetStore())
 
-  it('keeps the expanded item present after its translation is completed', async () => {
+  it('edits translations inline and keeps a completed row (frozen) with a "done" mark', async () => {
     useStore.setState({
       data: {
         ...emptyStore(),
@@ -321,17 +321,17 @@ describe('<SkillsEditor> — active item stays put while editing (missing-transl
     })
     render(<SkillsEditor />)
 
-    // Filter to just the untranslated skill, then open it.
+    // The batch list shows the untranslated skill's DualField directly — no
+    // card to open. Only s1 is missing, so there's one Norwegian input.
     await userEvent.click(screen.getByRole('button', { name: /missing translation/i }))
-    await userEvent.click(screen.getByRole('button', { name: /TypeScript/ }))
-
-    // Completing the Norwegian translation would normally drop it from the
-    // filter mid-typing; the active-item pin must keep the edit box mounted.
     const noInput = screen.getByLabelText(/Skill name \(Norsk\)/i)
     await userEvent.type(noInput, 'TypeScript')
 
+    // Completing it would normally drop it from the filter; the frozen list
+    // keeps the row mounted and marks it done.
     expect(useStore.getState().data.skills.find((s) => s.id === 's1')!.name.no).toBe('TypeScript')
     expect(screen.getByLabelText(/Skill name \(Norsk\)/i)).toBeInTheDocument()
+    expect(screen.getByText(/done/i)).toBeInTheDocument()
   })
 })
 
@@ -419,5 +419,17 @@ describe('<SkillsEditor> — category view', () => {
     // The category input's placeholder is the empty-state label ('Uncategorized').
     await userEvent.type(within(dialog).getByPlaceholderText('Uncategorized'), 'DevOps')
     expect(useStore.getState().data.skills.find((s) => s.id === 's3')!.category).toBe('DevOps')
+  })
+
+  it('clears a whole category via the "x" in its header', async () => {
+    seedSkills()
+    render(<SkillsEditor />)
+    await userEvent.click(screen.getByRole('button', { name: /by category/i }))
+
+    // Frontend has one skill (React); the header "x" clears it → Uncategorized.
+    await userEvent.click(screen.getByRole('button', { name: /Clear category "Frontend"/i }))
+    expect(useStore.getState().data.skills.find((s) => s.id === 's1')!.category).toBeNull()
+    // The Uncategorized group has no clear "x".
+    expect(screen.queryByRole('button', { name: /Clear category "Uncategorized"/i })).not.toBeInTheDocument()
   })
 })

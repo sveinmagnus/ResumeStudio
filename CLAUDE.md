@@ -151,11 +151,17 @@ What works today:
   aren't gaps) and a full-viewport-width zoom modal for readability.
 - **Accessibility regression net** — `tests/components/a11y.test.tsx` runs
   jest-axe (dev-only) over the editor surfaces; keep new editors passing it.
-- **Registry management** — Skill and Role lists carry an "Unused / Missing
-  translation" filter bar; each card shows its usage breakdown as
+- **Registry management** — Skill, Role and Industry lists carry an "Unused /
+  Missing translation" filter bar; each card shows its usage breakdown as
   "N projects | M categor(y|ies)" (skills) or "N projects | M employments"
   (roles), and a per-card expansion lists the actual referencing items with
-  click-to-jump. Project / tech-category skill chips are added through an
+  click-to-jump. The **"Missing translation" filter is a batch surface**
+  (`MissingTranslationList` + the `useFrozenMissing` freeze hook): instead of
+  collapsed cards it renders a compact list of directly-editable `DualField`s
+  (name only — the one translatable registry field) with the Copy button, so a
+  consultant can type/Copy many translations without opening each entry;
+  completed rows stay (✓) until the filter changes so they don't vanish
+  mid-keystroke. Project / tech-category skill chips are added through an
   **autocomplete** (existing skill OR auto-create from typed text); clicking
   an already-attached chip opens a `DualField` popover (the shared
   `TranslationPopover`) that edits the **registry** entry's translation (so the
@@ -167,11 +173,17 @@ What works today:
   view** (`Skill.category` / `Role.category`, optional free-text): a compact
   grouping of item titles under category headers, where dragging an item onto
   another header recategorizes it (dnd-kit `useDraggable`/`useDroppable`) and
-  clicking one opens the normal editor in a lightbox. Categories are assigned
-  via the Category field in the editor; the distinct values form the headers.
-  Both editors share the generic `RegistryCategoryView` / `CatGroup` /
-  `CatChip` / `RegistryLightbox` (a skill's category is the consultant's own
-  organisation; distinct from the Quadim `classification`).
+  clicking one opens the normal editor in a lightbox. **While dragging, a fixed
+  quick-select panel** lists every category as a drop target on the right, so a
+  long list needs no scrolling (its droppables mount mid-drag, hence
+  `MeasuringStrategy.Always` + `pointerWithin`; `dropTargetCategory` resolves a
+  header/panel drop id to the category). Each category **header carries an "×"**
+  that clears that category off all its items (per-chip "×" clears one).
+  Categories are assigned via the Category field in the editor; the distinct
+  values form the headers. Both editors share the generic
+  `RegistryCategoryView` / `CatGroup` / `CatChip` / `RegistryLightbox` (a skill's
+  category is the consultant's own organisation; distinct from the Quadim
+  `classification`).
 - **React error boundary** around the editor so a crashed view never traps the
   user.
 - **Downloadable desktop build** — a portable folder (bundled Node + esbuild'd

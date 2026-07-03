@@ -28,7 +28,7 @@ import type {
   Skill, Role, Industry, Reference, TechnologyCategory, CategorySkill,
   LocalizedString, Project, WorkExperience,
 } from '../../types'
-import { X, Plus, Sparkles, Combine, Filter as FilterIcon, Briefcase, FolderKanban, List, LayoutGrid, Wand2 } from 'lucide-react'
+import { X, Plus, Sparkles, Combine, Filter as FilterIcon, Briefcase, FolderKanban, List, LayoutGrid, Wand2, Check } from 'lucide-react'
 
 // ── Shared registry-filter bar ──────────────────────────────────────────────
 
@@ -100,6 +100,73 @@ function isMissingTranslation(
   const p = (ls[primary] ?? '').trim()
   const s = (ls[secondary] ?? '').trim()
   return !!p && !s
+}
+
+interface NamedItem { id: string; name: LocalizedString }
+
+/**
+ * Freeze the list of rows shown in the batch "Missing translation" view. Once
+ * you fill a row it's no longer "missing", but yanking it out mid-keystroke
+ * would be jarring — so while the filter is active we keep the rows captured on
+ * entry (resolved to live data, so the text updates and a ✓ appears). Switching
+ * filters re-snapshots. Ref-during-render is intentional and idempotent.
+ */
+function useFrozenMissing<T extends NamedItem>(active: boolean, missing: T[], allItems: T[]): T[] {
+  const frozen = useRef<string[] | null>(null)
+  if (active) { if (!frozen.current) frozen.current = missing.map((i) => i.id) }
+  else if (frozen.current) frozen.current = null
+  const byId = useMemo(() => new Map(allItems.map((i) => [i.id, i])), [allItems])
+  if (!active || !frozen.current) return missing
+  const out: T[] = []
+  for (const id of frozen.current) { const it = byId.get(id); if (it) out.push(it) }
+  return out
+}
+
+/**
+ * Batch translation surface for the "Missing translation" filter: a compact
+ * list of DualFields (name only — the one translatable registry field) so the
+ * consultant can type/Copy translations for many entries without opening each
+ * card. `items` should come from useFrozenMissing so rows don't vanish on the
+ * first keystroke.
+ */
+function MissingTranslationList({ label, items, onSet }: {
+  label: string
+  items: NamedItem[]
+  onSet: (id: string, name: LocalizedString) => void
+}) {
+  const primary = useStore((s) => s.primaryLocale)
+  const secondary = useStore((s) => s.secondaryLocale)
+  return (
+    <div className="mtl">
+      <p className="registry-note mtl-hint">
+        Type or <strong>Copy</strong> the secondary-language name for each. Completed rows stay (✓) until you switch filters.
+      </p>
+      {items.map((it) => {
+        const done = !isMissingTranslation(it.name, primary, secondary)
+        return (
+          <div key={it.id} className={`mtl-row ${done ? 'is-done' : ''}`}>
+            <DualField label={label} value={it.name} onChange={(v) => onSet(it.id, v)} />
+            {done && <span className="mtl-done" role="status"><Check size={13} /> done</span>}
+          </div>
+        )
+      })}
+      <style>{`
+        .mtl { margin-top: 4px; }
+        .mtl-hint { margin-bottom: 12px; }
+        .mtl-row {
+          position: relative; padding: 12px 14px; margin-bottom: 8px;
+          background: var(--paper-raised); border: 1px solid var(--line); border-radius: var(--r-md);
+        }
+        .mtl-row .df-wrap { margin-bottom: 0; }
+        .mtl-row.is-done { border-color: var(--ok-ink); background: var(--ok-wash); }
+        .mtl-done {
+          position: absolute; top: 10px; right: 12px; z-index: 1;
+          display: inline-flex; align-items: center; gap: 3px;
+          font-size: 11px; font-weight: 700; color: var(--ok-ink);
+        }
+      `}</style>
+    </div>
+  )
 }
 
 // ── Skill registry ───────────────────────────────────────────────────────────
@@ -327,6 +394,13 @@ export function SkillsEditor() {
   // (the missing-translation filter would otherwise drop it mid-typing).
   const displayItems = useStableExpanded('skills', items)
 
+  // Batch translation view (frozen so completing a row doesn't yank it).
+  const missingItems = useMemo(
+    () => allItems.filter((s) => isMissingTranslation(s.name, primaryLocale, secondaryLocale)),
+    [allItems, primaryLocale, secondaryLocale],
+  )
+  const batchRows = useFrozenMissing(filter === 'missing-translation', missingItems, allItems)
+
   // Bulk-clear: when a specific category is filtered, offer to strip the
   // explicit category off the shown skills so they're auto-categorizable again.
   const clearableIds = useMemo(
@@ -382,6 +456,15 @@ export function SkillsEditor() {
       {view === 'list' ? (
         <>
           <FilterBar filter={filter} onChange={setFilter} counts={counts} />
+          {filter === 'missing-translation' ? (
+            batchRows.length === 0 ? (
+              <div className="registry-empty">No skills are missing a translation in the secondary language.</div>
+            ) : (
+              <MissingTranslationList label="Skill name" items={batchRows}
+                onSet={(id, name) => updateItem('skills', id, { name })} />
+            )
+          ) : (
+          <>
           {categoryCounts.length > 0 && (
             <div className="skill-cat-filter">
               <label htmlFor="skill-cat-filter-select" className="scf-label">Category</label>
@@ -405,9 +488,7 @@ export function SkillsEditor() {
                 ? 'No skills in this category (with the current filter).'
                 : filter === 'unused'
                   ? 'No unused skills — every skill is referenced somewhere.'
-                  : filter === 'missing-translation'
-                    ? 'No skills are missing a translation in the secondary language.'
-                    : 'No skills yet — add your first below.'}
+                  : 'No skills yet — add your first below.'}
             </div>
           )}
           {displayItems.map((s) => {
@@ -426,10 +507,12 @@ export function SkillsEditor() {
             )
           })}
           <AddButton label="Add skill" onClick={add} />
+          </>
+          )}
         </>
       ) : (
         <>
-          <p className="registry-note rcv-hint">Drag a skill onto another category header to recategorize it. Click a skill to edit it. Skills with no category are grouped under "Uncategorized".</p>
+          <p className="registry-note rcv-hint">Drag a skill onto a category — a quick-drop panel appears on the right so you needn't scroll. The × in a header clears that category from all its skills; click a skill to edit it. Skills with no category are grouped under "Uncategorized".</p>
           <AutoCategorizePanel />
           <RegistryCategoryView
             items={allItems.map((s) => ({
@@ -440,6 +523,10 @@ export function SkillsEditor() {
             onOpen={setEditingId}
             onRecategorize={(id, cat) => updateItem('skills', id, { category: cat })}
             onRemove={(id) => updateItem('skills', id, { category: null })}
+            onClearCategory={(ids) => {
+              const res = clearSkillCategories(data, ids)
+              if (res.cleared > 0) replaceData(res.store)
+            }}
           />
           <AddButton label="Add skill" onClick={add} />
         </>
@@ -539,6 +626,12 @@ export function RolesEditor() {
   // Keep the item being edited present past the live filter (see SkillsEditor).
   const displayItems = useStableExpanded('roles', items)
 
+  const missingItems = useMemo(
+    () => sortedItems.filter((r) => isMissingTranslation(r.name, primaryLocale, secondaryLocale)),
+    [sortedItems, primaryLocale, secondaryLocale],
+  )
+  const batchRows = useFrozenMissing(filter === 'missing-translation', missingItems, sortedItems)
+
   const add = () => {
     const r: Role = {
       id: newId(), resume_id: data.resume!.id, name: {}, years_of_experience: 0,
@@ -566,7 +659,17 @@ export function RolesEditor() {
         </button>
       </div>
 
-      {view === 'list' ? (
+      {view === 'list' && filter === 'missing-translation' ? (
+        <>
+          <FilterBar filter={filter} onChange={setFilter} counts={counts} />
+          {batchRows.length === 0 ? (
+            <div className="registry-empty">No roles are missing a translation in the secondary language.</div>
+          ) : (
+            <MissingTranslationList label="Role name" items={batchRows}
+              onSet={(id, name) => updateItem('roles', id, { name })} />
+          )}
+        </>
+      ) : view === 'list' ? (
         <>
           <FilterBar filter={filter} onChange={setFilter} counts={counts} />
           <SortBar section="roles" count={sortedItems.length} />
@@ -578,9 +681,7 @@ export function RolesEditor() {
             <div className="registry-empty">
               {filter === 'unused'
                 ? 'No unused roles — every role is referenced somewhere.'
-                : filter === 'missing-translation'
-                  ? 'No roles are missing a translation in the secondary language.'
-                  : 'No roles yet — add your first below.'}
+                : 'No roles yet — add your first below.'}
             </div>
           )}
           {displayItems.map((r) => {
@@ -602,13 +703,20 @@ export function RolesEditor() {
         </>
       ) : (
         <>
-          <p className="registry-note rcv-hint">Drag a role onto another category header to recategorize it. Click a role to edit it. Set a role's category in its editor.</p>
+          <p className="registry-note rcv-hint">Drag a role onto a category — a quick-drop panel appears on the right so you needn't scroll. The × in a header clears that category from all its roles; click a role to edit it.</p>
           <RegistryCategoryView
             items={sortedItems.map((r) => ({ ...r, removable: !!(r.category && r.category.trim()) }))}
             unnamed="(unnamed role)"
             onOpen={setEditingId}
             onRecategorize={(id, cat) => updateItem('roles', id, { category: cat })}
             onRemove={(id) => updateItem('roles', id, { category: null })}
+            onClearCategory={(ids) => {
+              const set = new Set(ids)
+              replaceData({
+                ...data,
+                roles: data.roles.map((r) => (set.has(r.id) && r.category ? { ...r, category: null } : r)),
+              })
+            }}
           />
           <AddButton label="Add role" onClick={add} />
         </>
@@ -661,6 +769,12 @@ export function IndustriesEditor() {
   // Keep the item being edited present past the live filter (see SkillsEditor).
   const displayItems = useStableExpanded('industries', items)
 
+  const missingItems = useMemo(
+    () => sortedItems.filter((i) => isMissingTranslation(i.name, primaryLocale, secondaryLocale)),
+    [sortedItems, primaryLocale, secondaryLocale],
+  )
+  const batchRows = useFrozenMissing(filter === 'missing-translation', missingItems, sortedItems)
+
   const add = () => {
     const ind: Industry = {
       id: newId(), resume_id: data.resume!.id, name: {},
@@ -681,15 +795,22 @@ export function IndustriesEditor() {
         "Finance" once here, then merge duplicates ("finance", "Banking") into it.
       </p>
       <FilterBar filter={filter} onChange={setFilter} counts={counts} />
+      {filter === 'missing-translation' ? (
+        batchRows.length === 0 ? (
+          <div className="registry-empty">No industries are missing a translation in the secondary language.</div>
+        ) : (
+          <MissingTranslationList label="Industry name" items={batchRows}
+            onSet={(id, name) => updateItem('industries', id, { name })} />
+        )
+      ) : (
+      <>
       <SortBar section="industries" count={sortedItems.length} />
       <SortableList section="industries" ids={displayItems.map((x) => x.id)}>
       {displayItems.length === 0 && (
         <div className="registry-empty">
           {filter === 'unused'
             ? 'No unused industries — every industry is referenced by a project.'
-            : filter === 'missing-translation'
-              ? 'No industries are missing a translation in the secondary language.'
-              : 'No industries yet — they appear as you set a project industry, or add one below.'}
+            : 'No industries yet — they appear as you set a project industry, or add one below.'}
         </div>
       )}
       {displayItems.map((ind) => {
@@ -713,6 +834,8 @@ export function IndustriesEditor() {
       })}
       </SortableList>
       <AddButton label="Add industry" onClick={add} />
+      </>
+      )}
       <RegistryStyles />
     </div>
   )
@@ -1353,13 +1476,44 @@ function RegistryStyles() {
       .rcv { display: flex; flex-direction: column; gap: 14px; margin-bottom: 12px; }
       .rcv-group { border: 1px solid var(--line); border-radius: var(--r-md); overflow: hidden; }
       .rcv-head {
-        display: flex; align-items: center; gap: 8px; padding: 9px 13px;
+        display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 8px 7px 13px;
         font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
         color: var(--ink-soft); background: var(--paper-sunken);
         border-bottom: 1px solid var(--line); transition: background .12s, color .12s, box-shadow .12s;
       }
+      .rcv-head-label { display: inline-flex; align-items: center; gap: 8px; }
       .rcv-head.is-over { background: var(--accent-wash); color: var(--accent); box-shadow: inset 0 0 0 2px var(--accent); }
+      .rcv-head-x {
+        display: grid; place-items: center; width: 24px; height: 24px; flex-shrink: 0;
+        color: var(--ink-faint); border-radius: var(--r-sm);
+        transition: color .12s, background .12s;
+      }
+      .rcv-head-x:hover { color: #b91c1c; background: #fef2f2; }
       .rcv-count { font-weight: 700; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+      /* Floating quick-select drop panel (shown while dragging a chip) */
+      .rcv-drop-panel {
+        position: fixed; top: 50%; right: 18px; transform: translateY(-50%);
+        z-index: 60; width: 232px; max-height: 78vh; display: flex; flex-direction: column;
+        background: var(--paper); border: 1px solid var(--line); border-radius: var(--r-md);
+        box-shadow: var(--shadow-lg); overflow: hidden; animation: fadeIn .12s ease;
+      }
+      .rcv-drop-title {
+        padding: 9px 12px; font-size: 11px; font-weight: 700; letter-spacing: .05em;
+        text-transform: uppercase; color: var(--ink-faint);
+        background: var(--paper-sunken); border-bottom: 1px solid var(--line);
+      }
+      .rcv-drop-list { overflow-y: auto; overscroll-behavior: contain; padding: 6px; display: flex; flex-direction: column; gap: 4px; }
+      .rcv-drop-row {
+        display: flex; align-items: center; justify-content: space-between; gap: 8px;
+        padding: 9px 11px; border-radius: var(--r-sm); font-size: 13px; font-weight: 600;
+        color: var(--ink-soft); background: var(--paper-raised); border: 1px dashed var(--line);
+        transition: color .12s, background .12s, border-color .12s, box-shadow .12s;
+      }
+      .rcv-drop-row.is-over {
+        color: var(--accent); background: var(--accent-wash);
+        border-color: var(--accent); border-style: solid; box-shadow: 0 0 0 2px var(--accent) inset;
+      }
+      .rcv-drop-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .rcv-chips { display: flex; flex-wrap: wrap; gap: 7px; padding: 12px 13px; min-height: 20px; }
       .rcv-chip-wrap { display: inline-flex; align-items: stretch; }
       .rcv-chip-wrap.is-dragging { opacity: .6; box-shadow: var(--shadow-md); z-index: 20; position: relative; border-radius: 16px; }
