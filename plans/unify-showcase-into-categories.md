@@ -77,11 +77,11 @@ Rationale: entities with id links follow the existing registry pattern
 |---|---|---|---|
 | D1 | Link mechanism | `Skill.category_id` (entity id) | Registry pattern; rename = one edit |
 | D2 | View-section key | keep `technology_categories`, virtual | Saved views + templates survive untouched |
-| D3 | Migration conflict | existing `Skill.category` string wins; blanks filled from showcase membership (first group wins) | Registry is the recently-curated source |
-| D4 ⚠ | Curation signal | skills that were in ANY old showcase group get `is_highlighted: true` | Preserves the old curation for 'summary' detail; slightly overloads the existing flag |
-| D5 | Detail semantics | `full` = all categorized skills grouped; `summary` = highlighted skills only; **Uncategorized group never exports**; empty categories never export (but DO show in the editor) | Mirrors skill-matrix semantics |
+| D3 | Migration conflict | **showcase wins** (owner decision 2026-07-04): a skill in a showcase group takes THAT group's category, overwriting any differing registry string; skills not showcased keep their registry category | Preserves export fidelity — the rendered CV must not change groups. Registry strings were often auto-inferred |
+| D4 | Curation signal | skills that were in ANY old showcase group get `is_highlighted: true` | LOAD-BEARING for D5: highlight = showcase membership going forward |
+| D5 | Showcase scope | the showcase section **always exports highlighted skills only**, grouped by category (owner decision 2026-07-04). `full`/`summary` remains a FORMAT toggle exactly as today (tags vs one-line) — NOT a scope switch. **Uncategorized group never exports**; empty categories never export (but DO show in the editor) | Old exports reproduce exactly (D4 highlights the previously-showcased set). "Showcase a skill" = highlight it; its category picks the group. The Skill Matrix stays the everything-export |
 | D6 ⚠ | Category order | `SkillCategory.sort_order`, seeded from old showcase order (categories not in the showcase appended alphabetically). By-category headers get ↑/↓ buttons; the drop panel + filter stay alphabetical | Trimmable to "alphabetical everywhere" if scope must shrink — but that loses curated CV ordering |
-| D7 | Per-group data | `CategorySkill.proficiency` + per-group skill order are dropped; skills within a group render highlighted-first, then alphabetical | Imports carried proficiency=0 anyway |
+| D7 | Per-group data | `CategorySkill.proficiency` + per-group skill order are dropped; skills within a group render alphabetically (all exported skills are highlighted per D5, so no further tiering) | Imports carried proficiency=0 anyway |
 | D8 | Multi-membership | dropped; migration assigns the FIRST group containing the skill | Count these in a migration note if trivial, else silent |
 | D9 | Localization | category names join `completeness.ts` (actively-used = ≥1 linked skill) and get a rename affordance (DualField in a `TranslationPopover`) on the By-category header | NOT added to the missing-translation batch list (trimmed scope) |
 | D10 | AI exchange format | `resumestudio-ai/v1` UNCHANGED (external contract, template is public); importer maps its `technology_categories` into categories + links | |
@@ -127,8 +127,11 @@ Spec (idempotent shape-sniffer — must tolerate unstamped data):
 2. Rewrite skills: `category` string → `category_id` (matching entity);
    delete the `category` and `default_category` keys from every skill object
    (rebuild objects, don't `delete` in place — stay pure).
-3. Fill blanks from showcase membership (D3) and set `is_highlighted: true`
-   for every skill referenced by any `CategorySkill` (D4).
+3. Apply showcase membership (D3 — showcase WINS): for every skill referenced
+   by any `CategorySkill`, set `category_id` to that group's entity (first
+   group wins on multi-membership, D8) — overwriting a differing registry
+   value — and set `is_highlighted: true` (D4). Skills not showcased keep the
+   `category_id` derived from their registry string in step 2.
 4. Rewrite every view's `excluded_item_ids`: old `TechnologyCategory.id` →
    the corresponding new `SkillCategory.id` (name-mapped). Unmatched ids pass
    through untouched (harmless).
@@ -168,16 +171,16 @@ Note: the v5 `internSkillCategories` migration still runs first for ≤v4 data
 export interface ShowcaseGroup {
   id: string                 // SkillCategory.id — the excludable item id
   name: LocalizedString
-  skills: Skill[]            // highlighted-first, then alphabetical (resolved name)
+  skills: Skill[]            // alphabetical by resolved name (all are highlighted, D5)
 }
-export function showcaseGroups(
-  store: ResumeStore, view: ResumeView, detail: 'full' | 'summary',
-): ShowcaseGroup[]
+export function showcaseGroups(store: ResumeStore, view: ResumeView): ShowcaseGroup[]
 ```
+- **Scope is fixed (D5): highlighted, non-disabled skills only** — detail does
+  NOT change which skills appear (it stays the format toggle handled by the
+  section descriptor / adapters, as today).
 - Groups = `skill_categories` by `sort_order`; skip ids in
-  `view.excluded_item_ids`; skip groups that end up with zero skills;
-  never emit an Uncategorized group (D5).
-- `summary` → highlighted skills only; `full` → all linked skills.
+  `view.excluded_item_ids`; skip groups that end up with zero (highlighted)
+  skills; never emit an Uncategorized group (D5).
 - Exclude individual skills? No — skill-level exclusion stays a Skill-Matrix
   concern; keep group-level only (excluded ids are category ids).
 
@@ -194,7 +197,7 @@ deep links `/r/:id/technology_categories` land on the Skill Registry.
   (existing views expect it on).
 - `applyView`: already skips `virtual` sections — verify, no change expected.
 - `buildViewHtml` (~line 355): add a branch beside `promoted_projects`:
-  `s.key === 'technology_categories' ? showcaseGroups(store, view, detail)` —
+  `s.key === 'technology_categories' ? showcaseGroups(store, view)` —
   feeding the SAME `SECTION_CATALOG.technology_categories` descriptor.
 
 **`src/lib/sectionCatalog.ts`** — the `technology_categories` descriptor now
@@ -318,8 +321,10 @@ Update / add (see `tests/` conventions in CLAUDE.md §10):
   returns same reference.
 - `tests/skillCategorize.test.ts` — rewrite for id-based helpers; add
   rename/move/delete/assign-by-text cases; auto-categorize creates entities.
-- NEW `tests/showcase.test.ts` — `showcaseGroups`: detail semantics,
-  exclusions, empty-group and Uncategorized omission, ordering (D5–D7).
+- NEW `tests/showcase.test.ts` — `showcaseGroups`: highlighted-only scope,
+  exclusions, empty-group and Uncategorized omission, ordering (D5–D7); a
+  migration→render round-trip pinning that a pre-migration showcase and the
+  post-migration render produce the same groups/skills (the fidelity gate).
 - `tests/viewFilter.test.ts` / `exporter.test.ts` / `viewText.test.ts` — the
   showcase section renders from categories on all three paths; excluded
   category disappears; XSS-escaping test for a hostile category name in the
