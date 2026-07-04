@@ -1,94 +1,174 @@
 /**
- * PURE: auto-categorize the Skill registry from the Quadim library, offline.
+ * PURE: the Skill registry's category system — shared `SkillCategory`
+ * entities (`ResumeStore.skill_categories`) linked from each skill via
+ * `Skill.category_id`. This is the SINGLE grouping concept for skills: the
+ * list card subtitle, the By-category view, the category filter, and the
+ * Skills Showcase export section (`lib/showcase.ts`, highlighted skills only)
+ * all group on it.
  *
- * Fills each skill's free-text `category` (the consultant's own grouping) from
- * the library's fine-grained `domain` field — "Software Development", "Cloud &
- * Infrastructure", "AI & Machine Learning", … — so a large registry gets a
- * sensible grouping without any external service. Two tiers, both deterministic:
- *
- *   Tier 1 — exact name match: a skill whose name (in ANY locale value) matches
- *            a library entry case-insensitively adopts that entry's domain.
- *   Tier 2 — graph vote: a still-uncategorized skill that IS a node in the
- *            `relatesTo` graph inherits the majority domain of its neighbours
- *            (ties broken alphabetically). This catches library skills that
- *            have no domain of their own but sit among ones that do.
- *
- * Conservative by design: only BLANK categories are filled — a category the
- * consultant set by hand is never overwritten (pass `overwrite: true` to opt
- * in). Skills entirely absent from the library (niche / Norwegian names that
- * aren't even graph nodes) stay uncategorized — that's Tier 3 (fuzzy/desc)
- * territory, deliberately out of scope here.
- *
- * Returns a NEW store (input untouched) plus the per-skill assignments so the
- * UI can preview "N skills will be categorized" before applying.
+ * Also home to offline auto-categorization from the Quadim skill library: a
+ * one-click action that fills each skill's category from the library's
+ * fine-grained `domain` via a layered matcher (`lib/skillMatch.ts`) — exact →
+ * token → fuzzy → semantic → a relations-graph vote. Only `exact` is
+ * high-confidence; the rest are surfaced as "inferred — worth a review"
+ * (`INFERRED_TIERS`). Never overwrites a manually-set category unless asked.
  */
 
-import type { ResumeStore, Skill } from '../types'
+import type { ResumeStore, Skill, SkillCategory, LocalizedString } from '../types'
+import { resolve } from './locales'
 import type { SkillDomains, SkillRelations } from './skillTaxonomy'
 import {
   buildDomainIndex, matchSkillDomain, type DomainMatch, type MatchTier, type SkillDomainModel,
 } from './skillMatch'
+import { v4 as uuidv4 } from 'uuid'
 
-/** Label for a skill with no explicit `category` (the list card + filter). */
+/** Label for a skill with no linked category (the list card + filter). */
 export const UNCATEGORIZED_LABEL = 'Uncategorized'
 
+/** A representative lowercased key for a localized name (first non-empty value). */
+function nameKey(ls: LocalizedString | undefined): string {
+  if (!ls) return ''
+  for (const v of Object.values(ls)) {
+    const t = (v ?? '').trim()
+    if (t) return t.toLowerCase()
+  }
+  return ''
+}
+
 /**
- * The category a skill groups under across the list card, the By-category view
- * and the category filter: its explicit `category`, or "Uncategorized" when
- * empty. Category is the single grouping concept — there is no `skill_type`.
+ * All known skill categories, sorted by their curated `sort_order` — the
+ * source for the datalist, the filter, the By-category headers, and the
+ * Skills Showcase export order. A category persists (even with zero skills)
+ * until explicitly deleted. PURE.
+ */
+export function skillCategoryList(store: Pick<ResumeStore, 'skill_categories'>): SkillCategory[] {
+  return [...(store.skill_categories ?? [])].sort((a, b) => a.sort_order - b.sort_order)
+}
+
+/**
+ * Build an id → resolved-name lookup for a locale, once per render — pass the
+ * result to `effectiveSkillCategory` so N skills don't each rebuild the index.
+ */
+export function categoryNameIndex(categories: SkillCategory[], locale: string): Map<string, string> {
+  return new Map(categories.map((c) => [c.id, resolve(c.name, locale) || UNCATEGORIZED_LABEL]))
+}
+
+/**
+ * The category a skill groups under: its linked category's resolved name, or
+ * "Uncategorized" when unlinked or the link is stale. `namesById` should come
+ * from `categoryNameIndex` (built once per render, not per skill).
  */
 export function effectiveSkillCategory(
-  skill: Pick<Skill, 'category'>,
+  skill: Pick<Skill, 'category_id'>,
+  namesById: Map<string, string>,
 ): string {
-  return skill.category?.trim() || UNCATEGORIZED_LABEL
+  if (!skill.category_id) return UNCATEGORIZED_LABEL
+  return namesById.get(skill.category_id) ?? UNCATEGORIZED_LABEL
 }
 
 /**
- * All known skill categories: the persisted `skill_categories` list (which keeps
- * emptied categories alive) unioned with the categories skills actually use,
- * sorted. This is the source for the datalist, the filter and the By-category
- * headers — so a category shows until it's explicitly deleted. PURE.
+ * Set a skill's category. `categoryIdOrName` may be an existing category's id
+ * (drag-and-drop in the By-category view already knows the id) OR free text
+ * (the category autocomplete field, which only knows display names) — an
+ * exact id match wins; otherwise the text is matched case-insensitively
+ * against known category names, and a brand-new category is created (under
+ * `locale`) if nothing matches. `null` clears the skill's category. New
+ * categories are remembered in `skill_categories` so they survive even if
+ * this skill is later recategorized. PURE (new store).
  */
-export function skillCategoryList(store: Pick<ResumeStore, 'skills' | 'skill_categories'>): string[] {
-  const set = new Set<string>()
-  for (const c of store.skill_categories ?? []) { const t = c.trim(); if (t) set.add(t) }
-  for (const s of store.skills) { const c = (s.category ?? '').trim(); if (c) set.add(c) }
-  return [...set].sort((a, b) => a.localeCompare(b))
+export function assignSkillCategory(
+  store: ResumeStore,
+  skillId: string,
+  categoryIdOrName: string | null,
+  locale = 'en',
+): ResumeStore {
+  const raw = categoryIdOrName?.trim() || null
+  const categories = store.skill_categories ?? []
+  let category_id: string | null = null
+  let nextCategories = categories
+
+  if (raw) {
+    const byId = categories.find((c) => c.id === raw)
+    if (byId) {
+      category_id = byId.id
+    } else {
+      const key = raw.toLowerCase()
+      const existing = categories.find((c) => nameKey(c.name) === key)
+      if (existing) {
+        category_id = existing.id
+      } else {
+        const id = uuidv4()
+        nextCategories = [...categories, {
+          id, resume_id: store.resume?.id ?? '', name: { [locale]: raw }, sort_order: categories.length,
+        }]
+        category_id = id
+      }
+    }
+  }
+
+  const skills = store.skills.map((s) => (s.id === skillId ? { ...s, category_id } : s))
+  return { ...store, skills, skill_categories: nextCategories }
 }
 
 /**
- * Set a skill's category and remember a new non-empty category in
- * `skill_categories` so it survives its last skill leaving. PURE (new store).
+ * Clear the linked category on the given skills (set `category_id` to null)
+ * so they fall back to Uncategorized and become eligible for auto-
+ * categorization again. Skills without a category are left untouched (and
+ * the category entity itself is untouched — it persists until explicitly
+ * deleted). Pure — returns a new store, or the same store when nothing changed.
  */
-export function assignSkillCategory(store: ResumeStore, id: string, category: string | null): ResumeStore {
-  const cat = category?.trim() || null
-  const skills = store.skills.map((s) => (s.id === id ? { ...s, category: cat } : s))
-  let skill_categories = store.skill_categories ?? []
-  if (cat && !skill_categories.some((c) => c.trim() === cat)) skill_categories = [...skill_categories, cat]
-  return { ...store, skills, skill_categories }
+export function clearSkillCategories(
+  store: ResumeStore,
+  ids: Iterable<string>,
+): { store: ResumeStore; cleared: number } {
+  const idSet = new Set(ids)
+  let cleared = 0
+  const skills = store.skills.map((s) => {
+    if (!idSet.has(s.id) || !s.category_id) return s
+    cleared++
+    return { ...s, category_id: null }
+  })
+  if (cleared === 0) return { store, cleared: 0 }
+  return { store: { ...store, skills }, cleared }
 }
 
 /**
- * DELETE a category outright: forget it from `skill_categories` and clear it off
- * every skill that had it (they become Uncategorized). This is the ONLY path
- * that removes a category — removing/recategorizing the last skill does not.
- * PURE (new store).
+ * DELETE a category outright: remove the entity and clear it off every skill
+ * that had it (they become Uncategorized). This is the ONLY path that removes
+ * a category — clearing/recategorizing every skill in it does not. PURE.
  */
-export function deleteSkillCategory(store: ResumeStore, category: string): ResumeStore {
-  const target = category.trim().toLowerCase()
-  if (!target) return store
-  const skill_categories = (store.skill_categories ?? []).filter((c) => c.trim().toLowerCase() !== target)
-  const skills = store.skills.map((s) =>
-    (s.category ?? '').trim().toLowerCase() === target ? { ...s, category: null } : s,
-  )
+export function deleteSkillCategory(store: ResumeStore, categoryId: string): ResumeStore {
+  const categories = store.skill_categories ?? []
+  if (!categories.some((c) => c.id === categoryId)) return store
+  const skill_categories = categories.filter((c) => c.id !== categoryId)
+  const skills = store.skills.map((s) => (s.category_id === categoryId ? { ...s, category_id: null } : s))
   return { ...store, skill_categories, skills }
 }
+
+/** Rename a category's localized name (e.g. via the By-category header's translation popover). PURE. */
+export function renameSkillCategory(store: ResumeStore, categoryId: string, name: LocalizedString): ResumeStore {
+  const skill_categories = (store.skill_categories ?? []).map((c) => (c.id === categoryId ? { ...c, name } : c))
+  return { ...store, skill_categories }
+}
+
+/** Reorder a category up/down in the curated display/export order. PURE. */
+export function moveSkillCategory(store: ResumeStore, categoryId: string, dir: 'up' | 'down'): ResumeStore {
+  const sorted = skillCategoryList(store)
+  const idx = sorted.findIndex((c) => c.id === categoryId)
+  const swap = dir === 'up' ? idx - 1 : idx + 1
+  if (idx === -1 || swap < 0 || swap >= sorted.length) return store
+  ;[sorted[idx], sorted[swap]] = [sorted[swap], sorted[idx]]
+  const skill_categories = sorted.map((c, i) => ({ ...c, sort_order: i }))
+  return { ...store, skill_categories }
+}
+
+// ─── Auto-categorization from the Quadim library ─────────────────────────────
 
 export interface CategoryAssignment {
   skill_id: string
   /** Resolved skill name (best available locale) — for the preview UI. */
   name: string
-  /** The category (library domain) that will be assigned. */
+  /** The category (library domain) that will be assigned — a display string. */
   category: string
   /** Which match tier produced it (exact/token high-confidence; the rest inferred). */
   tier: MatchTier
@@ -170,8 +250,9 @@ function neighbourDomain(
 /**
  * Auto-categorize a store's skills from the Quadim library. The layered matcher
  * (`lib/skillMatch`) tries exact → token → fuzzy → semantic on each skill name,
- * with a graph-vote fallback for domainless library nodes. Only BLANK categories
- * are filled unless `overwrite`. Pure — the input store is not mutated.
+ * with a graph-vote fallback for domainless library nodes. Matched domain names
+ * are found-or-created as category entities (case-insensitive). Only BLANK
+ * categories are filled unless `overwrite`. Pure — the input store is not mutated.
  */
 export function autoCategorizeSkills(
   store: ResumeStore,
@@ -188,10 +269,24 @@ export function autoCategorizeSkills(
   }
   const matchOpts = { model: opts.model, fuzzy: opts.fuzzy, semantic: opts.semantic }
 
+  let categories = store.skill_categories ?? []
+  const idByNameKey = new Map(categories.map((c) => [nameKey(c.name), c.id]))
+  const ensureCategoryId = (domainName: string): string => {
+    const key = domainName.trim().toLowerCase()
+    const existing = idByNameKey.get(key)
+    if (existing) return existing
+    const id = uuidv4()
+    categories = [...categories, {
+      id, resume_id: store.resume?.id ?? '', name: { en: domainName }, sort_order: categories.length,
+    }]
+    idByNameKey.set(key, id)
+    return id
+  }
+
   const assignments: CategoryAssignment[] = []
   const skills = store.skills.map((s) => {
     // Respect a manually-set category unless the caller opts into overwrite.
-    if (s.category && s.category.trim() && !opts.overwrite) return s
+    if (s.category_id && !opts.overwrite) return s
 
     // Best match across the skill's locale values (prefer the higher tier).
     let match: DomainMatch | null = null
@@ -206,40 +301,15 @@ export function autoCategorizeSkills(
       const d = neighbourDomain(s.name, relMap, domainMap)
       if (d) match = { domain: d, tier: 'graph' }
     }
-    if (!match || match.domain === s.category) return s
+    if (!match) return s
+
+    const category_id = ensureCategoryId(match.domain)
+    if (category_id === s.category_id) return s
 
     assignments.push({ skill_id: s.id, name: anyName(s.name), category: match.domain, tier: match.tier })
-    return { ...s, category: match.domain }
+    return { ...s, category_id }
   })
 
   if (assignments.length === 0) return { store, changed: 0, assignments: [] }
-
-  // Remember the assigned (library) categories so they persist if emptied later.
-  let skill_categories = store.skill_categories ?? []
-  const known = new Set(skill_categories.map((c) => c.trim()))
-  for (const a of assignments) {
-    if (!known.has(a.category)) { known.add(a.category); skill_categories = [...skill_categories, a.category] }
-  }
-  return { store: { ...store, skills, skill_categories }, changed: assignments.length, assignments }
-}
-
-/**
- * Clear the explicit `category` on the given skills (set it to null) so they
- * fall back to their type default and become eligible for auto-categorization
- * again. Skills without an explicit category are left untouched. Pure — returns
- * a new store, or the same store when nothing changed.
- */
-export function clearSkillCategories(
-  store: ResumeStore,
-  ids: Iterable<string>,
-): { store: ResumeStore; cleared: number } {
-  const idSet = new Set(ids)
-  let cleared = 0
-  const skills = store.skills.map((s) => {
-    if (!idSet.has(s.id) || !(s.category && s.category.trim())) return s
-    cleared++
-    return { ...s, category: null }
-  })
-  if (cleared === 0) return { store, cleared: 0 }
-  return { store: { ...store, skills }, cleared }
+  return { store: { ...store, skills, skill_categories: categories }, changed: assignments.length, assignments }
 }

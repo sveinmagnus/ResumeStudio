@@ -18,9 +18,9 @@
 import type {
   ResumeStore, LocalizedString, Resume,
   KeyQualification, KeyCompetency, Recommendation, Project, WorkExperience,
-  Education, Course, Certification, SpokenLanguage, TechnologyCategory,
+  Education, Course, Certification, SpokenLanguage,
   Position, Presentation, HonorAward, Publication, Reference, Skill, Role,
-  Industry, KeyPoint, ProjectRole, ProjectIndustry, ProjectSkill, CategorySkill, ResumeView,
+  Industry, SkillCategory, KeyPoint, ProjectRole, ProjectIndustry, ProjectSkill, ResumeView,
 } from '../types'
 
 export function wipeLocale(store: ResumeStore, locale: string): ResumeStore {
@@ -35,11 +35,7 @@ export function wipeLocale(store: ResumeStore, locale: string): ResumeStore {
   const next: ResumeStore = {
     shape_version: store.shape_version,
     resume: store.resume ? wipeResume(store.resume, locale, ls) : null,
-    skills: store.skills.map((s): Skill => ({
-      ...s,
-      name: ls(s.name),
-      default_category: s.default_category ? ls(s.default_category) : null,
-    })),
+    skills: store.skills.map((s): Skill => ({ ...s, name: ls(s.name) })),
     roles: store.roles.map((r): Role => ({ ...r, name: ls(r.name) })),
     industries: store.industries.map((i): Industry => ({ ...i, name: ls(i.name) })),
     key_qualifications: store.key_qualifications.map((kq): KeyQualification => ({
@@ -104,11 +100,7 @@ export function wipeLocale(store: ResumeStore, locale: string): ResumeStore {
       name: ls(l.name),
       level: ls(l.level),
     })),
-    technology_categories: store.technology_categories.map((tc): TechnologyCategory => ({
-      ...tc,
-      name: ls(tc.name),
-      skills: tc.skills.map((s): CategorySkill => ({ ...s, name: ls(s.name) })),
-    })),
+    skill_categories: (store.skill_categories ?? []).map((c): SkillCategory => ({ ...c, name: ls(c.name) })),
     positions: store.positions.map((p): Position => ({
       ...p,
       name: ls(p.name),

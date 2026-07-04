@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { skillMatrixRows, fmtLastUsed, fmtProficiency } from '../src/lib/skillMatrix'
 import { buildViewHtml, buildViewSections } from '../src/lib/viewFilter'
-import { emptyStore, makeProject, makeSkill, makeView } from './fixtures'
+import { emptyStore, makeProject, makeSkill, makeSkillCategory, makeView } from './fixtures'
 import type { ProjectSkill } from '../src/types'
 
 const ps = (skill_id: string, duration = 0): ProjectSkill => ({
@@ -119,11 +119,23 @@ describe('skill matrix in buildViewHtml', () => {
     expect(html).toContain('Technical')
   })
 
+  it('shows the linked skill category when no classification is set', () => {
+    const store = matrixStore()
+    store.skill_categories = [makeSkillCategory({ id: 'cat1', name: { en: 'Languages' } })]
+    store.skills[0].category_id = 'cat1' // TypeScript
+    const sections = buildViewSections().map((s) =>
+      s.key === 'skill_matrix' ? { ...s, detail: 'full' as const } : s,
+    )
+    const html = buildViewHtml(store, makeView({ sections }), 'en')
+    expect(html).toContain('<th>Category</th>')
+    expect(html).toContain('Languages')
+  })
+
   it('omits the Category column entirely when no skill has a category', () => {
     // The Category column shows only when a skill has a classification or a
-    // free-text category; clear both so it's omitted.
+    // linked category; clear both so it's omitted.
     const store = matrixStore()
-    store.skills.forEach((s) => { s.category = null; s.classification = undefined })
+    store.skills.forEach((s) => { s.category_id = null; s.classification = undefined })
     const sections = buildViewSections().map((s) =>
       s.key === 'skill_matrix' ? { ...s, detail: 'full' as const } : s,
     )

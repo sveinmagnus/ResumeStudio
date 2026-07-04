@@ -1,7 +1,7 @@
 import type {
   ResumeStore, ResumeView, Project, WorkExperience, Education,
   Course, Certification, Skill, Role, Industry, KeyQualification, SpokenLanguage,
-  TechnologyCategory, Position, Presentation, Publication, HonorAward,
+  SkillCategory, Position, Presentation, Publication, HonorAward,
   Reference, Resume, KeyCompetency, Recommendation,
 } from '../src/types'
 import { DEFAULT_VIEW_STYLE } from '../src/lib/viewStyle'
@@ -15,9 +15,9 @@ export function emptyStore(): ResumeStore {
     skills: [], roles: [], industries: [], key_qualifications: [], key_competencies: [],
     recommendations: [], projects: [],
     work_experiences: [], educations: [], courses: [], certifications: [],
-    spoken_languages: [], technology_categories: [], positions: [],
+    spoken_languages: [], positions: [],
     presentations: [], honor_awards: [], publications: [], references: [],
-    views: [],
+    views: [], skill_categories: [],
   }
 }
 
@@ -161,11 +161,21 @@ export function makeSkill(over: Partial<Skill> = {}): Skill {
     id: id(),
     resume_id: 'resume-1',
     name: { en: 'TypeScript' },
-    default_category: null,
+    category_id: null,
     total_duration_in_years: 0,
     proficiency: 0,
     is_highlighted: false,
     created_at: '2024-01-01T00:00:00Z',
+    ...over,
+  }
+}
+
+export function makeSkillCategory(over: Partial<SkillCategory> = {}): SkillCategory {
+  return {
+    id: id(),
+    resume_id: 'resume-1',
+    name: { en: 'Frontend' },
+    sort_order: 0,
     ...over,
   }
 }
@@ -250,18 +260,6 @@ export function makeSpokenLanguage(over: Partial<SpokenLanguage> = {}): SpokenLa
     resume_id: 'resume-1',
     name: { en: 'English' },
     level: { en: 'Native' },
-    sort_order: 0,
-    disabled: false,
-    ...over,
-  }
-}
-
-export function makeTechCategory(over: Partial<TechnologyCategory> = {}): TechnologyCategory {
-  return {
-    id: id(),
-    resume_id: 'resume-1',
-    name: { en: 'Languages' },
-    skills: [],
     sort_order: 0,
     disabled: false,
     ...over,

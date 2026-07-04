@@ -174,6 +174,32 @@ describe('<ResumeViewsEditor>', () => {
     expect(useStore.getState().data.views[0].export_locale).toBe('en')
   })
 
+  it('lists Skills Showcase categories (not raw skills) as excludable items', async () => {
+    const { makeSkill, makeSkillCategory } = await import('../fixtures')
+    const store = emptyStore()
+    store.skill_categories = [makeSkillCategory({ id: 'cat1', name: { en: 'Languages' } })]
+    store.skills = [makeSkill({ id: 'sk1', name: { en: 'TypeScript' }, category_id: 'cat1', is_highlighted: true })]
+    useStore.setState({
+      data: store, hasData: true, primaryLocale: 'en', secondaryLocale: null,
+      activeSection: 'views', expandedItemId: null, mutationCount: 0,
+    })
+    render(<ResumeViewsEditor />)
+    await userEvent.click(screen.getByRole('button', { name: /new view/i }))
+
+    // Scope to the Skills Showcase section row (its title is unique).
+    const showcaseTitle = screen.getByText('Skills Showcase')
+    const sectionRow = showcaseTitle.closest('.rv-sec-row')!
+    // The category name appears as an excludable item; the raw skill name does not.
+    expect(sectionRow.textContent).toContain('Languages')
+    expect(sectionRow.textContent).not.toContain('TypeScript')
+
+    const checkbox = Array.from(sectionRow.querySelectorAll('label.rv-item-row'))
+      .find((el) => el.textContent?.includes('Languages'))!
+      .querySelector('input[type="checkbox"]')!
+    await userEvent.click(checkbox)
+    expect(useStore.getState().data.views[0].excluded_item_ids).toContain('cat1')
+  })
+
   it('edits the introduction text', async () => {
     seed()
     render(<ResumeViewsEditor />)

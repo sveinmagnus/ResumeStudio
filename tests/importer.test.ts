@@ -168,6 +168,72 @@ describe('importFromCVPartner — skills registry', () => {
   })
 })
 
+// ─── technologies[] → skill categories (roadmap: showcase unification) ───────
+
+describe('importFromCVPartner — skill categories from technologies[]', () => {
+  it('creates one skill category per technology group and links + highlights its skills', () => {
+    const store = importFromCVPartner({
+      technologies: [
+        {
+          _id: 'cat1',
+          category: { en: 'Languages' },
+          technology_skills: [
+            { _id: 'sk1', tags: { en: 'TypeScript' } },
+            { _id: 'sk2', tags: { en: 'Go' } },
+          ],
+        },
+      ],
+    })
+    expect(store.skill_categories).toHaveLength(1)
+    const cat = store.skill_categories![0]
+    expect(cat.name.en).toBe('Languages')
+    const catSkills = store.skills.filter((s) => s.category_id === cat.id)
+    expect(catSkills.map((s) => s.name.en).sort()).toEqual(['Go', 'TypeScript'])
+    for (const s of catSkills) expect(s.is_highlighted).toBe(true)
+  })
+
+  it('leaves project-only skills uncategorized and un-highlighted', () => {
+    const store = importFromCVPartner({
+      technologies: [],
+      project_experiences: [{
+        _id: 'p1', customer: { en: 'X' },
+        project_experience_skills: [{ _id: 'ps1', tags: { en: 'Kubernetes' } }],
+      }],
+    })
+    const k8s = store.skills.find((s) => s.name.en === 'Kubernetes')!
+    expect(k8s.category_id).toBeNull()
+    expect(k8s.is_highlighted).toBe(false)
+  })
+
+  it('skips a disabled technology group entirely — no category, skills not highlighted', () => {
+    // A disabled group never reached the old Showcase export either
+    // (applyView filters disabled items), so this preserves that invisibility.
+    const store = importFromCVPartner({
+      technologies: [
+        {
+          _id: 'cat1', category: { en: 'Legacy' }, disabled: true,
+          technology_skills: [{ _id: 'sk1', tags: { en: 'COBOL' } }],
+        },
+      ],
+    })
+    expect(store.skill_categories).toHaveLength(0)
+    const cobol = store.skills.find((s) => s.name.en === 'COBOL')!
+    expect(cobol.category_id).toBeNull()
+    expect(cobol.is_highlighted).toBe(false)
+  })
+
+  it('preserves the technologies[] order as category sort_order', () => {
+    const store = importFromCVPartner({
+      technologies: [
+        { _id: 'c1', category: { en: 'First' }, technology_skills: [] },
+        { _id: 'c2', category: { en: 'Second' }, technology_skills: [] },
+      ],
+    })
+    const sorted = [...store.skill_categories!].sort((a, b) => a.sort_order - b.sort_order)
+    expect(sorted.map((c) => c.name.en)).toEqual(['First', 'Second'])
+  })
+})
+
 describe('importFromCVPartner — roles registry', () => {
   it('builds the registry from cv_roles', () => {
     const store = importFromCVPartner({

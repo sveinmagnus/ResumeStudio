@@ -17,7 +17,10 @@
  *  - defaultEmploymentRoleLinks: backfill WorkExperience.role_id as null.
  */
 
-import type { ResumeStore, LocalizedString, ProjectRole, ProjectIndustry, KeyCompetency, KeyPoint, WorkExperience, Industry, Project } from '../types'
+import type {
+  ResumeStore, LocalizedString, ProjectRole, ProjectIndustry, KeyCompetency, KeyPoint,
+  WorkExperience, Industry, Project, Skill, SkillCategory,
+} from '../types'
 import { v4 as uuidv4 } from 'uuid'
 
 // ─── Shape versioning ─────────────────────────────────────────────────────────
@@ -38,6 +41,16 @@ import { v4 as uuidv4 } from 'uuid'
  *  - 5          — `skill_categories[]` seeded from the categories skills already
  *                 use, so a category persists after its last skill leaves (it's
  *                 removed only by an explicit "Delete category").
+ *  - 6          — the Skills Showcase (`technology_categories` +
+ *                 `Skill.category`) is unified into the skill-category system:
+ *                 `skill_categories` becomes localized `SkillCategory`
+ *                 ENTITIES (was `string[]`), every skill's free-text
+ *                 `category` becomes a `category_id` link, and legacy
+ *                 showcase membership is folded in (a skill in a showcase
+ *                 group takes THAT group's category + is marked
+ *                 highlighted — see `unifyShowcaseCategories`). The Skills
+ *                 Showcase view section is now a virtual projection of
+ *                 highlighted, categorized skills.
  *
  * Bump this ONLY for structural changes that need a migration (moving or
  * reshaping data). Additive optional fields are handled by render-boundary
@@ -46,7 +59,7 @@ import { v4 as uuidv4 } from 'uuid'
  * (like `industries`) is NOT a tolerable "optional field" — it must be
  * guaranteed present, hence the bump + migration.
  */
-export const CURRENT_SHAPE_VERSION = 5
+export const CURRENT_SHAPE_VERSION = 6
 
 /**
  * True when `store` was written by a build with a NEWER shape than this one
@@ -74,10 +87,12 @@ export function isNewerShape(store: ResumeStore): boolean {
 export function migrateStore(store: ResumeStore): ResumeStore {
   const stored = store.shape_version ?? 1
   if (stored >= CURRENT_SHAPE_VERSION) return store
-  const migrated = internSkillCategories(
-    internProjectIndustries(
-      defaultEmploymentRoleLinks(
-        extractKeyPointsToCompetencies(foldRoleDescriptions(store)),
+  const migrated = unifyShowcaseCategories(
+    internSkillCategories(
+      internProjectIndustries(
+        defaultEmploymentRoleLinks(
+          extractKeyPointsToCompetencies(foldRoleDescriptions(store)),
+        ),
       ),
     ),
   )
@@ -314,17 +329,165 @@ export function internProjectIndustries(store: ResumeStore): ResumeStore {
 // same store reference is returned.
 
 export function internSkillCategories(store: ResumeStore): ResumeStore {
-  const existing = Array.isArray(store.skill_categories) ? store.skill_categories : []
+  // The current type says `skill_categories` is entities, but at THIS point in
+  // the chain (pre-v5 data) it's really absent or a plain string[] — read
+  // defensively and skip anything already object-shaped (v6+ entities passed
+  // straight through unifyShowcaseCategories's idempotence guard below).
+  const existingRaw: unknown[] = Array.isArray(store.skill_categories) ? store.skill_categories : []
   const set = new Set<string>()
-  for (const c of existing) { const t = c.trim(); if (t) set.add(t) }
+  for (const c of existingRaw) { if (typeof c === 'string') { const t = c.trim(); if (t) set.add(t) } }
   const before = set.size
   for (const s of store.skills) {
-    const c = (s.category ?? '').trim()
+    const c = ((s as unknown as { category?: string }).category ?? '').trim()
     if (c) set.add(c)
   }
   // No change and the field already exists → keep the same reference.
   if (Array.isArray(store.skill_categories) && set.size === before) return store
-  return { ...store, skill_categories: [...set].sort((a, b) => a.localeCompare(b)) }
+  return {
+    ...store,
+    skill_categories: [...set].sort((a, b) => a.localeCompare(b)) as unknown as SkillCategory[],
+  }
+}
+
+// ─── Unify the Skills Showcase into skill categories (shape v6) ──────────────
+//
+// Pre-v6 data has TWO parallel skill groupings: `Skill.category` (a free
+// string, made durable by v5's `skill_categories: string[]`) and a separate
+// `technology_categories[]` structure (`TechnologyCategory` + `CategorySkill`)
+// — the old "Skills Showcase" editor's own curated membership, where a skill
+// could sit in several groups. v6 unifies them into ONE concept:
+//
+//   1. `skill_categories` becomes localized `SkillCategory` ENTITIES — a v5
+//      `string[]` is upgraded in place (wrapped as `{ en: name }`); a legacy
+//      showcase group is found-or-created by name, adopting its (richer,
+//      localized) name.
+//   2. Every skill's `category` string becomes a `category_id` link to the
+//      matching entity.
+//   3. Legacy showcase membership WINS over a differing registry string
+//      (export fidelity: the rendered showcase must look the same after this
+//      migration runs) and marks the skill `is_highlighted` — the Showcase
+//      view section now renders exactly the highlighted+categorized set, so
+//      this preserves "which skills used to show in the Showcase". A skill in
+//      several legacy groups takes the FIRST one (deterministic: showcase
+//      array order). A DISABLED legacy category was invisible in every export
+//      before, so it's skipped entirely (no entity, no highlighting).
+//   4. Every view's `excluded_item_ids` is rewritten from old
+//      TechnologyCategory ids to the new SkillCategory ids so per-view
+//      excluded showcase groups stay excluded.
+//   5. The legacy `technology_categories` key is dropped from the store.
+//
+// Idempotent: data that's already all-entities, with no legacy
+// `technology_categories` and no skill carrying a `category` string, is
+// returned untouched (same reference).
+
+interface LegacyCategorySkill {
+  id: string
+  skill_id: string
+  name?: LocalizedString
+}
+
+interface LegacyTechnologyCategory {
+  id: string
+  resume_id?: string
+  name: LocalizedString
+  skills?: LegacyCategorySkill[]
+  sort_order?: number
+  disabled?: boolean
+}
+
+/** A Skill as it may exist pre-v6: free-text category, no category_id yet. */
+type PreV6Skill = Skill & { category?: string | null; default_category?: unknown }
+/** A store as it may exist pre-v6: still carries the legacy showcase array
+ *  (not a `ResumeStore` field anymore, hence the loose local type). */
+type PreV6Store = ResumeStore & { technology_categories?: LegacyTechnologyCategory[] }
+
+export function unifyShowcaseCategories(store: ResumeStore): ResumeStore {
+  const raw = store as PreV6Store
+  const legacyTechCats = Array.isArray(raw.technology_categories) ? raw.technology_categories : null
+  const rawCats: unknown[] = Array.isArray(store.skill_categories) ? store.skill_categories : []
+  const alreadyEntities = rawCats.length === 0 || typeof rawCats[0] === 'object'
+  const anySkillHasCategoryString = store.skills.some(
+    (s) => typeof (s as PreV6Skill).category === 'string' && !!(s as PreV6Skill).category,
+  )
+  if (alreadyEntities && !legacyTechCats && !anySkillHasCategoryString) return store
+
+  const resumeId = store.resume?.id ?? ''
+  const entities: SkillCategory[] = []
+  const byNameKey = new Map<string, string>() // normalized name → entity id
+
+  /** Find-or-create an entity by its localized name's representative key. */
+  const ensureEntity = (name: LocalizedString): string => {
+    const key = localizedKey(name)
+    if (key) {
+      const existing = byNameKey.get(key)
+      if (existing) return existing
+    }
+    const id = uuidv4()
+    if (key) byNameKey.set(key, id)
+    entities.push({ id, resume_id: resumeId, name: { ...name }, sort_order: entities.length })
+    return id
+  }
+
+  // 1. Legacy showcase groups FIRST — preserves the curated showcase order.
+  // Disabled groups were invisible in every export before; skip entirely.
+  const oldCatIdToNewId = new Map<string, string>()
+  const skillToCategoryFromShowcase = new Map<string, string>()
+  const sortedTechCats = [...(legacyTechCats ?? [])].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+  for (const tc of sortedTechCats) {
+    if (tc.disabled) continue
+    const newId = ensureEntity(tc.name)
+    oldCatIdToNewId.set(tc.id, newId)
+    for (const cs of tc.skills ?? []) {
+      if (!skillToCategoryFromShowcase.has(cs.skill_id)) skillToCategoryFromShowcase.set(cs.skill_id, newId)
+    }
+  }
+
+  // 2. Any category from skill_categories not already created by a showcase
+  // group, appended after (a v5 string[] is already alphabetical).
+  for (const c of rawCats) {
+    if (typeof c === 'string') {
+      const t = c.trim()
+      if (t) ensureEntity({ en: t })
+    } else if (c && typeof c === 'object' && 'id' in (c as Record<string, unknown>)) {
+      const entity = c as SkillCategory
+      const key = localizedKey(entity.name)
+      if (key && byNameKey.has(key)) continue // dedup against a showcase group of the same name
+      if (key) byNameKey.set(key, entity.id)
+      entities.push({ ...entity })
+    }
+  }
+
+  // 3. Rewrite skills: showcase membership wins; else the registry string
+  // becomes a category_id; strip the legacy string fields either way.
+  const skills = store.skills.map((raw): Skill => {
+    const s = raw as PreV6Skill
+    const fromShowcase = skillToCategoryFromShowcase.get(s.id)
+    let category_id = s.category_id ?? null
+    if (fromShowcase) {
+      category_id = fromShowcase
+    } else if (typeof s.category === 'string' && s.category.trim()) {
+      category_id = ensureEntity({ en: s.category.trim() })
+    }
+    const is_highlighted = s.is_highlighted || skillToCategoryFromShowcase.has(s.id)
+    const clean = { ...s } as Record<string, unknown>
+    delete clean.category
+    delete clean.default_category
+    clean.category_id = category_id
+    clean.is_highlighted = is_highlighted
+    return clean as unknown as Skill
+  })
+
+  // 4. Rewrite every view's excluded_item_ids: old TechnologyCategory id →
+  // the matching new SkillCategory id. Unmatched ids pass through untouched.
+  const views = store.views.map((v) => ({
+    ...v,
+    excluded_item_ids: v.excluded_item_ids.map((id) => oldCatIdToNewId.get(id) ?? id),
+  }))
+
+  // 5. Drop the legacy technology_categories key from the store.
+  const next = { ...store, skills, views, skill_categories: entities } as Record<string, unknown>
+  delete next.technology_categories
+  return next as unknown as ResumeStore
 }
 
 export function extractKeyPointsToCompetencies(store: ResumeStore): ResumeStore {

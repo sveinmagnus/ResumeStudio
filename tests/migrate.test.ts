@@ -2,10 +2,10 @@ import { describe, it, expect } from 'vitest'
 import {
   appendLocalized, buildRoleParagraph, foldRoleDescriptions,
   extractKeyPointsToCompetencies, defaultEmploymentRoleLinks, internProjectIndustries,
-  internSkillCategories, migrateStore, isNewerShape, CURRENT_SHAPE_VERSION,
+  internSkillCategories, unifyShowcaseCategories, migrateStore, isNewerShape, CURRENT_SHAPE_VERSION,
 } from '../src/lib/migrate'
-import { emptyStore, makeProject, makeWork, makeSkill } from './fixtures'
-import type { ProjectRole, KeyQualification, KeyPoint, WorkExperience, Project, LocalizedString } from '../src/types'
+import { emptyStore, makeProject, makeWork, makeSkill, makeSkillCategory, makeView } from './fixtures'
+import type { ProjectRole, KeyQualification, KeyPoint, WorkExperience, Project, LocalizedString, Skill, ResumeStore } from '../src/types'
 
 /** A project carrying the pre-v4 single `industry`/`industry_id` pair. */
 function legacyProject(id: string, industry: LocalizedString, industryId: string | null = null): Project {
@@ -308,6 +308,142 @@ describe('internSkillCategories()', () => {
     const out = internSkillCategories(store)
     expect(out.skill_categories).toEqual(['Cloud', 'Frontend'])
     expect(internSkillCategories(out)).toBe(out) // no change → same reference
+  })
+})
+
+// ─── unifyShowcaseCategories (shape v6 — Skills Showcase unification) ────────
+
+/** A pre-v6 skill carrying the legacy free-text `category` field. */
+function legacySkill(over: Partial<Skill> & { category?: string | null } = {}): Skill {
+  return { ...makeSkill(over), category: over.category } as unknown as Skill
+}
+
+/** Attach a legacy `technology_categories[]` array onto a v4/v5 store, as a
+ *  backup import or pre-migration save would carry it. */
+function withLegacyTechCats(store: ResumeStore, techCats: unknown[]): ResumeStore {
+  return { ...store, technology_categories: techCats } as unknown as ResumeStore
+}
+
+describe('unifyShowcaseCategories()', () => {
+  it('creates entities from legacy technology_categories and links + highlights their skills', () => {
+    const store = emptyStore()
+    store.skill_categories = []
+    store.skills.push(legacySkill({ id: 's1', name: { en: 'TypeScript' } }))
+    store.skills.push(legacySkill({ id: 's2', name: { en: 'Go' } }))
+    const withTechCats = withLegacyTechCats(store, [{
+      id: 'tc1', name: { en: 'Languages' }, sort_order: 0,
+      skills: [{ id: 'cs1', skill_id: 's1' }, { id: 'cs2', skill_id: 's2' }],
+    }])
+
+    const out = unifyShowcaseCategories(withTechCats)
+    expect(out.skill_categories).toHaveLength(1)
+    const cat = out.skill_categories![0]
+    expect(cat.name.en).toBe('Languages')
+    for (const s of out.skills) {
+      expect(s.category_id).toBe(cat.id)
+      expect(s.is_highlighted).toBe(true)
+    }
+    // Legacy key is gone.
+    expect((out as unknown as Record<string, unknown>).technology_categories).toBeUndefined()
+  })
+
+  it('showcase membership wins over a differing registry category string', () => {
+    const store = emptyStore()
+    store.skills.push(legacySkill({ id: 's1', name: { en: 'TypeScript' }, category: 'Frontend' }))
+    const withTechCats = withLegacyTechCats(store, [{
+      id: 'tc1', name: { en: 'Languages' }, sort_order: 0,
+      skills: [{ id: 'cs1', skill_id: 's1' }],
+    }])
+    const out = unifyShowcaseCategories(withTechCats)
+    expect(out.skill_categories!.map((c) => c.name.en)).toEqual(['Languages'])
+    expect(out.skills[0].category_id).toBe(out.skill_categories![0].id)
+  })
+
+  it('a registry category string (no showcase membership) becomes its own entity', () => {
+    const store = emptyStore()
+    store.skills.push(legacySkill({ id: 's1', name: { en: 'TypeScript' }, category: 'Frontend' }))
+    const out = unifyShowcaseCategories(store)
+    expect(out.skill_categories!.map((c) => c.name.en)).toEqual(['Frontend'])
+    expect(out.skills[0].category_id).toBe(out.skill_categories![0].id)
+    expect(out.skills[0].is_highlighted).toBe(false) // not from a showcase group
+    expect((out.skills[0] as unknown as Record<string, unknown>).category).toBeUndefined()
+  })
+
+  it('skips a disabled legacy category entirely — no entity, no highlighting', () => {
+    const store = emptyStore()
+    store.skills.push(legacySkill({ id: 's1', name: { en: 'COBOL' } }))
+    const withTechCats = withLegacyTechCats(store, [{
+      id: 'tc1', name: { en: 'Legacy' }, sort_order: 0, disabled: true,
+      skills: [{ id: 'cs1', skill_id: 's1' }],
+    }])
+    const out = unifyShowcaseCategories(withTechCats)
+    expect(out.skill_categories).toHaveLength(0)
+    expect(out.skills[0].category_id).toBeNull()
+    expect(out.skills[0].is_highlighted).toBe(false)
+  })
+
+  it('rewrites view excluded_item_ids from the old TechnologyCategory id to the new SkillCategory id', () => {
+    const store = emptyStore()
+    store.views.push(makeView({ excluded_item_ids: ['tc1', 'some-other-id'] }))
+    const withTechCats = withLegacyTechCats(store, [
+      { id: 'tc1', name: { en: 'Languages' }, sort_order: 0, skills: [] },
+    ])
+    const out = unifyShowcaseCategories(withTechCats)
+    const newId = out.skill_categories![0].id
+    expect(out.views[0].excluded_item_ids).toEqual([newId, 'some-other-id'])
+  })
+
+  it('preserves legacy showcase group order ahead of any leftover skill_categories', () => {
+    const store = emptyStore()
+    store.skill_categories = ['Zzz-leftover'] as unknown as ResumeStore['skill_categories']
+    const withTechCats = withLegacyTechCats(store, [
+      { id: 'tc1', name: { en: 'First' }, sort_order: 0, skills: [] },
+      { id: 'tc2', name: { en: 'Second' }, sort_order: 1, skills: [] },
+    ])
+    const out = unifyShowcaseCategories(withTechCats)
+    expect(out.skill_categories!.map((c) => c.name.en)).toEqual(['First', 'Second', 'Zzz-leftover'])
+  })
+
+  it('is idempotent — running twice does not duplicate categories or re-flip highlighting', () => {
+    const store = emptyStore()
+    store.skills.push(legacySkill({ id: 's1', name: { en: 'TypeScript' } }))
+    const withTechCats = withLegacyTechCats(store, [{
+      id: 'tc1', name: { en: 'Languages' }, sort_order: 0,
+      skills: [{ id: 'cs1', skill_id: 's1' }],
+    }])
+    const once = unifyShowcaseCategories(withTechCats)
+    const twice = unifyShowcaseCategories(once)
+    expect(twice.skill_categories).toHaveLength(1)
+    expect(twice.skills[0].is_highlighted).toBe(true)
+    expect(twice).toBe(once) // true no-op on already-v6 data
+  })
+
+  it('returns the same reference for already-current (all-entity, no legacy) data', () => {
+    const store = emptyStore()
+    store.skill_categories = [makeSkillCategory({ name: { en: 'Cloud' } })]
+    store.skills.push(makeSkill({ category_id: store.skill_categories[0].id }))
+    expect(unifyShowcaseCategories(store)).toBe(store)
+  })
+
+  it('upgrades a bare v5 string[] skill_categories into entities with no legacy tech cats', () => {
+    const store = emptyStore()
+    store.skill_categories = ['Cloud', 'Frontend'] as unknown as ResumeStore['skill_categories']
+    const out = unifyShowcaseCategories(store)
+    expect(out.skill_categories!.map((c) => c.name.en).sort()).toEqual(['Cloud', 'Frontend'])
+  })
+
+  it('is reached end-to-end by migrateStore on legacy pre-v6 data', () => {
+    const store = emptyStore()
+    store.shape_version = 4
+    store.skills.push(legacySkill({ id: 's1', name: { en: 'TypeScript' } }))
+    const withTechCats = withLegacyTechCats(store, [{
+      id: 'tc1', name: { en: 'Languages' }, sort_order: 0,
+      skills: [{ id: 'cs1', skill_id: 's1' }],
+    }])
+    const out = migrateStore(withTechCats)
+    expect(out.shape_version).toBe(CURRENT_SHAPE_VERSION)
+    expect(out.skill_categories!.some((c) => c.name.en === 'Languages')).toBe(true)
+    expect(out.skills[0].is_highlighted).toBe(true)
   })
 })
 

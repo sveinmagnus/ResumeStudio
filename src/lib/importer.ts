@@ -2,8 +2,8 @@ import { v4 as uuidv4 } from 'uuid'
 import type {
   ResumeStore, Resume, Skill, Role, KeyQualification, KeyCompetency, Project,
   WorkExperience, Education, Course, Certification, SpokenLanguage,
-  TechnologyCategory, Position, Presentation, HonorAward,
-  LocalizedString, YearMonth, ProjectRole, ProjectSkill, CategorySkill,
+  SkillCategory, Position, Presentation, HonorAward,
+  LocalizedString, YearMonth, ProjectRole, ProjectSkill,
 } from '../types'
 import { appendLocalized, buildRoleParagraph } from './migrate'
 
@@ -159,12 +159,28 @@ export function importFromCVPartner(raw: Record<string, unknown>): ResumeStore {
     updated_at: now,
   }
 
-  // ── Skills — build global registry from technology_skills ─────────────────
+  // ── Skills — build global registry from technology_skills, grouped into
+  // skill categories (CVpartner's `technologies[]` groups double as both the
+  // registry source AND the old "Skills Showcase" membership, so every skill
+  // here becomes both categorized AND highlighted — see roadmap: showcase
+  // unification). ──────────────────────────────────────────────────────────
   const skillIdMap = new Map<string, string>() // cvpartner _id → our uuid
   const skills: Skill[] = []
+  const skill_categories: SkillCategory[] = []
 
   const techCats = (raw.technologies as Array<Record<string, unknown>>) || []
-  for (const cat of techCats) {
+  techCats.forEach((cat, catIndex) => {
+    // A category CVpartner marked disabled was invisible in every export
+    // before (applyView filters disabled items) — don't showcase its skills.
+    const catDisabled = (cat.disabled as boolean) || false
+    let catId: string | null = null
+    if (!catDisabled) {
+      catId = uuidv4()
+      skill_categories.push({
+        id: catId, resume_id: resumeId, name: localized(cat.category),
+        sort_order: (cat.order as number) ?? catIndex,
+      })
+    }
     const techSkills = (cat.technology_skills as CVProjectSkill[]) || []
     for (const ts of techSkills) {
       const ourId = uuidv4()
@@ -173,14 +189,14 @@ export function importFromCVPartner(raw: Record<string, unknown>): ResumeStore {
         id: ourId,
         resume_id: resumeId,
         name: localized(ts.tags),
-        default_category: localized(cat.category) || null,
+        category_id: catId,
         total_duration_in_years: ts.total_duration_in_years || 0,
         proficiency: ts.proficiency || 0,
-        is_highlighted: false,
+        is_highlighted: !catDisabled,
         created_at: now,
       })
     }
-  }
+  })
 
   // Also collect any project skills not already in the registry
   const existingSkillNames = new Set(skills.map(s => Object.values(s.name)[0]?.toLowerCase()))
@@ -199,7 +215,7 @@ export function importFromCVPartner(raw: Record<string, unknown>): ResumeStore {
           id: ourId,
           resume_id: resumeId,
           name,
-          default_category: null,
+          category_id: null,
           total_duration_in_years: ps.total_duration_in_years || 0,
           proficiency: ps.proficiency || 0,
           is_highlighted: false,
@@ -462,32 +478,6 @@ export function importFromCVPartner(raw: Record<string, unknown>): ResumeStore {
     })
   }
 
-  // ── Technology categories ─────────────────────────────────────────────────
-  const technology_categories: TechnologyCategory[] = []
-  for (const cat of techCats) {
-    const techSkills = (cat.technology_skills as CVProjectSkill[]) || []
-    const catSkills: CategorySkill[] = techSkills.map((ts, i) => {
-      const globalSkillId = skillIdMap.get(ts._id) || uuidv4()
-      const globalSkill = skills.find(s => s.id === globalSkillId)
-      return {
-        id: uuidv4(),
-        skill_id: globalSkillId,
-        name: localized(ts.tags),
-        proficiency: ts.proficiency || 0,
-        total_duration_in_years: ts.total_duration_in_years || globalSkill?.total_duration_in_years || 0,
-        sort_order: ts.order || i,
-      }
-    })
-    technology_categories.push({
-      id: uuidv4(),
-      resume_id: resumeId,
-      name: localized(cat.category),
-      skills: catSkills,
-      sort_order: (cat.order as number) || 0,
-      disabled: (cat.disabled as boolean) || false,
-    })
-  }
-
   // ── Positions ────────────────────────────────────────────────────────────
   const positions: Position[] = []
   const rawPos = (raw.positions as Array<Record<string, unknown>>) || []
@@ -558,7 +548,7 @@ export function importFromCVPartner(raw: Record<string, unknown>): ResumeStore {
     courses,
     certifications,
     spoken_languages,
-    technology_categories,
+    skill_categories,
     positions,
     presentations,
     honor_awards,

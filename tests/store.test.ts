@@ -19,9 +19,9 @@ const reset = () => {
       skills: [], roles: [], key_qualifications: [], key_competencies: [],
       recommendations: [], projects: [],
       work_experiences: [], educations: [], courses: [], certifications: [],
-      spoken_languages: [], technology_categories: [], positions: [],
+      spoken_languages: [], positions: [],
       presentations: [], honor_awards: [], publications: [], references: [],
-      views: [],
+      views: [], skill_categories: [],
     },
     activeSection: 'overview',
     primaryLocale: 'en',
@@ -514,7 +514,7 @@ describe('loadStore() & startFresh()', () => {
       roles: [], key_qualifications: [], key_competencies: [], recommendations: [],
       projects: [], work_experiences: [],
       educations: [], courses: [], certifications: [], spoken_languages: [],
-      technology_categories: [], positions: [], presentations: [],
+      skill_categories: [], positions: [], presentations: [],
       honor_awards: [], publications: [], references: [], views: [],
     }
     useStore.getState().loadStore(replacement)

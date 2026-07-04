@@ -122,15 +122,17 @@ export function computeCompleteness(
     track(c.name, 'certifications', c.id, label, 'Name')
   })
 
-  // Registry names (skills / roles / industries) that are ACTIVELY USED
-  // elsewhere in the resume. An unused registry entry never reaches an export,
-  // so leaving it untranslated shouldn't drag the score down — but a skill that
-  // appears on a project and lacks a translation absolutely should. (Fixes the
-  // "100 untranslated skills but 100% complete" report.) Membership sets are
-  // built in one pass so this stays cheap for large registries.
+  // Registry names (skills / roles / industries / skill categories) that are
+  // ACTIVELY USED elsewhere in the resume. An unused registry entry never
+  // reaches an export, so leaving it untranslated shouldn't drag the score
+  // down — but a skill that appears on a project and lacks a translation
+  // absolutely should. (Fixes the "100 untranslated skills but 100% complete"
+  // report.) Membership sets are built in one pass so this stays cheap for
+  // large registries.
   const usedSkillIds = new Set<string>()
   const usedRoleIds = new Set<string>()
   const usedIndustryIds = new Set<string>()
+  const usedCategoryIds = new Set<string>()
   for (const p of data.projects) {
     // Disabled projects never reach an export, so a registry entry referenced
     // only by one shouldn't count as "used" (and drag the score down for a
@@ -140,8 +142,10 @@ export function computeCompleteness(
     for (const pr of p.roles) usedRoleIds.add(pr.role_id)
     for (const pi of p.industries) usedIndustryIds.add(pi.industry_id)
   }
-  for (const c of data.technology_categories) if (!c.disabled) for (const cs of c.skills) usedSkillIds.add(cs.skill_id)
   for (const w of data.work_experiences) if (!w.disabled && w.role_id) usedRoleIds.add(w.role_id)
+  // A category counts as "used" once it has ≥1 linked skill — mirroring the
+  // Skills Showcase export, which only ever shows categories with members.
+  for (const s of data.skills) if (s.category_id) usedCategoryIds.add(s.category_id)
 
   data.skills.forEach((s) => {
     if (!usedSkillIds.has(s.id)) return
@@ -154,6 +158,10 @@ export function computeCompleteness(
   data.industries.forEach((i) => {
     if (i.disabled || !usedIndustryIds.has(i.id)) return
     track(i.name, 'industries', i.id, resolve(i.name, LABEL_LOCALE) || 'Industry', 'Industry name')
+  })
+  ;(data.skill_categories ?? []).forEach((c) => {
+    if (!usedCategoryIds.has(c.id)) return
+    track(c.name, 'skills', c.id, resolve(c.name, LABEL_LOCALE) || 'Category', 'Skill category name')
   })
 
   const result: Record<string, LocaleCompleteness> = {}
@@ -273,7 +281,6 @@ function itemHasContentInLocale(
     case 'courses':               return has('name') || has('program') || has('description')
     case 'certifications':        return has('name') || has('organiser') || has('description')
     case 'spoken_languages':      return has('name') || has('level')
-    case 'technology_categories': return has('name')
     case 'positions':             return has('name') || has('organisation') || has('description')
     case 'presentations':         return has('title') || has('event') || has('description')
     case 'publications':          return has('title') || has('publisher') || has('abstract')

@@ -101,6 +101,22 @@ export function searchStore(
     }
   }
 
+  // Skill categories aren't a SectionKey (see lib/skillCategorize.ts), so the
+  // SECTIONS walk below never reaches them — search them explicitly, routing
+  // hits to the Skill Registry (where they're managed, in the By-category view).
+  ;(store.skill_categories ?? []).forEach((cat) => {
+    const strings: string[] = []
+    collectStrings(cat, 'skill_categories', strings)
+    const match = strings.find((s) => s.toLowerCase().includes(q))
+    if (!match) return
+    const title = getItemTitle('technology_categories', cat, locale) || 'Skill category'
+    scored.push({
+      hit: { section: 'skills', sectionLabel: 'Skill Registry', id: '', title, snippet: ellipsize(match, q) },
+      titleMatch: title.toLowerCase().includes(q),
+      order: -0.5,
+    })
+  })
+
   SECTIONS.forEach((sec, order) => {
     if (!sec.storeKey || SKIP_SECTIONS.has(sec.key) || sec.virtual) return
     const items = store[sec.storeKey] as unknown as Array<Record<string, unknown>>

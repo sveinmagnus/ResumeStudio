@@ -68,6 +68,10 @@ export function skillMatrixRows(
 ): SkillMatrixRow[] {
   const excluded = new Set(view.excluded_item_ids)
   const nowYm: YearMonth = { year: new Date().getFullYear(), month: new Date().getMonth() + 1 }
+  // Category name for the matrix's Category column — '' (omit) when the
+  // skill's classification and linked category are both unset, distinct from
+  // effectiveSkillCategory's "Uncategorized" (a UI label, not export data).
+  const categoryNames = new Map((store.skill_categories ?? []).map((c) => [c.id, resolve(c.name, locale)]))
 
   // Per-skill usage from enabled projects: declared durations + date ranges.
   const usage = new Map<string, {
@@ -105,7 +109,7 @@ export function skillMatrixRows(
       return {
         id: s.id,
         name: resolve(s.name, locale),
-        category: s.classification?.trim() || s.category?.trim() || '',
+        category: s.classification?.trim() || (s.category_id ? categoryNames.get(s.category_id) ?? '' : ''),
         years,
         proficiency: Math.max(0, Math.min(5, Math.round(s.proficiency || 0))),
         lastUsed: u?.ongoing ? null : u?.lastUsed ?? null,

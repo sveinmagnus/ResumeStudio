@@ -8,10 +8,11 @@
  * + the cyan --secondary-ink-text convention); everything else runs.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { render } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { axe, toHaveNoViolations } from 'jest-axe'
 import { ProjectsEditor } from '../../src/components/editor/ProjectsEditor'
-import { SkillsEditor, RolesEditor, IndustriesEditor, ReferencesEditor, TechCategoriesEditor } from '../../src/components/editor/RegistryEditors'
+import { SkillsEditor, RolesEditor, IndustriesEditor, ReferencesEditor } from '../../src/components/editor/RegistryEditors'
 import { WorkEditor, PublicationsEditor } from '../../src/components/editor/SimpleEditors'
 import { HeaderEditor } from '../../src/components/editor/HeaderEditor'
 import { Overview } from '../../src/components/editor/Overview'
@@ -19,7 +20,7 @@ import { useStore } from '../../src/store/useStore'
 import { resetStore } from '../helpers/store-reset'
 import {
   emptyStore, makeResume, makeProject, makeSkill, makeRole, makeIndustry, makeReference,
-  makeCertification, makeWork, makePublication, makeTechCategory,
+  makeCertification, makeWork, makePublication, makeSkillCategory,
 } from '../fixtures'
 import type { ResumeStore } from '../../src/types'
 
@@ -104,12 +105,16 @@ describe('accessibility (axe) — editor surfaces', () => {
     expect(await axe(container)).toHaveNoViolations()
   })
 
-  it('TechCategoriesEditor has no violations', async () => {
+  it('SkillsEditor — By-category view (the Skills Showcase surface) has no violations', async () => {
     seed(
-      { technology_categories: [makeTechCategory({ id: 'tc1', name: { en: 'Languages' } })] },
-      { activeSection: 'technology_categories', expandedItemId: 'tc1' },
+      {
+        skill_categories: [makeSkillCategory({ id: 'cat1', name: { en: 'Languages' } })],
+        skills: [makeSkill({ id: 's1', name: { en: 'TypeScript' }, category_id: 'cat1', is_highlighted: true })],
+      },
+      { activeSection: 'skills' },
     )
-    const { container } = render(<TechCategoriesEditor />)
+    const { container } = render(<SkillsEditor />)
+    await userEvent.click(screen.getByRole('button', { name: /by category/i }))
     expect(await axe(container)).toHaveNoViolations()
   })
 

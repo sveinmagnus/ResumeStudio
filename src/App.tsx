@@ -16,7 +16,7 @@ import {
   PositionsEditor, PresentationsEditor, PublicationsEditor, AwardsEditor,
   SpokenLanguagesEditor, RecommendationsEditor,
 } from './components/editor/SimpleEditors'
-import { SkillsEditor, RolesEditor, IndustriesEditor, ReferencesEditor, TechCategoriesEditor } from './components/editor/RegistryEditors'
+import { SkillsEditor, RolesEditor, IndustriesEditor, ReferencesEditor } from './components/editor/RegistryEditors'
 import { ResumeViewsEditor } from './components/editor/ResumeViewsEditor'
 import { ConflictModal } from './components/ConflictModal'
 import { NewerDataNotice } from './components/NewerDataNotice'
@@ -232,14 +232,17 @@ function EditorRoute({ resumeId, routeSection, routeViewId, onUnauthorized }: {
             {activeSection === 'educations'            && <EducationEditor />}
             {activeSection === 'courses'               && <CoursesEditor />}
             {activeSection === 'certifications'        && <CertificationsEditor />}
-            {activeSection === 'technology_categories' && <TechCategoriesEditor />}
             {activeSection === 'spoken_languages'      && <SpokenLanguagesEditor />}
             {activeSection === 'presentations'         && <PresentationsEditor />}
             {activeSection === 'publications'          && <PublicationsEditor />}
             {activeSection === 'honor_awards'          && <AwardsEditor />}
             {activeSection === 'recommendations'       && <RecommendationsEditor />}
             {activeSection === 'references'            && <ReferencesEditor />}
-            {activeSection === 'skills'                && <SkillsEditor />}
+            {/* The Skills Showcase (old deep link / Overview stat) is now edited
+                on the Skill Registry page — a category + highlight is all it
+                takes to appear there. See canonicalSectionKey(). */}
+            {(activeSection === 'skills' ||
+              activeSection === 'technology_categories') && <SkillsEditor />}
             {activeSection === 'roles'                 && <RolesEditor />}
             {activeSection === 'industries'            && <IndustriesEditor />}
             {activeSection === 'views'                 && <ResumeViewsEditor />}

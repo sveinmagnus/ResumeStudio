@@ -44,7 +44,9 @@ export const SECTIONS: SectionDef[] = [
   { key: 'courses', label: 'Courses', storeKey: 'courses', icon: 'BookOpen', group: 'credentials' },
   { key: 'certifications', label: 'Certifications', storeKey: 'certifications', icon: 'Award', group: 'credentials' },
 
-  { key: 'technology_categories', label: 'Skills Showcase', storeKey: 'technology_categories', icon: 'Layers', group: 'extras' },
+  // View-only: renders every highlighted skill grouped by its linked skill
+  // category (a projection of the Skill Registry — see lib/showcase.ts).
+  { key: 'technology_categories', label: 'Skills Showcase', storeKey: 'skills', icon: 'Layers', group: 'extras', hidden: true, virtual: true },
   { key: 'spoken_languages', label: 'Languages', storeKey: 'spoken_languages', icon: 'Languages', group: 'extras' },
   { key: 'presentations', label: 'Presentations', storeKey: 'presentations', icon: 'Presentation', group: 'extras' },
   { key: 'publications', label: 'Publications', storeKey: 'publications', icon: 'Newspaper', group: 'extras' },
@@ -91,5 +93,9 @@ export const GROUP_ORDER: Array<SectionDef['group']> = [
  */
 export function canonicalSectionKey(key: string): string {
   if (key === 'key_qualifications' || key === 'key_competencies') return 'profile_competencies'
+  // The Skills Showcase is now edited on the Skill Registry page (a category +
+  // highlight is all it takes to appear there) — old deep links and the
+  // Overview stat pill land there.
+  if (key === 'technology_categories') return 'skills'
   return key
 }

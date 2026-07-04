@@ -31,6 +31,7 @@ import { resolve } from './locales'
 import { SECTION_CATALOG, type AnyItem as CatalogItem, type CatalogCtx, type ItemView } from './sectionCatalog'
 import { skillMatrixRows, fmtLastUsed, fmtProficiency, type SkillMatrixRow } from './skillMatrix'
 import { applyView, isExportableSection, defaultViewDetail, promotedProjectItems } from './viewFilter'
+import { showcaseGroups } from './showcase'
 import { parseRichBlocks, type RichRun } from './richText'
 import { deriveTokens, resolveSectionStyle, withDefaults, resolveFontDocx, type ResolvedSectionStyle, type StyleTokens } from './viewStyle'
 import { withHeaderDefaults, withFooterDefaults, buildHeaderLines, buildCopyrightLine } from './viewHeader'
@@ -360,12 +361,14 @@ export async function exportDocx(store: ResumeStore, view: ResumeView, locale: s
       children.push(skillMatrixTable(rows, !resolved.hide_dates, tokens))
       continue
     }
-    // Virtual promoted_projects derives from the starred projects; everything
-    // else reads its filtered store array. The label stays "Promoted Projects"
-    // but it renders through the project renderer.
+    // Virtual promoted_projects derives from the starred projects; virtual
+    // technology_categories (Skills Showcase) derives its groups from the
+    // skill-category system; everything else reads its filtered store array.
     const items = def.key === 'promoted_projects'
       ? promotedProjectItems(store, view)
-      : (filtered[def.storeKey] as unknown[])
+      : def.key === 'technology_categories'
+        ? showcaseGroups(store, view, locale)
+        : (filtered[def.storeKey] as unknown[])
     if (!items.length) continue
     const resolved = resolveSectionStyle(viewStyle, def.sectionStyle)
     const ctx: ExportCtx = {

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { wipeLocale } from '../src/lib/wipeLocale'
 import {
   emptyStore, makeProject, makeWork, makeEducation, makeKQ, makeRole,
-  makeSkill, makeTechCategory, makePosition, makePresentation,
+  makeSkill, makeSkillCategory, makePosition, makePresentation,
   makePublication, makeAward, makeReference, makeSpokenLanguage, makeView,
 } from './fixtures'
 
@@ -69,10 +69,7 @@ describe('wipeLocale', () => {
       })],
       work_experiences: [makeWork({ long_description: { en: 'l', no: 'L' } })],
       educations: [makeEducation({ description: { en: 'd', no: 'D' } })],
-      technology_categories: [makeTechCategory({
-        name: { en: 'Cat', no: 'Kat' },
-        skills: [{ id: 'cs', skill_id: '', name: { en: 'X', no: 'Y' }, proficiency: 0, total_duration_in_years: 0, sort_order: 0 }],
-      })],
+      skill_categories: [makeSkillCategory({ name: { en: 'Cat', no: 'Kat' } })],
       positions: [makePosition({ description: { en: 'P', no: 'P' } })],
       presentations: [makePresentation({ description: { en: 'P', no: 'P' } })],
       publications: [makePublication({ abstract: { en: 'A', no: 'A' } })],
@@ -86,8 +83,7 @@ describe('wipeLocale', () => {
     expect(out.key_qualifications[0].key_points[0].name).toEqual({ en: 'A' })
     expect(out.work_experiences[0].long_description).toEqual({ en: 'l' })
     expect(out.educations[0].description).toEqual({ en: 'd' })
-    expect(out.technology_categories[0].name).toEqual({ en: 'Cat' })
-    expect(out.technology_categories[0].skills[0].name).toEqual({ en: 'X' })
+    expect(out.skill_categories![0].name).toEqual({ en: 'Cat' })
     expect(out.positions[0].description).toEqual({ en: 'P' })
     expect(out.presentations[0].description).toEqual({ en: 'P' })
     expect(out.publications[0].abstract).toEqual({ en: 'A' })

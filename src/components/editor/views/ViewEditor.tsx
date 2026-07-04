@@ -9,6 +9,7 @@ import {
   defaultViewDetail,
 } from '../../../lib/viewFilter'
 import { DEFAULT_VIEW_STYLE } from '../../../lib/viewStyle'
+import { skillCategoryList } from '../../../lib/skillCategorize'
 import { withHeaderDefaults, withFooterDefaults } from '../../../lib/viewHeader'
 import { VIEW_TEMPLATES, getTemplate, applyTemplate } from '../../../lib/viewTemplates'
 import { buildViewText, buildViewMarkdown } from '../../../lib/viewText'
@@ -344,10 +345,15 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
           {sections.map((vs, idx) => {
             const def = CONTENT_SECTIONS.find((s) => s.key === vs.key)
             if (!def || !def.storeKey) return null
-            const storeItems = (data[def.storeKey] as Array<{ id: string; disabled?: boolean; starred?: boolean }>)
-              .filter((it) => !it.disabled)
-              // Promoted Projects only lists the starred projects (its source set).
-              .filter((it) => vs.key !== 'promoted_projects' || it.starred)
+            // Virtual technology_categories (Skills Showcase) excludes whole
+            // CATEGORIES, not individual skills — its storeKey ('skills') would
+            // otherwise list every skill here. Promoted Projects only lists the
+            // starred projects (its source set).
+            const storeItems = vs.key === 'technology_categories'
+              ? skillCategoryList(data).map((c) => ({ id: c.id, name: c.name, disabled: false, starred: false }))
+              : (data[def.storeKey] as Array<{ id: string; disabled?: boolean; starred?: boolean }>)
+                  .filter((it) => !it.disabled)
+                  .filter((it) => vs.key !== 'promoted_projects' || it.starred)
 
             const off = vs.detail === 'off'
             const hasStyle = !!vs.style && Object.keys(vs.style).length > 0

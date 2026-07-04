@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { computeCompleteness, computeSectionCoverage } from '../src/lib/completeness'
 import {
   emptyStore, makeProject, makeWork, makeEducation, makeKQ, makeCourse, makeSkill, makeRole,
+  makeSkillCategory,
 } from './fixtures'
 
 describe('computeCompleteness()', () => {
@@ -264,6 +265,23 @@ describe('computeCompleteness() — used registry items (skills / roles)', () =>
     clearHeader(store)
     store.roles = [makeRole({ id: 'r1', name: { en: 'Architect' } })] // no Norwegian
     store.work_experiences = [makeWork({ id: 'w1', disabled: true, employer: { en: 'C', no: 'C' }, long_description: { en: 'x', no: 'x' }, role_id: 'r1' })]
+    const out = computeCompleteness(store, ['en', 'no'])
+    expect(out.no).toEqual({ percent: 100, missing: [] })
+  })
+
+  it('counts a USED skill category (≥1 linked skill) missing its translation', () => {
+    const store = emptyStore()
+    clearHeader(store)
+    store.skill_categories = [makeSkillCategory({ id: 'cat1', name: { en: 'Languages' } })] // no Norwegian
+    store.skills = [makeSkill({ id: 'sk1', name: { en: 'React', no: 'React' }, category_id: 'cat1' })]
+    const out = computeCompleteness(store, ['en', 'no'])
+    expect(out.no.missing.some((m) => m.section === 'skills' && m.itemId === 'cat1')).toBe(true)
+  })
+
+  it('ignores an UNUSED skill category (no linked skills) missing a translation', () => {
+    const store = emptyStore()
+    clearHeader(store)
+    store.skill_categories = [makeSkillCategory({ id: 'cat1', name: { en: 'Languages' } })] // no Norwegian
     const out = computeCompleteness(store, ['en', 'no'])
     expect(out.no).toEqual({ percent: 100, missing: [] })
   })

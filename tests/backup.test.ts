@@ -7,7 +7,7 @@ import {
 import {
   emptyStore, makeProject, makeWork, makeEducation, makeKQ,
   makeReference, makeSpokenLanguage, makeSkill, makeRole, makeIndustry,
-  makeView,
+  makeView, makeSkillCategory,
 } from './fixtures'
 
 describe('isBackupFormat()', () => {
@@ -129,6 +129,32 @@ describe('round-trip (exportToBackup → importFromBackup)', () => {
     store.resume = null
     const restored = importFromBackup(exportToBackup(store))
     expect(restored.resume).toBeNull()
+  })
+
+  it('preserves skill_categories entities and Skill.category_id links', () => {
+    const store = emptyStore()
+    store.skill_categories.push(makeSkillCategory({ id: 'cat1', name: { en: 'Languages', no: 'Sprak' } }))
+    store.skills.push(makeSkill({ id: 's1', name: { en: 'TypeScript' }, category_id: 'cat1', is_highlighted: true }))
+    const restored = importFromBackup(exportToBackup(store))
+    expect(restored).toEqual(store)
+  })
+
+  it('converts a legacy pre-v6 backup carrying sections.technology_categories on load', () => {
+    const store = emptyStore()
+    store.skills.push(makeSkill({ id: 's1', name: { en: 'TypeScript' } }))
+    const backup = exportToBackup(store)
+    // Simulate an older backup: no registries.skill_categories, but the old
+    // Showcase structure under sections.technology_categories.
+    delete (backup.registries as Record<string, unknown>).skill_categories
+    ;(backup.sections as unknown as Record<string, unknown>).technology_categories = [
+      { id: 'tc1', name: { en: 'Languages' }, sort_order: 0, skills: [{ id: 'cs1', skill_id: 's1' }] },
+    ]
+    const restored = importFromBackup(backup)
+    expect(restored.skill_categories).toEqual([])
+    // The legacy structure is attached untyped for migrateStore to convert.
+    expect((restored as unknown as Record<string, unknown>).technology_categories).toEqual([
+      { id: 'tc1', name: { en: 'Languages' }, sort_order: 0, skills: [{ id: 'cs1', skill_id: 's1' }] },
+    ])
   })
 })
 

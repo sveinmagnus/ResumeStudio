@@ -78,10 +78,10 @@ function lowerLookup(map: Record<string, string> | undefined): Map<string, strin
  * skill's authoritative library classification (F12 pt4). Pure — returns a new
  * store; the input is untouched.
  *
- * The registry (`skills`) is the source of truth; `ProjectSkill.name` and
- * `CategorySkill.name` are denormalized copies, so after canonicalizing a
- * registry entry we rebuild every copy that references it. Orphan project /
- * category skills (no `skill_id`) are canonicalized directly.
+ * The registry (`skills`) is the source of truth; `ProjectSkill.name` is a
+ * denormalized copy, so after canonicalizing a registry entry we rebuild
+ * every copy that references it. An orphan project skill (no `skill_id`) is
+ * canonicalized directly.
  */
 export function normalizeImportedSkills(
   store: ResumeStore,
@@ -125,10 +125,6 @@ export function normalizeImportedSkills(
     })
 
   const projects = store.projects.map((p) => ({ ...p, skills: fixCopies(p.skills) }))
-  const technology_categories = store.technology_categories.map((c) => ({
-    ...c,
-    skills: fixCopies(c.skills),
-  }))
 
-  return { store: { ...store, skills, projects, technology_categories }, changed }
+  return { store: { ...store, skills, projects }, changed }
 }

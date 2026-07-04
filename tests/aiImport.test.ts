@@ -238,9 +238,23 @@ describe('importFromAIDraft()', () => {
     }))
     const ids = new Set(store.skills.map((s) => s.id))
     for (const p of store.projects) for (const ps of p.skills) expect(ids.has(ps.skill_id)).toBe(true)
-    for (const c of store.technology_categories) for (const cs of c.skills) expect(ids.has(cs.skill_id)).toBe(true)
+    // Every skill's category_id (when set) resolves to a real skill category.
+    const catIds = new Set((store.skill_categories ?? []).map((c) => c.id))
+    for (const s of store.skills) if (s.category_id) expect(catIds.has(s.category_id)).toBe(true)
     // Go appears in both a project and a category but interns once.
     expect(store.skills.filter((s) => resolve(s.name, 'en') === 'Go')).toHaveLength(1)
+  })
+
+  it('technology_categories become skill categories; their skills are categorized + highlighted', () => {
+    const store = importFromAIDraft(draft({
+      technology_categories: [{ name: 'Languages', skills: ['Go', 'Python'] }],
+    }))
+    expect(store.skill_categories).toHaveLength(1)
+    const cat = store.skill_categories![0]
+    expect(resolve(cat.name, 'en')).toBe('Languages')
+    const catSkills = store.skills.filter((s) => s.category_id === cat.id)
+    expect(catSkills.map((s) => resolve(s.name, 'en')).sort()).toEqual(['Go', 'Python'])
+    for (const s of catSkills) expect(s.is_highlighted).toBe(true)
   })
 
   it('links a project to a work experience by matching employer name', () => {

@@ -12,9 +12,9 @@
  */
 
 import type {
-  ResumeStore, Resume, Skill, Role, Industry,
+  ResumeStore, Resume, Skill, Role, Industry, SkillCategory,
   KeyQualification, KeyCompetency, Recommendation, Project, WorkExperience,
-  Education, Course, Certification, SpokenLanguage, TechnologyCategory,
+  Education, Course, Certification, SpokenLanguage,
   Position, Presentation, HonorAward, Publication, Reference, ResumeView,
 } from '../types'
 
@@ -43,6 +43,13 @@ export interface BackupV1 {
     roles: Role[]
     /** Industry registry (A8.1). Additive — backups from older builds omit it. */
     industries?: Industry[]
+    /**
+     * Skill-category entities (shape v6, roadmap: showcase unification).
+     * Additive — backups from older builds omit it; `sections.technology_categories`
+     * (legacy, below) carries the pre-unification data instead, and
+     * `migrateStore`'s `unifyShowcaseCategories` converts it on load.
+     */
+    skill_categories?: SkillCategory[]
   }
   sections: {
     key_qualifications: KeyQualification[]
@@ -54,7 +61,15 @@ export interface BackupV1 {
     courses: Course[]
     certifications: Certification[]
     spoken_languages: SpokenLanguage[]
-    technology_categories: TechnologyCategory[]
+    /**
+     * LEGACY: the pre-unification "Skills Showcase" structure
+     * (TechnologyCategory + CategorySkill, both removed from `types/index.ts`).
+     * Never written by this build — kept optional/loosely-typed so an OLD
+     * backup still round-trips through `importFromBackup` into
+     * `migrateStore`'s `unifyShowcaseCategories`, which converts it into
+     * `registries.skill_categories` + `Skill.category_id` on load.
+     */
+    technology_categories?: unknown[]
     positions: Position[]
     presentations: Presentation[]
     honor_awards: HonorAward[]
@@ -134,6 +149,7 @@ export function exportToBackup(store: ResumeStore): BackupV1 {
       skills: store.skills,
       roles: store.roles,
       industries: store.industries,
+      skill_categories: store.skill_categories ?? [],
     },
     sections: {
       key_qualifications: store.key_qualifications,
@@ -145,7 +161,6 @@ export function exportToBackup(store: ResumeStore): BackupV1 {
       courses: store.courses,
       certifications: store.certifications,
       spoken_languages: store.spoken_languages,
-      technology_categories: store.technology_categories,
       positions: store.positions,
       presentations: store.presentations,
       honor_awards: store.honor_awards,
@@ -166,7 +181,7 @@ export function exportToBackup(store: ResumeStore): BackupV1 {
  */
 export function importFromBackup(backup: AnyBackup): ResumeStore {
   const v1 = migrateBackup(backup)
-  return {
+  const store: ResumeStore = {
     shape_version:           v1.shape_version,
     resume:                  v1.profile,
     skills:                  v1.registries.skills,
@@ -174,6 +189,10 @@ export function importFromBackup(backup: AnyBackup): ResumeStore {
     // Added with the Industry registry (A8.1) — older backups omit it; a
     // pre-v3 shape_version then triggers internIndustries in migrateStore.
     industries:              v1.registries.industries ?? [],
+    // Added with the showcase unification (shape v6) — older backups omit it
+    // and carry `sections.technology_categories` instead (attached below, for
+    // migrateStore's unifyShowcaseCategories to convert on load).
+    skill_categories:        v1.registries.skill_categories ?? [],
     key_qualifications:      v1.sections.key_qualifications,
     // Added after the initial v1 shape — older backups omit these arrays.
     key_competencies:        v1.sections.key_competencies ?? [],
@@ -184,7 +203,6 @@ export function importFromBackup(backup: AnyBackup): ResumeStore {
     courses:                 v1.sections.courses,
     certifications:          v1.sections.certifications,
     spoken_languages:        v1.sections.spoken_languages,
-    technology_categories:   v1.sections.technology_categories,
     positions:               v1.sections.positions,
     presentations:           v1.sections.presentations,
     honor_awards:            v1.sections.honor_awards,
@@ -192,6 +210,14 @@ export function importFromBackup(backup: AnyBackup): ResumeStore {
     references:              v1.sections.references,
     views:                   v1.views,
   }
+  // A pre-v6 backup carries the legacy showcase structure instead of
+  // `registries.skill_categories` — attach it (untyped; ResumeStore no longer
+  // declares the field) so migrateStore's unifyShowcaseCategories can convert
+  // it, the same way it would for a pre-v6 live resume.
+  if (v1.sections.technology_categories) {
+    (store as unknown as Record<string, unknown>).technology_categories = v1.sections.technology_categories
+  }
+  return store
 }
 
 // ─── Download helper ──────────────────────────────────────────────────────────

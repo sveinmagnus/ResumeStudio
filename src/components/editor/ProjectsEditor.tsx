@@ -9,7 +9,9 @@ import { EditorCard, AddButton, FieldRow } from '../ui/EditorCard'
 import { SortableList } from '../ui/SortableList'
 import { SortBar } from '../ui/SortBar'
 import { Autocomplete } from '../ui/Autocomplete'
-import { SkillTranslationPopover, TranslationPopover } from './RegistryEditors'
+import { SkillTranslationPopover } from './RegistryEditors'
+import { TranslationPopover } from '../ui/TranslationPopover'
+import { effectiveSkillCategory, categoryNameIndex } from '../../lib/skillCategorize'
 import { resolve, fmtRange } from '../../lib/locales'
 import { richToPlain } from '../../lib/richText'
 import type { Project, ProjectRole, ProjectIndustry, ProjectSkill, Skill, Industry, Role, LocalizedString } from '../../types'
@@ -307,6 +309,7 @@ function ProjectRoleChip({ project, pr, onRemove }: { project: Project; pr: Proj
 
 function ProjectSkillsEditor({ project }: { project: Project }) {
   const { data, addItem, updateItem, primaryLocale } = useStore()
+  const catNamesById = categoryNameIndex(data.skill_categories ?? [], primaryLocale)
 
   const remove = (sid: string) => updateItem('projects', project.id, { skills: project.skills.filter((s) => s.id !== sid) })
 
@@ -331,7 +334,7 @@ function ProjectSkillsEditor({ project }: { project: Project }) {
     const reg: Skill = {
       id: newId(), resume_id: data.resume!.id,
       name: { [primaryLocale]: text },
-      default_category: null,
+      category_id: null,
       total_duration_in_years: 0, proficiency: 0,
       is_highlighted: false, created_at: new Date().toISOString(),
     }
@@ -363,7 +366,7 @@ function ProjectSkillsEditor({ project }: { project: Project }) {
           .map((reg) => ({
             id: reg.id,
             label: resolve(reg.name, primaryLocale) || '(unnamed skill)',
-            sublabel: reg.category?.trim() || undefined,
+            sublabel: reg.category_id ? effectiveSkillCategory(reg, catNamesById) : undefined,
           }))}
         onPick={linkExisting}
         onAddNew={createAndLink}

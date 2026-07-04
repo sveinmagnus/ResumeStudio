@@ -18,6 +18,7 @@ import {
 } from './viewFilter'
 import { SECTION_CATALOG, type CatalogCtx, type ItemView } from './sectionCatalog'
 import { skillMatrixRows, fmtLastUsed, fmtProficiency } from './skillMatrix'
+import { showcaseGroups } from './showcase'
 import { resolveSectionStyle, withDefaults } from './viewStyle'
 import { withHeaderDefaults, withFooterDefaults, buildHeaderLines, buildCopyrightLine } from './viewHeader'
 import { parseRichBlocks, type RichRun } from './richText'
@@ -156,7 +157,9 @@ function buildViewDoc(store: ResumeStore, view: ResumeView, locale: string, fmt:
     }
     const items = s.key === 'promoted_projects'
       ? promotedProjectItems(store, view)
-      : (filtered[s.storeKey] as unknown[])
+      : s.key === 'technology_categories'
+        ? showcaseGroups(store, view, locale)
+        : (filtered[s.storeKey] as unknown[])
     if (!items.length) continue
     const renderKey = s.key === 'promoted_projects' ? 'projects' : s.key
     const desc = SECTION_CATALOG[renderKey]

@@ -54,7 +54,7 @@ const SECTION_LABELS: Record<string, string> = {
   courses: 'Courses',
   certifications: 'Certifications',
   spoken_languages: 'Languages',
-  technology_categories: 'Technology categories',
+  skill_categories: 'Skill categories',
   positions: 'Positions',
   presentations: 'Presentations',
   honor_awards: 'Awards',

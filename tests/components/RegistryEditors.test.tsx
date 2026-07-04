@@ -5,7 +5,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {
-  SkillsEditor, RolesEditor, IndustriesEditor, ReferencesEditor, TechCategoriesEditor,
+  SkillsEditor, RolesEditor, IndustriesEditor, ReferencesEditor,
 } from '../../src/components/editor/RegistryEditors'
 import { useStore } from '../../src/store/useStore'
 import {
@@ -13,7 +13,7 @@ import {
 } from '../../src/lib/skillTaxonomy'
 import { resetStore } from '../helpers/store-reset'
 import { resolveConfirm } from '../helpers/confirm'
-import { emptyStore, makeSkill, makeProject, makeIndustry, makeRole } from '../fixtures'
+import { emptyStore, makeSkill, makeSkillCategory, makeProject, makeIndustry, makeRole } from '../fixtures'
 import type { ResumeStore } from '../../src/types'
 
 function seed(data: ResumeStore = emptyStore()) {
@@ -63,12 +63,14 @@ describe('<SkillsEditor> — add + merge', () => {
     setSkillDomainsForTest({ TypeScript: 'Software Development', Kubernetes: 'Cloud & Infrastructure' })
     setSkillRelationsForTest({})
     setSkillDomainModelForTest({}) // exact matches only — no semantic guessing here
+    const kept = makeSkillCategory({ id: 'kept', name: { en: 'Kept' } })
     seed({
       ...emptyStore(),
+      skill_categories: [kept],
       skills: [
         makeSkill({ id: 's1', name: { en: 'TypeScript' } }),
         makeSkill({ id: 's2', name: { en: 'Kubernetes' } }),
-        makeSkill({ id: 's3', name: { en: 'My Frontend' }, category: 'Kept' }),
+        makeSkill({ id: 's3', name: { en: 'My Frontend' }, category_id: 'kept' }),
       ],
     })
     render(<SkillsEditor />)
@@ -78,34 +80,40 @@ describe('<SkillsEditor> — add + merge', () => {
     const btn = await screen.findByRole('button', { name: /auto-categorize 2/i })
     await userEvent.click(btn)
 
-    const skills = useStore.getState().data.skills
-    expect(skills.find((s) => s.id === 's1')!.category).toBe('Software Development')
-    expect(skills.find((s) => s.id === 's2')!.category).toBe('Cloud & Infrastructure')
-    expect(skills.find((s) => s.id === 's3')!.category).toBe('Kept') // manual category untouched
+    const data = useStore.getState().data
+    const nameOf = (id: string | null) => data.skill_categories!.find((c) => c.id === id)?.name.en
+    const skills = data.skills
+    expect(nameOf(skills.find((s) => s.id === 's1')!.category_id!)).toBe('Software Development')
+    expect(nameOf(skills.find((s) => s.id === 's2')!.category_id!)).toBe('Cloud & Infrastructure')
+    expect(skills.find((s) => s.id === 's3')!.category_id).toBe('kept') // manual category untouched
   })
 
   it('filters the skills list by effective category, with per-category counts', async () => {
     seed({
       ...emptyStore(),
+      skill_categories: [
+        makeSkillCategory({ id: 'frontend', name: { en: 'Frontend' } }),
+        makeSkillCategory({ id: 'data', name: { en: 'Data' } }),
+      ],
       skills: [
-        makeSkill({ id: 's1', name: { en: 'React' }, category: 'Frontend' }),
-        makeSkill({ id: 's2', name: { en: 'Vue' }, category: 'Frontend' }),
-        makeSkill({ id: 's3', name: { en: 'Postgres' }, category: 'Data' }),
-        makeSkill({ id: 's4', name: { en: 'Leadership' }, category: null }),
+        makeSkill({ id: 's1', name: { en: 'React' }, category_id: 'frontend' }),
+        makeSkill({ id: 's2', name: { en: 'Vue' }, category_id: 'frontend' }),
+        makeSkill({ id: 's3', name: { en: 'Postgres' }, category_id: 'data' }),
+        makeSkill({ id: 's4', name: { en: 'Leadership' }, category_id: null }),
       ],
     })
     render(<SkillsEditor />)
 
     // Dropdown lists each used category with a count; the skill with no
-    // category counts under "Uncategorized" (no type fallback).
+    // category counts under "Uncategorized".
     const select = screen.getByLabelText('Category') as HTMLSelectElement
     const optionText = [...select.options].map((o) => o.textContent)
     expect(optionText).toEqual(expect.arrayContaining([
       'All categories (4)', 'Data (1)', 'Frontend (2)', 'Uncategorized (1)',
     ]))
 
-    // Selecting "Frontend" narrows the list to its two skills.
-    await userEvent.selectOptions(select, 'Frontend')
+    // Selecting "Frontend" (by its category id) narrows the list to its two skills.
+    await userEvent.selectOptions(select, 'frontend')
     expect(screen.getByText('React')).toBeInTheDocument()
     expect(screen.getByText('Vue')).toBeInTheDocument()
     expect(screen.queryByText('Postgres')).not.toBeInTheDocument()
@@ -115,9 +123,10 @@ describe('<SkillsEditor> — add + merge', () => {
   it('removes a skill\'s category via the chip "x" in the By category view', async () => {
     seed({
       ...emptyStore(),
+      skill_categories: [makeSkillCategory({ id: 'frontend', name: { en: 'Frontend' } })],
       skills: [
-        makeSkill({ id: 's1', name: { en: 'React' }, category: 'Frontend' }),
-        makeSkill({ id: 's2', name: { en: 'Vue' }, category: 'Frontend' }),
+        makeSkill({ id: 's1', name: { en: 'React' }, category_id: 'frontend' }),
+        makeSkill({ id: 's2', name: { en: 'Vue' }, category_id: 'frontend' }),
       ],
     })
     render(<SkillsEditor />)
@@ -125,29 +134,33 @@ describe('<SkillsEditor> — add + merge', () => {
 
     // The "x" clears the explicit category (React becomes Uncategorized).
     await userEvent.click(screen.getByRole('button', { name: /remove category from React/i }))
-    expect(useStore.getState().data.skills.find((s) => s.id === 's1')!.category).toBeNull()
-    expect(useStore.getState().data.skills.find((s) => s.id === 's2')!.category).toBe('Frontend')
+    expect(useStore.getState().data.skills.find((s) => s.id === 's1')!.category_id).toBeNull()
+    expect(useStore.getState().data.skills.find((s) => s.id === 's2')!.category_id).toBe('frontend')
   })
 
   it('deletes a category from the filter bar, unassigning its skills', async () => {
     seed({
       ...emptyStore(),
+      skill_categories: [
+        makeSkillCategory({ id: 'frontend', name: { en: 'Frontend' } }),
+        makeSkillCategory({ id: 'data', name: { en: 'Data' } }),
+      ],
       skills: [
-        makeSkill({ id: 's1', name: { en: 'React' }, category: 'Frontend' }),
-        makeSkill({ id: 's2', name: { en: 'Vue' }, category: 'Frontend' }),
-        makeSkill({ id: 's3', name: { en: 'Postgres' }, category: 'Data' }),
+        makeSkill({ id: 's1', name: { en: 'React' }, category_id: 'frontend' }),
+        makeSkill({ id: 's2', name: { en: 'Vue' }, category_id: 'frontend' }),
+        makeSkill({ id: 's3', name: { en: 'Postgres' }, category_id: 'data' }),
       ],
     })
     render(<SkillsEditor />)
 
     // Filter to Frontend, then delete the category outright.
-    await userEvent.selectOptions(screen.getByLabelText('Category'), 'Frontend')
+    await userEvent.selectOptions(screen.getByLabelText('Category'), 'frontend')
     await userEvent.click(screen.getByRole('button', { name: /delete category and all skill assignments/i }))
 
     const skills = useStore.getState().data.skills
-    expect(skills.find((s) => s.id === 's1')!.category).toBeNull()
-    expect(skills.find((s) => s.id === 's2')!.category).toBeNull()
-    expect(skills.find((s) => s.id === 's3')!.category).toBe('Data') // untouched
+    expect(skills.find((s) => s.id === 's1')!.category_id).toBeNull()
+    expect(skills.find((s) => s.id === 's2')!.category_id).toBeNull()
+    expect(skills.find((s) => s.id === 's3')!.category_id).toBe('data') // untouched
   })
 
   it('dismisses a related-skill suggestion without adding it', async () => {
@@ -224,45 +237,6 @@ describe('<ReferencesEditor>', () => {
 
     await userEvent.click(screen.getByRole('checkbox'))
     expect(useStore.getState().data.references[0].include_in_exports).toBe(true)
-  })
-})
-
-describe('<TechCategoriesEditor>', () => {
-  beforeEach(() => resetStore())
-
-  it('adds a category and links a registry skill via the autocomplete', async () => {
-    const skill = makeSkill({ name: { en: 'React' } })
-    seed({ ...emptyStore(), skills: [skill] })
-    render(<TechCategoriesEditor />)
-
-    await userEvent.click(screen.getByRole('button', { name: /add category/i }))
-    const catId = useStore.getState().data.technology_categories[0].id
-    useStore.setState({ expandedItemId: catId })
-
-    // The Autocomplete renders a textbox; clicking a result row links the skill.
-    const input = screen.getByPlaceholderText(/search or add a skill/i)
-    await userEvent.click(input)
-    await userEvent.click(screen.getByRole('option', { name: /React/ }))
-    expect(useStore.getState().data.technology_categories[0].skills).toHaveLength(1)
-    expect(useStore.getState().data.technology_categories[0].skills[0].skill_id).toBe(skill.id)
-  })
-
-  it('creates a brand-new registry skill when the typed name has no match', async () => {
-    seed()
-    render(<TechCategoriesEditor />)
-    await userEvent.click(screen.getByRole('button', { name: /add category/i }))
-    const catId = useStore.getState().data.technology_categories[0].id
-    useStore.setState({ expandedItemId: catId })
-
-    const input = screen.getByPlaceholderText(/search or add a skill/i)
-    await userEvent.click(input)
-    await userEvent.type(input, 'Kubernetes{Enter}')
-
-    const state = useStore.getState().data
-    expect(state.skills).toHaveLength(1)
-    expect(state.skills[0].name).toEqual({ en: 'Kubernetes' })
-    expect(state.technology_categories[0].skills).toHaveLength(1)
-    expect(state.technology_categories[0].skills[0].skill_id).toBe(state.skills[0].id)
   })
 })
 
@@ -423,9 +397,13 @@ describe('<SkillsEditor> — category view', () => {
     useStore.setState({
       data: {
         ...emptyStore(),
+        skill_categories: [
+          makeSkillCategory({ id: 'frontend', name: { en: 'Frontend' } }),
+          makeSkillCategory({ id: 'data', name: { en: 'Data' } }),
+        ],
         skills: [
-          makeSkill({ id: 's1', name: { en: 'React' }, category: 'Frontend' }),
-          makeSkill({ id: 's2', name: { en: 'PostgreSQL' }, category: 'Data' }),
+          makeSkill({ id: 's1', name: { en: 'React' }, category_id: 'frontend' }),
+          makeSkill({ id: 's2', name: { en: 'PostgreSQL' }, category_id: 'data' }),
           makeSkill({ id: 's3', name: { en: 'Docker' } }), // uncategorized
         ],
       },
@@ -459,7 +437,9 @@ describe('<SkillsEditor> — category view', () => {
     // The field commits on blur (Tab), like a normal autocomplete.
     await userEvent.type(within(dialog).getByPlaceholderText('Uncategorized'), 'DevOps')
     await userEvent.tab()
-    expect(useStore.getState().data.skills.find((s) => s.id === 's3')!.category).toBe('DevOps')
+    const data = useStore.getState().data
+    const s3 = data.skills.find((s) => s.id === 's3')!
+    expect(data.skill_categories!.find((c) => c.id === s3.category_id)?.name.en).toBe('DevOps')
   })
 
   it('lets you type a multi-word category (spaces are not stripped mid-typing)', async () => {
@@ -473,7 +453,9 @@ describe('<SkillsEditor> — category view', () => {
     await userEvent.type(input, 'Cloud Native')
     expect((input as HTMLInputElement).value).toBe('Cloud Native') // space kept while typing
     await userEvent.tab()
-    expect(useStore.getState().data.skills.find((s) => s.id === 's3')!.category).toBe('Cloud Native')
+    const data = useStore.getState().data
+    const s3 = data.skills.find((s) => s.id === 's3')!
+    expect(data.skill_categories!.find((c) => c.id === s3.category_id)?.name.en).toBe('Cloud Native')
   })
 
   it('offers a distinct "New category" row when typing a value that does not exist', async () => {
@@ -500,7 +482,7 @@ describe('<SkillsEditor> — category view', () => {
 
     // Frontend has one skill (React); deleting the category unassigns it.
     await userEvent.click(screen.getByRole('button', { name: /Delete category "Frontend"/i }))
-    expect(useStore.getState().data.skills.find((s) => s.id === 's1')!.category).toBeNull()
+    expect(useStore.getState().data.skills.find((s) => s.id === 's1')!.category_id).toBeNull()
     // The Uncategorized group has no delete button.
     expect(screen.queryByRole('button', { name: /Delete category "Uncategorized"/i })).not.toBeInTheDocument()
   })
@@ -511,8 +493,8 @@ describe('<SkillsEditor> — category view', () => {
     useStore.setState({
       data: {
         ...emptyStore(),
-        skills: [makeSkill({ id: 's1', name: { en: 'React' }, category: 'Frontend' })],
-        skill_categories: ['Frontend'],
+        skills: [makeSkill({ id: 's1', name: { en: 'React' }, category_id: 'frontend' })],
+        skill_categories: [makeSkillCategory({ id: 'frontend', name: { en: 'Frontend' } })],
       },
       hasData: true, primaryLocale: 'en', secondaryLocale: null,
       activeSection: 'skills', expandedItemId: null, mutationCount: 0,
@@ -522,11 +504,50 @@ describe('<SkillsEditor> — category view', () => {
 
     // Remove React's category via the chip "×": Frontend becomes empty but stays.
     await userEvent.click(screen.getByRole('button', { name: /remove category from React/i }))
-    expect(useStore.getState().data.skills.find((s) => s.id === 's1')!.category).toBeNull()
+    expect(useStore.getState().data.skills.find((s) => s.id === 's1')!.category_id).toBeNull()
     expect(screen.getByText('Frontend')).toBeInTheDocument() // header persists (0 skills)
     // Deleting it (trash) removes the category for good.
     await userEvent.click(screen.getByRole('button', { name: /Delete category "Frontend"/i }))
     expect(screen.queryByText('Frontend')).not.toBeInTheDocument()
     expect(useStore.getState().data.skill_categories).toEqual([])
+  })
+
+  it('reorders categories with the ↑/↓ header buttons (curated sort_order, not alphabetical)', async () => {
+    seedSkills() // Frontend (sort_order 0), Data (sort_order 1)
+    render(<SkillsEditor />)
+    await userEvent.click(screen.getByRole('button', { name: /by category/i }))
+
+    expect(useStore.getState().data.skill_categories!.map((c) => c.name.en)).toEqual(['Frontend', 'Data'])
+    // Frontend is first — its "up" button is disabled; move it down instead.
+    expect(screen.getByRole('button', { name: /Move category "Frontend" up/i })).toBeDisabled()
+    await userEvent.click(screen.getByRole('button', { name: /Move category "Frontend" down/i }))
+
+    const cats = useStore.getState().data.skill_categories!
+    expect(cats.map((c) => c.name.en)).toEqual(['Data', 'Frontend'])
+    // Now Data is first: its "up" is disabled, Frontend's "down" is disabled.
+    expect(screen.getByRole('button', { name: /Move category "Data" up/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /Move category "Frontend" down/i })).toBeDisabled()
+  })
+
+  it('never offers reorder/rename controls on the Uncategorized group', async () => {
+    seedSkills()
+    render(<SkillsEditor />)
+    await userEvent.click(screen.getByRole('button', { name: /by category/i }))
+    expect(screen.queryByRole('button', { name: /Move category "Uncategorized"/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Rename category "Uncategorized"/i })).not.toBeInTheDocument()
+  })
+
+  it('renames a category via the header pencil + popover', async () => {
+    seedSkills()
+    render(<SkillsEditor />)
+    await userEvent.click(screen.getByRole('button', { name: /by category/i }))
+
+    await userEvent.click(screen.getByRole('button', { name: /Rename category "Frontend"/i }))
+    const nameInput = screen.getByLabelText(/Category name/i)
+    await userEvent.clear(nameInput)
+    await userEvent.type(nameInput, 'Web Frontend')
+
+    const cats = useStore.getState().data.skill_categories!
+    expect(cats.find((c) => c.id === 'frontend')?.name.en).toBe('Web Frontend')
   })
 })

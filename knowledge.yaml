@@ -5,7 +5,7 @@
 kcp_version: "0.14"
 project: resume-studio
 version: 0.2.2
-updated: "2026-06-10"
+updated: "2026-07-04"
 language: en
 hints:
   recommended_entry_point: claude-instructions
@@ -17,7 +17,7 @@ units:
     intent: "How must an agent work in this codebase? Architecture map, data model, store patterns, conventions (incl. the v0.3.1 accessibility invariants + the version source-of-truth rule), and what not to change."
     scope: global
     audience: [agent, developer]
-    validated: "2026-07-02"
+    validated: "2026-07-04"
     update_frequency: weekly
     triggers: [conventions, architecture, data-model, store, persistence, sections, accessibility, routing]
     hints:
@@ -205,16 +205,16 @@ units:
 
   - id: plan-unify-showcase
     path: plans/unify-showcase-into-categories.md
-    intent: "How will the Skills Showcase be unified into the skill-category system? Approved implementation plan — SkillCategory entities, Skill.category_id, virtual showcase section, shape v6 migration. NOT yet implemented."
+    intent: "How was the Skills Showcase unified into the skill-category system? IMPLEMENTED (2026-07-04) — SkillCategory entities, Skill.category_id, virtual showcase section (lib/showcase.ts), shape v6 migration, By-category rename/reorder. See CLAUDE.md §1/§4/§8 for the current-state summary; this plan is now a historical design record."
     scope: project
     audience: [developer, agent]
     validated: "2026-07-04"
-    update_frequency: on-implementation
+    update_frequency: stable
     depends_on: [claude-instructions]
     triggers: [showcase, technology-categories, skill-categories, unification, shape-v6, migration]
     hints:
       token_estimate: 3800
-      priority: active
+      priority: reference
 
   - id: plan-multi-resume
     path: plans/multi-resume.md

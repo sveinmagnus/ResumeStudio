@@ -103,8 +103,8 @@ You are converting a CV/resume into structured JSON for **Resume Studio**.
     { "name": string, "level": string }   // e.g. { "name": "English", "level": "Fluent" }
   ],
 
-  "technology_categories": [        // skills grouped under headings
-    { "name": string, "skills": [string] }
+  "technology_categories": [        // skills grouped under headings — becomes
+    { "name": string, "skills": [string] }   // skill categories; listed skills are highlighted
   ],
 
   "recommendations": [

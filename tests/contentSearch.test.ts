@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { searchStore } from '../src/lib/contentSearch'
 import {
-  emptyStore, makeResume, makeProject, makeSkill, makeWork, makeReference, makeIndustry,
+  emptyStore, makeResume, makeProject, makeSkill, makeWork, makeReference, makeIndustry, makeSkillCategory,
 } from './fixtures'
 import type { ProjectSkill } from '../src/types'
 
@@ -83,6 +83,16 @@ describe('searchStore', () => {
     store.projects.push(p)
     // Searching the id substring should not match (ids are denylisted).
     expect(searchStore(store, 'searchable-id-xyz', 'en')).toEqual([])
+  })
+
+  it('finds a matching skill category name under the Skill Registry section', () => {
+    const store = richStore()
+    store.skill_categories.push(makeSkillCategory({ id: 'cat1', name: { en: 'Cloud Platforms' } }))
+    const hits = searchStore(store, 'cloud platforms', 'en')
+    const hit = hits.find((h) => h.title === 'Cloud Platforms')
+    expect(hit).toBeDefined()
+    expect(hit!.section).toBe('skills')
+    expect(hit!.sectionLabel).toBe('Skill Registry')
   })
 
   it('caps results at the limit', () => {

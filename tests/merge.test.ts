@@ -4,7 +4,7 @@ import {
   countSkillReferences, countRoleReferences, countIndustryReferences,
 } from '../src/lib/merge'
 import {
-  emptyStore, makeSkill, makeRole, makeIndustry, makeProject, makeTechCategory, makeWork,
+  emptyStore, makeSkill, makeRole, makeIndustry, makeProject, makeWork,
 } from './fixtures'
 
 // ─── mergeSkills ────────────────────────────────────────────────────────────
@@ -30,20 +30,6 @@ describe('mergeSkills()', () => {
     const out = mergeSkills(store, 'src', 'tgt')
     expect(out.projects[0].skills[0].skill_id).toBe('tgt')
     expect(out.projects[0].skills[0].name).toEqual({ en: 'TypeScript' }) // snapshot updated
-  })
-
-  it('rewrites technology_categories skills to point to the target id', () => {
-    const store = emptyStore()
-    store.skills.push(makeSkill({ id: 'src', name: { en: 'TS' } }))
-    store.skills.push(makeSkill({ id: 'tgt', name: { en: 'TypeScript' } }))
-    store.technology_categories.push(makeTechCategory({
-      skills: [
-        { id: 'cs1', skill_id: 'src', name: { en: 'TS' }, proficiency: 0, total_duration_in_years: 0, sort_order: 0 },
-      ],
-    }))
-    const out = mergeSkills(store, 'src', 'tgt')
-    expect(out.technology_categories[0].skills[0].skill_id).toBe('tgt')
-    expect(out.technology_categories[0].skills[0].name).toEqual({ en: 'TypeScript' })
   })
 
   it('leaves unrelated references untouched', () => {
@@ -133,7 +119,7 @@ describe('mergeRoles()', () => {
 // ─── reference counts ──────────────────────────────────────────────────────
 
 describe('countSkillReferences()', () => {
-  it('counts references across projects and technology categories', () => {
+  it('counts references across projects', () => {
     const store = emptyStore()
     store.skills.push(makeSkill({ id: 'k' }))
     store.projects.push(makeProject({
@@ -142,12 +128,7 @@ describe('countSkillReferences()', () => {
         { id: 'p1-b', skill_id: 'k', name: {}, duration_in_years: 0, offset_in_years: 0, total_duration_in_years: 0, sort_order: 1 },
       ],
     }))
-    store.technology_categories.push(makeTechCategory({
-      skills: [
-        { id: 'c1', skill_id: 'k', name: {}, proficiency: 0, total_duration_in_years: 0, sort_order: 0 },
-      ],
-    }))
-    expect(countSkillReferences(store, 'k')).toBe(3)
+    expect(countSkillReferences(store, 'k')).toBe(2)
   })
 
   it('returns 0 for an unused skill', () => {

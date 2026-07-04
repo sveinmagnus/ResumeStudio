@@ -1,11 +1,12 @@
 /**
  * Registry "by category" view — grouped, compact, drag-to-recategorize.
  *
- * Shared by the Skill and Role registries (see RegistryEditors.tsx): any item
- * with a free-text `category` groups under category headers; drag a chip onto
- * another header to recategorize it, click a chip to open its editor in a
- * lightbox. Purely presentational — all mutations happen through the callbacks
- * the parent editor passes in.
+ * Shared by the Skill and Role registries (see RegistryEditors.tsx): items
+ * group under category headers (an id-linked `SkillCategory` for skills, a
+ * plain string for roles — see `CatItem.category`); drag a chip onto another
+ * header to recategorize it, click a chip to open its editor in a lightbox.
+ * Purely presentational — all mutations happen through the callbacks the
+ * parent editor passes in.
  */
 import { useMemo, useState, type ReactNode } from 'react'
 import { useStore } from '../../store/useStore'
@@ -14,8 +15,9 @@ import {
   pointerWithin, MeasuringStrategy, type DragEndEvent, type DragStartEvent,
 } from '@dnd-kit/core'
 import { useDialog } from '../ui/useDialog'
-import { X, Trash2 } from 'lucide-react'
+import { X, Trash2, ChevronUp, ChevronDown, Pencil } from 'lucide-react'
 import { resolve } from '../../lib/locales'
+import { TranslationPopover } from '../ui/TranslationPopover'
 import type { LocalizedString } from '../../types'
 
 const UNCATEGORIZED = '__uncategorized__'
@@ -26,9 +28,28 @@ const PANEL = 'panel:'
 export interface CatItem {
   id: string
   name: LocalizedString
+  /**
+   * Opaque grouping key: for skills this is a `SkillCategory` id (resolved to
+   * a display label via `categories` below); for roles it's just the raw
+   * category string (key === label). Never rendered directly — always go
+   * through the resolved header label.
+   */
   category?: string | null
   /** Whether this item carries an explicit category that the "x" can remove. */
   removable?: boolean
+}
+
+/** A category header this view should always render, even with zero items
+ *  (so an emptied category persists until explicitly deleted). `key` matches
+ *  `CatItem.category`; `label` is the already-resolved display text. Passed
+ *  headers are rendered in the GIVEN order (a caller's curated sort_order),
+ *  not re-alphabetized — that's what makes the ↑/↓ reorder buttons meaningful.
+ *  Omit `name` (and the rename affordance disappears) for a registry with no
+ *  localized category entity to rename, e.g. roles. */
+export interface CategoryHeader {
+  key: string
+  label: string
+  name?: LocalizedString
 }
 
 /**
@@ -51,11 +72,16 @@ export function categoriesOf(items: CatItem[]): string[] {
   return [...set].sort((a, b) => a.localeCompare(b))
 }
 
-export function RegistryCategoryView({ items, categories, unnamed, onOpen, onRecategorize, onRemove, onDeleteCategory }: {
+export function RegistryCategoryView({
+  items, categories, unnamed, onOpen, onRecategorize, onRemove, onDeleteCategory,
+  onRenameCategory, onMoveCategory,
+}: {
   items: CatItem[]
-  /** Known category names to always render as headers, even when they have no
-   *  items (so an emptied category persists until it's explicitly deleted). */
-  categories?: string[]
+  /** Known category headers to always render, even with zero items (so an
+   *  emptied category persists until it's explicitly deleted). Omit for a
+   *  registry with no persisted category list (roles) — groups are then
+   *  derived purely from the items present. */
+  categories?: CategoryHeader[]
   /** Label for an item with no name yet, e.g. "(unnamed skill)". */
   unnamed: string
   onOpen: (id: string) => void
@@ -64,30 +90,72 @@ export function RegistryCategoryView({ items, categories, unnamed, onOpen, onRec
   onRemove?: (id: string) => void
   /** Optional: DELETE a whole category (renders a trash "x" in the header). */
   onDeleteCategory?: (category: string) => void
+  /** Optional: rename a category's localized name (renders a pencil + popover in the header). */
+  onRenameCategory?: (category: string, name: LocalizedString) => void
+  /** Optional: reorder a category up/down in the curated display order (renders ↑/↓ in the header). */
+  onMoveCategory?: (category: string, dir: 'up' | 'down') => void
 }) {
   const locale = useStore((s) => s.primaryLocale)
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
   const [activeId, setActiveId] = useState<string | null>(null)
 
-  // Group by category (Uncategorized last), categories A→Z. Seed with the known
-  // category names so empty categories still get a header.
+  // When `categories` is given, headers render in ITS order (a caller's
+  // curated sort_order) so the ↑/↓ buttons are meaningful; Uncategorized (and
+  // any item whose category key has no matching header) is appended last,
+  // alphabetically. With no `categories` prop (roles), groups stay A→Z as before.
   const groups = useMemo(() => {
-    const m = new Map<string, CatItem[]>()
-    for (const c of categories ?? []) {
-      const key = c.trim()
-      if (key) m.set(key, [])
+    const m = new Map<string, { label: string; items: CatItem[] }>()
+    const order: string[] = []
+    for (const h of categories ?? []) {
+      const key = h.key.trim()
+      if (key && !m.has(key)) { m.set(key, { label: h.label, items: [] }); order.push(key) }
     }
+    const extra: string[] = []
     for (const it of items) {
       const key = (it.category ?? '').trim() || UNCATEGORIZED
-      if (!m.has(key)) m.set(key, [])
-      m.get(key)!.push(it)
+      if (!m.has(key)) {
+        m.set(key, { label: key === UNCATEGORIZED ? 'Uncategorized' : key, items: [] })
+        extra.push(key)
+      }
+      m.get(key)!.items.push(it)
+    }
+    if (categories) {
+      extra.sort((a, b) => {
+        if (a === UNCATEGORIZED) return 1
+        if (b === UNCATEGORIZED) return -1
+        return m.get(a)!.label.localeCompare(m.get(b)!.label)
+      })
+      const keys = [...order, ...extra]
+      return keys.map((k): [string, { label: string; items: CatItem[] }] => [k, m.get(k)!])
     }
     return [...m.entries()].sort(([a], [b]) => {
       if (a === UNCATEGORIZED) return 1
       if (b === UNCATEGORIZED) return -1
-      return a.localeCompare(b)
+      return m.get(a)!.label.localeCompare(m.get(b)!.label)
     })
   }, [items, categories])
+
+  const nameByKey = useMemo(() => {
+    const m = new Map<string, LocalizedString>()
+    for (const h of categories ?? []) if (h.name) m.set(h.key, h.name)
+    return m
+  }, [categories])
+
+  // The subset of keys that came from `categories` (curated sort_order) — only
+  // these get ↑/↓ buttons; Uncategorized/extra groups are never reorderable.
+  const orderableKeys = useMemo(
+    () => (categories ?? []).map((h) => h.key.trim()).filter(Boolean),
+    [categories],
+  )
+  // The drop panel stays alphabetical regardless of the header order (D6).
+  const alphaGroups = useMemo(
+    () => [...groups].sort(([a, ga], [b, gb]) => {
+      if (a === UNCATEGORIZED) return 1
+      if (b === UNCATEGORIZED) return -1
+      return ga.label.localeCompare(gb.label)
+    }),
+    [groups],
+  )
 
   const activeItem = activeId ? items.find((x) => x.id === activeId) ?? null : null
 
@@ -115,14 +183,21 @@ export function RegistryCategoryView({ items, categories, unnamed, onOpen, onRec
       onDragCancel={() => setActiveId(null)}
     >
       <div className="rcv">
-        {groups.map(([key, list]) => (
-          <CatGroup key={key} catKey={key} label={key === UNCATEGORIZED ? 'Uncategorized' : key}
-            items={list} locale={locale} unnamed={unnamed} onOpen={onOpen} onRemove={onRemove}
-            onDeleteCategory={onDeleteCategory} />
-        ))}
+        {groups.map(([key, g]) => {
+          const orderIdx = orderableKeys.indexOf(key)
+          return (
+            <CatGroup key={key} catKey={key} label={g.label} name={nameByKey.get(key)}
+              items={g.items} locale={locale} unnamed={unnamed} onOpen={onOpen} onRemove={onRemove}
+              onDeleteCategory={onDeleteCategory}
+              onRenameCategory={onRenameCategory}
+              onMoveCategory={orderIdx === -1 ? undefined : onMoveCategory}
+              isFirst={orderIdx <= 0} isLast={orderIdx === -1 || orderIdx === orderableKeys.length - 1}
+            />
+          )
+        })}
       </div>
       {activeId && groups.length > 1 && (
-        <CategoryDropPanel groups={groups} />
+        <CategoryDropPanel groups={alphaGroups} />
       )}
       {/* A floating copy of the dragged chip that follows the cursor, so it's
           obvious what's being moved (the original dims in place). */}
@@ -141,14 +216,13 @@ export function RegistryCategoryView({ items, categories, unnamed, onOpen, onRec
  * how long the list is. Each row mirrors a category header as its own droppable
  * (PANEL-prefixed id so it doesn't collide with the header's).
  */
-function CategoryDropPanel({ groups }: { groups: [string, CatItem[]][] }) {
+function CategoryDropPanel({ groups }: { groups: [string, { label: string; items: CatItem[] }][] }) {
   return (
     <div className="rcv-drop-panel" role="presentation">
       <div className="rcv-drop-title">Drop on a category</div>
       <div className="rcv-drop-list">
-        {groups.map(([key, list]) => (
-          <DropRow key={key} catKey={key}
-            label={key === UNCATEGORIZED ? 'Uncategorized' : key} count={list.length} />
+        {groups.map(([key, g]) => (
+          <DropRow key={key} catKey={key} label={g.label} count={g.items.length} />
         ))}
       </div>
     </div>
@@ -165,28 +239,87 @@ function DropRow({ catKey, label, count }: { catKey: string; label: string; coun
   )
 }
 
-function CatGroup({ catKey, label, items, locale, unnamed, onOpen, onRemove, onDeleteCategory }: {
-  catKey: string; label: string; items: CatItem[]; locale: string; unnamed: string
+function CatGroup({
+  catKey, label, name, items, locale, unnamed, onOpen, onRemove, onDeleteCategory,
+  onRenameCategory, onMoveCategory, isFirst, isLast,
+}: {
+  catKey: string; label: string; name?: LocalizedString; items: CatItem[]; locale: string; unnamed: string
   onOpen: (id: string) => void; onRemove?: (id: string) => void
   onDeleteCategory?: (category: string) => void
+  onRenameCategory?: (category: string, name: LocalizedString) => void
+  onMoveCategory?: (category: string, dir: 'up' | 'down') => void
+  isFirst?: boolean; isLast?: boolean
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: catKey })
+  const [renaming, setRenaming] = useState(false)
   const canDelete = !!onDeleteCategory && catKey !== UNCATEGORIZED
+  const canRename = !!onRenameCategory && !!name && catKey !== UNCATEGORIZED
+  const canMove = !!onMoveCategory && catKey !== UNCATEGORIZED
   return (
     <div className="rcv-group">
       <div ref={setNodeRef} className={`rcv-head ${isOver ? 'is-over' : ''}`}>
-        <span className="rcv-head-label">{label} <span className="rcv-count">{items.length}</span></span>
-        {canDelete && (
-          <button
-            type="button"
-            className="rcv-head-x"
-            onClick={() => onDeleteCategory!(label)}
-            aria-label={`Delete category "${label}" and all skill assignments`}
-            title="Delete this category (its skills become Uncategorized)"
-          >
-            <Trash2 size={14} />
-          </button>
-        )}
+        <span className="rcv-head-label" style={canRename ? { position: 'relative' } : undefined}>
+          {label} <span className="rcv-count">{items.length}</span>
+          {canRename && (
+            <>
+              <button
+                type="button"
+                className="rcv-head-rename"
+                onClick={() => setRenaming(true)}
+                aria-label={`Rename category "${label}"`}
+                title="Rename this category"
+              >
+                <Pencil size={12} />
+              </button>
+              {renaming && (
+                <TranslationPopover
+                  title={`Rename "${label}"`}
+                  fieldLabel="Category name"
+                  value={name!}
+                  onClose={() => setRenaming(false)}
+                  onChange={(v) => onRenameCategory!(catKey, v)}
+                />
+              )}
+            </>
+          )}
+        </span>
+        <span className="rcv-head-actions">
+          {canMove && (
+            <>
+              <button
+                type="button"
+                className="rcv-head-move"
+                onClick={() => onMoveCategory!(catKey, 'up')}
+                disabled={isFirst}
+                aria-label={`Move category "${label}" up`}
+                title="Move up"
+              >
+                <ChevronUp size={14} />
+              </button>
+              <button
+                type="button"
+                className="rcv-head-move"
+                onClick={() => onMoveCategory!(catKey, 'down')}
+                disabled={isLast}
+                aria-label={`Move category "${label}" down`}
+                title="Move down"
+              >
+                <ChevronDown size={14} />
+              </button>
+            </>
+          )}
+          {canDelete && (
+            <button
+              type="button"
+              className="rcv-head-x"
+              onClick={() => onDeleteCategory!(catKey)}
+              aria-label={`Delete category "${label}" and all skill assignments`}
+              title="Delete this category (its skills become Uncategorized)"
+            >
+              <Trash2 size={14} />
+            </button>
+          )}
+        </span>
       </div>
       <div className="rcv-chips">
         {items.length === 0 && <span className="rcv-empty-note">No skills — drag one here, or delete the category.</span>}

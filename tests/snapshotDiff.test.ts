@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { describeSnapshotChanges } from '../src/lib/snapshotDiff'
-import { emptyStore, makeProject, makeRole, makeResume } from './fixtures'
+import { emptyStore, makeProject, makeRole, makeResume, makeSkill, makeSkillCategory } from './fixtures'
 
 describe('describeSnapshotChanges', () => {
   it('reports an added item with its title', () => {
@@ -60,6 +60,31 @@ describe('describeSnapshotChanges', () => {
     expect(changes).toHaveLength(1)
     expect(changes[0]).toMatchObject({ section: 'Profile', label: 'Profile details' })
     expect(changes[0].details?.some((d) => d.startsWith('Email'))).toBe(true)
+  })
+
+  it('reports an added skill category with its name', () => {
+    const prev = emptyStore()
+    const next = emptyStore()
+    next.skill_categories = [makeSkillCategory({ id: 'cat1', name: { en: 'Languages' } })]
+    expect(describeSnapshotChanges(prev, next, 'en')).toEqual([
+      { kind: 'added', section: 'Skill category', label: 'Languages' },
+    ])
+  })
+
+  it('reports a renamed skill category as an edit', () => {
+    const cat = makeSkillCategory({ id: 'cat1', name: { en: 'Languages' } })
+    const prev = emptyStore(); prev.skill_categories = [cat]
+    const next = emptyStore(); next.skill_categories = [{ ...cat, name: { en: 'Programming Languages' } }]
+    const changes = describeSnapshotChanges(prev, next, 'en')
+    expect(changes).toHaveLength(1)
+    expect(changes[0]).toMatchObject({ kind: 'edited', section: 'Skill category' })
+  })
+
+  it('does not report a skill re-linked to a different category_id as a diff (identity/link noise)', () => {
+    const skill = makeSkill({ id: 'sk1', name: { en: 'React' }, category_id: 'cat1' })
+    const prev = emptyStore(); prev.skills = [skill]
+    const next = emptyStore(); next.skills = [{ ...skill, category_id: 'cat2' }]
+    expect(describeSnapshotChanges(prev, next, 'en')).toEqual([])
   })
 
   it('orders profile first, then edited/added/removed', () => {

@@ -30,7 +30,7 @@ export function Overview() {
     { label: 'Skills',           count: data.skills.length,                key: 'skills' },
     { label: 'Roles',            count: data.roles.length,                 key: 'roles' },
     { label: 'Languages',        count: data.spoken_languages.length,      key: 'spoken_languages' },
-    { label: 'Skills Showcase',  count: data.technology_categories.length, key: 'technology_categories' },
+    { label: 'Skill categories', count: (data.skill_categories ?? []).length, key: 'skills' },
     { label: 'Presentations',    count: data.presentations.length,         key: 'presentations' },
     { label: 'Publications',     count: data.publications.length,          key: 'publications' },
     { label: 'Awards',           count: data.honor_awards.length,          key: 'honor_awards' },
@@ -188,7 +188,7 @@ export function Overview() {
       <div className="ov-strip" aria-label="Supporting sections">
         {compact.map((s, i) => (
           <button
-            key={s.key}
+            key={s.label}
             className="ov-pill"
             onClick={() => setActiveSection(s.key)}
           >

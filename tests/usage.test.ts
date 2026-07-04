@@ -3,11 +3,11 @@ import {
   usageOfSkill, usageOfRole, isSkillUnused, isRoleUnused,
 } from '../src/lib/usage'
 import {
-  emptyStore, makeSkill, makeRole, makeProject, makeWork, makeTechCategory,
+  emptyStore, makeSkill, makeRole, makeProject, makeWork,
 } from './fixtures'
 
 describe('usageOfSkill()', () => {
-  it('lists every project (deduped per project) and every tech category that references the skill', () => {
+  it('lists every project that references the skill, deduped per project', () => {
     const store = emptyStore()
     store.skills.push(makeSkill({ id: 'k' }))
     // Project A references the skill twice — should appear ONCE.
@@ -20,20 +20,14 @@ describe('usageOfSkill()', () => {
     }))
     // Project B doesn't reference it — excluded.
     store.projects.push(makeProject({ id: 'pb' }))
-    // Tech cat C does — included.
-    store.technology_categories.push(makeTechCategory({
-      id: 'tc',
-      skills: [{ id: 'cs', skill_id: 'k', name: {}, proficiency: 0, total_duration_in_years: 0, sort_order: 0 }],
-    }))
     const u = usageOfSkill(store, 'k')
     expect(u.projects.map((p) => p.id)).toEqual(['pa'])
-    expect(u.technology_categories.map((c) => c.id)).toEqual(['tc'])
   })
 
   it('returns empty arrays for an unreferenced skill', () => {
     const store = emptyStore()
     store.skills.push(makeSkill({ id: 'k' }))
-    expect(usageOfSkill(store, 'k')).toEqual({ projects: [], technology_categories: [] })
+    expect(usageOfSkill(store, 'k')).toEqual({ projects: [] })
   })
 })
 
@@ -62,12 +56,12 @@ describe('usageOfRole()', () => {
 })
 
 describe('isSkillUnused() / isRoleUnused()', () => {
-  it('isSkillUnused — true only when neither projects nor categories reference it', () => {
+  it('isSkillUnused — true only when no project references it', () => {
     const store = emptyStore()
     store.skills.push(makeSkill({ id: 'k' }))
     expect(isSkillUnused(store, 'k')).toBe(true)
-    store.technology_categories.push(makeTechCategory({
-      skills: [{ id: 'cs', skill_id: 'k', name: {}, proficiency: 0, total_duration_in_years: 0, sort_order: 0 }],
+    store.projects.push(makeProject({
+      skills: [{ id: 'ps', skill_id: 'k', name: {}, duration_in_years: 0, offset_in_years: 0, total_duration_in_years: 0, sort_order: 0 }],
     }))
     expect(isSkillUnused(store, 'k')).toBe(false)
   })

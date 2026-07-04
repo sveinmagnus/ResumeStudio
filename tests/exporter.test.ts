@@ -11,7 +11,7 @@ import { buildViewSections } from '../src/lib/viewFilter'
 import {
   emptyStore, makeProject, makeWork, makeEducation, makeView,
   makeKQ, makeReference, makeResume, makeSpokenLanguage,
-  makeKeyCompetency, makeRecommendation,
+  makeKeyCompetency, makeRecommendation, makeSkill, makeSkillCategory,
 } from './fixtures'
 import { withHeaderDefaults, withFooterDefaults } from '../src/lib/viewHeader'
 
@@ -327,5 +327,18 @@ describe('exportDocx()', () => {
       await exportDocx(baseStore, makeView({ sections }), 'en')
       expect(await isZip(lastBlob!)).toBe(true)
       expect(lastBlob!.size).toBeGreaterThan(offSize)
+    })
+
+    it('renders the Skills Showcase (technology_categories) from highlighted, categorized skills', async () => {
+      const emptyOfShowcase = emptyStore()
+      await exportDocx(emptyOfShowcase, makeView({ sections: buildViewSections() }), 'en')
+      const baseSize = lastBlob!.size
+
+      const store = emptyStore()
+      store.skill_categories = [makeSkillCategory({ id: 'cat1', name: { en: 'Languages' } })]
+      store.skills.push(makeSkill({ name: { en: 'TypeScript' }, category_id: 'cat1', is_highlighted: true }))
+      await exportDocx(store, makeView({ sections: buildViewSections() }), 'en')
+      expect(await isZip(lastBlob!)).toBe(true)
+      expect(lastBlob!.size).toBeGreaterThan(baseSize)
     })
   })

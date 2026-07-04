@@ -375,6 +375,11 @@ export const SECTION_CATALOG: Record<string, SectionDescriptor> = {
     }),
   },
 
+  // Skills Showcase — items are `ShowcaseGroup`s (lib/showcase.ts), a
+  // projection of the skill-category system: `name` is the category's
+  // localized name, `skills` its highlighted members. Same shape as the old
+  // TechnologyCategory/CategorySkill it replaced, so this descriptor is
+  // unchanged.
   technology_categories: {
     title: (it, locale) => ls(it, 'name', locale) || 'Untitled',
     summary: (it, ctx) =>

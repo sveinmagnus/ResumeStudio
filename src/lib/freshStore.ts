@@ -19,7 +19,7 @@ export function emptyStore(): ResumeStore {
     skills: [], roles: [], industries: [], key_qualifications: [], key_competencies: [],
     recommendations: [], projects: [],
     work_experiences: [], educations: [], courses: [], certifications: [],
-    spoken_languages: [], technology_categories: [], positions: [],
+    spoken_languages: [], positions: [],
     presentations: [], honor_awards: [], publications: [], references: [],
     views: [],
     skill_categories: [],

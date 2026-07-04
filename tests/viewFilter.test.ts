@@ -10,7 +10,7 @@ import { withHeaderDefaults, withFooterDefaults } from '../src/lib/viewHeader'
 import {
   emptyStore, makeProject, makeWork, makeEducation, makeKQ,
   makeView, makeReference, makeSpokenLanguage, makeResume,
-  makeKeyCompetency, makeRecommendation,
+  makeKeyCompetency, makeRecommendation, makeSkill, makeSkillCategory,
 } from './fixtures'
 
 // A 1x1 transparent PNG data URL (valid for the isDataImage guard + img embedding).
@@ -921,6 +921,51 @@ describe('promoted projects', () => {
     const view = makeView({ sections: buildViewSections(), excluded_item_ids: ['p4'] })
     const ids = (promotedProjectItems(store, view) as Array<{ id: string }>).map((p) => p.id)
     expect(ids).toEqual(['p1'])
+  })
+})
+
+describe('Skills Showcase (technology_categories, virtual)', () => {
+  it('renders on by default (unlike promoted_projects/skill_matrix)', () => {
+    const store = emptyStore()
+    store.skill_categories = [makeSkillCategory({ id: 'cat1', name: { en: 'Languages' } })]
+    store.skills.push(makeSkill({ name: { en: 'TypeScript' }, category_id: 'cat1', is_highlighted: true }))
+    const html = buildViewHtml(store, makeView({ sections: buildViewSections() }), 'en')
+    expect(html).toContain('ve-sec-technology_categories')
+    expect(html).toContain('Languages')
+    expect(html).toContain('TypeScript')
+  })
+
+  it('omits the section once every category is empty (no highlighted, categorized skills)', () => {
+    const store = emptyStore()
+    store.skill_categories = [makeSkillCategory({ id: 'cat1', name: { en: 'Languages' } })]
+    store.skills.push(makeSkill({ name: { en: 'TypeScript' }, category_id: 'cat1', is_highlighted: false }))
+    const html = buildViewHtml(store, makeView({ sections: buildViewSections() }), 'en')
+    expect(html).not.toContain('ve-sec-technology_categories')
+  })
+
+  it('drops an excluded category from the rendered showcase', () => {
+    const store = emptyStore()
+    store.skill_categories = [
+      makeSkillCategory({ id: 'cat1', name: { en: 'Languages' } }),
+      makeSkillCategory({ id: 'cat2', name: { en: 'Cloud' } }),
+    ]
+    store.skills.push(makeSkill({ name: { en: 'TypeScript' }, category_id: 'cat1', is_highlighted: true }))
+    store.skills.push(makeSkill({ name: { en: 'AWS' }, category_id: 'cat2', is_highlighted: true }))
+    const html = buildViewHtml(store, makeView({ sections: buildViewSections(), excluded_item_ids: ['cat2'] }), 'en')
+    expect(html).toContain('Languages')
+    expect(html).not.toContain('Cloud')
+    expect(html).not.toContain('AWS')
+  })
+
+  it('escapes a hostile category name and skill name (XSS regression)', () => {
+    const store = emptyStore()
+    store.skill_categories = [makeSkillCategory({ id: 'cat1', name: { en: '<img src=x onerror=alert(1)>' } })]
+    store.skills.push(makeSkill({ name: { en: '<script>alert(2)</script>' }, category_id: 'cat1', is_highlighted: true }))
+    const html = buildViewHtml(store, makeView({ sections: buildViewSections() }), 'en')
+    expect(html).not.toContain('<img src=x onerror=alert(1)>')
+    expect(html).not.toContain('<script>alert(2)</script>')
+    expect(html).toContain('&lt;img')
+    expect(html).toContain('&lt;script&gt;')
   })
 })
 

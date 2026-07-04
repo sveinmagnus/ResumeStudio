@@ -45,17 +45,10 @@ const REGISTRIES: Record<RegistryKind, RegistryDescriptor> = {
           ps.skill_id === sourceId ? { ...ps, skill_id: target.id, name: target.name } : ps,
         ),
       })),
-      technology_categories: store.technology_categories.map((cat) => ({
-        ...cat,
-        skills: cat.skills.map((cs) =>
-          cs.skill_id === sourceId ? { ...cs, skill_id: target.id, name: target.name } : cs,
-        ),
-      })),
     }),
     count: (store, id) => {
       let n = 0
       for (const p of store.projects) for (const ps of p.skills) if (ps.skill_id === id) n++
-      for (const c of store.technology_categories) for (const cs of c.skills) if (cs.skill_id === id) n++
       return n
     },
   },

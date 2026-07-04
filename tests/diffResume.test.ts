@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { diffStores } from '../src/lib/diffResume'
-import { emptyStore, makeResume, makeProject, makeSkill } from './fixtures'
+import { emptyStore, makeResume, makeProject, makeSkill, makeSkillCategory } from './fixtures'
 
 describe('diffStores', () => {
   it('reports identical for two equal stores', () => {
@@ -83,6 +83,14 @@ describe('diffStores', () => {
     const theirs = { ...emptyStore(), resume: makeResume({ title: { no: 'Utvikler', en: '' } }) }
     const d = diffStores(mine, theirs)
     expect(d.profileFields).toContainEqual({ field: 'Title', mine: 'Arkitekt', theirs: 'Utvikler' })
+  })
+
+  it('reports skill category additions under the "Skill categories" section', () => {
+    const mine = emptyStore()
+    mine.skill_categories.push(makeSkillCategory({ id: 'cat1', name: { en: 'Languages' } }))
+    const theirs = emptyStore()
+    const d = diffStores(mine, theirs)
+    expect(d.sections).toContainEqual(expect.objectContaining({ section: 'Skill categories', added: 1, removed: 0, changed: 0 }))
   })
 
   it('handles a null resume on one side', () => {

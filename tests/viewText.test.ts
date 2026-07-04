@@ -7,7 +7,7 @@ import { buildViewText, buildViewMarkdown } from '../src/lib/viewText'
 import { buildViewSections } from '../src/lib/viewFilter'
 import {
   emptyStore, makeProject, makeWork, makeReference, makeRecommendation,
-  makeSpokenLanguage, makeView, makeKQ,
+  makeSpokenLanguage, makeView, makeKQ, makeSkill, makeSkillCategory,
 } from './fixtures'
 
 function sampleStore() {
@@ -105,6 +105,16 @@ describe('buildViewText', () => {
     store.resume = null
     expect(buildViewText(store, makeView(), 'en')).toBe('')
   })
+
+  it('renders the Skills Showcase section from highlighted, categorized skills', () => {
+    const store = sampleStore()
+    store.skill_categories = [makeSkillCategory({ id: 'cat1', name: { en: 'Languages' } })]
+    store.skills.push(makeSkill({ name: { en: 'Rust' }, category_id: 'cat1', is_highlighted: true }))
+    const txt = buildViewText(store, makeView({ sections: buildViewSections() }), 'en')
+    expect(txt).toContain('SKILLS SHOWCASE')
+    expect(txt).toContain('Languages')
+    expect(txt).toContain('Rust')
+  })
 })
 
 describe('buildViewMarkdown', () => {
@@ -150,5 +160,15 @@ describe('buildViewMarkdown', () => {
     const md = buildViewMarkdown(store, makeView({ sections: buildViewSections() }), 'en')
     expect(md).toContain('### Senior Profile')
     expect(md).toContain('- **Leadership**: Led teams of 10+')
+  })
+
+  it('renders the Skills Showcase section', () => {
+    const store = sampleStore()
+    store.skill_categories = [makeSkillCategory({ id: 'cat1', name: { en: 'Languages' } })]
+    store.skills.push(makeSkill({ name: { en: 'Rust' }, category_id: 'cat1', is_highlighted: true }))
+    const md = buildViewMarkdown(store, makeView({ sections: buildViewSections() }), 'en')
+    expect(md).toContain('## Skills Showcase')
+    expect(md).toContain('Languages')
+    expect(md).toContain('Rust')
   })
 })

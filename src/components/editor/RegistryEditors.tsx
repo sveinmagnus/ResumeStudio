@@ -3,12 +3,13 @@ import { useStore, newId } from '../../store/useStore'
 import { useSortedItems } from '../../store/useSortedItems'
 import { useStableExpanded } from '../../store/useStableExpanded'
 import {
-  suggestSkillNames, loadSkillRelations, relatedSkillSuggestions, loadSkillDomains,
+  loadSkillRelations, relatedSkillSuggestions, loadSkillDomains,
   loadSkillDomainModel, type SkillRelations, type SkillDomains, type SkillDomainModel,
 } from '../../lib/skillTaxonomy'
 import {
   autoCategorizeSkills, effectiveSkillCategory, UNCATEGORIZED_LABEL,
-  skillCategoryList, assignSkillCategory, deleteSkillCategory,
+  skillCategoryList, categoryNameIndex, assignSkillCategory, deleteSkillCategory,
+  renameSkillCategory, moveSkillCategory,
 } from '../../lib/skillCategorize'
 import { INFERRED_TIERS } from '../../lib/skillMatch'
 import { DualField } from '../ui/DualField'
@@ -19,6 +20,7 @@ import { SortBar } from '../ui/SortBar'
 import { Autocomplete } from '../ui/Autocomplete'
 import { confirmDialog } from '../ui/ConfirmDialog'
 import { RegistryCategoryView, RegistryLightbox, categoriesOf } from './RegistryCategoryView'
+import { TranslationPopover } from '../ui/TranslationPopover'
 import { resolve, fmtRange } from '../../lib/locales'
 import {
   mergeSkills, mergeRoles, mergeIndustries,
@@ -26,10 +28,13 @@ import {
 } from '../../lib/merge'
 import { usageOfSkill, usageOfRole, usageOfIndustry, isSkillUnused, isRoleUnused } from '../../lib/usage'
 import type {
-  Skill, Role, Industry, Reference, TechnologyCategory, CategorySkill,
+  Skill, Role, Industry, Reference,
   LocalizedString, Project, WorkExperience,
 } from '../../types'
 import { X, Plus, Sparkles, Combine, Filter as FilterIcon, Briefcase, FolderKanban, List, LayoutGrid, Wand2, Check } from 'lucide-react'
+
+/** Filter-dropdown sentinel for "no category" — never collides with a real category uuid. */
+const UNCATEGORIZED_FILTER = '__uncategorized__'
 
 // ── Shared registry-filter bar ──────────────────────────────────────────────
 
@@ -468,14 +473,18 @@ function CategoryField({ value, categories, onChange, ariaLabel }: {
  * A skill's edit fields — shared by the list-view card and the category-view
  * lightbox so both surfaces show the same editor.
  */
-function SkillEditBody({ skill, allSkills, categories, onMerge }: {
+function SkillEditBody({ skill, allSkills, categories, catNamesById, onMerge }: {
   skill: Skill
   allSkills: Skill[]
+  /** Resolved category NAMES for the CategoryField's suggestion list. */
   categories: string[]
+  /** category id → resolved name, for showing this skill's current value. */
+  catNamesById: Map<string, string>
   onMerge: (sourceId: string, targetId: string) => void
 }) {
   const { data, primaryLocale, updateItem, replaceData } = useStore()
   const u = usageOfSkill(data, skill.id)
+  const currentCategoryName = skill.category_id ? catNamesById.get(skill.category_id) ?? null : null
   return (
     <>
       <DualField label="Skill name" value={skill.name} onChange={(v) => updateItem('skills', skill.id, { name: v })} />
@@ -483,11 +492,12 @@ function SkillEditBody({ skill, allSkills, categories, onMerge }: {
         <div className="pf-wrap">
           <span className="pf-label">Category</span>
           <CategoryField
-            value={skill.category ?? null}
+            value={currentCategoryName}
             categories={categories}
             ariaLabel="Category"
-            // assignSkillCategory remembers a new category so it persists if emptied.
-            onChange={(v) => replaceData(assignSkillCategory(data, skill.id, v))}
+            // assignSkillCategory resolves the typed text to an existing category
+            // (case-insensitively) or creates a new one, so it persists if emptied.
+            onChange={(v) => replaceData(assignSkillCategory(data, skill.id, v, primaryLocale))}
           />
         </div>
         <label className="pf-wrap">
@@ -500,9 +510,9 @@ function SkillEditBody({ skill, allSkills, categories, onMerge }: {
       </FieldRow>
       <label className="check-row">
         <input type="checkbox" checked={skill.is_highlighted} onChange={(e) => updateItem('skills', skill.id, { is_highlighted: e.target.checked })} />
-        Highlight in compact skill summaries
+        Highlight in the Skills Showcase &amp; compact skill summaries
       </label>
-      <SkillUsagePanel projects={u.projects} categories={u.technology_categories} />
+      <SkillUsagePanel projects={u.projects} />
       <MergeRow
         kind="skill"
         sourceId={skill.id}
@@ -530,26 +540,27 @@ export function SkillsEditor() {
   // All known categories (persisted + in-use) — empty ones included so a
   // category survives until it's explicitly deleted.
   const knownCats = useMemo(() => skillCategoryList(data), [data.skills, data.skill_categories])
+  const catNamesById = useMemo(() => categoryNameIndex(knownCats, primaryLocale), [knownCats, primaryLocale])
 
   // Per-category skill counts (empty categories show as 0), plus Uncategorized
   // last when any skill lacks a category — drives the filter dropdown.
   const categoryCounts = useMemo(() => {
     const m = new Map<string, number>()
-    for (const c of knownCats) m.set(c, 0)
+    for (const c of knownCats) m.set(c.id, 0)
     let uncat = 0
     for (const s of allItems) {
-      const c = s.category?.trim()
-      if (c) m.set(c, (m.get(c) ?? 0) + 1)
+      if (s.category_id) m.set(s.category_id, (m.get(s.category_id) ?? 0) + 1)
       else uncat++
     }
-    const entries = [...m.entries()].sort((a, b) => a[0].localeCompare(b[0]))
-    if (uncat > 0) entries.push([UNCATEGORIZED_LABEL, uncat])
+    const entries = [...m.entries()]
+      .map(([id, n]): [string, string, number] => [id, catNamesById.get(id) ?? UNCATEGORIZED_LABEL, n])
+      .sort((a, b) => a[1].localeCompare(b[1]))
+    if (uncat > 0) entries.push([UNCATEGORIZED_FILTER, UNCATEGORIZED_LABEL, uncat])
     return entries
-  }, [knownCats, allItems])
+  }, [knownCats, allItems, catNamesById])
 
-  // Usage spans projects AND technology categories — countSkillReferences
-  // already enumerates every reference site, so reuse it rather than an
-  // inline scan that would silently miss the tech-category branch.
+  // Usage spans projects only — countSkillReferences already enumerates every
+  // reference site.
   const usage = useMemo(
     () => new Map(allItems.map((s) => [s.id, countSkillReferences(data, s.id)])),
     [allItems, data],
@@ -571,7 +582,8 @@ export function SkillsEditor() {
     else if (filter === 'missing-translation') {
       base = base.filter((s) => isMissingTranslation(s.name, primaryLocale, secondaryLocale))
     }
-    if (categoryFilter !== 'all') base = base.filter((s) => effectiveSkillCategory(s) === categoryFilter)
+    if (categoryFilter === UNCATEGORIZED_FILTER) base = base.filter((s) => !s.category_id)
+    else if (categoryFilter !== 'all') base = base.filter((s) => s.category_id === categoryFilter)
     return base
   }, [allItems, usage, filter, categoryFilter, primaryLocale, secondaryLocale])
   // Keep the item being edited present even once its translation is complete
@@ -586,14 +598,18 @@ export function SkillsEditor() {
   const batchRows = useFrozenMissing(filter === 'missing-translation', missingItems, allItems)
 
   // A real (non-Uncategorized) category is selected → offer to DELETE it.
-  const canDeleteFilteredCat = categoryFilter !== 'all' && categoryFilter !== UNCATEGORIZED_LABEL
+  const canDeleteFilteredCat = categoryFilter !== 'all' && categoryFilter !== UNCATEGORIZED_FILTER
   const deleteFilteredCategory = () => {
     replaceData(deleteSkillCategory(data, categoryFilter))
     setCategoryFilter('all')
   }
-  const deleteCategory = (category: string) => replaceData(deleteSkillCategory(data, category))
-  const setSkillCategory = (id: string, category: string | null) =>
-    replaceData(assignSkillCategory(data, id, category))
+  const deleteCategory = (categoryId: string) => replaceData(deleteSkillCategory(data, categoryId))
+  const setSkillCategory = (id: string, categoryId: string | null) =>
+    replaceData(assignSkillCategory(data, id, categoryId, primaryLocale))
+  const renameCategory = (categoryId: string, name: LocalizedString) =>
+    replaceData(renameSkillCategory(data, categoryId, name))
+  const moveCategory = (categoryId: string, dir: 'up' | 'down') =>
+    replaceData(moveSkillCategory(data, categoryId, dir))
 
   const onMerge = (sourceId: string, targetId: string) => void (async () => {
     if (!await confirmMerge('skill', sourceId, targetId, data.skills, primaryLocale, countSkillReferences(data, sourceId))) return
@@ -603,12 +619,16 @@ export function SkillsEditor() {
   })()
 
   const makeSkill = (name: Skill['name']): Skill => ({
-    id: newId(), resume_id: data.resume!.id, name, default_category: null,
+    id: newId(), resume_id: data.resume!.id, name,
     total_duration_in_years: 0, proficiency: 0, is_highlighted: false,
-    category: null, created_at: new Date().toISOString(),
+    category_id: null, created_at: new Date().toISOString(),
   })
-  // Datalist for the editor: every known category (empty ones included).
-  const categories = knownCats
+  // Datalist for the editor: every known category's resolved name (empty
+  // categories included).
+  const categories = useMemo(
+    () => knownCats.map((c) => catNamesById.get(c.id) ?? '').filter(Boolean),
+    [knownCats, catNamesById],
+  )
   const editingSkill = editingId ? data.skills.find((s) => s.id === editingId) ?? null : null
   const add = () => addItem('skills', makeSkill({}))
   // From the By-category view: create a skill and open its editor lightbox
@@ -656,7 +676,7 @@ export function SkillsEditor() {
                 <select id="skill-cat-filter-select" className="scf-select"
                   value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
                   <option value="all">All categories ({allItems.length})</option>
-                  {categoryCounts.map(([c, n]) => <option key={c} value={c}>{c} ({n})</option>)}
+                  {categoryCounts.map(([id, label, n]) => <option key={id} value={id}>{label} ({n})</option>)}
                 </select>
                 {canDeleteFilteredCat && (
                   <button type="button" className="scf-clear" onClick={deleteFilteredCategory}
@@ -671,7 +691,7 @@ export function SkillsEditor() {
               onSet={(id, name) => updateItem('skills', id, { name })}
               renderEditor={(id) => {
                 const s = allItems.find((x) => x.id === id)
-                return s ? <SkillEditBody skill={s} allSkills={allItems} categories={categories} onMerge={onMerge} /> : null
+                return s ? <SkillEditBody skill={s} allSkills={allItems} categories={categories} catNamesById={catNamesById} onMerge={onMerge} /> : null
               }} />
           ) : (
           <>
@@ -688,15 +708,14 @@ export function SkillsEditor() {
           {displayItems.map((s) => {
             const u = usageOfSkill(data, s.id)
             const projectCount = u.projects.length
-            const catCount = u.technology_categories.length
             return (
               <EditorCard key={s.id} section="skills" id={s.id}
                 title={resolve(s.name, primaryLocale)}
-                subtitle={effectiveSkillCategory(s)}
-                meta={`${projectCount} project${projectCount === 1 ? '' : 's'} | ${catCount} categor${catCount === 1 ? 'y' : 'ies'}`}
+                subtitle={effectiveSkillCategory(s, catNamesById)}
+                meta={`${projectCount} project${projectCount === 1 ? '' : 's'}${s.is_highlighted ? ' | showcased' : ''}`}
                 canStar={false} canDisable={false}
                 sortable={false}>
-                <SkillEditBody skill={s} allSkills={allItems} categories={categories} onMerge={onMerge} />
+                <SkillEditBody skill={s} allSkills={allItems} categories={categories} catNamesById={catNamesById} onMerge={onMerge} />
               </EditorCard>
             )
           })}
@@ -710,15 +729,19 @@ export function SkillsEditor() {
           <AutoCategorizePanel />
           <RegistryCategoryView
             items={allItems.map((s) => ({
-              ...s,
-              removable: !!(s.category && s.category.trim()),
+              id: s.id,
+              name: s.name,
+              category: s.category_id ?? null,
+              removable: !!s.category_id,
             }))}
-            categories={knownCats}
+            categories={knownCats.map((c) => ({ key: c.id, label: catNamesById.get(c.id) ?? '', name: c.name }))}
             unnamed="(unnamed skill)"
             onOpen={setEditingId}
             onRecategorize={setSkillCategory}
-            onRemove={(id) => updateItem('skills', id, { category: null })}
+            onRemove={(id) => updateItem('skills', id, { category_id: null })}
             onDeleteCategory={deleteCategory}
+            onRenameCategory={renameCategory}
+            onMoveCategory={moveCategory}
           />
           <AddButton label="Add skill" onClick={addInCategory} />
         </>
@@ -731,7 +754,7 @@ export function SkillsEditor() {
           onClose={() => setEditingId(null)}
           onDelete={deleteEditingSkill}
         >
-          <SkillEditBody skill={editingSkill} allSkills={allItems} categories={categories} onMerge={onMerge} />
+          <SkillEditBody skill={editingSkill} allSkills={allItems} categories={categories} catNamesById={catNamesById} onMerge={onMerge} />
         </RegistryLightbox>
       )}
       <RegistryStyles />
@@ -1080,50 +1103,31 @@ function UsageRow({
   )
 }
 
-function SkillUsagePanel({
-  projects, categories,
-}: { projects: Project[]; categories: TechnologyCategory[] }) {
+function SkillUsagePanel({ projects }: { projects: Project[] }) {
   const { primaryLocale, setActiveSection, setExpandedItem } = useStore()
   const goto = (section: string, id: string) => {
     setActiveSection(section)
     setExpandedItem(id)
   }
-  if (projects.length === 0 && categories.length === 0) {
+  if (projects.length === 0) {
     return (
       <div className="usage-block usage-empty">
-        <strong>Unused</strong> — no projects or technology categories reference this skill yet.
+        <strong>Unused</strong> — no projects reference this skill yet.
       </div>
     )
   }
   return (
     <div className="usage-block">
       <div className="usage-head">Used in</div>
-      {projects.length > 0 && (
-        <>
-          <div className="usage-sub">{projects.length} project{projects.length === 1 ? '' : 's'}</div>
-          {projects.map((p) => (
-            <UsageRow
-              key={p.id}
-              icon={<FolderKanban size={13} />}
-              label={`${resolve(p.customer, primaryLocale) || resolve(p.description, primaryLocale) || 'Untitled project'} ${fmtRange(p.start, p.end) ? '· ' + fmtRange(p.start, p.end) : ''}`.trim()}
-              onClick={() => goto('projects', p.id)}
-            />
-          ))}
-        </>
-      )}
-      {categories.length > 0 && (
-        <>
-          <div className="usage-sub">{categories.length} categor{categories.length === 1 ? 'y' : 'ies'}</div>
-          {categories.map((c) => (
-            <UsageRow
-              key={c.id}
-              icon={<FolderKanban size={13} />}
-              label={resolve(c.name, primaryLocale) || 'Untitled category'}
-              onClick={() => goto('technology_categories', c.id)}
-            />
-          ))}
-        </>
-      )}
+      <div className="usage-sub">{projects.length} project{projects.length === 1 ? '' : 's'}</div>
+      {projects.map((p) => (
+        <UsageRow
+          key={p.id}
+          icon={<FolderKanban size={13} />}
+          label={`${resolve(p.customer, primaryLocale) || resolve(p.description, primaryLocale) || 'Untitled project'} ${fmtRange(p.start, p.end) ? '· ' + fmtRange(p.start, p.end) : ''}`.trim()}
+          onClick={() => goto('projects', p.id)}
+        />
+      ))}
     </div>
   )
 }
@@ -1447,205 +1451,6 @@ function ReferenceContextLink({ reference }: { reference: Reference }) {
   )
 }
 
-// ── Technology categories (skills showcase) ───────────────────────────────────
-
-export function TechCategoriesEditor() {
-  const { data, primaryLocale, addItem, updateItem } = useStore()
-  const items = useSortedItems('technology_categories')
-
-  const add = () => {
-    const c: TechnologyCategory = {
-      id: newId(), resume_id: data.resume!.id, name: {}, skills: [], sort_order: items.length, disabled: false,
-    }
-    addItem('technology_categories', c)
-  }
-
-  // Link a registry skill to the category. If `existingCsId` is provided we
-  // replace an existing row; otherwise we append a new one.
-  const linkSkillIntoCategory = (catId: string, skillId: string, existingCsId?: string) => {
-    const cat = items.find((x) => x.id === catId)!
-    const reg = data.skills.find((x) => x.id === skillId)
-    if (!reg) return
-    // Don't link the same skill twice into a category — silently surface the
-    // existing chip instead.
-    if (cat.skills.some((cs) => cs.skill_id === skillId && cs.id !== existingCsId)) return
-    if (existingCsId) {
-      updateItem('technology_categories', catId, {
-        skills: cat.skills.map((cs) => (cs.id === existingCsId
-          ? { ...cs, skill_id: skillId, name: reg.name, total_duration_in_years: reg.total_duration_in_years || 0 }
-          : cs)),
-      })
-    } else {
-      const cs: CategorySkill = {
-        id: newId(), skill_id: skillId, name: reg.name, proficiency: 0,
-        total_duration_in_years: reg.total_duration_in_years || 0, sort_order: cat.skills.length,
-      }
-      updateItem('technology_categories', catId, { skills: [...cat.skills, cs] })
-    }
-  }
-
-  const createSkillAndLink = (catId: string, text: string) => {
-    const skill: Skill = {
-      id: newId(), resume_id: data.resume!.id, name: { [primaryLocale]: text },
-      default_category: null, total_duration_in_years: 0,
-      proficiency: 0, is_highlighted: false, created_at: new Date().toISOString(),
-    }
-    addItem('skills', skill, { open: false }) // don't collapse this category card
-    // Pull the freshly-current category off `items` after addItem (which
-    // committed via the store): use a microtask so we read the updated state.
-    // Simpler: read directly via getState.
-    const cat = useStore.getState().data.technology_categories.find((c) => c.id === catId)
-    if (!cat) return
-    const cs: CategorySkill = {
-      id: newId(), skill_id: skill.id, name: skill.name, proficiency: 0,
-      total_duration_in_years: 0, sort_order: cat.skills.length,
-    }
-    updateItem('technology_categories', catId, { skills: [...cat.skills, cs] })
-  }
-
-  const removeSkill = (catId: string, csId: string) => {
-    const cat = items.find((x) => x.id === catId)!
-    updateItem('technology_categories', catId, { skills: cat.skills.filter((cs) => cs.id !== csId) })
-  }
-
-  return (
-    <div className="section-pane">
-      <p className="registry-note">A curated showcase grouping skills from the registry for display in exports.</p>
-      <SortBar section="technology_categories" count={items.length} />
-      <SortableList section="technology_categories" ids={items.map((x) => x.id)}>
-      {items.map((cat) => (
-        <EditorCard key={cat.id} section="technology_categories" id={cat.id}
-          title={resolve(cat.name, primaryLocale) || 'Category'} meta={`${cat.skills.length} skills`}
-          canStar={false} disabled={cat.disabled}>
-          <DualField label="Category name" value={cat.name} onChange={(v) => updateItem('technology_categories', cat.id, { name: v })} />
-          <div className="sub-block">
-            <div className="sub-head">Skills in this category</div>
-            <div className="skill-chip-list">
-              {cat.skills.map((cs) => (
-                <CategorySkillChip
-                  key={cs.id}
-                  cs={cs}
-                  onRemove={() => removeSkill(cat.id, cs.id)}
-                />
-              ))}
-            </div>
-            <Autocomplete
-              options={data.skills
-                .filter((s) => !cat.skills.some((cs) => cs.skill_id === s.id))
-                .map((s) => ({
-                  id: s.id,
-                  label: resolve(s.name, primaryLocale) || '(unnamed skill)',
-                  sublabel: s.category?.trim() || undefined,
-                }))}
-              onPick={(skillId) => linkSkillIntoCategory(cat.id, skillId)}
-              onAddNew={(text) => createSkillAndLink(cat.id, text)}
-              addLabel="skill"
-              placeholder="Search or add a skill…"
-              suggestExtra={suggestSkillNames(() =>
-                useStore.getState().data.skills.map((s) => resolve(s.name, primaryLocale)),
-              )}
-            />
-          </div>
-        </EditorCard>
-      ))}
-      </SortableList>
-      <AddButton label="Add category" onClick={add} />
-      <RegistryStyles />
-    </div>
-  )
-}
-
-/**
- * A clickable chip in a TechnologyCategory's skill list. Click → opens a
- * popover with a DualField bound to the GLOBAL Skill (so editing the
- * translation here updates the registry and propagates to every other
- * reference, by design). The chip's own snapshot is re-synced from the
- * registry name on every render.
- */
-function CategorySkillChip({
-  cs, onRemove,
-}: { cs: CategorySkill; onRemove: () => void }) {
-  const { data, primaryLocale, updateItem } = useStore()
-  const [open, setOpen] = useState(false)
-  const skill = data.skills.find((s) => s.id === cs.skill_id)
-  const label = resolve(skill?.name ?? cs.name, primaryLocale) || '(unlinked)'
-
-  return (
-    <div className="skill-chip-w">
-      <button
-        type="button"
-        className="skill-chip"
-        onClick={() => setOpen((o) => !o)}
-        title="Edit translation"
-      >
-        <span>{label}</span>
-      </button>
-      <button
-        type="button"
-        className="skill-chip-x"
-        onClick={(e) => { e.stopPropagation(); onRemove() }}
-        title="Remove from this category"
-      >
-        <X size={12} />
-      </button>
-      {open && skill && (
-        <SkillTranslationPopover
-          skill={skill}
-          onClose={() => setOpen(false)}
-          onChange={(name) => updateItem('skills', skill.id, { name })}
-        />
-      )}
-    </div>
-  )
-}
-
-/**
- * Generic dual-language translation popover. Renders a DualField bound to a
- * LocalizedString, with a heading and a footnote, dismissing on outside click.
- * Used by skill chips, role chips, and the employment role pill.
- */
-export function TranslationPopover({
-  title, fieldLabel, value, footnote, onClose, onChange,
-}: {
-  title: string
-  fieldLabel: string
-  value: LocalizedString
-  footnote?: string
-  onClose: () => void
-  onChange: (value: LocalizedString) => void
-}) {
-  const ref = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    const h = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose()
-    }
-    // Defer registration so the click that OPENED the popover doesn't
-    // immediately close it.
-    const t = setTimeout(() => document.addEventListener('mousedown', h), 0)
-    return () => { clearTimeout(t); document.removeEventListener('mousedown', h) }
-  }, [onClose])
-  return (
-    <div ref={ref} className="stp-pop">
-      <div className="stp-head">{title}</div>
-      <DualField label={fieldLabel} value={value} onChange={onChange} />
-      {footnote && <div className="stp-foot">{footnote}</div>}
-      <style>{`
-        .stp-pop {
-          position: absolute; top: calc(100% + 6px); left: 0; z-index: 40;
-          width: min(420px, 90vw); padding: 14px 14px 10px;
-          background: var(--paper-raised); border: 1px solid var(--line-strong);
-          border-radius: var(--r-md); box-shadow: var(--shadow-lg);
-        }
-        .stp-head {
-          font-size: 12px; font-weight: 700; letter-spacing: .04em;
-          text-transform: uppercase; color: var(--ink-soft); margin-bottom: 10px;
-        }
-        .stp-foot { font-size: 11px; color: var(--ink-faint); margin-top: 4px; }
-      `}</style>
-    </div>
-  )
-}
-
 /**
  * Shared popover used by both CategorySkillChip and the ProjectsEditor's
  * project-skill chip. Edits the registry Skill's name — a thin wrapper over
@@ -1705,6 +1510,20 @@ function RegistryStyles() {
       }
       .rcv-head-label { display: inline-flex; align-items: center; gap: 8px; }
       .rcv-head.is-over { background: var(--accent-wash); color: var(--accent); box-shadow: inset 0 0 0 2px var(--accent); }
+      .rcv-head-actions { display: inline-flex; align-items: center; gap: 2px; flex-shrink: 0; }
+      .rcv-head-rename {
+        display: inline-grid; place-items: center; width: 20px; height: 20px;
+        color: var(--ink-faint); border-radius: var(--r-sm); flex-shrink: 0;
+        transition: color .12s, background .12s;
+      }
+      .rcv-head-rename:hover { color: var(--accent); background: var(--paper-raised); }
+      .rcv-head-move {
+        display: grid; place-items: center; width: 24px; height: 24px; flex-shrink: 0;
+        color: var(--ink-faint); border-radius: var(--r-sm);
+        transition: color .12s, background .12s;
+      }
+      .rcv-head-move:hover:not(:disabled) { color: var(--accent); background: var(--paper-raised); }
+      .rcv-head-move:disabled { opacity: .3; cursor: default; }
       .rcv-head-x {
         display: grid; place-items: center; width: 24px; height: 24px; flex-shrink: 0;
         color: var(--ink-faint); border-radius: var(--r-sm);

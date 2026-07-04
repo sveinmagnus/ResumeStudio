@@ -5,6 +5,7 @@ import { SECTIONS } from './sections'
 import { resolve } from './locales'
 import { SECTION_CATALOG, type AnyItem, type CatalogCtx } from './sectionCatalog'
 import { skillMatrixRows, fmtLastUsed, fmtProficiency } from './skillMatrix'
+import { showcaseGroups } from './showcase'
 import { renderRichHtml } from './richText'
 import { deriveTokens, resolveSectionStyle, withDefaults, resolveFontCss, type ResolvedSectionStyle, type StyleTokens } from './viewStyle'
 import { withHeaderDefaults, withFooterDefaults, buildHeaderLines, buildCopyrightLine } from './viewHeader'
@@ -351,10 +352,14 @@ export function buildViewHtml(store: ResumeStore, view: ResumeView, locale: stri
 </section>`
       }
       // Virtual promoted_projects derives its items from the starred projects;
-      // every other section reads its filtered store array.
+      // virtual technology_categories (Skills Showcase) derives its groups
+      // from the skill-category system; every other section reads its
+      // filtered store array.
       const items = s.key === 'promoted_projects'
         ? promotedProjectItems(store, view)
-        : (filtered[s.storeKey] as unknown[])
+        : s.key === 'technology_categories'
+          ? showcaseGroups(store, view, locale)
+          : (filtered[s.storeKey] as unknown[])
       if (!items.length) return ''
       const resolved = resolveSectionStyle(viewStyle, s.sectionStyle)
       perSectionCss.push(sectionStyleCss(s.key, resolved, tokens))

@@ -8,7 +8,7 @@ import { EditorCard, AddButton, FieldRow } from '../ui/EditorCard'
 import { SortableList } from '../ui/SortableList'
 import { SortBar } from '../ui/SortBar'
 import { Autocomplete } from '../ui/Autocomplete'
-import { TranslationPopover } from './RegistryEditors'
+import { TranslationPopover } from '../ui/TranslationPopover'
 import { resolve, fmtRange, fmtDate } from '../../lib/locales'
 import { richToPlain } from '../../lib/richText'
 import type {

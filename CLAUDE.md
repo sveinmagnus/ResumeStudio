@@ -43,8 +43,9 @@ What works today:
   skills carry an authoritative **classification** surfaced as the skill-matrix
   Category column. The Skill Registry's "By category" view also offers
   **offline auto-categorization** (`lib/skillCategorize.ts` +
-  `lib/skillMatch.ts`): a one-click action fills each skill's `category` from the
-  library's fine-grained `domain` via a **layered matcher** — `exact`
+  `lib/skillMatch.ts`): a one-click action fills each blank-category skill's
+  `category_id` from the library's fine-grained `domain` via a **layered
+  matcher** — `exact`
   (normalized: case/punctuation/version-insensitive, "React.js"/"Java 8" land) →
   `token` (a multi-word library name contained in the query) → `fuzzy` (bounded
   edit distance for typos) → `semantic` (a compact token→domain model,
@@ -52,18 +53,44 @@ What works today:
   (relations-graph vote for domainless library nodes). Only `exact` is
   high-confidence; the rest are surfaced as "**inferred — worth a review**"
   (`INFERRED_TIERS`). Never overwrites a manually-set category; applied via
-  `replaceData` (undoable + auto-saved). **`category` is a skill's SINGLE grouping concept** — the old
-  `skill_type` enum was fully removed (there is no "type" control or field; only
-  importers/backups may carry legacy leftovers, ignored on read).
-  `effectiveSkillCategory(skill)` (explicit `category`, else **"Uncategorized"**)
-  is what the list card subtitle, the By-category grouping, and the registry's
-  **category filter** (a dropdown of used categories with per-category skill
-  counts) all group on, so the three never disagree. A skill with no category
-  groups under "Uncategorized" (sorted last); "Technical" is a normal category
-  only when explicitly chosen. Categories can be **cleared** to make skills
-  auto-categorizable again: a per-chip "x" in the By-category view removes one
-  skill's category, and the filtered list offers a bulk **"Clear all skills from
-  category (N)"** for the shown group (`clearSkillCategories`).
+  `replaceData` (undoable + auto-saved).
+- **Skill categories are first-class entities** (`SkillCategory` —
+  `{ id, resume_id, name: LocalizedString, sort_order }`, shape v6,
+  `ResumeStore.skill_categories`) linked from `Skill.category_id`, replacing
+  both the old free-text `Skill.category` string AND the separate "Skills
+  Showcase" feature's own curated `technology_categories[]` groups (roadmap:
+  showcase unification, 2026-07). **`category_id` is a skill's SINGLE grouping
+  concept** — the old `skill_type` enum was removed earlier and stays gone;
+  only importers/backups may carry legacy `category`/`technology_categories`
+  leftovers, converted on load by `migrate.ts → unifyShowcaseCategories` (shape
+  v6: a pre-v6 skill's showcase membership WINS over a differing registry
+  string, and every skill that was in a legacy showcase group is marked
+  `is_highlighted: true`). `effectiveSkillCategory(skill, namesById)` (explicit
+  category name, else **"Uncategorized"**; takes a `categoryNameIndex()` built
+  once per render) is what the list card subtitle, the By-category grouping,
+  and the registry's **category filter** (a dropdown of used categories with
+  per-category skill counts) all group on, so the three never disagree. A
+  skill with no category groups under "Uncategorized" (sorted last).
+  Categories can be **cleared** to make skills auto-categorizable again: a
+  per-chip "x" in the By-category view removes one skill's category, and the
+  filtered list offers a bulk **"Clear all skills from category (N)"** for the
+  shown group (`clearSkillCategories`). By-category headers render in the
+  categories' curated **`sort_order`** (not alphabetically) with **↑/↓
+  reorder** and a **rename** affordance (a `TranslationPopover` editing the
+  category's `LocalizedString` name — `moveSkillCategory` /
+  `renameSkillCategory` in `lib/skillCategorize.ts`); the quick-drop panel and
+  the category filter dropdown stay alphabetical. A category persists after
+  its last skill leaves and is removed only by an explicit delete
+  (`deleteSkillCategory`).
+- **Skills Showcase** is now a **virtual view section** (`technology_categories`,
+  unchanged key for saved-view/template compatibility) that derives its
+  groups at render time from `lib/showcase.ts → showcaseGroups()`: every
+  non-excluded category (curated order), paired with its **highlighted**
+  skills (alphabetical within a group). "Showcase a skill" = highlight it;
+  its linked category picks the group. A category with zero qualifying
+  skills is omitted from every export but still shows (so it can be filled)
+  in the By-category editor. `full`/`summary` view detail is a pure FORMAT
+  toggle (tags vs. one-line) — it does not change which skills appear.
 - **Freshness & expiry warnings** — the Overview's "Needs attention" panel
   flags expired/expiring certifications and long-running "ongoing" items, and
   the picker badges resumes not updated in 6+ months (`lib/freshness.ts`). The
@@ -177,9 +204,10 @@ What works today:
   **employment role link** (picking an existing role fills both languages; the
   popover edits the registry Role), plus linking a reference to a project /
   employment. The **Skill and Role registries** also have a **"By category"
-  view** (`Skill.category` / `Role.category`, optional free-text): a compact
-  grouping of item titles under category headers, where dragging an item onto
-  another header recategorizes it (dnd-kit `useDraggable`/`useDroppable`). While
+  view** (`Skill.category_id` → a `SkillCategory` entity; `Role.category`,
+  still optional free-text): a compact grouping of item titles under category
+  headers, where dragging an item onto another header recategorizes it
+  (dnd-kit `useDraggable`/`useDroppable`). While
   dragging, a **`DragOverlay`** floats a copy of the chip under the cursor (the
   original dims), and a **fixed quick-select panel** lists every category as a
   drop target on the right, so a long list needs no scrolling (panel droppables
@@ -189,15 +217,22 @@ What works today:
   **delete** button); the "Add" button here creates the item AND opens that
   lightbox. Each header has a **trash button** that DELETES the category
   ("Delete category and all skill assignments") — the per-chip "×" only removes
-  one item's assignment. **Skill categories are first-class**
-  (`ResumeStore.skill_categories`, shape v5, seeded by `internSkillCategories`):
-  a category persists in the list/filter/By-category view after its last skill
-  leaves, and is removed ONLY by an explicit delete — see `skillCategoryList` /
-  `assignSkillCategory` / `deleteSkillCategory` in `lib/skillCategorize.ts`.
-  (Role categories are still purely derived — no empty-persistence.) Both
+  one item's assignment. **Skill categories are first-class entities**
+  (`ResumeStore.skill_categories: SkillCategory[]`, shape v6): a category
+  persists in the list/filter/By-category view after its last skill leaves,
+  and is removed ONLY by an explicit delete — see `skillCategoryList` /
+  `assignSkillCategory` / `deleteSkillCategory` / `renameSkillCategory` /
+  `moveSkillCategory` in `lib/skillCategorize.ts`. Skill category headers also
+  render in their curated **`sort_order`** with **↑/↓ reorder** and a
+  **rename** popover (see §1's Skills Showcase entry above for the full
+  entity design). (Role categories are still purely derived string groups —
+  no entity, no empty-persistence, no reorder.) Both
   editors share the generic `RegistryCategoryView` / `CatGroup` / `CatChip` /
   `RegistryLightbox` (a skill's category is the consultant's own organisation;
-  distinct from the Quadim `classification`).
+  distinct from the Quadim `classification`); the shared `TranslationPopover`
+  used for the rename affordance (and every registry-chip translation edit)
+  lives in `components/ui/TranslationPopover.tsx` — not `RegistryEditors.tsx`,
+  to avoid a circular import with `RegistryCategoryView.tsx`.
 - **React error boundary** around the editor so a crashed view never traps the
   user.
 - **Downloadable desktop build** — a portable folder (bundled Node + esbuild'd
@@ -327,12 +362,13 @@ src/
 │   ├── skillTaxonomy.ts        ← Quadim skill-library data (F12): lazy generated JSON (names/relations/classifications/domains/domain-model) + PURE matchTaxonomy / relatedSkillSuggestions (regen: scripts/build-skill-taxonomy.mjs)
 │   ├── skillNormalize.ts       ← PURE: canonicalize imported skill names to library spelling + stamp classifications (F12 pt2/4); free-text importers only, not backups
 │   ├── skillMatch.ts           ← PURE: layered name→domain matcher for auto-categorization — normalizeKey/tokenize, exact/token/fuzzy(editDistance)/semantic(token-model) tiers; matchSkillDomain returns {domain,tier}; INFERRED_TIERS marks the review-worthy ones
-│   ├── skillCategorize.ts      ← PURE: offline auto-categorization of the Skill registry — runs the lib/skillMatch tiers (exact→token→fuzzy→semantic) + a relations-graph fallback; fills BLANK `category` only (never overwrites manual). `clearSkillCategories()` strips explicit categories (per-chip "x" or the filtered list's bulk "Clear all skills from category") so skills are auto-categorizable again. Source: generated/skillDomains.json + skillDomainModel.json. Also `effectiveSkillCategory()` — explicit `category` else "Uncategorized". `category` is the single grouping concept; the `skill_type` enum was removed entirely. Used by the list subtitle, By-category grouping + the category filter
+│   ├── skillCategorize.ts      ← PURE: `SkillCategory` entity CRUD (skillCategoryList/categoryNameIndex/effectiveSkillCategory/assignSkillCategory/renameSkillCategory/moveSkillCategory/deleteSkillCategory/clearSkillCategories) + offline auto-categorization of the Skill registry — runs the lib/skillMatch tiers (exact→token→fuzzy→semantic) + a relations-graph fallback; fills a BLANK `category_id` only (never overwrites manual). `clearSkillCategories()` strips explicit `category_id` links (per-chip "x" or the filtered list's bulk "Clear all skills from category") so skills are auto-categorizable again. Source: generated/skillDomains.json + skillDomainModel.json. `effectiveSkillCategory(skill, namesById)` — explicit category name else "Uncategorized"; `category_id` is the single grouping concept. Used by the list subtitle, By-category grouping (curated `sort_order` + rename/reorder) + the category filter
+│   ├── showcase.ts             ← PURE: the Skills Showcase virtual view section (roadmap: showcase unification) — `showcaseGroups(store, view, locale)` groups HIGHLIGHTED skills by their linked `SkillCategory`, in curated order; empty/excluded categories omitted, never an Uncategorized group
 │   ├── freshness.ts            ← PURE: freshness/expiry warnings (F3) — expired/expiring certs, stale 'ongoing' items, isResumeStale; deterministic via injected `now`
 │   ├── importerLinkedIn.ts     ← PURE: LinkedIn data-export (CSV map) → ResumeStore; RFC4180 parseCsv. ZIP extraction lives in ImportScreen (lazy fflate)
 │   ├── importerEuropass.ts     ← Europass import: SkillsPassport XML (DOMParser) + profile JSON → ResumeStore
 │   ├── storage.ts (src/lib)    ← PURE: payload-weight thresholds + fmtBytes for the picker readout (server twin: server/storage.ts)
-│   └── viewFilter.ts           ← Apply a ResumeView (detail/exclusions/starred/force_anonymized); buildViewHtml() for PDF/preview. escapeHtml. SECURITY-CRITICAL render path
+│   └── viewFilter.ts           ← Apply a ResumeView (detail/exclusions/starred/force_anonymized); buildViewHtml() for PDF/preview. escapeHtml. SECURITY-CRITICAL render path. Sources the Skills Showcase section from `showcaseGroups()`, not a raw store array
 ├── components/
 │   ├── ErrorBoundary.tsx       ← Wraps the editor; resets on activeSection change
 │   ├── ResumeList.tsx          ← Picker route (/): card list + "Add resume" panel + delete confirm
@@ -353,8 +389,9 @@ src/
 │   │   ├── DualField.tsx       ← THE KEY COMPONENT — side-by-side localized input
 │   │   ├── EditorCard.tsx      ← Collapsible card; drag handle + up/down arrows (via `sortable` prop)
 │   │   ├── Fields.tsx          ← TextField, DateField, TagField (plain inputs)
-│   │   ├── Autocomplete.tsx    ← Generic typeahead picker (full ARIA combobox) with optional "Add new" path. Used to attach skills to projects/tech-cats, roles to employments, and projects/employments to references.
+│   │   ├── Autocomplete.tsx    ← Generic typeahead picker (full ARIA combobox) with optional "Add new" path. Used to attach skills to projects/tech-categories, roles to employments, and projects/employments to references.
 │   │   ├── SortableList.tsx    ← DndContext + SortableContext wrapper (calls store.moveItem on drop)
+│   │   ├── TranslationPopover.tsx ← Shared dual-language rename/edit popover (DualField + heading + footnote, dismiss on outside click). Lives here (not RegistryEditors.tsx) so RegistryCategoryView.tsx can use it too without a circular import
 │   │   └── useDialog.ts        ← Shared modal behaviour: initial focus, Tab trap, Esc close, focus restore — every overlay dialog uses it
 │   └── editor/
 │       ├── Overview.tsx        ← Dashboard with stats + translation %
@@ -362,7 +399,8 @@ src/
 │       ├── ProfileCompetenciesEditor.tsx ← "Profile & Competencies" page: ProfileEditor + KeyCompetenciesEditor under headings (replaces the old Personal Details sub-tabs)
 │       ├── ProjectsEditor.tsx  ← Edit mode for projects (the richest editor)
 │       ├── SimpleEditors.tsx   ← Work/Education/Courses/Certs/Positions/Presentations/Publications/Awards/Languages/Profile
-│       ├── RegistryEditors.tsx ← Skill/Role/Reference/TechCat editors + Merge UI
+│       ├── RegistryEditors.tsx ← Skill/Role/Reference editors + Merge UI (the old TechCategoriesEditor page is gone — Skills Showcase folded into the Skill registry, see lib/showcase.ts)
+│       ├── RegistryCategoryView.tsx ← Shared "By category" grouped view for Skill/Role registries: drag-to-recategorize, DragOverlay, quick-drop panel, ↑/↓ reorder + rename (skills only — id-keyed `CategoryHeader[]`), lightbox
 │       └── ResumeViewsEditor.tsx ← View list + view editor (sections, items, options, Export PDF / Export DOCX)
 ├── App.tsx                     ← Route table: AuthGate / ResumeList (/) / EditorRoute (/r/:id[/:section|/views/:viewId]) / NotFound; URL⇄store section sync
 ├── main.tsx                    ← React entry
@@ -440,10 +478,11 @@ Every translatable field is a `LocalizedString = Record<string, string>` keyed b
 - `end: null` on date ranges means ongoing.
 
 ### Shared registries
-- **`Skill`** lives in a global registry (`data.skills`) and is referenced by `ProjectSkill` (on `Project`) and `CategorySkill` (on `TechnologyCategory`) via `skill_id`. Use `lib/merge.ts → countSkillReferences()` to count all references.
+- **`Skill`** lives in a global registry (`data.skills`) and is referenced by `ProjectSkill` (on `Project`) via `skill_id`. Use `lib/merge.ts → countSkillReferences()` to count all references.
 - **`Role`** also lives in a global registry (`data.roles`). `ProjectRole` references it via `role_id`. Use `countRoleReferences()`.
 - **`Industry`** (A8.1) lives in `data.industries`; a project references one or more via `Project.industries[]` (`ProjectIndustry` links; shape v4 — a single `Project.industry_id` pre-v4). Use `countIndustryReferences()`. All three kinds merge through the generic `mergeRegistry` / `countRegistryReferences`.
-- **Snapshot names**: `ProjectSkill.name`, `CategorySkill.name`, `ProjectRole.name`, and `ProjectIndustry.name` are denormalized copies of the registry's name at link time, so a registry rename doesn't silently rewrite history. `merge.ts` updates these snapshots when it rewrites references.
+- **`SkillCategory`** (shape v6, roadmap: showcase unification) lives in `data.skill_categories`; a skill links to at most one via `Skill.category_id`. Lighter-weight than the other three: no `mergeRegistry` support yet (D13 in the plan — delete + reassign covers the near-term need), but it does get its own rename (`renameSkillCategory`) and curated reorder (`moveSkillCategory`) in `lib/skillCategorize.ts`, since it drives both the By-category editor's header order AND the Skills Showcase view section's group order.
+- **Snapshot names**: `ProjectSkill.name`, `ProjectRole.name`, and `ProjectIndustry.name` are denormalized copies of the registry's name at link time, so a registry rename doesn't silently rewrite history. `merge.ts` updates these snapshots when it rewrites references. (`SkillCategory` has no per-link snapshot — `Skill.category_id` is a plain id reference, resolved live via `categoryNameIndex()`.)
 
 ### Resume Views
 `ResumeView` (in `data.views`) is the "targeted resume" config: a name, an introduction (localized), a list of enabled sections in display order, an excluded-items list, a starred-only toggle, and an optional page limit. `lib/viewFilter.ts → applyView()` produces a filtered `ResumeStore` from a view; the exporter and HTML renderer consume the filtered store.
@@ -755,9 +794,16 @@ than calling `set()` directly. Return `null` from the updater for a no-op
 
 ### Data-shape versioning (`lib/migrate.ts`)
 - `ResumeStore.shape_version` stamps the content shape (absent = pre-versioning
-  = 1; `CURRENT_SHAPE_VERSION` = 4 — v3 added the Industry registry +
+  = 1; `CURRENT_SHAPE_VERSION` = 6 — v3 added the Industry registry +
   `industry_id`; v4 turned that single link into `Project.industries[]`
-  (multi-link) via `internProjectIndustries`). **Bump only for structural
+  (multi-link) via `internProjectIndustries`; v5 persisted skill categories as
+  a durable `skill_categories: string[]` via `internSkillCategories` (so an
+  emptied category no longer vanished); v6 (roadmap: showcase unification)
+  upgraded that string list into first-class `SkillCategory` entities, moved
+  `Skill.category` (string) → `Skill.category_id` (link), and folded the
+  separate "Skills Showcase" `technology_categories[]` structure into the same
+  entities via `unifyShowcaseCategories` — see §1's Skills Showcase entry and
+  §4's Shared registries for the full design). **Bump only for structural
   migrations** (a new top-level array that code iterates counts) — additive
   optional fields stay covered by `with*Defaults` render tolerance.
 - `migrateStore()` is the single choke point for data entering the app from
@@ -989,7 +1035,16 @@ Ordered loosely by recommended priority. Each is a self-contained chunk.
 > unlabelled controls), the **career-timeline** Overview card
 > (`lib/careerTimeline.ts`), and **global content search**
 > (`lib/contentSearch.ts` + `GlobalSearch` palette, Ctrl/Cmd+K). See §1, §14,
-> `plans/improvement-roadmap.md`, and `DESKTOP.md`. **A4 Phase 2**
+> `plans/improvement-roadmap.md`, and `DESKTOP.md`. The 2026-07 **showcase
+> unification** wave folded the separate "Skills Showcase" editor page and its
+> `technology_categories[]`/`CategorySkill` structures into the Skill
+> registry's own category system: `SkillCategory` entities
+> (`ResumeStore.skill_categories`, shape v6) linked from `Skill.category_id`,
+> a `unifyShowcaseCategories` migration ("showcase wins" on conflict + carries
+> forward `is_highlighted`), the Showcase itself reborn as a virtual view
+> section deriving from highlighted+categorized skills
+> (`lib/showcase.ts`), and By-category header **rename + ↑/↓ reorder**
+> (see `plans/unify-showcase-into-categories.md`). **A4 Phase 2**
 > (content-addressed asset table) was deliberately deferred — measurement infra
 > shipped; build the table only when real data warrants. **F4/F8** (application
 > log, cover letter) were dropped as out of scope.

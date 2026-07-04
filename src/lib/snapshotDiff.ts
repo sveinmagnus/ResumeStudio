@@ -49,7 +49,7 @@ const SECTION_SINGULAR: Record<string, string> = {
   skills: 'Skill',
   roles: 'Role',
   industries: 'Industry',
-  technology_categories: 'Skill category',
+  skill_categories: 'Skill category',
   views: 'View',
 }
 const SECTION_ORDER = Object.keys(SECTION_SINGULAR)
@@ -85,7 +85,7 @@ const FIELD_LABELS: Record<string, string> = {
 /** Keys never worth reporting (identity / ordering / bookkeeping / images). */
 const SKIP_KEYS = new Set([
   'id', 'resume_id', 'sort_order', 'created_at', 'updated_at', 'disabled',
-  'starred', 'skill_id', 'role_id', 'industry_id', 'work_experience_id',
+  'starred', 'skill_id', 'role_id', 'industry_id', 'category_id', 'work_experience_id',
   'project_id', 'use_anonymized', 'include_in_exports', 'is_highlighted',
   'default_locale', 'supported_locales', 'attention_dismissals',
   'profile_photo', 'company_logo', 'profile_image_url', 'photo_override',

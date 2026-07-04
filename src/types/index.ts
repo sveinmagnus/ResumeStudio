@@ -42,15 +42,6 @@ export interface ProjectSkill {
   sort_order: number
 }
 
-export interface CategorySkill {
-  id: string
-  skill_id: string
-  name: LocalizedString        // snapshot
-  proficiency: number
-  total_duration_in_years: number
-  sort_order: number
-}
-
 // ─── Main entities ────────────────────────────────────────────────────────────
 
 export interface Resume {
@@ -93,25 +84,55 @@ export interface Skill {
   id: string
   resume_id: string
   name: LocalizedString
-  default_category: LocalizedString | null
   total_duration_in_years: number
   proficiency: number   // 0–5
+  /**
+   * Featured in the compact Skills Showcase view section (roadmap: showcase
+   * unification) — the showcase renders every highlighted skill, grouped by
+   * `category_id`. Also used for compact skill-summary rendering elsewhere.
+   */
   is_highlighted: boolean
   /**
    * Authoritative classification from the Quadim skill library (e.g.
    * "Technical", "Management", "Analytical"), stamped at import when the name
    * matches the library (roadmap F12 pt4). Optional/additive. Used as the
-   * skill-matrix Category column when present, else the free-text `category`.
+   * skill-matrix Category column when present, else the linked `category_id`'s
+   * name.
    */
   classification?: string
   /**
-   * The skill's category — the consultant's own free-text grouping (e.g.
-   * "Frontend", "Cloud", "Data"), auto-fillable from the Quadim library. This
-   * is the SINGLE category concept: the list card, the By-category view and the
-   * category filter all group on it. Absent/empty skills read as "Uncategorized".
+   * Link into the shared `ResumeStore.skill_categories` registry — the
+   * consultant's own grouping (e.g. "Frontend", "Cloud", "Data"),
+   * auto-fillable from the Quadim library. This is the SINGLE category
+   * concept: the list card, the By-category view, the category filter AND
+   * the Skills Showcase export section all group on it. `null`/absent reads
+   * as "Uncategorized". Additive — pre-v6 data has this backfilled by
+   * `migrate.ts` from the old free-text `category` string.
    */
-  category?: string | null
+  category_id?: string | null
   created_at: string
+}
+
+/**
+ * A named grouping of skills (roadmap: showcase unification, shape v6) — the
+ * consultant's own organisation of the Skill registry, referenced by
+ * `Skill.category_id`. Also the source of the Skills Showcase export section:
+ * every HIGHLIGHTED skill (`Skill.is_highlighted`) linked to a category is
+ * rendered under that category's name (see `lib/showcase.ts`).
+ *
+ * Deliberately NOT a `SectionKey` / generic-CRUD section (see
+ * `lib/skillCategorize.ts` for its dedicated pure helpers) — a category
+ * persists after its last skill leaves (or is emptied by "Clear category"),
+ * and is removed ONLY by an explicit delete, so generic array CRUD would be
+ * the wrong shape for it.
+ */
+export interface SkillCategory {
+  id: string
+  resume_id: string
+  name: LocalizedString
+  /** Curated display / export order — drives the By-category view's header
+   *  order and the Skills Showcase section's group order. */
+  sort_order: number
 }
 
 /**
@@ -313,15 +334,6 @@ export interface SpokenLanguage {
   resume_id: string
   name: LocalizedString
   level: LocalizedString
-  sort_order: number
-  disabled: boolean
-}
-
-export interface TechnologyCategory {
-  id: string
-  resume_id: string
-  name: LocalizedString
-  skills: CategorySkill[]
   sort_order: number
   disabled: boolean
 }
@@ -610,7 +622,6 @@ export interface ResumeStore {
   courses: Course[]
   certifications: Certification[]
   spoken_languages: SpokenLanguage[]
-  technology_categories: TechnologyCategory[]
   positions: Position[]
   presentations: Presentation[]
   honor_awards: HonorAward[]
@@ -618,14 +629,17 @@ export interface ResumeStore {
   references: Reference[]
   views: ResumeView[]
   /**
-   * Known skill-category names, kept independent of skill assignments so an
-   * emptied category (last skill removed or recategorized) persists in the
-   * By-category view and filters until it's EXPLICITLY deleted (the header
-   * trash button / "Delete category…"). Additive/optional; the displayed list
-   * is the union of this and the categories actually used by skills. Not a
-   * CRUD section (plain strings) — see `SectionKey` below.
+   * Skill-category entities (shape v6), kept independent of skill assignments
+   * so an emptied category (last skill removed or recategorized) persists in
+   * the By-category view and filters until it's EXPLICITLY deleted (the
+   * header trash button / "Delete category…"). Additive/optional; the
+   * displayed list is the union of this and the categories actually used by
+   * skills (`lib/skillCategorize.ts → skillCategoryList`). Not a CRUD section
+   * — see `SectionKey` below. Also the source of the Skills Showcase export
+   * section (`lib/showcase.ts`) — a former, separate `technology_categories`
+   * structure was unified into this.
    */
-  skill_categories?: string[]
+  skill_categories?: SkillCategory[]
 }
 
 // ─── UI state ────────────────────────────────────────────────────────────────

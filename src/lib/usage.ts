@@ -12,12 +12,11 @@
  */
 
 import type {
-  ResumeStore, Project, WorkExperience, TechnologyCategory,
+  ResumeStore, Project, WorkExperience,
 } from '../types'
 
 export interface SkillUsage {
   projects: Project[]
-  technology_categories: TechnologyCategory[]
 }
 
 export interface RoleUsage {
@@ -38,10 +37,7 @@ export function usageOfSkill(store: ResumeStore, skillId: string): SkillUsage {
   const projects = store.projects.filter((p) =>
     p.skills.some((ps) => ps.skill_id === skillId),
   )
-  const technology_categories = store.technology_categories.filter((c) =>
-    c.skills.some((cs) => cs.skill_id === skillId),
-  )
-  return { projects, technology_categories }
+  return { projects }
 }
 
 /**
@@ -61,8 +57,7 @@ export function usageOfRole(store: ResumeStore, roleId: string): RoleUsage {
 
 /** True when no entity anywhere references this skill — safe to remove. */
 export function isSkillUnused(store: ResumeStore, skillId: string): boolean {
-  const u = usageOfSkill(store, skillId)
-  return u.projects.length === 0 && u.technology_categories.length === 0
+  return usageOfSkill(store, skillId).projects.length === 0
 }
 
 /** True when no entity anywhere references this role — safe to remove. */

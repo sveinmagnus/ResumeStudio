@@ -29,7 +29,7 @@ import { v4 as uuidv4 } from 'uuid'
 import type {
   ResumeStore, Resume, Skill, Role, KeyQualification, KeyCompetency,
   Project, ProjectRole, ProjectSkill, WorkExperience, Education,
-  Course, Certification, SpokenLanguage, TechnologyCategory, CategorySkill,
+  Course, Certification, SpokenLanguage, SkillCategory,
   Recommendation, LocalizedString, YearMonth,
 } from '../types'
 import { LOCALE_LABELS } from './locales'
@@ -377,7 +377,7 @@ export function importFromAIDraft(input: AIImportV1): ResumeStore {
       id: sid,
       resume_id: resumeId,
       name: { [loc]: name },
-      default_category: null,
+      category_id: null,
       total_duration_in_years: 0,
       proficiency: 0,
       is_highlighted: false,
@@ -631,27 +631,19 @@ export function importFromAIDraft(input: AIImportV1): ResumeStore {
     disabled: false,
   }))
 
-  // ── Technology categories (skills here also intern into the registry) ──────
-  const technology_categories: TechnologyCategory[] = (input.technology_categories ?? []).map((cat, i) => {
-    const catSkills: CategorySkill[] = (cat.skills ?? [])
-      .map(str)
-      .filter(Boolean)
-      .map((name, j) => ({
-        id: uuidv4(),
-        skill_id: internSkill(name),
-        name: { [loc]: name },
-        proficiency: 0,
-        total_duration_in_years: 0,
-        sort_order: j,
-      }))
-    return {
-      id: uuidv4(),
-      resume_id: resumeId,
-      name: L(cat.name),
-      skills: catSkills,
-      sort_order: i,
-      disabled: false,
+  // ── Skill categories (from technology_categories groups — skills here also
+  // intern into the registry AND are marked highlighted, i.e. shown in the
+  // Skills Showcase; see roadmap: showcase unification) ──────────────────────
+  const skill_categories: SkillCategory[] = (input.technology_categories ?? []).map((cat, i) => {
+    const catId = uuidv4()
+    for (const rawName of cat.skills ?? []) {
+      const name = str(rawName)
+      if (!name) continue
+      const sid = internSkill(name)
+      const sk = skills.find((s) => s.id === sid)
+      if (sk) { sk.is_highlighted = true; if (!sk.category_id) sk.category_id = catId }
     }
+    return { id: catId, resume_id: resumeId, name: L(cat.name), sort_order: i }
   })
 
   // ── Recommendations ─────────────────────────────────────────────────────
@@ -685,7 +677,7 @@ export function importFromAIDraft(input: AIImportV1): ResumeStore {
     courses,
     certifications,
     spoken_languages,
-    technology_categories,
+    skill_categories,
     positions: [],
     presentations: [],
     honor_awards: [],
@@ -726,7 +718,7 @@ export function summarizeImportedStore(store: ResumeStore): ImportSummary {
     { label: 'key qualifications', count: store.key_qualifications.length },
     { label: 'key competencies', count: store.key_competencies.length },
     { label: 'spoken languages', count: store.spoken_languages.length },
-    { label: 'tech categories', count: store.technology_categories.length },
+    { label: 'skill categories', count: (store.skill_categories ?? []).length },
     { label: 'recommendations', count: store.recommendations.length },
   ]
   const lines = candidates.filter((l) => l.count > 0)
