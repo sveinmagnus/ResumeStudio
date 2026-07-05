@@ -1501,12 +1501,17 @@ function RegistryStyles() {
       .rcv-hint { border-left-color: var(--secondary-ink-text, var(--accent)); }
       /* Category view: grouped, compact, drag-to-recategorize */
       .rcv { display: flex; flex-direction: column; gap: 14px; margin-bottom: 12px; }
-      .rcv-group { border: 1px solid var(--line); border-radius: var(--r-md); overflow: hidden; }
+      /* No overflow: hidden here — the rename popover is absolutely positioned
+         off the header and must be able to extend past the group's bottom
+         edge (especially for an empty category, whose box is header-height
+         only). The header's own border-radius keeps the rounded-corner look. */
+      .rcv-group { border: 1px solid var(--line); border-radius: var(--r-md); }
       .rcv-head {
         display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 8px 7px 13px;
         font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
         color: var(--ink-soft); background: var(--paper-sunken);
         border-bottom: 1px solid var(--line); transition: background .12s, color .12s, box-shadow .12s;
+        border-radius: var(--r-md) var(--r-md) 0 0;
       }
       .rcv-head-label { display: inline-flex; align-items: center; gap: 8px; }
       .rcv-head.is-over { background: var(--accent-wash); color: var(--accent); box-shadow: inset 0 0 0 2px var(--accent); }
