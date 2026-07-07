@@ -7,6 +7,7 @@ import { TextField, DateField, TagField } from '../ui/Fields'
 import { EditorCard, AddButton, FieldRow } from '../ui/EditorCard'
 import { SortableList } from '../ui/SortableList'
 import { SortBar } from '../ui/SortBar'
+import { SectionIntro } from '../ui/SectionIntro'
 import { Autocomplete } from '../ui/Autocomplete'
 import { TranslationPopover } from '../ui/TranslationPopover'
 import { resolve, fmtRange, fmtDate } from '../../lib/locales'
@@ -33,6 +34,10 @@ export function WorkEditor() {
   }
   return (
     <div className="section-pane">
+      <SectionIntro>
+        Your permanent, contract, and freelance positions. Individual client
+        engagements go under Projects; board and volunteer work under Other roles.
+      </SectionIntro>
       <SortBar section="work_experiences" count={items.length} />
       <AddButton label="Add employment" onClick={add} />
       <SortableList section="work_experiences" ids={items.map((x) => x.id)}>
@@ -183,6 +188,11 @@ export function EducationEditor() {
   }
   return (
     <div className="section-pane">
+      <SectionIntro>
+        Formal education that awards a degree or higher-education credits —
+        universities, colleges and the like. Shorter technology or methodology
+        training belongs under Courses.
+      </SectionIntro>
       <SortBar section="educations" count={items.length} />
       <AddButton label="Add education" onClick={add} />
       <SortableList section="educations" ids={items.map((x) => x.id)}>
@@ -224,6 +234,11 @@ export function CoursesEditor() {
   }
   return (
     <div className="section-pane">
+      <SectionIntro>
+        Shorter courses, training and workshops in specific technologies or
+        methodologies. Degree-bearing study belongs under Education; formal
+        accreditations under Certifications.
+      </SectionIntro>
       <SortBar section="courses" count={items.length} />
       <AddButton label="Add course" onClick={add} />
       <SortableList section="courses" ids={items.map((x) => x.id)}>
@@ -258,6 +273,10 @@ export function CertificationsEditor() {
   }
   return (
     <div className="section-pane">
+      <SectionIntro>
+        Professional certifications and accreditations. Set an expiry date and
+        the Overview flags them before they lapse.
+      </SectionIntro>
       <SortBar section="certifications" count={items.length} />
       <AddButton label="Add certification" onClick={add} />
       <SortableList section="certifications" ids={items.map((x) => x.id)}>
@@ -295,10 +314,10 @@ export function PositionsEditor() {
   }
   return (
     <div className="section-pane">
-      <p className="section-intro">
-        Board memberships, advisory roles, volunteer positions, association leadership,
-        committee work, and other engagements outside paid employment.
-      </p>
+      <SectionIntro>
+        Board memberships, advisory roles, volunteer work, and other
+        engagements outside of paid employment.
+      </SectionIntro>
       <SortBar section="positions" count={items.length} />
       <AddButton label="Add role" onClick={add} />
       <SortableList section="positions" ids={items.map((x) => x.id)}>
@@ -317,14 +336,6 @@ export function PositionsEditor() {
         </EditorCard>
       ))}
       </SortableList>
-      <style>{`
-        .section-intro {
-          font-size: 13.5px; color: var(--ink-soft); line-height: 1.55;
-          padding: 12px 14px; margin-bottom: 16px;
-          background: var(--paper-sunken); border-left: 3px solid var(--accent);
-          border-radius: var(--r-sm);
-        }
-      `}</style>
     </div>
   )
 }
@@ -343,6 +354,10 @@ export function PresentationsEditor() {
   }
   return (
     <div className="section-pane">
+      <SectionIntro>
+        Talks, conference sessions and workshops you have delivered — internal or
+        public. Record the event, date and an optional abstract or link.
+      </SectionIntro>
       <SortBar section="presentations" count={items.length} />
       <AddButton label="Add presentation" onClick={add} />
       <SortableList section="presentations" ids={items.map((x) => x.id)}>
@@ -380,6 +395,10 @@ export function PublicationsEditor() {
   }
   return (
     <div className="section-pane">
+      <SectionIntro>
+        Articles, whitepapers, books, reports and blog posts you have authored —
+        with the publisher, date and a link to the original.
+      </SectionIntro>
       <SortBar section="publications" count={items.length} />
       <AddButton label="Add publication" onClick={add} />
       <SortableList section="publications" ids={items.map((x) => x.id)}>
@@ -428,6 +447,10 @@ export function AwardsEditor() {
   }
   return (
     <div className="section-pane">
+      <SectionIntro>
+        Honours, prizes and recognition you have received, professional or
+        academic — noting the issuer and what each was for.
+      </SectionIntro>
       <SortBar section="honor_awards" count={items.length} />
       <AddButton label="Add award" onClick={add} />
       <SortableList section="honor_awards" ids={items.map((x) => x.id)}>
@@ -459,6 +482,10 @@ export function SpokenLanguagesEditor() {
   }
   return (
     <div className="section-pane">
+      <SectionIntro>
+        Spoken languages and your proficiency in each — for example Native,
+        Fluent, or Working knowledge.
+      </SectionIntro>
       <SortBar section="spoken_languages" count={items.length} />
       <SortableList section="spoken_languages" ids={items.map((x) => x.id)}>
       {items.map((l) => (
@@ -489,11 +516,11 @@ export function KeyCompetenciesEditor() {
   }
   return (
     <div className="section-pane">
-      <p className="kc-intro">
-        A custom summary of your skillset as a set of key competencies — each a
-        short heading and a longer description. These render as their own section,
-        by default just below your profile.
-      </p>
+      <SectionIntro>
+        Your headline strengths — each a short heading with a supporting
+        description. They export as their own section, by default just below
+        your profile.
+      </SectionIntro>
       <SortBar section="key_competencies" count={items.length} />
       <SortableList section="key_competencies" ids={items.map((x) => x.id)}>
       {items.map((k) => (
@@ -507,14 +534,6 @@ export function KeyCompetenciesEditor() {
       ))}
       </SortableList>
       <AddButton label="Add competency" onClick={add} />
-      <style>{`
-        .kc-intro {
-          font-size: 13.5px; color: var(--ink-soft); line-height: 1.55;
-          padding: 12px 14px; margin-bottom: 16px;
-          background: var(--paper-sunken); border-left: 3px solid var(--accent);
-          border-radius: var(--r-sm);
-        }
-      `}</style>
     </div>
   )
 }
@@ -535,10 +554,10 @@ export function RecommendationsEditor() {
   }
   return (
     <div className="section-pane">
-      <p className="rec-intro">
+      <SectionIntro>
         Testimonials you have received from colleagues and customers. Choose which
         ones appear in each Resume View from the view editor.
-      </p>
+      </SectionIntro>
       <SortBar section="recommendations" count={items.length} />
       <SortableList section="recommendations" ids={items.map((x) => x.id)}>
       {items.map((r) => (
@@ -563,14 +582,6 @@ export function RecommendationsEditor() {
       ))}
       </SortableList>
       <AddButton label="Add recommendation" onClick={add} />
-      <style>{`
-        .rec-intro {
-          font-size: 13.5px; color: var(--ink-soft); line-height: 1.55;
-          padding: 12px 14px; margin-bottom: 16px;
-          background: var(--paper-sunken); border-left: 3px solid var(--accent);
-          border-radius: var(--r-sm);
-        }
-      `}</style>
     </div>
   )
 }
@@ -594,6 +605,10 @@ export function ProfileEditor() {
   // summary and tag line.
   return (
     <div className="section-pane">
+      <SectionIntro>
+        The opening statement of your CV — a short summary and tag line that
+        lead every export.
+      </SectionIntro>
       <SortBar section="key_qualifications" count={items.length} />
       <SortableList section="key_qualifications" ids={items.map((x) => x.id)}>
       {items.map((kq) => (

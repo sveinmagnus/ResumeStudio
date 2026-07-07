@@ -271,6 +271,19 @@ export function Styles() {
         display: grid; grid-template-columns: minmax(150px, 200px) 1fr; gap: 16px; align-items: start;
       }
       .rv-hdr-img-grid .imgf-wrap { margin-bottom: 0; }
+      .rv-hdr-url { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+      .rv-hdr-url-btn {
+        display: inline-flex; align-items: center; gap: 6px; align-self: flex-start;
+        padding: 5px 10px; font-size: 12px; font-weight: 600; color: var(--ink-soft);
+        border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--paper);
+        transition: color .12s, border-color .12s, background .12s;
+      }
+      .rv-hdr-url-btn:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); background: var(--accent-wash); }
+      .rv-hdr-url-btn:disabled { opacity: .55; cursor: default; }
+      .rv-hdr-url-hint { font-size: 11.5px; color: var(--ink-faint); line-height: 1.4; }
+      .rv-hdr-url-err { font-size: 11.5px; color: var(--err-ink); }
+      .rv-spin { animation: rv-spin 1s linear infinite; }
+      @keyframes rv-spin { to { transform: rotate(360deg); } }
 
       /* ── Item list ── */
       .rv-item-list { display: flex; flex-direction: column; gap: 1px; margin-top: 10px; }

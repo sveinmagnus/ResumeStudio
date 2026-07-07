@@ -1,10 +1,12 @@
+import { useState } from 'react'
 import { ImageField } from '../../ui/ImageField'
 import type {
   ViewHeaderConfig, HeaderField, HeaderTextStyle,
   PhotoPlacement, ProfileImageShape, LogoPlacement,
 } from '../../../types'
-import { ChevronUp, ChevronDown } from 'lucide-react'
+import { ChevronUp, ChevronDown, Loader2, Link2 } from 'lucide-react'
 import { Select } from './Select'
+import { imageUrlToResizedDataUrl } from '../../../lib/image'
 
 // ─── Header field display labels ──────────────────────────────────────────────
 const HEADER_FIELD_LABELS: Record<HeaderField['key'], string> = {
@@ -22,15 +24,35 @@ const HEADER_FIELD_LABELS: Record<HeaderField['key'], string> = {
 // ─── View header controls ────────────────────────────────────────────────────
 
 export function ViewHeaderControls({
-  header, primaryLocale, masterPhoto, masterLogo, onChange,
+  header, primaryLocale, masterPhoto, masterLogo, profileImageUrl, onChange,
 }: {
   header: ViewHeaderConfig
   primaryLocale: string
   masterPhoto: string | null
   masterLogo: string | null
+  /** The resume's external profile image URL, importable into this view's photo. */
+  profileImageUrl: string | null
   onChange: (patch: Partial<ViewHeaderConfig>) => void
 }) {
   const fields = [...header.fields].sort((a, b) => a.sort_order - b.sort_order)
+
+  // Import the external profile image URL into this view's photo_override as an
+  // embedded (data URL) image, so it renders offline everywhere (PDF + DOCX).
+  const [urlBusy, setUrlBusy] = useState(false)
+  const [urlError, setUrlError] = useState<string | null>(null)
+  const useProfileImageUrl = async () => {
+    if (!profileImageUrl || urlBusy) return
+    setUrlBusy(true)
+    setUrlError(null)
+    try {
+      const dataUrl = await imageUrlToResizedDataUrl(profileImageUrl, { format: 'jpeg', maxDim: 600 })
+      onChange({ photo_override: dataUrl })
+    } catch (e) {
+      setUrlError(e instanceof Error ? e.message : 'Could not import the image.')
+    } finally {
+      setUrlBusy(false)
+    }
+  }
 
   const setField = (key: HeaderField['key'], patch: Partial<HeaderField>) => {
     onChange({ fields: header.fields.map((f) => (f.key === key ? { ...f, ...patch } : f)) })
@@ -155,6 +177,16 @@ export function ViewHeaderControls({
             crop
             hint={masterPhoto ? 'Leave empty to use the master photo.' : 'No master photo set — upload one here or in Personal Details.'}
           />
+          {profileImageUrl && (
+            <div className="rv-hdr-url">
+              <button type="button" className="rv-hdr-url-btn" onClick={() => void useProfileImageUrl()} disabled={urlBusy}>
+                {urlBusy ? <Loader2 size={12} className="rv-spin" /> : <Link2 size={12} />}
+                {urlBusy ? 'Fetching…' : 'Use profile image URL'}
+              </button>
+              <span className="rv-hdr-url-hint">Downloads and embeds the resume’s Profile image URL as this view’s photo.</span>
+              {urlError && <span className="rv-hdr-url-err" role="alert">{urlError}</span>}
+            </div>
+          )}
         </div>
       </div>
 

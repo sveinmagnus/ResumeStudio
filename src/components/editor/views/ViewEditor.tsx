@@ -300,6 +300,7 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
           primaryLocale={primaryLocale}
           masterPhoto={data.resume?.profile_photo ?? null}
           masterLogo={data.resume?.company_logo ?? null}
+          profileImageUrl={data.resume?.profile_image_url ?? null}
           onChange={updateHeader}
         />
       </div>

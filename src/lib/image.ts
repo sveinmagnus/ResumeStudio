@@ -75,6 +75,53 @@ export function fileToResizedDataUrl(file: File, opts: ResizeOptions = {}): Prom
   })
 }
 
+/**
+ * Load an image from an http(s) URL, downscale it, and return a base64 data
+ * URL — the same output shape as `fileToResizedDataUrl`, so the result drops
+ * straight into a profile photo / per-view `photo_override` and every export
+ * stays fully offline (the render boundary only ever sees a `data:` image).
+ *
+ * The fetch is done with `crossOrigin='anonymous'` so the canvas isn't tainted;
+ * a host that doesn't send CORS headers will fail to load (a clear rejection)
+ * rather than silently producing a tainted canvas. Used by the view editor's
+ * "Use profile image URL" action to turn a stored `profile_image_url` (e.g.
+ * from a CVpartner import) into an embeddable photo.
+ */
+export function imageUrlToResizedDataUrl(url: string, opts: ResizeOptions = {}): Promise<string> {
+  const { maxDim = 600, format = 'jpeg', quality = 0.82 } = opts
+  const trimmed = (url ?? '').trim()
+  return new Promise((resolve, reject) => {
+    if (!/^https?:\/\//i.test(trimmed)) {
+      reject(new Error('The profile image URL must be an http(s) link.'))
+      return
+    }
+    const img = new Image()
+    // Request via CORS so toDataURL isn't blocked by a tainted canvas. Hosts
+    // that don't allow cross-origin reads fail at load time (onerror below).
+    img.crossOrigin = 'anonymous'
+    img.onload = () => {
+      try {
+        const scale = Math.min(1, maxDim / Math.max(img.naturalWidth, img.naturalHeight))
+        const w = Math.max(1, Math.round(img.naturalWidth * scale))
+        const h = Math.max(1, Math.round(img.naturalHeight * scale))
+        const canvas = document.createElement('canvas')
+        canvas.width = w
+        canvas.height = h
+        const ctx = canvas.getContext('2d')
+        if (!ctx) { reject(new Error('Canvas not supported.')); return }
+        ctx.drawImage(img, 0, 0, w, h)
+        const mime = format === 'png' ? 'image/png' : 'image/jpeg'
+        // toDataURL throws a SecurityError if the canvas was tainted.
+        resolve(canvas.toDataURL(mime, quality))
+      } catch {
+        reject(new Error("Couldn't copy the image — the host may not allow cross-origin reads. Download it and upload the file instead."))
+      }
+    }
+    img.onerror = () => reject(new Error("Couldn't load the image from that URL (unreachable, or it blocks cross-origin access)."))
+    img.src = trimmed
+  })
+}
+
 // ─── Crop rectangle within a source image (browser only) ─────────────────────
 
 /**

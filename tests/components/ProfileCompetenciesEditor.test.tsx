@@ -24,7 +24,7 @@ describe('<ProfileCompetenciesEditor>', () => {
   it('renders both content sections under their own headings', () => {
     seed()
     render(<ProfileCompetenciesEditor />)
-    expect(screen.getByRole('heading', { name: /profile & summary/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /professional summary/i })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: /key competencies/i })).toBeInTheDocument()
     // Both sub-editors are live (their add affordances are present).
     expect(screen.getByRole('button', { name: /add profile block/i })).toBeInTheDocument()

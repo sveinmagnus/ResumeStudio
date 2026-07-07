@@ -4,7 +4,7 @@ import { ProfileEditor, KeyCompetenciesEditor } from './SimpleEditors'
  * "Profile & Competencies" — one page for the two profile content sections
  * that used to hide behind Personal Details sub-tabs:
  *
- *   - Profile & summary (the key_qualifications blocks)
+ *   - Professional summary (the key_qualifications blocks)
  *   - Key competencies  (the key_competencies entries)
  *
  * They stay separate sections in the data model and in exports; this page
@@ -17,7 +17,7 @@ export function ProfileCompetenciesEditor() {
   return (
     <div className="section-pane">
       <section aria-labelledby="pc-profile-heading" className="pc-block">
-        <h2 id="pc-profile-heading" className="pc-heading">Profile &amp; summary</h2>
+        <h2 id="pc-profile-heading" className="pc-heading">Professional summary</h2>
         <ProfileEditor />
       </section>
 

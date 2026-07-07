@@ -8,6 +8,7 @@ import { TextField, DateField, TagField } from '../ui/Fields'
 import { EditorCard, AddButton, FieldRow } from '../ui/EditorCard'
 import { SortableList } from '../ui/SortableList'
 import { SortBar } from '../ui/SortBar'
+import { SectionIntro } from '../ui/SectionIntro'
 import { Autocomplete } from '../ui/Autocomplete'
 import { SkillTranslationPopover } from './RegistryEditors'
 import { TranslationPopover } from '../ui/TranslationPopover'
@@ -37,6 +38,11 @@ export function ProjectsEditor() {
 
   return (
     <div className="section-pane">
+      <SectionIntro>
+        Client engagements and deliverables. Link each to an employer, roles,
+        skills and industries; star the strongest to feature them as Promoted
+        Projects in a view.
+      </SectionIntro>
       <SortBar section="projects" count={projects.length} />
       <AddButton label="Add project" onClick={addProject} />
       <SortableList section="projects" ids={projects.map((p) => p.id)}>

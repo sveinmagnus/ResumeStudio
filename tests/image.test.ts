@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { imageInfoFromDataUrl, clampCropRect, computeCropRect, fileToResizedDataUrl, fileToImage } from '../src/lib/image'
+import { imageInfoFromDataUrl, clampCropRect, computeCropRect, fileToResizedDataUrl, fileToImage, imageUrlToResizedDataUrl } from '../src/lib/image'
 
 // Build a base64 data URL from raw bytes (Buffer is available in the node test env).
 function dataUrl(mime: string, bytes: number[]): string {
@@ -164,5 +164,14 @@ describe('computeCropRect()', () => {
     // source, i.e. push sourceCx leftward. We pin the sign here.
     const r = computeCropRect(img(400, 300), 1 / 3, 1, { x: 30, y: 0 }, 100)
     expect(r.sx).toBeLessThan(50) // less than the centred value
+  })
+})
+
+describe('imageUrlToResizedDataUrl()', () => {
+  it('rejects a non-http(s) URL before touching the network/canvas', async () => {
+    await expect(imageUrlToResizedDataUrl('not-a-url')).rejects.toThrow(/http\(s\) link/i)
+    await expect(imageUrlToResizedDataUrl('data:image/png;base64,AAAA')).rejects.toThrow(/http\(s\) link/i)
+    await expect(imageUrlToResizedDataUrl('javascript:alert(1)')).rejects.toThrow(/http\(s\) link/i)
+    await expect(imageUrlToResizedDataUrl('')).rejects.toThrow(/http\(s\) link/i)
   })
 })

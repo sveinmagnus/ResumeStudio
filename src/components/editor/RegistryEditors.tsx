@@ -655,8 +655,9 @@ export function SkillsEditor() {
   return (
     <div className="section-pane">
       <p className="registry-note">
-        Skills live here once and are referenced by projects and the skills showcase.
-        Total experience is computed from linked projects.
+        Each skill is defined once here, then reused across projects, courses
+        and certifications. Years of experience are computed from the projects
+        that use it.
       </p>
       <div className="reg-view-toggle" role="group" aria-label="Skill view">
         <button type="button" className={`rvt-btn ${view === 'list' ? 'active' : ''}`} onClick={() => setView('list')} aria-pressed={view === 'list'}>
@@ -886,7 +887,7 @@ export function RolesEditor() {
 
   return (
     <div className="section-pane">
-      <p className="registry-note">Reusable role labels referenced by projects and employments. "Solution Architect" is defined once here.</p>
+      <p className="registry-note">Reusable role titles like "Solution Architect", defined once here and linked from projects and employments.</p>
       <div className="reg-view-toggle" role="group" aria-label="Role view">
         <button type="button" className={`rvt-btn ${view === 'list' ? 'active' : ''}`} onClick={() => setView('list')} aria-pressed={view === 'list'}>
           <List size={14} /> List
