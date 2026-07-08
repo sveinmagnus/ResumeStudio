@@ -1,12 +1,15 @@
 import { useEffect, useId, useState, useRef, useLayoutEffect } from 'react'
-import { Copy, Languages, Loader2, Bold, Italic, Underline, List, ListOrdered } from 'lucide-react'
+import {
+  Copy, Languages, Loader2, Bold, Italic, Underline, List, ListOrdered,
+  IndentIncrease, IndentDecrease,
+} from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import type { LocalizedString } from '../../types'
 import { LOCALE_LABELS, bcp47 } from '../../lib/locales'
 import { api } from '../../lib/api'
 import { canDraftBetween } from '../../lib/translateClient'
 import { useTranslationAvailable } from '../../store/useTranslation'
-import { sanitizeRich } from '../../lib/richText'
+import { sanitizeRich, cleanPastedHtml, plainToRichHtml } from '../../lib/richText'
 
 interface RichFieldProps {
   label: string
@@ -18,11 +21,15 @@ interface RichFieldProps {
 /**
  * Localized rich-text editor — sibling of DualField. Renders one
  * contentEditable per visible locale with a tiny toolbar (bold, italic,
- * underline, bullet list, numbered list).
+ * underline, bullet list, numbered list, list indent/outdent).
  *
  * Storage is sanitised HTML per locale. The toolbar uses document.execCommand
- * — deprecated but still the lowest-friction primitive for these five tags.
+ * — deprecated but still the lowest-friction primitive for these few tags.
  * Every blur sanitises the buffer so we never trust the editor's output.
+ *
+ * Paste is intercepted: clipboard HTML (Word / Google Docs / websites) is
+ * normalised through `cleanPastedHtml` before insertion, so the editor never
+ * shows — and the store never receives — foreign formatting.
  *
  * Copy / Draft assist mirror DualField semantics.
  */
@@ -186,7 +193,20 @@ interface RichColumnProps {
 
 function RichColumn({ variant, locale, fieldLabel, html, onCommit, placeholder, header }: RichColumnProps) {
   const editorRef = useRef<HTMLDivElement>(null)
-  const [fmt, setFmt] = useState({ bold: false, italic: false, underline: false })
+  const [fmt, setFmt] = useState({ bold: false, italic: false, underline: false, inList: false })
+
+  /** Is the selection anchored inside a list item of this editor? */
+  const selectionInListItem = () => {
+    const el = editorRef.current
+    const sel = window.getSelection()
+    if (!el || !sel || !sel.anchorNode) return false
+    let n: Node | null = sel.anchorNode
+    while (n && n !== el) {
+      if (n.nodeType === 1 && (n as Element).tagName === 'LI') return true
+      n = n.parentNode
+    }
+    return false
+  }
 
   // Track the inline-format state at the caret so the toolbar toggles can
   // expose aria-pressed. queryCommandState is deprecated alongside
@@ -195,12 +215,17 @@ function RichColumn({ variant, locale, fieldLabel, html, onCommit, placeholder, 
     const update = () => {
       const el = editorRef.current
       if (!el || document.activeElement !== el) return
-      if (typeof document.queryCommandState !== 'function') return
+      const inList = selectionInListItem()
+      if (typeof document.queryCommandState !== 'function') {
+        setFmt((f) => ({ ...f, inList }))
+        return
+      }
       try {
         setFmt({
           bold: document.queryCommandState('bold'),
           italic: document.queryCommandState('italic'),
           underline: document.queryCommandState('underline'),
+          inList,
         })
       } catch {
         // Some engines throw for unfocused selections — keep the last state.
@@ -232,9 +257,12 @@ function RichColumn({ variant, locale, fieldLabel, html, onCommit, placeholder, 
     onCommit(el.innerHTML)
   }
 
-  const exec = (cmd: 'bold' | 'italic' | 'underline' | 'insertUnorderedList' | 'insertOrderedList') => {
+  const exec = (cmd: Cmd) => {
     const el = editorRef.current
     if (!el) return
+    // indent/outdent only make sense inside a list — outside one, the
+    // browser would emit a <blockquote> the sanitiser flattens anyway.
+    if ((cmd === 'indent' || cmd === 'outdent') && !selectionInListItem()) return
     el.focus()
     // execCommand is deprecated but widely supported; the small subset of
     // commands we use is stable across Chromium / Firefox / WebKit. We
@@ -244,13 +272,67 @@ function RichColumn({ variant, locale, fieldLabel, html, onCommit, placeholder, 
   }
 
   /**
+   * Paste: never let the browser insert the clipboard's raw HTML — Word /
+   * Google Docs / website markup would flood the field with junk the
+   * sanitiser only partially digests (lost paragraphs, stray bold). Clean it
+   * first, then splice it in at the caret.
+   */
+  const onPaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    const rawHtml = e.clipboardData.getData('text/html')
+    const cleaned = rawHtml
+      ? cleanPastedHtml(rawHtml)
+      : plainToRichHtml(e.clipboardData.getData('text/plain'))
+    if (!cleaned) return
+    insertHtmlAtCaret(cleaned)
+    onInput()
+  }
+
+  const insertHtmlAtCaret = (cleanHtml: string) => {
+    const el = editorRef.current
+    if (!el) return
+    el.focus()
+    let done = false
+    try {
+      done = document.execCommand('insertHTML', false, cleanHtml)
+    } catch {
+      done = false
+    }
+    if (done) return
+    // Engines without insertHTML (jsdom): splice via Range instead.
+    const sel = window.getSelection()
+    const range =
+      sel && sel.rangeCount > 0 && el.contains(sel.getRangeAt(0).commonAncestorContainer)
+        ? sel.getRangeAt(0)
+        : null
+    const frag = document.createRange().createContextualFragment(cleanHtml)
+    if (range) {
+      range.deleteContents()
+      range.insertNode(frag)
+      range.collapse(false)
+    } else {
+      el.appendChild(frag)
+    }
+  }
+
+  /**
    * Intercept the standard formatting shortcuts. Browsers DO handle
    * Ctrl/Cmd+B/I/U natively inside a contentEditable, but the markup they
    * emit varies (some wrap in <b>, some apply inline styles the sanitiser
    * then strips). Routing through `exec` guarantees the same allowed tags
    * and that the change is committed to the store on the spot.
+   *
+   * Tab / Shift+Tab nest / un-nest the current list item. Outside a list the
+   * key is NOT hijacked, so keyboard users can still tab through the form.
    */
   const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Tab' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      if (selectionInListItem()) {
+        e.preventDefault()
+        exec(e.shiftKey ? 'outdent' : 'indent')
+      }
+      return
+    }
     if (!(e.ctrlKey || e.metaKey) || e.altKey) return
     const key = e.key.toLowerCase()
     if (key === 'b')      { e.preventDefault(); exec('bold') }
@@ -284,6 +366,7 @@ function RichColumn({ variant, locale, fieldLabel, html, onCommit, placeholder, 
         data-placeholder={placeholder || `${LOCALE_LABELS[locale]?.name || locale}…`}
         onInput={onInput}
         onKeyDown={onKeyDown}
+        onPaste={onPaste}
         onBlur={() => {
           // Re-sanitise on blur as a belt-and-braces step.
           const el = editorRef.current
@@ -328,9 +411,12 @@ function RichColumn({ variant, locale, fieldLabel, html, onCommit, placeholder, 
 
 // ─── Toolbar ────────────────────────────────────────────────────────────────
 
-type Cmd = 'bold' | 'italic' | 'underline' | 'insertUnorderedList' | 'insertOrderedList'
+type Cmd =
+  | 'bold' | 'italic' | 'underline'
+  | 'insertUnorderedList' | 'insertOrderedList'
+  | 'indent' | 'outdent'
 
-interface ToolbarActive { bold: boolean; italic: boolean; underline: boolean }
+interface ToolbarActive { bold: boolean; italic: boolean; underline: boolean; inList: boolean }
 
 function Toolbar({ onCmd, active }: { onCmd: (c: Cmd) => void; active: ToolbarActive }) {
   return (
@@ -341,6 +427,8 @@ function Toolbar({ onCmd, active }: { onCmd: (c: Cmd) => void; active: ToolbarAc
       <span className="rf-tb-sep" />
       <ToolBtn label="Bulleted list" onClick={() => onCmd('insertUnorderedList')}><List size={13} /></ToolBtn>
       <ToolBtn label="Numbered list" onClick={() => onCmd('insertOrderedList')}><ListOrdered size={13} /></ToolBtn>
+      <ToolBtn label="Increase indent (Tab)" disabled={!active.inList} onClick={() => onCmd('indent')}><IndentIncrease size={13} /></ToolBtn>
+      <ToolBtn label="Decrease indent (Shift+Tab)" disabled={!active.inList} onClick={() => onCmd('outdent')}><IndentDecrease size={13} /></ToolBtn>
       <style>{`
         .rf-toolbar {
           display: flex; align-items: center; gap: 2px;
@@ -357,8 +445,8 @@ function Toolbar({ onCmd, active }: { onCmd: (c: Cmd) => void; active: ToolbarAc
   )
 }
 
-function ToolBtn({ label, pressed, onClick, children }: {
-  label: string; pressed?: boolean; onClick: () => void; children: React.ReactNode
+function ToolBtn({ label, pressed, disabled, onClick, children }: {
+  label: string; pressed?: boolean; disabled?: boolean; onClick: () => void; children: React.ReactNode
 }) {
   return (
     <button
@@ -367,6 +455,7 @@ function ToolBtn({ label, pressed, onClick, children }: {
       title={label}
       aria-label={label}
       aria-pressed={pressed}
+      disabled={disabled}
       // Prevent the click from stealing focus from the editor — execCommand
       // needs the contentEditable to remain the active element.
       onMouseDown={(e) => e.preventDefault()}
@@ -378,8 +467,9 @@ function ToolBtn({ label, pressed, onClick, children }: {
           width: 26px; height: 24px; display: grid; place-items: center;
           color: var(--ink-soft); border-radius: 3px; transition: color .12s, background .12s, border-color .12s, box-shadow .12s;
         }
-        .rf-tb-btn:hover { background: var(--paper-raised); color: var(--accent); }
-        .rf-tb-btn:active { background: var(--accent-wash); }
+        .rf-tb-btn:hover:not(:disabled) { background: var(--paper-raised); color: var(--accent); }
+        .rf-tb-btn:active:not(:disabled) { background: var(--accent-wash); }
+        .rf-tb-btn:disabled { opacity: .35; cursor: default; }
         .rf-tb-on { background: var(--accent-wash); color: var(--accent); }
       `}</style>
     </button>

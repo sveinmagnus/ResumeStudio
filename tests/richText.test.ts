@@ -4,6 +4,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   sanitizeRich, richToPlain, hasMarkup, renderRichHtml, parseRichBlocks,
+  cleanPastedHtml, plainToRichHtml,
 } from '../src/lib/richText'
 
 const escape = (s: string) =>
@@ -49,6 +50,91 @@ describe('sanitizeRich', () => {
   it('handles empty input', () => {
     expect(sanitizeRich('')).toBe('')
   })
+  it('strips comment nodes (Word clipboard junk)', () => {
+    expect(sanitizeRich('a<!--StartFragment-->b')).toBe('ab')
+    expect(sanitizeRich('<p>x<!-- hidden --></p>')).toBe('<p>x</p>')
+    expect(sanitizeRich('<!--[if gte mso 9]><xml>junk</xml><![endif]-->safe')).toBe('safe')
+  })
+})
+
+describe('cleanPastedHtml', () => {
+  it('keeps paragraph boundaries from divs (website paste)', () => {
+    expect(cleanPastedHtml('<div>one</div><div>two</div>')).toBe('<p>one</p><p>two</p>')
+  })
+  it('maps headings to bold paragraphs', () => {
+    expect(cleanPastedHtml('<h2>Title</h2><p>body</p>'))
+      .toBe('<p><strong>Title</strong></p><p>body</p>')
+  })
+  it('maps style-based formatting to tags (Google Docs)', () => {
+    expect(cleanPastedHtml('<span style="font-weight:700">b</span> and <span style="font-style:italic">i</span>'))
+      .toBe('<strong>b</strong> and <em>i</em>')
+    expect(cleanPastedHtml('<span style="text-decoration:underline">u</span>')).toBe('<u>u</u>')
+    expect(cleanPastedHtml('<span style="font-weight:bold;font-style:italic">x</span>'))
+      .toBe('<strong><em>x</em></strong>')
+  })
+  it('does not bold the Google Docs b-wrapper with font-weight:normal', () => {
+    expect(cleanPastedHtml('<b style="font-weight:normal" id="docs-internal-guid-x"><p>hello <span style="font-weight:700">bold</span></p></b>'))
+      .toBe('<p>hello <strong>bold</strong></p>')
+  })
+  it('cleans a Word fragment: comments, o:p, nbsp-only paragraphs', () => {
+    const word =
+      '<p class=MsoNormal>Hello<o:p></o:p></p>' +
+      '<p class=MsoNormal><o:p>&nbsp;</o:p></p>' +
+      '<!--[if gte mso 9]><xml><w:WordDocument></w:WordDocument></xml><![endif]-->' +
+      '<p class=MsoNormal><b>World</b></p>'
+    expect(cleanPastedHtml(word)).toBe('<p>Hello</p><p><strong>World</strong></p>')
+  })
+  it('converts Word list paragraphs to a bulleted list', () => {
+    const word =
+      '<p class="MsoListParagraph" style="mso-list:l0 level1 lfo1"><span style="mso-list:Ignore">-<span>&nbsp;</span></span>First</p>' +
+      '<p class="MsoListParagraph" style="mso-list:l0 level1 lfo1"><span style="mso-list:Ignore">-<span>&nbsp;</span></span>Second</p>'
+    expect(cleanPastedHtml(word)).toBe('<ul><li>First</li><li>Second</li></ul>')
+  })
+  it('converts numbered Word list paragraphs to an ordered list', () => {
+    const word =
+      '<p class="MsoListParagraph" style="mso-list:l0 level1 lfo1"><span style="mso-list:Ignore">1.<span>&nbsp;</span></span>First</p>' +
+      '<p class="MsoListParagraph" style="mso-list:l0 level1 lfo1"><span style="mso-list:Ignore">2.<span>&nbsp;</span></span>Second</p>'
+    expect(cleanPastedHtml(word)).toBe('<ol><li>First</li><li>Second</li></ol>')
+  })
+  it('flattens table rows to paragraphs', () => {
+    expect(cleanPastedHtml('<table><tbody><tr><td>a</td><td><b>b</b></td></tr><tr><td>c</td></tr></tbody></table>'))
+      .toBe('<p>a <strong>b</strong></p><p>c</p>')
+  })
+  it('drops images, keeps surrounding text', () => {
+    expect(cleanPastedHtml('<p>x<img src="https://example.com/pic.png">y</p>')).toBe('<p>xy</p>')
+  })
+  it('drops empty and br-only paragraphs', () => {
+    expect(cleanPastedHtml('<p><br></p><p>a</p><p></p>')).toBe('<p>a</p>')
+  })
+  it('keeps real lists as-is and drops their styling', () => {
+    expect(cleanPastedHtml('<ul style="margin:0"><li style="color:red">a</li></ul>'))
+      .toBe('<ul><li>a</li></ul>')
+  })
+  it('removes scripts and styles with their content', () => {
+    expect(cleanPastedHtml('<style>p{color:red}</style><p>a</p><script>x()</script>'))
+      .toBe('<p>a</p>')
+  })
+  it('handles empty input', () => {
+    expect(cleanPastedHtml('')).toBe('')
+  })
+})
+
+describe('plainToRichHtml', () => {
+  it('returns single-line text escaped but unwrapped', () => {
+    expect(plainToRichHtml('hello & <world>')).toBe('hello &amp; &lt;world&gt;')
+  })
+  it('turns blank-line-separated chunks into paragraphs', () => {
+    expect(plainToRichHtml('one\n\ntwo')).toBe('<p>one</p><p>two</p>')
+  })
+  it('turns single newlines into <br>', () => {
+    expect(plainToRichHtml('one\ntwo')).toBe('<p>one<br>two</p>')
+  })
+  it('normalises CRLF', () => {
+    expect(plainToRichHtml('a\r\n\r\nb')).toBe('<p>a</p><p>b</p>')
+  })
+  it('handles empty input', () => {
+    expect(plainToRichHtml('')).toBe('')
+  })
 })
 
 describe('richToPlain', () => {
@@ -68,6 +154,16 @@ describe('richToPlain', () => {
   it('renders ordered lists with numbers', () => {
     const html = '<ol><li>a</li><li>b</li></ol>'
     expect(richToPlain(html)).toBe('1. a\n2. b')
+  })
+  it('indents nested lists (li > ul nesting)', () => {
+    expect(richToPlain('<ul><li>a<ul><li>b</li></ul></li></ul>')).toBe('• a\n  • b')
+  })
+  it('indents nested lists (ul > ul sibling nesting)', () => {
+    expect(richToPlain('<ul><li>a</li><ul><li>b</li></ul></ul>')).toBe('• a\n  • b')
+  })
+  it('numbers nested ordered items per level', () => {
+    expect(richToPlain('<ol><li>a<ol><li>b</li><li>c</li></ol></li></ol>'))
+      .toBe('1. a\n  1. b\n  2. c')
   })
 })
 
@@ -112,5 +208,18 @@ describe('parseRichBlocks', () => {
     const blocks = parseRichBlocks('<p>intro</p><ul><li>a</li></ul>')
     expect(blocks[0].kind).toBe('paragraph')
     expect(blocks[1].kind).toBe('list-item')
+  })
+  it('emits li > ul nesting as deeper list items, without duplicating text', () => {
+    const blocks = parseRichBlocks('<ul><li>a<ul><li>b</li></ul></li></ul>')
+    expect(blocks).toHaveLength(2)
+    expect(blocks[0]).toMatchObject({ kind: 'list-item', level: 0, index: 1 })
+    expect((blocks[0] as { runs: { text: string }[] }).runs.map((r) => r.text).join('')).toBe('a')
+    expect(blocks[1]).toMatchObject({ kind: 'list-item', level: 1, index: 1 })
+    expect((blocks[1] as { runs: { text: string }[] }).runs.map((r) => r.text).join('')).toBe('b')
+  })
+  it('emits ul > ul sibling nesting as deeper list items', () => {
+    const blocks = parseRichBlocks('<ul><li>a</li><ul><li>b</li></ul></ul>')
+    expect(blocks[0]).toMatchObject({ kind: 'list-item', level: 0 })
+    expect(blocks[1]).toMatchObject({ kind: 'list-item', level: 1 })
   })
 })

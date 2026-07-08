@@ -13,6 +13,12 @@
  * across LocalizedString, plain-text imports (CVpartner), translation drafts,
  * and exports — at the cost of one sanitise step per write.
  *
+ * Pasted content (Word / Google Docs / websites) goes through the richer
+ * `cleanPastedHtml` first: it maps style-based bold/italic/underline to tags,
+ * keeps paragraph boundaries from divs/headings/tables, converts Word list
+ * paragraphs to real lists, and strips clipboard junk — then funnels through
+ * `sanitizeRich` as the final gate.
+ *
  * Pure module — no React, no DOM globals at module load. We do touch the DOM
  * via DOMParser inside helpers (used in both browser and jsdom tests).
  */
@@ -40,8 +46,17 @@ export function sanitizeRich(html: string): string {
     danger.remove()
   }
 
+  stripComments(root)
   walk(root)
   return root.innerHTML
+}
+
+/** Remove comment nodes (Word clipboard HTML is full of them). */
+function stripComments(node: Node): void {
+  for (const child of Array.from(node.childNodes)) {
+    if (child.nodeType === 8 /* comment */) node.removeChild(child)
+    else if (child.nodeType === 1) stripComments(child)
+  }
 }
 
 function walk(node: Element): void {
@@ -62,6 +77,289 @@ function walk(node: Element): void {
   }
 }
 
+// ─── Paste cleaning ──────────────────────────────────────────────────────────
+
+/**
+ * Normalise HTML from the clipboard (Word, Google Docs, websites) into the
+ * allowed rich-text subset. Beyond what `sanitizeRich` does, this:
+ *
+ *  - maps style-based formatting to tags (`font-weight:700` → <strong>,
+ *    `font-style:italic` → <em>, `text-decoration:underline` → <u>) and
+ *    honours negations (Google Docs wraps pastes in
+ *    `<b style="font-weight:normal">` — that must NOT read as bold);
+ *  - keeps paragraph boundaries: divs/blockquotes/sections become <p>
+ *    boundaries, headings become bold paragraphs, table rows become
+ *    paragraphs with cells joined by a space;
+ *  - converts Word's `MsoListParagraph` runs into real <ul>/<ol>;
+ *  - strips comments, `&nbsp;` runs, and empty paragraphs.
+ *
+ * Ends by funnelling through `sanitizeRich`, which stays the single final
+ * gate before storage.
+ */
+export function cleanPastedHtml(html: string): string {
+  if (!html) return ''
+  const doc = new DOMParser().parseFromString(`<div id="root">${html}</div>`, 'text/html')
+  const root = doc.getElementById('root')
+  if (!root) return ''
+
+  stripComments(root)
+  for (const junk of Array.from(root.querySelectorAll(
+    'script,style,iframe,object,embed,form,input,textarea,button,svg,meta,link,title,xml',
+  ))) junk.remove()
+
+  convertWordLists(root)
+  for (const child of Array.from(root.children)) normalizePasted(child)
+  normalizeWhitespace(root)
+  for (const p of Array.from(root.querySelectorAll('p'))) {
+    if (!(p.textContent || '').trim()) p.remove()
+  }
+
+  // sanitizeRich re-parses; invalid nesting we may have built (e.g. a <p>
+  // inside a table-row paragraph) auto-corrects there and can leave empty
+  // <p> shells behind — sweep those as a last step.
+  return sanitizeRich(root.innerHTML).replace(/<p>(?:\s|<br\s*\/?>)*<\/p>/gi, '')
+}
+
+/**
+ * Convert plain clipboard text into the storage shape: blank-line-separated
+ * chunks become paragraphs, single newlines become <br>. Single-line text is
+ * returned escaped but unwrapped so it splices into the caret's paragraph.
+ */
+export function plainToRichHtml(text: string): string {
+  if (!text) return ''
+  const esc = (s: string) =>
+    s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  const normalized = text.replace(/\r\n?/g, '\n')
+  if (!normalized.includes('\n')) return esc(normalized)
+  return normalized
+    .split(/\n{2,}/)
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .map((p) => `<p>${esc(p).split('\n').join('<br>')}</p>`)
+    .join('')
+}
+
+/** Non-breaking space (U+00A0), via charCode so the source stays ASCII-visible. */
+const NBSP_RE = new RegExp(String.fromCharCode(0xa0), 'g')
+
+/** Block containers that should contribute paragraph boundaries, then vanish. */
+const PASTE_BLOCK_CONTAINERS = new Set([
+  'DIV', 'BLOCKQUOTE', 'PRE', 'SECTION', 'ARTICLE', 'HEADER', 'FOOTER',
+  'MAIN', 'ASIDE', 'NAV', 'FIGURE', 'FIGCAPTION', 'ADDRESS', 'DL', 'DT', 'DD',
+  'TABLE', 'TBODY', 'THEAD', 'TFOOT', 'CAPTION', 'COLGROUP',
+])
+
+/** Tags treated as block-level when grouping a container's inline runs. */
+const PASTE_BLOCKISH = new Set([...PASTE_BLOCK_CONTAINERS, 'P', 'UL', 'OL', 'LI', 'TR'])
+
+interface PasteFlags { bold: boolean; italic: boolean; underline: boolean }
+
+/**
+ * The effective inline formatting an element contributes: its tag semantics,
+ * overridden by an inline `style` attribute when present (the attribute wins
+ * both ways — `<b style="font-weight:normal">` is not bold, and a styled
+ * `<span>` can be).
+ */
+function effectiveInlineFlags(el: Element): PasteFlags {
+  const tag = el.tagName
+  const style = el.getAttribute('style') || ''
+  const prop = (name: string): string => {
+    const m = style.match(new RegExp(`(?:^|;)\\s*${name}\\s*:\\s*([^;]+)`, 'i'))
+    return m ? m[1].trim().toLowerCase() : ''
+  }
+  const fw = prop('font-weight')
+  const bold = fw ? /^(bold|bolder|[6-9]00)/.test(fw) : tag === 'B' || tag === 'STRONG'
+  const fs = prop('font-style')
+  const italic = fs ? /^(italic|oblique)/.test(fs) : tag === 'EM' || tag === 'I'
+  const td = prop('text-decoration-line') || prop('text-decoration')
+  const underline = td ? /underline/.test(td) : tag === 'U'
+  return { bold, italic, underline }
+}
+
+/** Build a nested <strong>/<em>/<u> wrapper chain; at least one flag is set. */
+function buildInlineWrapper(doc: Document, flags: PasteFlags): Element {
+  const chain: string[] = []
+  if (flags.bold) chain.push('strong')
+  if (flags.italic) chain.push('em')
+  if (flags.underline) chain.push('u')
+  const outer = doc.createElement(chain[0])
+  let cur = outer
+  for (const t of chain.slice(1)) {
+    const next = doc.createElement(t)
+    cur.appendChild(next)
+    cur = next
+  }
+  return outer
+}
+
+function innermost(el: Element): Element {
+  let cur = el
+  while (cur.firstElementChild) cur = cur.firstElementChild
+  return cur
+}
+
+function unwrapElement(el: Element): void {
+  const parent = el.parentNode
+  if (!parent) return
+  while (el.firstChild) parent.insertBefore(el.firstChild, el)
+  parent.removeChild(el)
+}
+
+/**
+ * Wrap contiguous runs of inline/text children into <p> so a container can
+ * be unwrapped without merging its stray text into the surrounding flow.
+ * Runs with no visible content are dropped.
+ */
+function blockifyChildren(el: Element): void {
+  const doc = el.ownerDocument
+  let run: Node[] = []
+  const flush = (before: Node | null) => {
+    if (!run.length) return
+    const hasContent = run.some((n) =>
+      (n.textContent || '').replace(NBSP_RE, ' ').trim().length > 0 ||
+      (n.nodeType === 1 && ((n as Element).tagName === 'BR' || (n as Element).querySelector('br'))))
+    if (hasContent) {
+      const p = doc.createElement('p')
+      for (const n of run) p.appendChild(n)
+      el.insertBefore(p, before)
+    } else {
+      for (const n of run) n.parentNode?.removeChild(n)
+    }
+    run = []
+  }
+  for (const child of Array.from(el.childNodes)) {
+    if (child.nodeType === 1 && PASTE_BLOCKISH.has((child as Element).tagName)) flush(child)
+    else run.push(child)
+  }
+  flush(null)
+}
+
+/**
+ * Bottom-up structural normalisation of pasted markup. Children are handled
+ * before their parent, so by the time a container is processed its block
+ * descendants have already been reduced to <p>/<ul>/<ol>.
+ */
+function normalizePasted(el: Element): void {
+  for (const child of Array.from(el.children)) normalizePasted(child)
+
+  const doc = el.ownerDocument
+  const tag = el.tagName
+
+  if (tag === 'BR' || tag === 'UL' || tag === 'OL') return
+  if (tag === 'TD' || tag === 'TH') return // joined by the TR handler below
+
+  const flags = effectiveInlineFlags(el)
+  const anyFlag = flags.bold || flags.italic || flags.underline
+
+  if (/^H[1-6]$/.test(tag)) {
+    // Headings aren't in the vocabulary — keep the emphasis as a bold paragraph.
+    const p = doc.createElement('p')
+    const strong = doc.createElement('strong')
+    while (el.firstChild) strong.appendChild(el.firstChild)
+    p.appendChild(strong)
+    el.replaceWith(p)
+    return
+  }
+  if (tag === 'TR') {
+    const p = doc.createElement('p')
+    let first = true
+    for (const cell of Array.from(el.children)) {
+      if (!(cell.textContent || '').replace(NBSP_RE, ' ').trim()) continue
+      if (!first) p.appendChild(doc.createTextNode(' '))
+      while (cell.firstChild) p.appendChild(cell.firstChild)
+      first = false
+    }
+    el.replaceWith(p)
+    return
+  }
+  if (tag === 'P' || tag === 'LI') {
+    if (anyFlag) {
+      const wrap = buildInlineWrapper(doc, flags)
+      const inner = innermost(wrap)
+      while (el.firstChild) inner.appendChild(el.firstChild)
+      el.appendChild(wrap)
+    }
+    return
+  }
+  if (PASTE_BLOCK_CONTAINERS.has(tag)) {
+    blockifyChildren(el)
+    unwrapElement(el)
+    return
+  }
+
+  // Inline or unknown element: rebuild purely from the computed flags. This
+  // also normalises <b> → <strong> and drops negated wrappers (Google Docs).
+  if (anyFlag) {
+    const wrap = buildInlineWrapper(doc, flags)
+    const inner = innermost(wrap)
+    while (el.firstChild) inner.appendChild(el.firstChild)
+    el.replaceWith(wrap)
+  } else {
+    unwrapElement(el)
+  }
+}
+
+/** `&nbsp;` → space and collapse whitespace runs, mirroring what CSS renders. */
+function normalizeWhitespace(node: Node): void {
+  for (const child of Array.from(node.childNodes)) {
+    if (child.nodeType === 3) {
+      const t = child as Text
+      t.data = t.data.replace(NBSP_RE, ' ').replace(/[ \t\r\n]+/g, ' ')
+    } else if (child.nodeType === 1) {
+      normalizeWhitespace(child)
+    }
+  }
+}
+
+/**
+ * Word doesn't paste real lists — each item is a
+ * `<p class="MsoListParagraph" style="mso-list:…">` with the marker glyph in
+ * a `mso-list:Ignore` span. Convert consecutive runs of those paragraphs to
+ * <ul>/<ol> (ordered when the first marker reads like "1." / "1)").
+ * Best-effort heuristic; anything it misses degrades to plain paragraphs.
+ */
+function convertWordLists(root: Element): void {
+  const doc = root.ownerDocument
+  const isWordListP = (el: Element | null): el is Element =>
+    !!el && el.tagName === 'P' && (
+      /msolistparagraph/i.test(el.getAttribute('class') || '') ||
+      /mso-list\s*:/i.test(el.getAttribute('style') || ''))
+  const done = new Set<Element>()
+  for (const start of Array.from(root.querySelectorAll('p'))) {
+    if (done.has(start) || !isWordListP(start)) continue
+    const group: Element[] = []
+    let cur: Element | null = start
+    while (isWordListP(cur)) {
+      group.push(cur)
+      done.add(cur)
+      cur = cur.nextElementSibling
+    }
+    let ordered = false
+    for (const p of group) {
+      const marker = findWordListMarker(p)
+      if (marker) {
+        if (p === group[0]) ordered = /^\s*\d+[.)]/.test(marker.textContent || '')
+        marker.remove()
+      }
+    }
+    const list = doc.createElement(ordered ? 'ol' : 'ul')
+    start.parentNode?.insertBefore(list, start)
+    for (const p of group) {
+      const li = doc.createElement('li')
+      while (p.firstChild) li.appendChild(p.firstChild)
+      list.appendChild(li)
+      p.remove()
+    }
+  }
+}
+
+function findWordListMarker(p: Element): Element | null {
+  for (const span of Array.from(p.querySelectorAll('span'))) {
+    if (/mso-list\s*:\s*ignore/i.test(span.getAttribute('style') || '')) return span
+  }
+  return null
+}
+
 /**
  * Extract plain text from a rich-text HTML string. Used wherever the UI shows
  * a preview (EditorCard preview pane, completeness check) — those contexts
@@ -76,23 +374,45 @@ export function richToPlain(html: string): string {
   const doc = new DOMParser().parseFromString(`<div id="root">${html}</div>`, 'text/html')
   const root = doc.getElementById('root')
   if (!root) return ''
-  return nodeText(root).replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim()
+  // Collapse only space runs that follow a non-space, so the line-leading
+  // indentation of nested list items survives.
+  return nodeText(root)
+    .replace(/(\S)[ \t]{2,}/g, '$1 ')
+    .replace(/[ \t]+$/gm, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
 }
 
 function nodeText(node: Node): string {
-  if (node.nodeType === 3 /* text */) return node.textContent || ''
+  if (node.nodeType === 3 /* text */) {
+    // Whitespace runs (incl. source newlines) render as one space in HTML.
+    return (node.textContent || '').replace(/[ \t\r\n]+/g, ' ')
+  }
   if (node.nodeType !== 1 /* element */) return ''
   const el = node as Element
   const tag = el.tagName
   if (tag === 'BR') return '\n'
   if (tag === 'LI') {
-    const inner = childrenText(el).trim()
-    const parentTag = el.parentElement?.tagName
-    if (parentTag === 'OL') {
-      const idx = Array.from(el.parentElement!.children).indexOf(el) + 1
-      return `${idx}. ${inner}\n`
+    // Separate the item's own inline content from nested sub-lists so the
+    // sub-items land on their own (deeper-indented) lines.
+    let inline = ''
+    let nested = ''
+    for (const child of Array.from(el.childNodes)) {
+      const t = child.nodeType === 1 ? (child as Element).tagName : ''
+      if (t === 'UL' || t === 'OL') nested += nodeText(child)
+      else inline += nodeText(child)
     }
-    return `• ${inner}\n`
+    const parent = el.parentElement
+    let depth = 0
+    for (let anc = parent?.parentElement; anc; anc = anc.parentElement) {
+      if (anc.tagName === 'UL' || anc.tagName === 'OL') depth++
+    }
+    const pad = '  '.repeat(depth)
+    if (parent?.tagName === 'OL') {
+      const items = Array.from(parent.children).filter((c) => c.tagName === 'LI')
+      return `${pad}${items.indexOf(el) + 1}. ${inline.trim()}\n${nested}`
+    }
+    return `${pad}• ${inline.trim()}\n${nested}`
   }
   if (tag === 'P' || tag === 'UL' || tag === 'OL') {
     return childrenText(el) + (tag === 'P' ? '\n' : '')
@@ -234,6 +554,17 @@ function walkBlocks(node: Element, out: RichBlock[], inline: InlineState, list: 
           runs,
         })
       }
+      // A sub-list nested inside the item (li > ul) — emit as deeper items.
+      // (A sub-list nested as a sibling, ul > ul, hits the branch above.)
+      for (const sub of Array.from(el.children)) {
+        if (sub.tagName === 'UL' || sub.tagName === 'OL') {
+          walkBlocks(sub, out, inline, {
+            listKind: sub.tagName === 'UL' ? 'ul' : 'ol',
+            level: list.level + 1,
+            counter: 0,
+          })
+        }
+      }
       continue
     }
     // Unknown / unhandled — descend, treating it as transparent.
@@ -263,6 +594,9 @@ function collectInlineRuns(node: Element, inline: InlineState): RichRun[] {
       out.push({ text: '\n', ...activeFlags(inline) })
       continue
     }
+    // Nested lists are blocks — the LI branch in walkBlocks emits them as
+    // deeper list items; duplicating their text inline would double it.
+    if (tag === 'UL' || tag === 'OL') continue
     const next: InlineState = {
       bold: inline.bold || tag === 'STRONG' || tag === 'B',
       italic: inline.italic || tag === 'EM' || tag === 'I',
