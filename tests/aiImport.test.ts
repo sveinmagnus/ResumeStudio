@@ -290,7 +290,7 @@ describe('importFromAIDraft()', () => {
     }))
     const r = store.recommendations[0]
     expect(r.recommender_name).toBe('Jane')
-    expect(r.recommender_title).toBe('CTO')
+    expect(resolve(r.recommender_title, 'en')).toBe('CTO')
     expect(resolve(r.text, 'en')).toBe('Great engineer.')
   })
 

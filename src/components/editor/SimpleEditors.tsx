@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useId } from 'react'
 import { useStore, newId } from '../../store/useStore'
 import { useSortedItems } from '../../store/useSortedItems'
 import { DualField } from '../ui/DualField'
@@ -12,10 +12,11 @@ import { Autocomplete } from '../ui/Autocomplete'
 import { TranslationPopover } from '../ui/TranslationPopover'
 import { resolve, fmtRange, fmtDate } from '../../lib/locales'
 import { richToPlain } from '../../lib/richText'
+import { RELATIONSHIP_OPTIONS, matchRelationshipKey, relationshipLabels } from '../../lib/recommendationRelationships'
 import type {
   WorkExperience, Education, Course, Certification, Position,
   Presentation, HonorAward, Publication, SpokenLanguage, KeyQualification,
-  KeyCompetency, Recommendation, Role,
+  KeyCompetency, Recommendation, Role, LocalizedString,
 } from '../../types'
 import { X } from 'lucide-react'
 
@@ -536,7 +537,7 @@ export function RecommendationsEditor() {
   const add = () => {
     const r: Recommendation = {
       id: newId(), resume_id: data.resume!.id,
-      recommender_name: '', recommender_title: null, recommender_company: null,
+      recommender_name: '', recommender_title: {}, recommender_company: null,
       relationship: {}, text: {}, date: null, source: null, contact_url: null,
       sort_order: items.length, starred: false, disabled: false,
     }
@@ -553,25 +554,61 @@ export function RecommendationsEditor() {
       {items.map((r) => (
         <EditorCard key={r.id} section="recommendations" id={r.id}
           title={r.recommender_name || 'Recommendation'}
-          subtitle={[r.recommender_title, r.recommender_company].filter(Boolean).join(', ')}
+          subtitle={[resolve(r.recommender_title, primaryLocale), r.recommender_company].filter(Boolean).join(', ')}
           meta={fmtDate(r.date)} preview={richToPlain(resolve(r.text, primaryLocale))}
           starred={r.starred} disabled={r.disabled}>
-          <FieldRow>
-            <TextField label="Recommender" value={r.recommender_name} onChange={(v) => updateItem('recommendations', r.id, { recommender_name: v })} />
-            <TextField label="Title / role" value={r.recommender_title || ''} onChange={(v) => updateItem('recommendations', r.id, { recommender_title: v || null })} />
-            <TextField label="Company" value={r.recommender_company || ''} onChange={(v) => updateItem('recommendations', r.id, { recommender_company: v || null })} />
-          </FieldRow>
-          <DualField label="Relationship" value={r.relationship} onChange={(v) => updateItem('recommendations', r.id, { relationship: v })} placeholder="e.g. Project manager on the platform rebuild" />
-          <RichField label="Testimonial" value={r.text} onChange={(v) => updateItem('recommendations', r.id, { text: v })} />
           <FieldRow>
             <DateField label="Date received" value={r.date} onChange={(v) => updateItem('recommendations', r.id, { date: v })} />
             <TextField label="Source" value={r.source || ''} onChange={(v) => updateItem('recommendations', r.id, { source: v || null })} placeholder="e.g. LinkedIn" />
             <TextField label="Link" value={r.contact_url || ''} onChange={(v) => updateItem('recommendations', r.id, { contact_url: v || null })} />
           </FieldRow>
+          <RichField label="Testimonial" value={r.text} onChange={(v) => updateItem('recommendations', r.id, { text: v })} />
+          <FieldRow>
+            <TextField label="Recommender" value={r.recommender_name} onChange={(v) => updateItem('recommendations', r.id, { recommender_name: v })} />
+            <TextField label="Company" value={r.recommender_company || ''} onChange={(v) => updateItem('recommendations', r.id, { recommender_company: v || null })} />
+          </FieldRow>
+          <DualField label="Title / role" value={r.recommender_title} onChange={(v) => updateItem('recommendations', r.id, { recommender_title: v })} placeholder="e.g. Chief Technology Officer" />
+          <RelationshipField label="Relationship" value={r.relationship} primaryLocale={primaryLocale}
+            onChange={(v) => updateItem('recommendations', r.id, { relationship: v })} />
         </EditorCard>
       ))}
       </SortableList>
     </div>
+  )
+}
+
+/**
+ * The recommender-relationship picker: a dropdown of curated, per-language
+ * options (LinkedIn-style) instead of free text. Picking an option stamps its
+ * full localized label set so every export language shows the right phrasing;
+ * the visible option labels follow `primaryLocale`. A legacy free-text value
+ * that matches no option is preserved as a leading "(current)" option so old
+ * data isn't silently dropped.
+ */
+function RelationshipField({ label, value, primaryLocale, onChange }: {
+  label: string; value: LocalizedString; primaryLocale: string
+  onChange: (v: LocalizedString) => void
+}) {
+  const id = useId()
+  const matchedKey = matchRelationshipKey(value)
+  const current = resolve(value, primaryLocale)
+  const isCustom = !matchedKey && !!current.trim()
+  return (
+    <label className="pf-wrap">
+      <span className="pf-label">{label}</span>
+      <select id={id} className="pf-input" value={isCustom ? '__custom' : (matchedKey ?? '')}
+        onChange={(e) => {
+          const key = e.target.value
+          if (key === '__custom') return // keep the existing free-text value
+          onChange(key ? relationshipLabels(key) : {})
+        }}>
+        <option value="">— Select —</option>
+        {isCustom && <option value="__custom">{current}</option>}
+        {RELATIONSHIP_OPTIONS.map((o) => (
+          <option key={o.key} value={o.key}>{resolve(o.labels, primaryLocale)}</option>
+        ))}
+      </select>
+    </label>
   )
 }
 

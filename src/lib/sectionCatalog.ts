@@ -222,10 +222,10 @@ export const SECTION_CATALOG: Record<string, SectionDescriptor> = {
 
   recommendations: {
     title: (it) => (it.recommender_name as string) || 'Recommendation',
-    subtitle: (it) =>
-      [it.recommender_title, it.recommender_company].filter(Boolean).join(', '),
+    subtitle: (it, locale) =>
+      [ls(it, 'recommender_title', locale), it.recommender_company].filter(Boolean).join(', '),
     summary(it, ctx) {
-      const attrib = [it.recommender_title as string, it.recommender_company as string]
+      const attrib = [ls(it, 'recommender_title', ctx.locale), it.recommender_company as string]
         .filter(Boolean).join(', ')
       return summaryOf(
         String(it.recommender_name ?? '') || 'Recommendation',
@@ -233,7 +233,7 @@ export const SECTION_CATALOG: Record<string, SectionDescriptor> = {
       )
     },
     full(it, ctx) {
-      const attrib = [it.recommender_title as string, it.recommender_company as string]
+      const attrib = [ls(it, 'recommender_title', ctx.locale), it.recommender_company as string]
         .filter(Boolean).join(', ')
       const rel = ls(it, 'relationship', ctx.locale)
       return view({

@@ -140,7 +140,7 @@ describe('importFromLinkedIn', () => {
   it('maps received recommendations with the LinkedIn source marker', () => {
     const rec = store.recommendations[0]
     expect(rec.recommender_name).toBe('Jane Boss')
-    expect(rec.recommender_title).toBe('CTO')
+    expect(rec.recommender_title).toEqual({ en: 'CTO' })
     expect(rec.text).toEqual({ en: 'Outstanding consultant' })
     expect(rec.source).toBe('LinkedIn')
   })

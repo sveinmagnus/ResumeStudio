@@ -651,7 +651,7 @@ export function importFromAIDraft(input: AIImportV1): ResumeStore {
     id: uuidv4(),
     resume_id: resumeId,
     recommender_name: str(r.recommender_name),
-    recommender_title: strOrNull(r.recommender_title),
+    recommender_title: L(r.recommender_title),
     recommender_company: strOrNull(r.recommender_company),
     relationship: L(r.relationship),
     text: L(r.text),

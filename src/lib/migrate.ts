@@ -51,6 +51,11 @@ import { v4 as uuidv4 } from 'uuid'
  *                 highlighted — see `unifyShowcaseCategories`). The Skills
  *                 Showcase view section is now a virtual projection of
  *                 highlighted, categorized skills.
+ *  - 7          — `Recommendation.recommender_title` becomes a localized
+ *                 `LocalizedString` (was `string | null`) so a recommender's
+ *                 title/role renders per export language like every other
+ *                 translatable field. A legacy string is wrapped as
+ *                 `{ en: title }`; null/absent becomes `{}`.
  *
  * Bump this ONLY for structural changes that need a migration (moving or
  * reshaping data). Additive optional fields are handled by render-boundary
@@ -59,7 +64,7 @@ import { v4 as uuidv4 } from 'uuid'
  * (like `industries`) is NOT a tolerable "optional field" — it must be
  * guaranteed present, hence the bump + migration.
  */
-export const CURRENT_SHAPE_VERSION = 6
+export const CURRENT_SHAPE_VERSION = 7
 
 /**
  * True when `store` was written by a build with a NEWER shape than this one
@@ -87,11 +92,13 @@ export function isNewerShape(store: ResumeStore): boolean {
 export function migrateStore(store: ResumeStore): ResumeStore {
   const stored = store.shape_version ?? 1
   if (stored >= CURRENT_SHAPE_VERSION) return store
-  const migrated = unifyShowcaseCategories(
-    internSkillCategories(
-      internProjectIndustries(
-        defaultEmploymentRoleLinks(
-          extractKeyPointsToCompetencies(foldRoleDescriptions(store)),
+  const migrated = localizeRecommenderTitles(
+    unifyShowcaseCategories(
+      internSkillCategories(
+        internProjectIndustries(
+          defaultEmploymentRoleLinks(
+            extractKeyPointsToCompetencies(foldRoleDescriptions(store)),
+          ),
         ),
       ),
     ),
@@ -488,6 +495,28 @@ export function unifyShowcaseCategories(store: ResumeStore): ResumeStore {
   const next = { ...store, skills, views, skill_categories: entities } as Record<string, unknown>
   delete next.technology_categories
   return next as unknown as ResumeStore
+}
+
+// ─── Localize recommender titles (shape v7) ──────────────────────────────────
+//
+// `Recommendation.recommender_title` used to be `string | null`; it's now a
+// `LocalizedString` so a title renders in each export language like every other
+// translatable field. This migration wraps any legacy string as `{ en: title }`
+// (the resolve() fallback chain then surfaces it in any locale) and turns
+// null/absent into `{}`. Idempotent: a recommendation whose title is already an
+// object is left untouched (same store reference when nothing changed).
+
+export function localizeRecommenderTitles(store: ResumeStore): ResumeStore {
+  let changed = false
+  const recommendations = store.recommendations.map((r) => {
+    const raw = (r as { recommender_title?: unknown }).recommender_title
+    if (raw && typeof raw === 'object') return r // already a LocalizedString
+    changed = true
+    const title = typeof raw === 'string' ? raw.trim() : ''
+    return { ...r, recommender_title: title ? { en: title } : {} }
+  })
+  if (!changed) return store
+  return { ...store, recommendations }
 }
 
 export function extractKeyPointsToCompetencies(store: ResumeStore): ResumeStore {

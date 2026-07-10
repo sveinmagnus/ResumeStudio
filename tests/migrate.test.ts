@@ -2,9 +2,10 @@ import { describe, it, expect } from 'vitest'
 import {
   appendLocalized, buildRoleParagraph, foldRoleDescriptions,
   extractKeyPointsToCompetencies, defaultEmploymentRoleLinks, internProjectIndustries,
-  internSkillCategories, unifyShowcaseCategories, migrateStore, isNewerShape, CURRENT_SHAPE_VERSION,
+  internSkillCategories, unifyShowcaseCategories, localizeRecommenderTitles,
+  migrateStore, isNewerShape, CURRENT_SHAPE_VERSION,
 } from '../src/lib/migrate'
-import { emptyStore, makeProject, makeWork, makeSkill, makeSkillCategory, makeView } from './fixtures'
+import { emptyStore, makeProject, makeWork, makeSkill, makeSkillCategory, makeView, makeRecommendation } from './fixtures'
 import type { ProjectRole, KeyQualification, KeyPoint, WorkExperience, Project, LocalizedString, Skill, ResumeStore } from '../src/types'
 
 /** A project carrying the pre-v4 single `industry`/`industry_id` pair. */
@@ -230,6 +231,35 @@ describe('defaultEmploymentRoleLinks()', () => {
     const store = emptyStore()
     store.work_experiences.push(makeWork({ role_id: null }))
     expect(defaultEmploymentRoleLinks(store)).toBe(store)
+  })
+})
+
+describe('localizeRecommenderTitles()', () => {
+  it('wraps a legacy string title as { en: title }', () => {
+    const store = emptyStore()
+    const rec = makeRecommendation()
+    ;(rec as unknown as { recommender_title: unknown }).recommender_title = 'CTO'
+    store.recommendations.push(rec)
+    const out = localizeRecommenderTitles(store)
+    expect(out.recommendations[0].recommender_title).toEqual({ en: 'CTO' })
+  })
+
+  it('turns a null / absent title into {}', () => {
+    const store = emptyStore()
+    const withNull = makeRecommendation()
+    ;(withNull as unknown as { recommender_title: unknown }).recommender_title = null
+    const withAbsent = makeRecommendation()
+    delete (withAbsent as Partial<typeof withAbsent>).recommender_title
+    store.recommendations.push(withNull, withAbsent)
+    const out = localizeRecommenderTitles(store)
+    expect(out.recommendations[0].recommender_title).toEqual({})
+    expect(out.recommendations[1].recommender_title).toEqual({})
+  })
+
+  it('leaves an already-localized title untouched (idempotent, same reference)', () => {
+    const store = emptyStore()
+    store.recommendations.push(makeRecommendation({ recommender_title: { en: 'CTO', no: 'Teknologidirektør' } }))
+    expect(localizeRecommenderTitles(store)).toBe(store)
   })
 })
 

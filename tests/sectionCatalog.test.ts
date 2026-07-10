@@ -161,7 +161,7 @@ describe('layout kinds', () => {
 
   it('recommendations render as a quote with attribution', () => {
     const r = makeRecommendation({
-      recommender_name: 'Jane Boss', recommender_title: 'CTO',
+      recommender_name: 'Jane Boss', recommender_title: { en: 'CTO' },
       text: { en: 'Excellent' }, relationship: { en: 'Manager' },
     }) as unknown as Record<string, unknown>
     const v = SECTION_CATALOG.recommendations.full!(r, html)!

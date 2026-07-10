@@ -200,14 +200,15 @@ export interface KeyCompetency {
 
 /**
  * A testimonial / recommendation received from a colleague or customer.
- * Recommender identity fields are plain strings (names are rarely localized);
- * the relationship and the quote itself are localized.
+ * The recommender's name and company are plain strings (rarely localized);
+ * their title/role, the relationship, and the quote itself are localized.
  */
 export interface Recommendation {
   id: string
   resume_id: string
   recommender_name: string
-  recommender_title: string | null
+  /** The recommender's title / role at the time (localized). */
+  recommender_title: LocalizedString
   recommender_company: string | null
   /** How the recommender knows the consultant (localized). */
   relationship: LocalizedString

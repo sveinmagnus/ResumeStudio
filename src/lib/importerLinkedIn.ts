@@ -278,7 +278,7 @@ export function importFromLinkedIn(files: Record<string, string>): ResumeStore {
     const rec: Recommendation = {
       id: uuidv4(), resume_id: resumeId,
       recommender_name: [r['First Name'], r['Last Name']].filter(Boolean).join(' '),
-      recommender_title: r['Job Title'] || null,
+      recommender_title: L(r['Job Title']),
       recommender_company: r['Company'] || null,
       relationship: {},
       text: L(r['Text']),

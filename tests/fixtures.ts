@@ -240,7 +240,7 @@ export function makeRecommendation(over: Partial<Recommendation> = {}): Recommen
     id: id(),
     resume_id: 'resume-1',
     recommender_name: 'Jane Colleague',
-    recommender_title: 'CTO',
+    recommender_title: { en: 'CTO' },
     recommender_company: 'BigCo',
     relationship: { en: 'Worked together on the platform' },
     text: { en: 'A pleasure to work with.' },

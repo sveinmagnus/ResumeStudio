@@ -56,6 +56,7 @@ export function wipeLocale(store: ResumeStore, locale: string): ResumeStore {
     })),
     recommendations: store.recommendations.map((r): Recommendation => ({
       ...r,
+      recommender_title: ls(r.recommender_title),
       relationship: ls(r.relationship),
       text: ls(r.text),
     })),
