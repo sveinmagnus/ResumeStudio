@@ -291,16 +291,40 @@ function renderItem(sectionKey: string, item: unknown, ctx: RenderCtx): string {
  */
 function sectionStyleCss(secKey: string, resolved: ResolvedSectionStyle, baseTokens: StyleTokens): string {
   const tokens = deriveTokens(resolved)
-  const showDivider = resolved.item_divider ?? true
+  const showDivider = resolved.item_divider
+  const rule = showDivider ? dividerRule(resolved.divider_style, baseTokens.accentCss) : { border: 'none', extra: '' }
   return `
     .ve-sec-${secKey} .ve-item {
       margin-bottom: ${tokens.itemGapPx}px;
       padding-bottom: ${showDivider ? tokens.itemGapPx : 0}px;
-      border-bottom: ${showDivider ? `1px solid ${baseTokens.accentCss}1A` : 'none'};
+      border-bottom: ${rule.border};
       line-height: ${tokens.lineHeight};
+      ${rule.extra}
     }
-    .ve-sec-${secKey} .ve-item:last-child { border-bottom: none; padding-bottom: 0; margin-bottom: 0; }
+    .ve-sec-${secKey} .ve-item:last-child { border-bottom: none; background-image: none; padding-bottom: 0; margin-bottom: 0; }
   `
+}
+
+/**
+ * CSS for a between-items divider in the given style. Full-width variants use
+ * `border-bottom`; the short rule is drawn as a bottom-left background line
+ * (a border can't be width-limited), and 'space' draws nothing (gap only).
+ */
+function dividerRule(style: ResolvedSectionStyle['divider_style'], accentCss: string): { border: string; extra: string } {
+  const faint = `${accentCss}1A`
+  switch (style) {
+    case 'space':  return { border: 'none', extra: '' }
+    case 'thick':  return { border: `2px solid ${faint}`, extra: '' }
+    case 'dashed': return { border: `1px dashed ${accentCss}40`, extra: '' }
+    case 'dotted': return { border: `1px dotted ${accentCss}55`, extra: '' }
+    case 'double': return { border: `3px double ${accentCss}40`, extra: '' }
+    case 'short':  return {
+      border: 'none',
+      extra: `background-image: linear-gradient(${accentCss}55, ${accentCss}55); background-repeat: no-repeat; background-position: left bottom; background-size: 48px 1px;`,
+    }
+    case 'line':
+    default:       return { border: `1px solid ${faint}`, extra: '' }
+  }
 }
 
 export function buildViewHtml(store: ResumeStore, view: ResumeView, locale: string): string {

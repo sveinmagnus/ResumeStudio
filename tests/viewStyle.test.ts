@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   DEFAULT_VIEW_STYLE, withDefaults, deriveTokens, sanitizeHexColor,
-  resolveFontCss, resolveFontDocx,
+  resolveFontCss, resolveFontDocx, resolveSectionStyle,
 } from '../src/lib/viewStyle'
 import type { ViewStyle } from '../src/types'
 
@@ -86,5 +86,31 @@ describe('withDefaults()', () => {
   })
   it('overlays partial values', () => {
     expect(withDefaults({ density: 'compact' }).density).toBe('compact')
+  })
+})
+
+// ─── resolveSectionStyle: item dividers (global + per-section) ─────────────────
+
+describe('resolveSectionStyle() dividers', () => {
+  const view: ViewStyle = { ...DEFAULT_VIEW_STYLE, item_divider: true, divider_style: 'dashed' }
+
+  it('inherits the view-wide divider on/off and style when the section is silent', () => {
+    const r = resolveSectionStyle(view, undefined)
+    expect(r.item_divider).toBe(true)
+    expect(r.divider_style).toBe('dashed')
+  })
+  it('lets a section override the style', () => {
+    expect(resolveSectionStyle(view, { divider_style: 'dotted' }).divider_style).toBe('dotted')
+  })
+  it('lets a section turn dividers off even when the view has them on', () => {
+    expect(resolveSectionStyle(view, { item_divider: false }).item_divider).toBe(false)
+  })
+  it('falls back to on/line when neither view nor section sets them', () => {
+    const bare = { ...DEFAULT_VIEW_STYLE }
+    delete (bare as { item_divider?: unknown }).item_divider
+    delete (bare as { divider_style?: unknown }).divider_style
+    const r = resolveSectionStyle(bare, undefined)
+    expect(r.item_divider).toBe(true)
+    expect(r.divider_style).toBe('line')
   })
 })

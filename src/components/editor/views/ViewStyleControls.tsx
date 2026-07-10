@@ -1,5 +1,5 @@
 import { DEFAULT_VIEW_STYLE } from '../../../lib/viewStyle'
-import type { ViewStyle, Density, BodySize, HeadingFont, PageMargin, TagStyle } from '../../../types'
+import type { ViewStyle, Density, BodySize, HeadingFont, PageMargin, TagStyle, DividerStyle } from '../../../types'
 import { RotateCcw } from 'lucide-react'
 import { Select } from './Select'
 
@@ -58,6 +58,23 @@ export function ViewStyleControls({ style, onChange }: { style: ViewStyle; onCha
             ['inline', 'Inline list'],
           ]}
           onChange={(tag_style) => onChange({ tag_style })}
+        />
+        <Select<string>
+          label="Item dividers"
+          value={style.item_divider === false ? 'off' : (style.divider_style ?? 'line')}
+          options={[
+            ['line',   'Full line'],
+            ['short',  'Short line'],
+            ['thick',  'Thick line'],
+            ['dashed', 'Dashed'],
+            ['dotted', 'Dotted'],
+            ['double', 'Double'],
+            ['space',  'Space only'],
+            ['off',    'None'],
+          ]}
+          onChange={(v) => onChange(v === 'off'
+            ? { item_divider: false }
+            : { item_divider: true, divider_style: v as DividerStyle })}
         />
         <div className="rv-vs-field">
           <span className="rv-vs-label">Accent colour</span>

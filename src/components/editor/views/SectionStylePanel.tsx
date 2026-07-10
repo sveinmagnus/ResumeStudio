@@ -1,4 +1,4 @@
-import type { SectionStyle, SectionDetail, Density, TagStyle } from '../../../types'
+import type { SectionStyle, SectionDetail, Density, TagStyle, DividerStyle } from '../../../types'
 import { Sliders, RotateCcw } from 'lucide-react'
 
 // ─── Detail toggle ──────────────────────────────────────────────────────────
@@ -91,20 +91,28 @@ export function SectionStylePanel({ style, onChange, onReset, hasStyle }: Sectio
             onChange={(e) => onChange({ hide_dates: e.target.checked || undefined })}
           />
         </label>
-        <label className="rv-secstyle-row">
-          <span>Item dividers</span>
+        <div className="rv-secstyle-row">
+          <span>Item divider</span>
           <select
-            value={s.item_divider === undefined ? '' : s.item_divider ? 'on' : 'off'}
+            value={s.item_divider === false ? 'off' : (s.divider_style ?? '')}
             onChange={(e) => {
               const v = e.target.value
-              onChange({ item_divider: v === '' ? undefined : v === 'on' })
+              if (v === '') onChange({ item_divider: undefined, divider_style: undefined })
+              else if (v === 'off') onChange({ item_divider: false, divider_style: undefined })
+              else onChange({ item_divider: true, divider_style: v as DividerStyle })
             }}
           >
             <option value="">— view default —</option>
-            <option value="on">Show</option>
-            <option value="off">Hide</option>
+            <option value="off">None</option>
+            <option value="line">Full line</option>
+            <option value="short">Short line</option>
+            <option value="thick">Thick line</option>
+            <option value="dashed">Dashed</option>
+            <option value="dotted">Dotted</option>
+            <option value="double">Double</option>
+            <option value="space">Space only</option>
           </select>
-        </label>
+        </div>
       </div>
     </details>
   )

@@ -15,7 +15,7 @@
  */
 
 import type {
-  ViewStyle, SectionStyle, Density, BodySize, HeadingFont, PageMargin, TagStyle,
+  ViewStyle, SectionStyle, Density, BodySize, HeadingFont, PageMargin, TagStyle, DividerStyle,
 } from '../types'
 
 // ─── Defaults ───────────────────────────────────────────────────────────────
@@ -32,6 +32,8 @@ export const DEFAULT_VIEW_STYLE: ViewStyle = {
   accent_color: '#002E6E',
   page_margin: 'normal',
   tag_style: 'chips',
+  item_divider: true,
+  divider_style: 'line',
 }
 
 /**
@@ -195,7 +197,8 @@ export function deriveTokens(style: ViewStyle): StyleTokens {
 export interface ResolvedSectionStyle extends ViewStyle {
   hide_heading: boolean
   hide_dates: boolean
-  item_divider: boolean | null   // null = use detail-mode default
+  item_divider: boolean
+  divider_style: DividerStyle
 }
 
 export function resolveSectionStyle(
@@ -212,8 +215,10 @@ export function resolveSectionStyle(
   }
   return {
     ...merged,
+    // Divider: section override → view-wide default → on/'line'.
+    item_divider: section?.item_divider ?? view.item_divider ?? true,
+    divider_style: section?.divider_style ?? view.divider_style ?? 'line',
     hide_heading: section?.hide_heading ?? false,
     hide_dates: section?.hide_dates ?? false,
-    item_divider: section?.item_divider ?? null,
   }
 }

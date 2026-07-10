@@ -454,6 +454,16 @@ export type PageMargin = 'tight' | 'normal' | 'generous'
 /** Skill / tag rendering: chip pills vs. inline comma-separated list. */
 export type TagStyle = 'chips' | 'inline'
 
+/**
+ * Visual treatment of the hairline drawn between items in a section (HTML/PDF).
+ *  - line   — full-width hairline (the default)
+ *  - thick  — heavier full-width rule
+ *  - dashed / dotted / double — patterned full-width rules
+ *  - short  — a short left-aligned rule
+ *  - space  — no line, gap only
+ */
+export type DividerStyle = 'line' | 'thick' | 'dashed' | 'dotted' | 'double' | 'short' | 'space'
+
 /** View-wide styling defaults — applied unless a section overrides. */
 export interface ViewStyle {
   density: Density
@@ -463,6 +473,10 @@ export interface ViewStyle {
   accent_color: string
   page_margin: PageMargin
   tag_style: TagStyle
+  /** Draw dividers between items view-wide (default true). Additive — consumers default to true. */
+  item_divider?: boolean
+  /** View-wide divider style (default 'line'). Additive — consumers default to 'line'. */
+  divider_style?: DividerStyle
 }
 
 /**
@@ -478,8 +492,10 @@ export interface SectionStyle {
   hide_dates?: boolean
   /** Override the global tag chip / inline choice for projects + tech cats. */
   tag_style?: TagStyle
-  /** Draw a hairline divider between items in this section (default: yes for full, no for summary). */
+  /** Override whether a divider is drawn between items in this section. Undefined = inherit the view default. */
   item_divider?: boolean
+  /** Override the divider style for this section. Undefined = inherit the view default. */
+  divider_style?: DividerStyle
 }
 
 export interface ViewSection {
