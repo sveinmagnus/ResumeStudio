@@ -14,7 +14,7 @@ import {
 import { INFERRED_TIERS } from '../../lib/skillMatch'
 import { DualField } from '../ui/DualField'
 import { TextField } from '../ui/Fields'
-import { EditorCard, AddButton, FieldRow } from '../ui/EditorCard'
+import { EditorCard, AddButton, AddButtons, FieldRow } from '../ui/EditorCard'
 import { SortableList } from '../ui/SortableList'
 import { SortBar } from '../ui/SortBar'
 import { Autocomplete } from '../ui/Autocomplete'
@@ -697,13 +697,14 @@ export function SkillsEditor() {
           ) : (
           <>
           {filter === 'all' && categoryFilter === 'all' && <RelatedSkillsPanel onAdd={addNamed} />}
+          <AddButtons label="Add skill" onClick={add} hasItems={displayItems.length > 0}>
           {displayItems.length === 0 && (
             <div className="registry-empty">
               {categoryFilter !== 'all'
                 ? 'No skills in this category (with the current filter).'
                 : filter === 'unused'
                   ? 'No unused skills — every skill is referenced somewhere.'
-                  : 'No skills yet — add your first below.'}
+                  : 'No skills yet — add your first above.'}
             </div>
           )}
           {displayItems.map((s) => {
@@ -720,7 +721,7 @@ export function SkillsEditor() {
               </EditorCard>
             )
           })}
-          <AddButton label="Add skill" onClick={add} />
+          </AddButtons>
           </>
           )}
         </>
@@ -914,12 +915,12 @@ export function RolesEditor() {
           {/* SortableList only wraps the rendered slice; reordering with a filter
               active still bakes into sort_order against the visible items, which
               is the intuitive behaviour. */}
-          <SortableList section="roles" ids={displayItems.map((x) => x.id)}>
+          <SortableList section="roles" ids={displayItems.map((x) => x.id)} addLabel="Add role" onAdd={add}>
           {displayItems.length === 0 && (
             <div className="registry-empty">
               {filter === 'unused'
                 ? 'No unused roles — every role is referenced somewhere.'
-                : 'No roles yet — add your first below.'}
+                : 'No roles yet — add your first above.'}
             </div>
           )}
           {displayItems.map((r) => {
@@ -937,7 +938,6 @@ export function RolesEditor() {
             )
           })}
           </SortableList>
-          <AddButton label="Add role" onClick={add} />
         </>
       ) : (
         <>
@@ -1051,12 +1051,12 @@ export function IndustriesEditor() {
       ) : (
       <>
       <SortBar section="industries" count={sortedItems.length} />
-      <SortableList section="industries" ids={displayItems.map((x) => x.id)}>
+      <SortableList section="industries" ids={displayItems.map((x) => x.id)} addLabel="Add industry" onAdd={add}>
       {displayItems.length === 0 && (
         <div className="registry-empty">
           {filter === 'unused'
             ? 'No unused industries — every industry is referenced by a project.'
-            : 'No industries yet — they appear as you set a project industry, or add one below.'}
+            : 'No industries yet — they appear as you set a project industry, or add one above.'}
         </div>
       )}
       {displayItems.map((ind) => {
@@ -1079,7 +1079,6 @@ export function IndustriesEditor() {
         )
       })}
       </SortableList>
-      <AddButton label="Add industry" onClick={add} />
       </>
       )}
       <RegistryStyles />
@@ -1301,6 +1300,7 @@ export function ReferencesEditor() {
   return (
     <div className="section-pane">
       <p className="registry-note">References are private by default and never appear in exports unless you opt in per reference.</p>
+      <AddButtons label="Add reference" onClick={add} hasItems={items.length > 0}>
       {items.map((ref) => (
         <EditorCard key={ref.id} section="references" id={ref.id}
           title={ref.name || 'New reference'} subtitle={[ref.title, ref.company].filter(Boolean).join(', ')}
@@ -1323,7 +1323,7 @@ export function ReferencesEditor() {
           </label>
         </EditorCard>
       ))}
-      <AddButton label="Add reference" onClick={add} />
+      </AddButtons>
       <RegistryStyles />
       {/* .check-row styling lives in src/index.css */}
     </div>

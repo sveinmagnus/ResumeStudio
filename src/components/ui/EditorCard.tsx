@@ -218,6 +218,26 @@ export function EditorCard({
   )
 }
 
+/**
+ * Wraps a list section's items with an "add" button at BOTH the top and the
+ * bottom, so the user never has to scroll back to the top to add another item.
+ * The bottom button only appears once the list is non-empty — an empty section
+ * shows a single top button, not two stacked ones. `SortableList` renders its
+ * children through this when given `addLabel`/`onAdd`; flat (non-reorderable)
+ * lists use it directly.
+ */
+export function AddButtons({
+  label, onClick, hasItems, children,
+}: { label: string; onClick: () => void; hasItems: boolean; children: ReactNode }) {
+  return (
+    <>
+      <AddButton label={label} onClick={onClick} />
+      {children}
+      {hasItems && <AddButton label={label} onClick={onClick} />}
+    </>
+  )
+}
+
 export function AddButton({ label, onClick }: { label: string; onClick: () => void }) {
   return (
     <button className="add-btn" onClick={onClick}>

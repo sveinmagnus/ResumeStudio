@@ -5,7 +5,7 @@ import { suggestSkillNames } from '../../lib/skillTaxonomy'
 import { DualField } from '../ui/DualField'
 import { RichField } from '../ui/RichField'
 import { TextField, DateField, TagField } from '../ui/Fields'
-import { EditorCard, AddButton, FieldRow } from '../ui/EditorCard'
+import { EditorCard, FieldRow } from '../ui/EditorCard'
 import { SortableList } from '../ui/SortableList'
 import { SortBar } from '../ui/SortBar'
 import { SectionIntro } from '../ui/SectionIntro'
@@ -44,8 +44,7 @@ export function ProjectsEditor() {
         Projects in a view.
       </SectionIntro>
       <SortBar section="projects" count={projects.length} />
-      <AddButton label="Add project" onClick={addProject} />
-      <SortableList section="projects" ids={projects.map((p) => p.id)}>
+      <SortableList section="projects" ids={projects.map((p) => p.id)} addLabel="Add project" onAdd={addProject}>
       {projects.map((p) => (
         <EditorCard key={p.id} section="projects" id={p.id}
           title={resolve(p.customer, primaryLocale) || resolve(p.description, primaryLocale)}

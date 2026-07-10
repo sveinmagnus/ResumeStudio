@@ -12,6 +12,7 @@ import { DndContext, PointerSensor, KeyboardSensor, useSensor, useSensors, close
 import { SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { useStore } from '../../store/useStore'
 import { useReorderGuard } from '../../store/useReorderGuard'
+import { AddButtons } from './EditorCard'
 import type { SectionKey } from '../../types'
 
 type ArraySection = SectionKey
@@ -20,10 +21,17 @@ interface Props {
   section: ArraySection
   /** Item ids in the same order as the children, top to bottom. */
   ids: string[]
+  /**
+   * When both are given, an "add" button renders at the top and (once the list
+   * is non-empty) the bottom of the list. Omit for a list whose add affordance
+   * lives elsewhere.
+   */
+  addLabel?: string
+  onAdd?: () => void
   children: ReactNode
 }
 
-export function SortableList({ section, ids, children }: Props) {
+export function SortableList({ section, ids, addLabel, onAdd, children }: Props) {
   const moveItem = useStore((s) => s.moveItem)
   const guard = useReorderGuard(section)
 
@@ -44,11 +52,16 @@ export function SortableList({ section, ids, children }: Props) {
     guard(() => moveItem(section, String(active.id), toIndex))
   }
 
-  return (
+  const list = (
     <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
       <SortableContext items={ids} strategy={verticalListSortingStrategy}>
         {children}
       </SortableContext>
     </DndContext>
   )
+
+  if (addLabel && onAdd) {
+    return <AddButtons label={addLabel} onClick={onAdd} hasItems={ids.length > 0}>{list}</AddButtons>
+  }
+  return list
 }
