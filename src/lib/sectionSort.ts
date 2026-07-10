@@ -39,6 +39,7 @@ const DATE_CAPS: Record<string, { start?: boolean; end?: boolean; single?: strin
   presentations:    { single: 'date' },
   publications:     { single: 'date' },
   honor_awards:     { single: 'date' },
+  recommendations:  { single: 'date' },
 }
 
 /** Which sort modes a section offers, in display order. */

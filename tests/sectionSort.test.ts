@@ -19,6 +19,10 @@ describe('availableSortModes()', () => {
     expect(availableSortModes('courses')).toEqual(['custom', 'alpha', 'date'])
     expect(availableSortModes('certifications')).toEqual(['custom', 'alpha', 'date'])
     expect(availableSortModes('honor_awards')).toEqual(['custom', 'alpha', 'date'])
+    expect(availableSortModes('presentations')).toEqual(['custom', 'alpha', 'date'])
+    expect(availableSortModes('publications')).toEqual(['custom', 'alpha', 'date'])
+    // recommendations carry a date too — they must offer date sorting.
+    expect(availableSortModes('recommendations')).toEqual(['custom', 'alpha', 'date'])
   })
 
   it('has a label for every mode', () => {

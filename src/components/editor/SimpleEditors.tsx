@@ -574,7 +574,10 @@ export function RecommendationsEditor() {
       {items.map((r) => (
         <EditorCard key={r.id} section="recommendations" id={r.id}
           title={r.recommender_name || 'Recommendation'}
-          subtitle={[resolve(r.recommender_title, primaryLocale), r.recommender_company].filter(Boolean).join(', ')}
+          subtitle={[
+            [resolve(r.recommender_title, primaryLocale), r.recommender_company].filter(Boolean).join(', '),
+            resolve(r.relationship, primaryLocale) && `(${resolve(r.relationship, primaryLocale)})`,
+          ].filter(Boolean).join(' ')}
           meta={fmtDate(r.date)} preview={richToPlain(resolve(r.text, primaryLocale))}
           starred={r.starred} disabled={r.disabled}>
           <FieldRow>

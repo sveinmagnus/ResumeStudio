@@ -8,11 +8,11 @@ import type { ComponentType } from 'react'
 import {
   WorkEditor, EducationEditor, CertificationsEditor, PositionsEditor,
   PresentationsEditor, PublicationsEditor, AwardsEditor, SpokenLanguagesEditor,
-  ProfileEditor,
+  ProfileEditor, RecommendationsEditor,
 } from '../../src/components/editor/SimpleEditors'
 import { useStore } from '../../src/store/useStore'
 import { resetStore } from '../helpers/store-reset'
-import { emptyStore, makeWork, makePublication } from '../fixtures'
+import { emptyStore, makeWork, makePublication, makeRecommendation } from '../fixtures'
 import type { ResumeStore } from '../../src/types'
 
 function seed(data: ResumeStore = emptyStore()) {
@@ -99,5 +99,32 @@ describe('ProfileEditor', () => {
     expect(useStore.getState().data.key_qualifications).toHaveLength(1)
     expect(useStore.getState().data.key_qualifications[0].key_points).toEqual([])
     expect(screen.queryByRole('button', { name: /add competency/i })).toBeNull()
+  })
+})
+
+describe('RecommendationsEditor', () => {
+  beforeEach(() => resetStore())
+
+  it('shows the relationship in parentheses behind the title and company (collapsed card)', () => {
+    const data = emptyStore()
+    data.recommendations.push(makeRecommendation({
+      recommender_name: 'Jane Doe',
+      recommender_title: { en: 'CTO' },
+      recommender_company: 'BigCo',
+      relationship: { en: 'Was my manager' },
+    }))
+    seed(data)
+    render(<RecommendationsEditor />)
+    expect(screen.getByText('CTO, BigCo (Was my manager)')).toBeInTheDocument()
+  })
+
+  it('omits the parentheses when no relationship is set', () => {
+    const data = emptyStore()
+    data.recommendations.push(makeRecommendation({
+      recommender_name: 'John Roe', recommender_title: { en: 'CFO' }, recommender_company: 'Acme', relationship: {},
+    }))
+    seed(data)
+    render(<RecommendationsEditor />)
+    expect(screen.getByText('CFO, Acme')).toBeInTheDocument()
   })
 })
