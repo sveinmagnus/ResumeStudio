@@ -13,6 +13,7 @@ import { TranslationPopover } from '../ui/TranslationPopover'
 import { resolve, fmtRange, fmtDate } from '../../lib/locales'
 import { richToPlain } from '../../lib/richText'
 import { RELATIONSHIP_OPTIONS, matchRelationshipKey, relationshipLabels } from '../../lib/recommendationRelationships'
+import { PUBLICATION_TYPES } from '../../lib/publicationTypes'
 import type {
   WorkExperience, Education, Course, Certification, Position,
   Presentation, HonorAward, Publication, SpokenLanguage, KeyQualification,
@@ -394,8 +395,9 @@ export function PublicationsEditor() {
   return (
     <div className="section-pane">
       <SectionIntro>
-        Articles, whitepapers, books, reports and blog posts you have authored —
-        with the publisher, date and a link to the original.
+        Articles, research publications, theses, whitepapers, books, reports and
+        blog posts you have authored — with the publisher, co-authors, date and a
+        link to the original.
       </SectionIntro>
       <SortBar section="publications" count={items.length} />
       <SortableList section="publications" ids={items.map((x) => x.id)} addLabel="Add publication" onAdd={add}>
@@ -406,18 +408,21 @@ export function PublicationsEditor() {
           starred={p.starred} disabled={p.disabled}>
           <DualField label="Title" value={p.title} onChange={(v) => updateItem('publications', p.id, { title: v })} />
           <DualField label="Publisher" value={p.publisher} onChange={(v) => updateItem('publications', p.id, { publisher: v })} />
+          <TextField
+            label="Co-authors"
+            value={p.co_authors.join(', ')}
+            onChange={(v) => updateItem('publications', p.id, { co_authors: v.split(',').map((s) => s.trim()).filter(Boolean) })}
+            placeholder="Comma-separated, e.g. Jane Doe, John Roe"
+          />
           <RichField label="Abstract" value={p.abstract} onChange={(v) => updateItem('publications', p.id, { abstract: v })} />
           <FieldRow>
             <label className="pf-wrap">
               <span className="pf-label">Type</span>
               <select className="pf-input" value={p.publication_type}
                 onChange={(e) => updateItem('publications', p.id, { publication_type: e.target.value as Publication['publication_type'] })}>
-                <option value="article">Article</option>
-                <option value="whitepaper">Whitepaper</option>
-                <option value="book">Book</option>
-                <option value="book_chapter">Book chapter</option>
-                <option value="blog_post">Blog post</option>
-                <option value="report">Report</option>
+                {PUBLICATION_TYPES.map((t) => (
+                  <option key={t.value} value={t.value}>{t.label}</option>
+                ))}
               </select>
             </label>
             <DateField label="Date" value={p.date} onChange={(v) => updateItem('publications', p.id, { date: v })} />

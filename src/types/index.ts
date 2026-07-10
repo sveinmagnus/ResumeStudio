@@ -401,7 +401,7 @@ export interface Publication {
   abstract: LocalizedString
   url: string | null
   date: YearMonth | null
-  publication_type: 'article' | 'whitepaper' | 'book' | 'book_chapter' | 'blog_post' | 'report'
+  publication_type: 'article' | 'research' | 'whitepaper' | 'book' | 'book_chapter' | 'blog_post' | 'report' | 'thesis'
   skill_tags: string[]
   sort_order: number
   starred: boolean

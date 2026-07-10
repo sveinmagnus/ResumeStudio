@@ -18,6 +18,7 @@
  */
 
 import type { LocalizedString } from '../types'
+import { publicationTypeLabel } from './publicationTypes'
 import { resolve, fmtRange, fmtDate } from './locales'
 
 export type AnyItem = Record<string, unknown>
@@ -109,6 +110,20 @@ const view = (partial: Partial<ItemView>): ItemView => ({
 
 const summaryOf = (title: string, meta: Array<string | null | undefined>, sep: '—' | ':' = '—'): SummaryView =>
   ({ title, meta: meta.filter((m): m is string => !!m), sep })
+
+/** Publication publisher with its type in parentheses, e.g. "IEEE (Research Publication)". */
+const publisherWithType = (it: AnyItem, locale: string): string => {
+  const pub = ls(it, 'publisher', locale)
+  const type = publicationTypeLabel(it.publication_type as string | undefined)
+  if (pub && type) return `${pub} (${type})`
+  return pub || (type ? `(${type})` : '')
+}
+
+/** Comma-joined co-author names for a publication, or '' when none. */
+const coAuthorsLine = (it: AnyItem): string => {
+  const authors = Array.isArray(it.co_authors) ? (it.co_authors as string[]).filter(Boolean) : []
+  return authors.length ? `With ${authors.join(', ')}` : ''
+}
 
 /**
  * The exported customer name for a project: the anonymized alias when the
@@ -439,20 +454,21 @@ export const SECTION_CATALOG: Record<string, SectionDescriptor> = {
 
   publications: {
     title: (it, locale) => ls(it, 'title', locale) || 'Untitled',
-    subtitle: (it, locale) => ls(it, 'publisher', locale),
+    subtitle: (it, locale) => publisherWithType(it, locale),
     summary: (it, ctx) =>
       summaryOf(ls(it, 'title', ctx.locale) || 'Publication',
-        [ls(it, 'publisher', ctx.locale), dateAt(it, 'date', ctx)]),
+        [publisherWithType(it, ctx.locale), dateAt(it, 'date', ctx)]),
     full(it, ctx) {
       const { locale } = ctx
       const common = { title: ls(it, 'title', locale), body: ls(it, 'abstract', locale) }
+      const authors = coAuthorsLine(it)
       if (ctx.target === 'html') {
-        return view({ ...common, meta: [ls(it, 'publisher', locale), dateAt(it, 'date', ctx)].filter(Boolean) })
+        return view({ ...common, meta: [publisherWithType(it, locale), authors, dateAt(it, 'date', ctx)].filter(Boolean) })
       }
       return view({
         ...common,
         date: dateAt(it, 'date', ctx),
-        meta: [ls(it, 'publisher', locale)].filter(Boolean),
+        meta: [publisherWithType(it, locale), authors].filter(Boolean),
         extraLines: it.url ? [it.url as string] : [],
       })
     },
