@@ -19,6 +19,7 @@
 
 import type { LocalizedString } from '../types'
 import { publicationTypeLabel } from './publicationTypes'
+import { positionTypeLabel } from './positionTypes'
 import { resolve, fmtRange, fmtDate } from './locales'
 
 export type AnyItem = Record<string, unknown>
@@ -365,21 +366,23 @@ export const SECTION_CATALOG: Record<string, SectionDescriptor> = {
     title: (it, locale) => ls(it, 'name', locale) || 'Untitled',
     subtitle: (it, locale) => {
       const r = rawRange(it)
-      return `${ls(it, 'organisation', locale)}${r ? ' · ' + r : ''}`
+      const org = [positionTypeLabel(it.position_type as string | undefined), ls(it, 'organisation', locale)].filter(Boolean).join(' · ')
+      return `${org}${r ? ' · ' + r : ''}`
     },
     summary: (it, ctx) =>
       summaryOf(ls(it, 'name', ctx.locale) || 'Role',
-        [ls(it, 'organisation', ctx.locale), range(it, ctx)]),
+        [positionTypeLabel(it.position_type as string | undefined), ls(it, 'organisation', ctx.locale), range(it, ctx)]),
     full(it, ctx) {
       const { locale } = ctx
+      const type = positionTypeLabel(it.position_type as string | undefined)
       const common = { title: ls(it, 'name', locale), body: ls(it, 'description', locale) }
       if (ctx.target === 'html') {
-        return view({ ...common, meta: [ls(it, 'organisation', locale), range(it, ctx)].filter(Boolean) })
+        return view({ ...common, meta: [type, ls(it, 'organisation', locale), range(it, ctx)].filter(Boolean) })
       }
       return view({
         ...common,
         date: range(it, ctx),
-        meta: [ls(it, 'organisation', locale)].filter(Boolean),
+        meta: [type, ls(it, 'organisation', locale)].filter(Boolean),
       })
     },
   },

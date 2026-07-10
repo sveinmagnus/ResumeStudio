@@ -357,6 +357,8 @@ export interface Position {
   name: LocalizedString
   organisation: LocalizedString
   description: LocalizedString
+  /** Classification for sorting/filtering (board_member, volunteer, mentor…; see lib/positionTypes.ts). Additive/optional. */
+  position_type?: string | null
   start: YearMonth | null
   end: YearMonth | null
   skill_tags: string[]

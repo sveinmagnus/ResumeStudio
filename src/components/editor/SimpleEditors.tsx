@@ -14,6 +14,7 @@ import { resolve, fmtRange, fmtDate } from '../../lib/locales'
 import { richToPlain } from '../../lib/richText'
 import { RELATIONSHIP_OPTIONS, matchRelationshipKey, relationshipLabels } from '../../lib/recommendationRelationships'
 import { PUBLICATION_TYPES } from '../../lib/publicationTypes'
+import { POSITION_TYPES, positionTypeLabel } from '../../lib/positionTypes'
 import type {
   WorkExperience, Education, Course, Certification, Position,
   Presentation, HonorAward, Publication, SpokenLanguage, KeyQualification,
@@ -323,13 +324,24 @@ export function PositionsEditor() {
       <SortableList section="positions" ids={items.map((x) => x.id)} addLabel="Add role" onAdd={add}>
       {items.map((p) => (
         <EditorCard key={p.id} section="positions" id={p.id}
-          title={resolve(p.name, primaryLocale)} subtitle={resolve(p.organisation, primaryLocale)}
+          title={resolve(p.name, primaryLocale)}
+          subtitle={[positionTypeLabel(p.position_type), resolve(p.organisation, primaryLocale)].filter(Boolean).join(' · ')}
           meta={fmtRange(p.start, p.end)} preview={richToPlain(resolve(p.description, primaryLocale))}
           starred={p.starred} disabled={p.disabled}>
           <DualField label="Position / role" value={p.name} onChange={(v) => updateItem('positions', p.id, { name: v })} />
           <DualField label="Organisation" value={p.organisation} onChange={(v) => updateItem('positions', p.id, { organisation: v })} />
           <RichField label="Description" value={p.description} onChange={(v) => updateItem('positions', p.id, { description: v })} />
           <FieldRow>
+            <label className="pf-wrap">
+              <span className="pf-label">Type</span>
+              <select className="pf-input" value={p.position_type ?? ''}
+                onChange={(e) => updateItem('positions', p.id, { position_type: e.target.value || null })}>
+                <option value="">—</option>
+                {POSITION_TYPES.map((t) => (
+                  <option key={t.value} value={t.value}>{t.label}</option>
+                ))}
+              </select>
+            </label>
             <DateField label="Start" value={p.start} onChange={(v) => updateItem('positions', p.id, { start: v })} />
             <DateField label="End" value={p.end} onChange={(v) => updateItem('positions', p.id, { end: v })} allowOngoing />
           </FieldRow>
