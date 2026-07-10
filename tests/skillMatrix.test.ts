@@ -57,9 +57,19 @@ describe('skillMatrixRows', () => {
     expect(rows[0].name).toBe('TypeScript')
   })
 
-  it('respects view exclusions', () => {
+  it('respects view exclusions (legacy per-skill id)', () => {
     const rows2 = skillMatrixRows(matrixStore(), makeView({ excluded_item_ids: ['go'] }), 'en')
     expect(rows2.some((r) => r.name === 'Go')).toBe(false)
+  })
+
+  it('drops every skill in an excluded CATEGORY (the matrix toggles categories)', () => {
+    const store = matrixStore()
+    store.skill_categories = [makeSkillCategory({ id: 'cat-cloud', name: { en: 'Cloud' } })]
+    store.skills.find((s) => s.id === 'k8s')!.category_id = 'cat-cloud'
+    const rows2 = skillMatrixRows(store, makeView({ excluded_item_ids: ['cat-cloud'] }), 'en')
+    expect(rows2.some((r) => r.name === 'Kubernetes')).toBe(false)
+    // A skill in a different (non-excluded) category is unaffected.
+    expect(rows2.some((r) => r.name === 'TypeScript')).toBe(true)
   })
 
   it('highlightedOnly keeps only highlighted skills (summary detail)', () => {

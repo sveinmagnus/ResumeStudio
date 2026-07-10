@@ -406,8 +406,9 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
             // otherwise list every skill here. Promoted Projects only lists the
             // starred projects (its source set).
             // Honour the section's chosen sort mode so this list matches the
-            // editor's order (and, for date modes, the export order).
-            const storeItems = vs.key === 'technology_categories'
+            // editor's order (and, for date modes, the export order). The
+            // Skills Showcase AND the Skill Matrix are toggled by CATEGORY.
+            const storeItems = (vs.key === 'technology_categories' || vs.key === 'skill_matrix')
               ? skillCategoryList(data).map((c) => ({ id: c.id, name: c.name, disabled: false, starred: false }))
               : sortItems(
                   vs.key,

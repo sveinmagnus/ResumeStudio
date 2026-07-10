@@ -306,8 +306,11 @@ export async function exportDocx(store: ResumeStore, view: ResumeView, locale: s
 
     if (header.photo_placement !== 'none' && photoInfo) {
       const photoRun = imageRunScaled(photoInfo, 132, 156)
-      if (header.photo_placement === 'left' || header.photo_placement === 'right') {
-        children.push(photoSideTable(photoRun, identity, header.photo_placement))
+      const p = header.photo_placement
+      if (p === 'left' || p === 'right' || p === 'left_of_name' || p === 'right_of_name') {
+        // DOCX approximates the "…_of_name" variants as a side-by-side table
+        // (splitting name/title from contact into Word tables isn't worth it).
+        children.push(photoSideTable(photoRun, identity, p === 'right' || p === 'right_of_name' ? 'right' : 'left'))
       } else if (header.photo_placement === 'above') {
         children.push(new Paragraph({ spacing: { after: 100 }, children: [photoRun] }), ...identity)
       } else { // below

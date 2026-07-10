@@ -37,7 +37,9 @@ export function defaultViewDetail(key: string): SectionDetail {
 /** The renderer/title key a section uses — synthetics reuse their source registry's titles. */
 function renderKeyFor(key: string): string {
   if (key === 'promoted_projects') return 'projects'
-  if (key === 'skill_matrix') return 'skills'
+  // The Skill Matrix is toggled by CATEGORY in the view editor (not individual
+  // skills), so its item list titles resolve through the category descriptor.
+  if (key === 'skill_matrix') return 'technology_categories'
   return key
 }
 
@@ -435,14 +437,21 @@ export function buildViewHtml(store: ResumeStore, view: ResumeView, locale: stri
   const photoImg = showPhoto
     ? `<img class="ve-photo ve-photo-shape-${header.photo_shape}" src="${escapeHtml(photoSrc!)}" alt="">`
     : ''
-  const identityHtml = `<div class="ve-identity">
-    <h1 class="ve-name" style="${nameStyleCss}">${escapeHtml(r.full_name)}</h1>
-    ${titleText ? `<div class="ve-header-title" style="${titleStyleCss}">${titleText}</div>` : ''}
-    ${contactHtml ? `<div class="ve-header-contact">${contactHtml}</div>` : ''}
-  </div>`
-  const headerInner = header.photo_placement === 'below'
-    ? `${identityHtml}${photoImg}`
-    : `${photoImg}${identityHtml}`
+  const nameTitleHtml = `<h1 class="ve-name" style="${nameStyleCss}">${escapeHtml(r.full_name)}</h1>
+    ${titleText ? `<div class="ve-header-title" style="${titleStyleCss}">${titleText}</div>` : ''}`
+  const contactBlockHtml = contactHtml ? `<div class="ve-header-contact">${contactHtml}</div>` : ''
+  // "…_of_name" placements sit the photo beside the NAME+TITLE only, with the
+  // contact details on their own full-width row below.
+  const photoBesideName = header.photo_placement === 'left_of_name' || header.photo_placement === 'right_of_name'
+  let headerInner: string
+  if (photoBesideName) {
+    headerInner = `<div class="ve-nametitle-row">${photoImg}<div class="ve-identity">${nameTitleHtml}</div></div>${contactBlockHtml}`
+  } else {
+    const identityHtml = `<div class="ve-identity">${nameTitleHtml}${contactBlockHtml}</div>`
+    headerInner = header.photo_placement === 'below'
+      ? `${identityHtml}${photoImg}`
+      : `${photoImg}${identityHtml}`
+  }
   const logoHtml = showLogo
     ? `<div class="ve-logo-banner ve-logo-${header.logo_placement}"><img class="ve-logo" src="${escapeHtml(logoSrc!)}" alt=""></div>`
     : ''
@@ -524,6 +533,11 @@ export function buildViewHtml(store: ResumeStore, view: ResumeView, locale: stri
     .ve-header.ve-photo-right { display: flex; gap: 18px; align-items: flex-start; flex-direction: row-reverse; }
     .ve-header.ve-photo-above { display: flex; gap: 12px; flex-direction: column; align-items: flex-start; }
     .ve-header.ve-photo-below { display: flex; gap: 12px; flex-direction: column; align-items: flex-start; }
+    /* Photo beside the name+title only — contact details full-width below. */
+    .ve-header.ve-photo-left_of_name, .ve-header.ve-photo-right_of_name { display: block; }
+    .ve-photo-left_of_name .ve-nametitle-row,
+    .ve-photo-right_of_name .ve-nametitle-row { display: flex; gap: 18px; align-items: center; margin-bottom: 6px; }
+    .ve-photo-right_of_name .ve-nametitle-row { flex-direction: row-reverse; }
     .ve-identity { min-width: 0; }
     .ve-photo {
       width: 112px; height: 112px; object-fit: cover;

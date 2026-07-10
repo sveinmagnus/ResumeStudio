@@ -153,6 +153,8 @@ export function ViewHeaderControls({
             ['right', 'Right of details'],
             ['above', 'Above details'],
             ['below', 'Below details'],
+            ['left_of_name', 'Left of name & title'],
+            ['right_of_name', 'Right of name & title'],
           ]}
           onChange={(photo_placement) => onChange({ photo_placement })}
         />

@@ -7,8 +7,10 @@
  * render paths (and the text adapter) consume `skillMatrixRows`; the renderers
  * own all escaping.
  *
- * Detail semantics for the section: 'full' = every (non-excluded) skill,
- * 'summary' = highlighted skills only.
+ * Detail semantics for the section: 'full' = every skill, 'summary' =
+ * highlighted skills only. Selection is by CATEGORY: a skill whose linked
+ * category id is in the view's excluded list is dropped (the view editor shows
+ * category toggles for this section, shared with the Skills Showcase).
  */
 
 import type { ResumeStore, ResumeView, YearMonth } from '../types'
@@ -97,7 +99,9 @@ export function skillMatrixRows(
   }
 
   return store.skills
-    .filter((s) => !excluded.has(s.id))
+    // Drop a skill when its own id OR its linked category id is excluded — the
+    // matrix is toggled by category, but honour any legacy per-skill exclusions.
+    .filter((s) => !excluded.has(s.id) && !(s.category_id && excluded.has(s.category_id)))
     .filter((s) => !opts.highlightedOnly || s.is_highlighted)
     .map((s): SkillMatrixRow => {
       const u = usage.get(s.id)

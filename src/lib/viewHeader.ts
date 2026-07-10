@@ -24,7 +24,7 @@ import { resolve } from './locales'
 // must be coerced here at the boundary — otherwise a crafted import could break
 // out of an attribute, and a non-numeric size_pt would inject into a style.
 
-const PHOTO_PLACEMENTS = new Set<PhotoPlacement>(['none', 'left', 'right', 'above', 'below'])
+const PHOTO_PLACEMENTS = new Set<PhotoPlacement>(['none', 'left', 'right', 'above', 'below', 'left_of_name', 'right_of_name'])
 const PROFILE_IMAGE_SHAPES = new Set<ProfileImageShape>(['square', 'rounded', 'circle'])
 const LOGO_PLACEMENTS = new Set<LogoPlacement>(['none', 'left', 'center', 'right'])
 const TEXT_FONTS = new Set<HeaderTextStyle['font']>(['condensed', 'sans', 'serif', 'body'])

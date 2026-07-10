@@ -534,8 +534,13 @@ export interface HeaderField {
   sort_order: number
 }
 
-/** Where the profile photo sits relative to the identity (name/title/contact) block. */
-export type PhotoPlacement = 'none' | 'left' | 'right' | 'above' | 'below'
+/**
+ * Where the profile photo sits relative to the identity block.
+ *  - left/right/above/below — beside/around the whole identity (name, title, contact)
+ *  - left_of_name / right_of_name — beside the NAME + TITLE only, so the contact
+ *    details drop below and use the full page width
+ */
+export type PhotoPlacement = 'none' | 'left' | 'right' | 'above' | 'below' | 'left_of_name' | 'right_of_name'
 
 /**
  * How the profile photo is rendered in a Resume View — a square (the raw
