@@ -57,6 +57,10 @@ export function AppHeader({
     if (!el) return
     const set = () => document.documentElement.style.setProperty('--app-header-h', `${el.offsetHeight}px`)
     set()
+    // ResizeObserver is absent in jsdom (tests) — degrade to the one-shot measure.
+    if (typeof ResizeObserver === 'undefined') {
+      return () => document.documentElement.style.removeProperty('--app-header-h')
+    }
     const ro = new ResizeObserver(set)
     ro.observe(el)
     return () => { ro.disconnect(); document.documentElement.style.removeProperty('--app-header-h') }

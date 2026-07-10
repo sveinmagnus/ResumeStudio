@@ -488,6 +488,13 @@ export interface SectionStyle {
   density?: Density
   /** Suppress the section heading entirely (renders items only). */
   hide_heading?: boolean
+  /**
+   * Replace the section heading with custom localized text (e.g. show Projects
+   * under "Selected engagements"). Empty/absent → the canonical section label.
+   * Ignored when hide_heading is set. Untrusted-import surface — resolved and
+   * escaped at the render boundary like any other localized string.
+   */
+  heading_text?: LocalizedString
   /** Hide dates on items in this section. */
   hide_dates?: boolean
   /** Override the global tag chip / inline choice for projects + tech cats. */

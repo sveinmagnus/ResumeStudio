@@ -33,7 +33,7 @@ import { skillMatrixRows, fmtLastUsed, fmtProficiency, type SkillMatrixRow } fro
 import { applyView, isExportableSection, defaultViewDetail, promotedProjectItems } from './viewFilter'
 import { showcaseGroups } from './showcase'
 import { parseRichBlocks, type RichRun } from './richText'
-import { deriveTokens, resolveSectionStyle, withDefaults, resolveFontDocx, type ResolvedSectionStyle, type StyleTokens } from './viewStyle'
+import { deriveTokens, resolveSectionStyle, sectionHeadingText, withDefaults, resolveFontDocx, type ResolvedSectionStyle, type StyleTokens } from './viewStyle'
 import { withHeaderDefaults, withFooterDefaults, buildHeaderLines, buildCopyrightLine } from './viewHeader'
 import { imageInfoFromDataUrl, applyShapeMaskToDataUrl, type ImageInfo } from './image'
 import { exportFilename } from './exportFilename'
@@ -357,7 +357,7 @@ export async function exportDocx(store: ResumeStore, view: ResumeView, locale: s
       const rows = skillMatrixRows(store, view, locale, { highlightedOnly: def.detail === 'summary' })
       if (!rows.length) continue
       const tokens = deriveTokens(resolved)
-      if (!resolved.hide_heading) children.push(sectionHeading(def.label, tokens))
+      if (!resolved.hide_heading) children.push(sectionHeading(sectionHeadingText(resolved, def.label, locale), tokens))
       children.push(skillMatrixTable(rows, !resolved.hide_dates, tokens))
       continue
     }
@@ -378,7 +378,7 @@ export async function exportDocx(store: ResumeStore, view: ResumeView, locale: s
       tokens: deriveTokens(resolved),
     }
     const renderKey = def.key === 'promoted_projects' ? 'projects' : def.key
-    const block = renderSection(renderKey, def.label, items, ctx)
+    const block = renderSection(renderKey, sectionHeadingText(resolved, def.label, locale), items, ctx)
     if (block.length) children.push(...block)
   }
 

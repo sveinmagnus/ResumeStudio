@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  */
 import { describe, it, expect, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ResumeViewsEditor } from '../../src/components/editor/ResumeViewsEditor'
 import { useStore } from '../../src/store/useStore'
@@ -80,7 +80,10 @@ describe('<ResumeViewsEditor>', () => {
     render(<ResumeViewsEditor />)
     await userEvent.click(screen.getByRole('button', { name: /new view/i }))
 
-    const densitySelect = screen.getByLabelText(/density/i)
+    // Scope to the view-wide styling block — sections also have a density
+    // override control now.
+    const stylingBlock = screen.getByText('View styling').closest('.rv-section-block') as HTMLElement
+    const densitySelect = within(stylingBlock).getByLabelText(/density/i)
     await userEvent.selectOptions(densitySelect, 'compact')
 
     expect(useStore.getState().data.views[0].style.density).toBe('compact')
@@ -149,7 +152,8 @@ describe('<ResumeViewsEditor>', () => {
     // Section detail got seeded (recommendations off on the one-pager).
     expect(view.sections.find((s) => s.key === 'recommendations')?.detail).toBe('off')
     // Style stays user-tweakable after applying a template.
-    await userEvent.selectOptions(screen.getByLabelText(/density/i), 'spacious')
+    const stylingBlock = screen.getByText('View styling').closest('.rv-section-block') as HTMLElement
+    await userEvent.selectOptions(within(stylingBlock).getByLabelText(/density/i), 'spacious')
     expect(useStore.getState().data.views[0].style.density).toBe('spacious')
   })
 

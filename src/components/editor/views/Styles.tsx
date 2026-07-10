@@ -174,18 +174,28 @@ export function Styles() {
         font-size: 10px; font-weight: 600;
       }
       .rv-secstyle-summary .rv-secstyle-reset:hover { color: var(--accent); background: var(--paper); }
-      .rv-secstyle-body { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 14px; margin-top: 10px; }
-      .rv-secstyle-row {
-        display: flex; align-items: center; justify-content: space-between; gap: 6px;
+      /* Toggles (left) | dropdowns (right). */
+      .rv-secstyle-body {
+        display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 10px 18px; margin-top: 10px; align-items: start;
+      }
+      .rv-secstyle-toggles { display: flex; flex-direction: column; gap: 8px; }
+      .rv-secstyle-selects { display: flex; flex-direction: column; gap: 8px; }
+      /* Checkbox sits BEFORE its label text so what's toggled is unambiguous. */
+      .rv-toggle {
+        display: flex; align-items: center; gap: 8px;
+        font-size: 12px; color: var(--ink-soft); cursor: pointer;
+      }
+      .rv-toggle input[type=checkbox] { flex-shrink: 0; accent-color: var(--accent); width: 15px; height: 15px; }
+      .rv-sel {
+        display: flex; align-items: center; justify-content: space-between; gap: 8px;
         font-size: 12px; color: var(--ink-soft);
       }
-      .rv-secstyle-row select, .rv-secstyle-row input[type=checkbox] {
-        font-size: 12px;
+      .rv-sel select {
+        font-size: 12px; padding: 3px 6px; border: 1px solid var(--line);
+        border-radius: var(--r-sm); background: var(--paper); min-width: 110px;
       }
-      .rv-secstyle-row select {
-        padding: 3px 6px; border: 1px solid var(--line); border-radius: var(--r-sm);
-        background: var(--paper); min-width: 90px;
-      }
+      .rv-secstyle-heading { margin-top: 12px; }
 
       /* ── View styling block ── */
       .rv-vs-grid {

@@ -19,7 +19,7 @@ import {
 import { SECTION_CATALOG, type CatalogCtx, type ItemView } from './sectionCatalog'
 import { skillMatrixRows, fmtLastUsed, fmtProficiency } from './skillMatrix'
 import { showcaseGroups } from './showcase'
-import { resolveSectionStyle, withDefaults } from './viewStyle'
+import { resolveSectionStyle, sectionHeadingText, withDefaults } from './viewStyle'
 import { withHeaderDefaults, withFooterDefaults, buildHeaderLines, buildCopyrightLine } from './viewHeader'
 import { parseRichBlocks, type RichRun } from './richText'
 import { resolve } from './locales'
@@ -135,8 +135,9 @@ function buildViewDoc(store: ResumeStore, view: ResumeView, locale: string, fmt:
       if (!rows.length) continue
       const showCategory = rows.some((r) => r.category)
       const showDates = !resolved.hide_dates
+      const heading = resolved.hide_heading ? '' : sectionHeadingText(resolved, s.label, locale)
       if (md) {
-        out.push(`## ${s.label}`)
+        if (heading) out.push(`## ${heading}`)
         const cols = ['Skill', ...(showCategory ? ['Category'] : []), 'Experience', 'Proficiency', ...(showDates ? ['Last used'] : [])]
         out.push(`| ${cols.join(' | ')} |`)
         out.push(`| ${cols.map(() => '---').join(' | ')} |`)
@@ -145,8 +146,7 @@ function buildViewDoc(store: ResumeStore, view: ResumeView, locale: string, fmt:
           out.push(`| ${cells.join(' | ')} |`)
         }
       } else {
-        out.push(s.label.toUpperCase())
-        out.push('-'.repeat(Math.max(4, s.label.length)))
+        if (heading) { out.push(heading.toUpperCase()); out.push('-'.repeat(Math.max(4, heading.length))) }
         for (const r of rows) {
           out.push(['- ' + r.name, showCategory ? r.category : '', r.years > 0 ? `${r.years} yrs` : '', fmtProficiency(r.proficiency), showDates ? fmtLastUsed(r) : '']
             .filter(Boolean).join(' — '))
@@ -182,11 +182,12 @@ function buildViewDoc(store: ResumeStore, view: ResumeView, locale: string, fmt:
     while (body.length && body[body.length - 1] === '') body.pop()
     if (!body.length) continue
 
+    const heading = resolved.hide_heading ? '' : sectionHeadingText(resolved, s.label, locale)
     if (md) {
-      out.push(`## ${s.label}`)
-    } else {
-      out.push(s.label.toUpperCase())
-      out.push('-'.repeat(Math.max(4, s.label.length)))
+      if (heading) out.push(`## ${heading}`)
+    } else if (heading) {
+      out.push(heading.toUpperCase())
+      out.push('-'.repeat(Math.max(4, heading.length)))
     }
     out.push(...body)
     out.push('')

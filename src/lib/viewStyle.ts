@@ -16,6 +16,7 @@
 
 import type {
   ViewStyle, SectionStyle, Density, BodySize, HeadingFont, PageMargin, TagStyle, DividerStyle,
+  LocalizedString,
 } from '../types'
 
 // ─── Defaults ───────────────────────────────────────────────────────────────
@@ -199,6 +200,31 @@ export interface ResolvedSectionStyle extends ViewStyle {
   hide_dates: boolean
   item_divider: boolean
   divider_style: DividerStyle
+  /** Custom heading text (localized), or undefined to use the section label. */
+  heading_text?: LocalizedString
+}
+
+/**
+ * The heading text a section should render: the custom localized override when
+ * set, else the canonical section label. All render paths (HTML/PDF, DOCX,
+ * text) go through this so a view's custom heading is applied consistently.
+ */
+export function sectionHeadingText(
+  resolved: ResolvedSectionStyle,
+  fallbackLabel: string,
+  locale: string,
+): string {
+  return resolveLocalized(resolved.heading_text, locale) || fallbackLabel
+}
+
+// Tiny inline localized resolver (requested-locale → any non-empty) to avoid a
+// dependency from this render-boundary module onto the locale UI helpers.
+function resolveLocalized(ls: LocalizedString | undefined, locale: string): string {
+  if (!ls) return ''
+  const direct = (ls[locale] ?? '').trim()
+  if (direct) return direct
+  for (const v of Object.values(ls)) { const t = (v ?? '').trim(); if (t) return t }
+  return ''
 }
 
 export function resolveSectionStyle(
@@ -220,5 +246,6 @@ export function resolveSectionStyle(
     divider_style: section?.divider_style ?? view.divider_style ?? 'line',
     hide_heading: section?.hide_heading ?? false,
     hide_dates: section?.hide_dates ?? false,
+    heading_text: section?.heading_text,
   }
 }

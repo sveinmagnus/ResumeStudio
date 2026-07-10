@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   DEFAULT_VIEW_STYLE, withDefaults, deriveTokens, sanitizeHexColor,
-  resolveFontCss, resolveFontDocx, resolveSectionStyle,
+  resolveFontCss, resolveFontDocx, resolveSectionStyle, sectionHeadingText,
 } from '../src/lib/viewStyle'
 import type { ViewStyle } from '../src/types'
 
@@ -112,5 +112,20 @@ describe('resolveSectionStyle() dividers', () => {
     const r = resolveSectionStyle(bare, undefined)
     expect(r.item_divider).toBe(true)
     expect(r.divider_style).toBe('line')
+  })
+})
+
+describe('sectionHeadingText()', () => {
+  const r = (heading?: Record<string, string>) =>
+    resolveSectionStyle(DEFAULT_VIEW_STYLE, heading ? { heading_text: heading } : undefined)
+
+  it('uses the custom heading in the requested locale', () => {
+    expect(sectionHeadingText(r({ en: 'Selected engagements', no: 'Utvalgte oppdrag' }), 'Projects', 'no'))
+      .toBe('Utvalgte oppdrag')
+  })
+  it('falls back to any non-empty locale, then to the section label', () => {
+    expect(sectionHeadingText(r({ en: 'Selected engagements' }), 'Projects', 'no')).toBe('Selected engagements')
+    expect(sectionHeadingText(r(), 'Projects', 'en')).toBe('Projects')
+    expect(sectionHeadingText(r({ en: '  ' }), 'Projects', 'en')).toBe('Projects')
   })
 })
