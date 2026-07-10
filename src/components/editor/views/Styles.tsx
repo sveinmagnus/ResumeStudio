@@ -197,6 +197,20 @@ export function Styles() {
       }
       .rv-secstyle-heading { margin-top: 12px; }
 
+      /* Professional-summary "show parts" — a core, always-visible control row. */
+      .rv-kq-parts {
+        display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px;
+        margin: 10px 0 4px; padding: 9px 12px;
+        background: var(--accent-wash); border: 1px solid var(--secondary-line);
+        border-radius: var(--r-sm);
+      }
+      .rv-kq-parts-label {
+        font-size: 10px; font-weight: 700; letter-spacing: .07em;
+        text-transform: uppercase; color: var(--accent);
+      }
+      .rv-kq-part { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--ink-soft); cursor: pointer; }
+      .rv-kq-part input { accent-color: var(--accent); width: 15px; height: 15px; flex-shrink: 0; }
+
       /* ── View styling block ── */
       .rv-vs-grid {
         display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));

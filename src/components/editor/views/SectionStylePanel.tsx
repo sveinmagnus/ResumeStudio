@@ -87,30 +87,6 @@ export function SectionStylePanel({ sectionKey, style, onChange, onReset, hasSty
             />
             <span>Tabulate summary</span>
           </label>
-          {sectionKey === 'key_qualifications' && (
-            <>
-              <label className="rv-toggle">
-                <input type="checkbox" checked={s.kq_show_label ?? true}
-                  onChange={(e) => onChange({ kq_show_label: e.target.checked })} />
-                <span>Show about heading</span>
-              </label>
-              <label className="rv-toggle">
-                <input type="checkbox" checked={s.kq_show_tagline ?? true}
-                  onChange={(e) => onChange({ kq_show_tagline: e.target.checked })} />
-                <span>Show tag line</span>
-              </label>
-              <label className="rv-toggle">
-                <input type="checkbox" checked={s.kq_show_short ?? false}
-                  onChange={(e) => onChange({ kq_show_short: e.target.checked })} />
-                <span>Show short summary</span>
-              </label>
-              <label className="rv-toggle">
-                <input type="checkbox" checked={s.kq_show_long ?? true}
-                  onChange={(e) => onChange({ kq_show_long: e.target.checked })} />
-                <span>Show long summary</span>
-              </label>
-            </>
-          )}
         </div>
         {/* Dropdowns on the right. Labelled by their visible span (not a wrapping
             <label>) so they don't collide with the identically-named view-wide

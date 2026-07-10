@@ -37,6 +37,16 @@ import { Styles } from './Styles'
 // ─── Content sections (excludes non-content + the skill/role registries) ─────
 const CONTENT_SECTIONS = SECTIONS.filter(isExportableSection)
 
+// The show/hide parts of the professional-summary box (key_qualifications) —
+// core per-view configuration, surfaced directly on the section (not in the
+// collapsible style-override panel).
+const KQ_PARTS: Array<{ key: 'kq_show_label' | 'kq_show_tagline' | 'kq_show_short' | 'kq_show_long'; label: string; def: boolean }> = [
+  { key: 'kq_show_label', label: 'About heading', def: true },
+  { key: 'kq_show_tagline', label: 'Tag line', def: true },
+  { key: 'kq_show_short', label: 'Short summary', def: false },
+  { key: 'kq_show_long', label: 'Long summary', def: true },
+]
+
 /**
  * A draggable section row in the view's section list. Provides a grip handle to
  * the children via render-prop; the accessible up/down buttons stay too.
@@ -451,6 +461,25 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
                       onChange={(d) => setSectionDetail(vs.key, d)}
                     />
                   </div>
+
+                  {/* The professional-summary box is made of distinct parts;
+                      which ones this view shows is core configuration, not a
+                      style override. */}
+                  {!off && vs.key === 'key_qualifications' && (
+                    <div className="rv-kq-parts">
+                      <span className="rv-kq-parts-label">Show parts</span>
+                      {KQ_PARTS.map((p) => (
+                        <label key={p.key} className="rv-kq-part">
+                          <input
+                            type="checkbox"
+                            checked={vs.style?.[p.key] ?? p.def}
+                            onChange={(e) => setSectionStyle(vs.key, { [p.key]: e.target.checked } as SectionStyle)}
+                          />
+                          <span>{p.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
 
                   {!off && (
                     <SectionStylePanel
