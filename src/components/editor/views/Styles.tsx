@@ -357,10 +357,14 @@ export function Styles() {
       .rv-editor-controls { min-width: 0; }
       .rv-preview-pane {
         position: sticky;
-        top: 16px;
+        /* Clear the sticky app header (its live height is published as
+           --app-header-h; it wraps taller at some widths) so the pane sits fully
+           within the viewport below it, and stay a touch shorter than the visible
+           area so it never spills past the bottom edge and drift-scrolls. */
+        top: calc(var(--app-header-h, 68px) + 12px);
         display: flex;
         flex-direction: column;
-        height: calc(100vh - 32px);
+        height: calc(100vh - var(--app-header-h, 68px) - 28px);
         background: var(--paper-sunken);
         border: 1px solid var(--line);
         border-radius: var(--r-md);

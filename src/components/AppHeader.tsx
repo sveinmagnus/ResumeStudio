@@ -46,6 +46,21 @@ export function AppHeader({
   const [showHistory, setShowHistory] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [showSearch, setShowSearch] = useState(false)
+  const headerRef = useRef<HTMLElement>(null)
+
+  // Publish the sticky header's live height as `--app-header-h` so sticky
+  // panes below it (e.g. the Resume-View preview) can clear it exactly — the
+  // header wraps to a taller two-row layout at some widths, so a fixed offset
+  // would either overlap or leave a gap.
+  useEffect(() => {
+    const el = headerRef.current
+    if (!el) return
+    const set = () => document.documentElement.style.setProperty('--app-header-h', `${el.offsetHeight}px`)
+    set()
+    const ro = new ResizeObserver(set)
+    ro.observe(el)
+    return () => { ro.disconnect(); document.documentElement.style.removeProperty('--app-header-h') }
+  }, [])
 
   // Cmd/Ctrl+K opens global content search (F16). Ignored while typing in a
   // field unless the chord is pressed — the modifier check handles that.
@@ -61,7 +76,7 @@ export function AppHeader({
   }, [])
 
   return (
-    <header className="app-header">
+    <header className="app-header" ref={headerRef}>
       {showSearch && <GlobalSearch onClose={() => setShowSearch(false)} />}
       {showHistory && (
         <SnapshotHistory

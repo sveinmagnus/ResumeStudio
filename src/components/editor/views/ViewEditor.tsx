@@ -1,7 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode, type CSSProperties } from 'react'
 import { useStore } from '../../../store/useStore'
 import { DualField } from '../../ui/DualField'
 import { SECTIONS } from '../../../lib/sections'
+import { sortItems } from '../../../lib/sectionSort'
+import { DndContext, PointerSensor, KeyboardSensor, useSensor, useSensors, closestCenter, type DragEndEvent } from '@dnd-kit/core'
+import { SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { LOCALE_LABELS } from '../../../lib/locales'
 import {
   reorderViewSections, isExportableSection,
@@ -19,7 +23,7 @@ import type {
   ViewHeaderConfig, ViewFooterConfig,
 } from '../../../types'
 import {
-  Trash2, ChevronUp, ChevronDown,
+  Trash2, ChevronUp, ChevronDown, GripVertical,
   ArrowLeft, Star, FileText, FileDown, FileType, FileCode,
   PanelRight, PanelRightClose, ExternalLink,
 } from 'lucide-react'
@@ -33,6 +37,37 @@ import { Styles } from './Styles'
 // ─── Content sections (excludes non-content + the skill/role registries) ─────
 const CONTENT_SECTIONS = SECTIONS.filter(isExportableSection)
 
+/**
+ * A draggable section row in the view's section list. Provides a grip handle to
+ * the children via render-prop; the accessible up/down buttons stay too.
+ */
+function SortableSecRow({ id, off, children }: {
+  id: string; off: boolean; children: (handle: ReactNode) => ReactNode
+}) {
+  const { setNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({ id })
+  const style: CSSProperties = {
+    transform: CSS.Transform.toString(transform), transition,
+    opacity: isDragging ? 0.5 : 1, position: 'relative', zIndex: isDragging ? 5 : undefined,
+  }
+  const handle = (
+    <button type="button" className="rv-sec-grip" {...attributes} {...listeners}
+      title="Drag to reorder" aria-label="Drag section to reorder">
+      <GripVertical size={14} />
+    </button>
+  )
+  return (
+    <div ref={setNodeRef} style={style} className={`rv-sec-row ${off ? 'rv-sec-off' : 'rv-sec-on'}${isDragging ? ' rv-sec-dragging' : ''}`}>
+      {children(handle)}
+      <style>{`
+        .rv-sec-grip { color: var(--ink-faint); cursor: grab; display: grid; place-items: center; padding: 2px; touch-action: none; }
+        .rv-sec-grip:active { cursor: grabbing; }
+        .rv-sec-grip:hover { color: var(--accent); }
+        .rv-sec-dragging { box-shadow: var(--shadow-md); }
+      `}</style>
+    </div>
+  )
+}
+
 // ─── View editor ──────────────────────────────────────────────────────────────
 
 export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
@@ -42,6 +77,11 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
   onUpdate: (patch: Partial<ResumeView>) => void
 }) {
   const { data, primaryLocale } = useStore()
+  const sectionSort = useStore((s) => s.sectionSort)
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  )
   // Seed from the view's persisted export locale (F11) when it's still a
   // supported locale; else the resume's first locale. Lazy init = once on mount.
   const [exportLocale, setExportLocale] = useState(() => {
@@ -147,6 +187,19 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
 
   const moveSection = (key: string, dir: 'up' | 'down') => {
     onUpdate({ sections: reorderViewSections(sections, key, dir) })
+  }
+
+  // Drag-and-drop reorder of the section list (keyboard up/down buttons kept).
+  const onSectionDragEnd = (e: DragEndEvent) => {
+    const { active, over } = e
+    if (!over || active.id === over.id) return
+    const from = sections.findIndex((s) => s.key === active.id)
+    const to = sections.findIndex((s) => s.key === over.id)
+    if (from < 0 || to < 0) return
+    const next = [...sections]
+    const [moved] = next.splice(from, 1)
+    next.splice(to, 0, moved)
+    onUpdate({ sections: next.map((s, i) => ({ ...s, sort_order: i })) })
   }
 
   const toggleItem = (itemId: string) => {
@@ -343,6 +396,8 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
         </p>
 
         <div className="rv-section-list">
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onSectionDragEnd}>
+          <SortableContext items={sections.map((s) => s.key)} strategy={verticalListSortingStrategy}>
           {sections.map((vs, idx) => {
             const def = CONTENT_SECTIONS.find((s) => s.key === vs.key)
             if (!def || !def.storeKey) return null
@@ -350,9 +405,16 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
             // CATEGORIES, not individual skills — its storeKey ('skills') would
             // otherwise list every skill here. Promoted Projects only lists the
             // starred projects (its source set).
+            // Honour the section's chosen sort mode so this list matches the
+            // editor's order (and, for date modes, the export order).
             const storeItems = vs.key === 'technology_categories'
               ? skillCategoryList(data).map((c) => ({ id: c.id, name: c.name, disabled: false, starred: false }))
-              : (data[def.storeKey] as Array<{ id: string; disabled?: boolean; starred?: boolean }>)
+              : sortItems(
+                  vs.key,
+                  data[def.storeKey] as unknown as Array<{ id: string; sort_order: number; disabled?: boolean; starred?: boolean }>,
+                  sectionSort[vs.key] ?? 'custom',
+                  primaryLocale,
+                )
                   .filter((it) => !it.disabled)
                   .filter((it) => vs.key !== 'promoted_projects' || it.starred)
 
@@ -360,8 +422,11 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
             const hasStyle = !!vs.style && Object.keys(vs.style).length > 0
 
             return (
-              <div key={vs.key} className={`rv-sec-row ${off ? 'rv-sec-off' : 'rv-sec-on'}`}>
+              <SortableSecRow key={vs.key} id={vs.key} off={off}>
+                {(handle) => (
+                <>
                 <div className="rv-sec-controls">
+                  {handle}
                   <button className="rv-ord-btn" aria-label={`Move ${def.label} up`} onClick={() => moveSection(vs.key, 'up')} disabled={idx === 0}>
                     <ChevronUp size={14} />
                   </button>
@@ -396,7 +461,7 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
                     />
                   )}
 
-                  {!off && vs.detail === 'full' && storeItems.length > 0 && (
+                  {!off && storeItems.length > 0 && (
                     <div className="rv-item-list">
                       {storeItems.map((item) => {
                         const excluded = view.excluded_item_ids.includes(item.id)
@@ -425,9 +490,13 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
                     <div className="rv-item-empty">No items in master CV</div>
                   )}
                 </div>
-              </div>
+                </>
+                )}
+              </SortableSecRow>
             )
           })}
+          </SortableContext>
+          </DndContext>
         </div>
       </div>
 

@@ -31,8 +31,8 @@ export const SECTIONS: SectionDef[] = [
   { key: 'profile_competencies', label: 'Profile & Competencies', icon: 'FileText', group: 'profile' },
   // Kept (hidden) so views/exports/coverage still discover the content
   // sections; both are EDITED on the Profile & Competencies page.
-  { key: 'key_qualifications', label: 'Profile & Summary', storeKey: 'key_qualifications', icon: 'FileText', group: 'profile', hidden: true },
-  { key: 'key_competencies', label: 'Key Competencies', storeKey: 'key_competencies', icon: 'ListChecks', group: 'profile', hidden: true },
+  { key: 'key_qualifications', label: 'Professional summary', storeKey: 'key_qualifications', icon: 'FileText', group: 'profile', hidden: true },
+  { key: 'key_competencies', label: 'Key competencies', storeKey: 'key_competencies', icon: 'ListChecks', group: 'profile', hidden: true },
 
   { key: 'projects', label: 'Projects', storeKey: 'projects', icon: 'Briefcase', group: 'experience' },
   // View-only: renders the starred subset of `projects` as a "Promoted Projects" section.
@@ -91,6 +91,15 @@ export const GROUP_ORDER: Array<SectionDef['group']> = [
  * old bookmarked URLs) still target the content keys. Chrome (breadcrumb,
  * title) and the sidebar's active highlight normalise through this.
  */
+/**
+ * The canonical display title for a section key — the SINGLE source used by the
+ * sidebar, the view-config section list, and the export headings, so a rename
+ * happens in one place and can't drift between them. Falls back to the key.
+ */
+export function sectionLabel(key: string): string {
+  return SECTIONS.find((s) => s.key === key)?.label ?? key
+}
+
 export function canonicalSectionKey(key: string): string {
   if (key === 'key_qualifications' || key === 'key_competencies') return 'profile_competencies'
   // The Skills Showcase is now edited on the Skill Registry page (a category +

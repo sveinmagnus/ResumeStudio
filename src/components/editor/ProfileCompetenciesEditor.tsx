@@ -1,4 +1,5 @@
 import { ProfileEditor, KeyCompetenciesEditor } from './SimpleEditors'
+import { sectionLabel } from '../../lib/sections'
 
 /**
  * "Profile & Competencies" — one page for the two profile content sections
@@ -17,12 +18,12 @@ export function ProfileCompetenciesEditor() {
   return (
     <div className="section-pane">
       <section aria-labelledby="pc-profile-heading" className="pc-block">
-        <h2 id="pc-profile-heading" className="pc-heading">Professional summary</h2>
+        <h2 id="pc-profile-heading" className="pc-heading">{sectionLabel('key_qualifications')}</h2>
         <ProfileEditor />
       </section>
 
       <section aria-labelledby="pc-competencies-heading" className="pc-block">
-        <h2 id="pc-competencies-heading" className="pc-heading">Key competencies</h2>
+        <h2 id="pc-competencies-heading" className="pc-heading">{sectionLabel('key_competencies')}</h2>
         <KeyCompetenciesEditor />
       </section>
 
