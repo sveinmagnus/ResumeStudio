@@ -38,9 +38,11 @@ export function RichField({ label, value, onChange, placeholder }: RichFieldProp
   const secondary = useStore((s) => s.secondaryLocale)
   const translationAvailable = useTranslationAvailable()
 
-  const [busy, setBusy] = useState(false)
-  const [drafted, setDrafted] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  // Assist state keys off the TARGET locale so Copy/Draft can run in either
+  // direction (primary→secondary or secondary→primary) — see DualField.
+  const [busyLocale, setBusyLocale] = useState<string | null>(null)
+  const [draftedLocale, setDraftedLocale] = useState<string | null>(null)
+  const [error, setError] = useState<{ locale: string; msg: string } | null>(null)
 
   const set = (locale: string, html: string) => {
     const next = { ...value }
@@ -50,35 +52,83 @@ export function RichField({ label, value, onChange, placeholder }: RichFieldProp
     onChange(next)
   }
 
-  const primaryText = stripTags(value[primary] || '').trim()
+  const textOf = (locale: string) => stripTags(value[locale] || '').trim()
 
-  const copyFromPrimary = () => {
-    if (!secondary || !primaryText) return
-    set(secondary, value[primary] || '')
-    setDrafted(false)
-    setError(null)
+  const commit = (locale: string, html: string) => {
+    set(locale, html)
+    // Editing a column clears its own draft/error annotation.
+    if (draftedLocale === locale) setDraftedLocale(null)
+    if (error?.locale === locale) setError(null)
   }
 
-  const draftTranslation = async () => {
-    if (!secondary || !primaryText || busy) return
-    setBusy(true)
+  const copyBetween = (from: string, to: string) => {
+    if (!textOf(from)) return
+    set(to, value[from] || '')
+    if (draftedLocale === to) setDraftedLocale(null)
+    if (error?.locale === to) setError(null)
+  }
+
+  const draftBetween = async (from: string, to: string) => {
+    const sourcePlain = textOf(from)
+    if (!sourcePlain || busyLocale) return
+    setBusyLocale(to)
     setError(null)
     try {
       // Translate the plain-text projection — the backend doesn't preserve
       // markup, so we don't pretend to round-trip it.
-      const translated = await api.translate(primaryText, primary, secondary)
-      set(secondary, translated)
-      setDrafted(true)
+      const translated = await api.translate(sourcePlain, from, to)
+      set(to, translated)
+      setDraftedLocale(to)
     } catch (e) {
-      setError((e as Error).message || 'Translation failed')
+      setError({ locale: to, msg: (e as Error).message || 'Translation failed' })
     } finally {
-      setBusy(false)
+      setBusyLocale(null)
     }
   }
 
-  const canDraft = !!secondary && translationAvailable && canDraftBetween(primary, secondary)
-
   const fieldId = useId()
+
+  // Assist (Copy + Draft) on whichever column is EMPTY, sourcing from the other
+  // — bidirectional, mirroring DualField.
+  const renderAssist = (target: string, source: string) => {
+    if (!textOf(source) || textOf(target)) return null
+    const sourceName = LOCALE_LABELS[source]?.name || source
+    const canDraft = translationAvailable && canDraftBetween(source, target)
+    const busy = busyLocale === target
+    return (
+      <div className="rf-actions">
+        <button
+          type="button"
+          className="rf-assist-btn"
+          onClick={() => copyBetween(source, target)}
+          title={`Copy the ${sourceName} text here as a starting point`}
+        >
+          <Copy size={12} /> Copy
+        </button>
+        {canDraft && (
+          <button
+            type="button"
+            className="rf-assist-btn rf-draft-btn"
+            onClick={() => void draftBetween(source, target)}
+            disabled={busy}
+            title={`Draft a translation from ${sourceName} (review required)`}
+          >
+            {busy ? <Loader2 size={12} className="rf-spin" /> : <Languages size={12} />}
+            {busy ? 'Drafting…' : 'Draft'}
+          </button>
+        )}
+      </div>
+    )
+  }
+
+  const renderNotes = (locale: string) => (
+    <>
+      {draftedLocale === locale && error?.locale !== locale && (
+        <span className="rf-note rf-note-draft" role="status">Machine draft — please review</span>
+      )}
+      {error?.locale === locale && <span className="rf-note rf-note-error" role="alert">{error.msg}</span>}
+    </>
+  )
 
   return (
     <div className="rf-wrap">
@@ -86,14 +136,18 @@ export function RichField({ label, value, onChange, placeholder }: RichFieldProp
           via aria-label ("Description (Norsk)") built from this label. */}
       <span className="rf-label" id={`${fieldId}-label`}>{label}</span>
       <div className={`rf-grid ${secondary ? 'rf-dual' : 'rf-single'}`}>
-        <RichColumn
-          variant="primary"
-          locale={primary}
-          fieldLabel={label}
-          html={value[primary] || ''}
-          onCommit={(html) => set(primary, html)}
-          placeholder={placeholder}
-        />
+        <div className="rf-sec-col">
+          <RichColumn
+            variant="primary"
+            locale={primary}
+            fieldLabel={label}
+            html={value[primary] || ''}
+            onCommit={(html) => commit(primary, html)}
+            placeholder={placeholder}
+            header={secondary ? renderAssist(primary, secondary) : undefined}
+          />
+          {secondary && renderNotes(primary)}
+        </div>
         {secondary && (
           <div className="rf-sec-col">
             <RichColumn
@@ -101,42 +155,11 @@ export function RichField({ label, value, onChange, placeholder }: RichFieldProp
               locale={secondary}
               fieldLabel={label}
               html={value[secondary] || ''}
-              onCommit={(html) => {
-                set(secondary, html)
-                setDrafted(false)
-                setError(null)
-              }}
+              onCommit={(html) => commit(secondary, html)}
               placeholder={placeholder}
-              header={
-                <div className="rf-actions">
-                  <button
-                    type="button"
-                    className="rf-assist-btn"
-                    onClick={copyFromPrimary}
-                    disabled={!primaryText}
-                    title="Copy the primary text here as a starting point"
-                  >
-                    <Copy size={12} /> Copy
-                  </button>
-                  {canDraft && (
-                    <button
-                      type="button"
-                      className="rf-assist-btn rf-draft-btn"
-                      onClick={() => void draftTranslation()}
-                      disabled={!primaryText || busy}
-                      title="Draft a translation from the primary text (review required)"
-                    >
-                      {busy ? <Loader2 size={12} className="rf-spin" /> : <Languages size={12} />}
-                      {busy ? 'Drafting…' : 'Draft'}
-                    </button>
-                  )}
-                </div>
-              }
+              header={renderAssist(secondary, primary)}
             />
-            {drafted && !error && (
-              <span className="rf-note rf-note-draft" role="status">Machine draft — please review</span>
-            )}
-            {error && <span className="rf-note rf-note-error" role="alert">{error}</span>}
+            {renderNotes(secondary)}
           </div>
         )}
       </div>

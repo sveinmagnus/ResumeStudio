@@ -171,6 +171,25 @@ describe('layout kinds', () => {
     expect(v.attributionMeta).toContain('(Manager)')
   })
 
+  it('recommendation summary trails the relationship after the company in parens', () => {
+    const r = makeRecommendation({
+      recommender_name: 'Jane Boss', recommender_title: { en: 'CTO' },
+      recommender_company: 'BigCo', relationship: { en: 'Was my manager' },
+    }) as unknown as Record<string, unknown>
+    const s = SECTION_CATALOG.recommendations.summary!(r, html)!
+    expect(s.title).toBe('Jane Boss')
+    expect(s.meta[0]).toBe('CTO, BigCo (Was my manager)')
+  })
+
+  it('recommendation summary omits the parens when no relationship is set', () => {
+    const r = makeRecommendation({
+      recommender_name: 'Jane Boss', recommender_title: { en: 'CTO' },
+      recommender_company: 'BigCo', relationship: {},
+    }) as unknown as Record<string, unknown>
+    const s = SECTION_CATALOG.recommendations.summary!(r, html)!
+    expect(s.meta[0]).toBe('CTO, BigCo')
+  })
+
   it('technology_categories use the colon summary separator', () => {
     const cat = item({ name: { en: 'Languages' }, skills: [{ name: { en: 'TS' } }, { name: { en: 'Go' } }] })
     const s = SECTION_CATALOG.technology_categories.summary!(cat, html)!

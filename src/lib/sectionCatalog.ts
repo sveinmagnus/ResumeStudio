@@ -227,9 +227,13 @@ export const SECTION_CATALOG: Record<string, SectionDescriptor> = {
     summary(it, ctx) {
       const attrib = [ls(it, 'recommender_title', ctx.locale), it.recommender_company as string]
         .filter(Boolean).join(', ')
+      const rel = ls(it, 'relationship', ctx.locale)
+      // Relationship trails the title/company in parentheses, mirroring the
+      // full quote's attribution meta.
+      const attribWithRel = rel ? `${attrib}${attrib ? ' ' : ''}(${rel})` : attrib
       return summaryOf(
         String(it.recommender_name ?? '') || 'Recommendation',
-        [attrib, dateAt(it, 'date', ctx)],
+        [attribWithRel, dateAt(it, 'date', ctx)],
       )
     },
     full(it, ctx) {

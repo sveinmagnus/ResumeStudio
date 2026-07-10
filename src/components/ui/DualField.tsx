@@ -6,7 +6,6 @@ import { LOCALE_LABELS, bcp47 } from '../../lib/locales'
 import { api } from '../../lib/api'
 import { canDraftBetween } from '../../lib/translateClient'
 import { useTranslationAvailable } from '../../store/useTranslation'
-import { confirmDialog } from './ConfirmDialog'
 
 /**
  * Resize a textarea to fit its content. Called on mount (so editing an
@@ -80,9 +79,11 @@ export function DualField({ label, value, onChange, multiline, rows = 3, placeho
   const translationAvailable = useTranslationAvailable()
   const fieldId = useId()
 
-  const [busy, setBusy] = useState(false)
-  const [drafted, setDrafted] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  // State keys off the TARGET locale so the assist can run in either direction
+  // (primary→secondary or secondary→primary) without cross-talk.
+  const [busyLocale, setBusyLocale] = useState<string | null>(null)
+  const [draftedLocale, setDraftedLocale] = useState<string | null>(null)
+  const [error, setError] = useState<{ locale: string; msg: string } | null>(null)
 
   const set = (locale: string, text: string) => {
     const next = { ...value }
@@ -91,54 +92,37 @@ export function DualField({ label, value, onChange, multiline, rows = 3, placeho
     onChange(next)
   }
 
-  const primaryText = (value[primary] || '').trim()
+  const textOf = (locale: string) => (value[locale] || '').trim()
 
-  // Copy / Draft overwrite the secondary input. If the user has already written
-  // (or reviewed) something there, confirm before clobbering it — a mis-click
-  // shouldn't silently discard a hand-made translation.
-  const confirmOverwriteIfNeeded = async (incoming: string): Promise<boolean> => {
-    const existing = secondary ? (value[secondary] || '').trim() : ''
-    if (!existing || existing === incoming.trim()) return true
-    return confirmDialog({
-      title: 'Replace existing text?',
-      message: 'The secondary field already has text. Replace it?',
-      confirmLabel: 'Replace', undoHint: true,
-    })
+  const copyBetween = (from: string, to: string) => {
+    const incoming = value[from] || ''
+    if (!incoming.trim()) return
+    set(to, incoming)
+    if (draftedLocale === to) setDraftedLocale(null)
+    if (error?.locale === to) setError(null)
   }
 
-  const copyFromPrimary = async () => {
-    if (!secondary || !primaryText) return
-    const incoming = value[primary] || ''
-    if (!await confirmOverwriteIfNeeded(incoming)) return
-    set(secondary, incoming)
-    setDrafted(false)
-    setError(null)
-  }
-
-  const draftTranslation = async () => {
-    if (!secondary || !primaryText || busy) return
-    if (!await confirmOverwriteIfNeeded('')) return
-    setBusy(true)
+  const draftBetween = async (from: string, to: string) => {
+    if (!(value[from] || '').trim() || busyLocale) return
+    setBusyLocale(to)
     setError(null)
     try {
-      const translated = await api.translate(value[primary] || '', primary, secondary)
-      set(secondary, translated)
-      setDrafted(true)
+      const translated = await api.translate(value[from] || '', from, to)
+      set(to, translated)
+      setDraftedLocale(to)
     } catch (e) {
-      setError((e as Error).message || 'Translation failed')
+      setError({ locale: to, msg: (e as Error).message || 'Translation failed' })
     } finally {
-      setBusy(false)
+      setBusyLocale(null)
     }
   }
 
-  const handleChange = (locale: string, variant: 'primary' | 'secondary', text: string) => {
+  const handleChange = (locale: string, text: string) => {
     set(locale, text)
-    // Editing the secondary clears the draft/error annotations — the user has
+    // Editing a column clears its own draft/error annotation — the user has
     // taken ownership of the text.
-    if (variant === 'secondary') {
-      setDrafted(false)
-      setError(null)
-    }
+    if (draftedLocale === locale) setDraftedLocale(null)
+    if (error?.locale === locale) setError(null)
   }
 
   const renderInput = (locale: string, variant: 'primary' | 'secondary') => {
@@ -161,7 +145,7 @@ export function DualField({ label, value, onChange, multiline, rows = 3, placeho
           className={cls}
           lang={bcp47(locale)}
           ariaLabel={ariaLabel}
-          onChange={(e) => handleChange(locale, variant, e.target.value)}
+          onChange={(e) => handleChange(locale, e.target.value)}
         />
       )
     }
@@ -174,12 +158,54 @@ export function DualField({ label, value, onChange, multiline, rows = 3, placeho
         className={cls}
         lang={bcp47(locale)}
         aria-label={ariaLabel}
-        onChange={(e) => handleChange(locale, variant, e.target.value)}
+        onChange={(e) => handleChange(locale, e.target.value)}
       />
     )
   }
 
-  const canDraft = !!secondary && translationAvailable && canDraftBetween(primary, secondary)
+  // Assist (Copy + Draft) lives on whichever column is EMPTY, sourcing from the
+  // other column — so content imported into either language can seed the
+  // missing one, in either direction. Nothing shows when both columns are
+  // filled (nothing is missing) or when the source column is empty.
+  const renderAssist = (target: string, source: string) => {
+    if (!textOf(source) || textOf(target)) return null
+    const sourceName = LOCALE_LABELS[source]?.name || source
+    const canDraft = translationAvailable && canDraftBetween(source, target)
+    const busy = busyLocale === target
+    return (
+      <div className="df-actions">
+        <button
+          type="button"
+          className="df-assist-btn"
+          onClick={() => copyBetween(source, target)}
+          title={`Copy the ${sourceName} text here as a starting point`}
+        >
+          <Copy size={12} /> Copy
+        </button>
+        {canDraft && (
+          <button
+            type="button"
+            className="df-assist-btn df-draft-btn"
+            onClick={() => void draftBetween(source, target)}
+            disabled={busy}
+            title={`Draft a translation from ${sourceName} (review required)`}
+          >
+            {busy ? <Loader2 size={12} className="df-spin" /> : <Languages size={12} />}
+            {busy ? 'Drafting…' : 'Draft'}
+          </button>
+        )}
+      </div>
+    )
+  }
+
+  const renderNotes = (locale: string) => (
+    <>
+      {draftedLocale === locale && error?.locale !== locale && (
+        <span className="df-note df-note-draft" role="status">Machine draft — please review</span>
+      )}
+      {error?.locale === locale && <span className="df-note df-note-error" role="alert">{error.msg}</span>}
+    </>
+  )
 
   return (
     <div className="df-wrap">
@@ -188,42 +214,19 @@ export function DualField({ label, value, onChange, multiline, rows = 3, placeho
         <div className="df-col">
           <div className="df-col-head">
             <span className="df-locale-tag df-tag-primary">{LOCALE_LABELS[primary]?.flag} {LOCALE_LABELS[primary]?.name || primary}</span>
+            {secondary && renderAssist(primary, secondary)}
           </div>
           {renderInput(primary, 'primary')}
+          {secondary && renderNotes(primary)}
         </div>
         {secondary && (
           <div className="df-col">
             <div className="df-col-head">
               <span className="df-locale-tag df-tag-secondary">{LOCALE_LABELS[secondary]?.flag} {LOCALE_LABELS[secondary]?.name || secondary}</span>
-              <div className="df-actions">
-                <button
-                  type="button"
-                  className="df-assist-btn"
-                  onClick={() => void copyFromPrimary()}
-                  disabled={!primaryText}
-                  title="Copy the primary text here as a starting point"
-                >
-                  <Copy size={12} /> Copy
-                </button>
-                {canDraft && (
-                  <button
-                    type="button"
-                    className="df-assist-btn df-draft-btn"
-                    onClick={() => void draftTranslation()}
-                    disabled={!primaryText || busy}
-                    title="Draft a translation from the primary text (review required)"
-                  >
-                    {busy ? <Loader2 size={12} className="df-spin" /> : <Languages size={12} />}
-                    {busy ? 'Drafting…' : 'Draft'}
-                  </button>
-                )}
-              </div>
+              {renderAssist(secondary, primary)}
             </div>
             {renderInput(secondary, 'secondary')}
-            {drafted && !error && (
-              <span className="df-note df-note-draft" role="status">Machine draft — please review</span>
-            )}
-            {error && <span className="df-note df-note-error" role="alert">{error}</span>}
+            {renderNotes(secondary)}
           </div>
         )}
       </div>
