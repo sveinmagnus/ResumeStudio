@@ -30,10 +30,11 @@ export interface RelationshipOption {
 //
 // A stored pick stamps EVERY locale label (see `relationshipLabels`), and a
 // value is matched back to its option if ANY locale label still matches
-// (`matchRelationshipKey`). The English label is therefore the stable anchor:
-// keep every `en` string frozen and you can refine the no/se/dk wording freely
-// without orphaning saved picks into free-text. Rewording an `en` label (or
-// adding a genuinely new relationship) should instead be a NEW option.
+// (`matchRelationshipKey`). The English label is the stable anchor — a picked
+// value almost always carries it — so refining the no/se/dk wording is free.
+// Rewording an `en` label orphans any saved pick that has no other matching
+// locale into free text; it was safe to do so while real data was still sparse,
+// but once recommendations accumulate, prefer adding a NEW option instead.
 export const RELATIONSHIP_OPTIONS: RelationshipOption[] = [
   // Hierarchy
   { key: 'manager',          labels: { en: 'Was my manager',                       no: 'Var min leder',                     se: 'Var min chef',                          dk: 'Var min leder' } },
@@ -42,20 +43,20 @@ export const RELATIONSHIP_OPTIONS: RelationshipOption[] = [
   { key: 'junior_colleague', labels: { en: 'Was a junior colleague',               no: 'Var en juniorkollega',              se: 'Var en juniorkollega',                  dk: 'Var en juniorkollega' } },
   // Mentoring
   { key: 'mentor',           labels: { en: 'Was my mentor',                        no: 'Var min mentor',                    se: 'Var min mentor',                        dk: 'Var min mentor' } },
-  { key: 'mentee',           labels: { en: 'Was my mentee',                        no: 'Var min adept',                     se: 'Var min adept',                         dk: 'Var min protegé' } },
+  { key: 'mentee',           labels: { en: 'Was my mentee',                        no: 'Var min mentee',                    se: 'Var min adept',                         dk: 'Var min mentee' } },
   // Teams / peers
-  { key: 'same_team',        labels: { en: 'Worked in the same team',              no: 'Jobbet i samme team',               se: 'Arbetade i samma team',                 dk: 'Arbejdede i samme team' } },
+  { key: 'same_team',        labels: { en: 'Worked on the same team',              no: 'Jobbet i samme team',               se: 'Arbetade i samma team',                 dk: 'Arbejdede i samme team' } },
   { key: 'same_group',       labels: { en: 'Worked in the same group',             no: 'Jobbet i samme gruppe',             se: 'Arbetade i samma grupp',                dk: 'Arbejdede i samme gruppe' } },
-  { key: 'different_team',   labels: { en: 'Worked in a different team',           no: 'Jobbet i et annet team',            se: 'Arbetade i ett annat team',             dk: 'Arbejdede i et andet team' } },
-  { key: 'executive_team',   labels: { en: 'Was on the same executive team / board', no: 'Satt i samme ledergruppe/styre',  se: 'Satt i samma ledningsgrupp/styrelse',   dk: 'Sad i samme ledelsesgruppe/bestyrelse' } },
+  { key: 'different_team',   labels: { en: 'Worked on a different team',           no: 'Jobbet i et annet team',            se: 'Arbetade i ett annat team',             dk: 'Arbejdede i et andet team' } },
+  { key: 'executive_team',   labels: { en: 'Served on the same leadership team or board', no: 'Satt i samme ledergruppe eller styre', se: 'Satt i samma ledningsgrupp eller styrelse', dk: 'Sad i samme ledelsesgruppe eller bestyrelse' } },
   // Business / external
   { key: 'client',           labels: { en: 'Was my client',                        no: 'Var min kunde',                     se: 'Var min kund',                          dk: 'Var min kunde' } },
-  { key: 'service_provider', labels: { en: 'Was a supplier / service provider to me', no: 'Var min leverandør',             se: 'Var min leverantör',                    dk: 'Var min leverandør' } },
+  { key: 'service_provider', labels: { en: 'Was my supplier',                      no: 'Var min leverandør',                se: 'Var min leverantör',                    dk: 'Var min leverandør' } },
   { key: 'business_partner', labels: { en: 'Was my business partner',              no: 'Var min forretningspartner',        se: 'Var min affärspartner',                 dk: 'Var min forretningspartner' } },
   // Education
   { key: 'teacher',          labels: { en: 'Was my teacher or professor',          no: 'Var min lærer eller foreleser',     se: 'Var min lärare eller föreläsare',       dk: 'Var min lærer eller underviser' } },
   { key: 'student',          labels: { en: 'Was my student',                       no: 'Var min student',                   se: 'Var min student',                       dk: 'Var min studerende' } },
-  { key: 'studied_together', labels: { en: 'Studied or taught together',           no: 'Studerte eller underviste sammen',  se: 'Studerade eller undervisade tillsammans', dk: 'Studerede eller underviste sammen' } },
+  { key: 'studied_together', labels: { en: 'Studied together',                     no: 'Studerte sammen',                   se: 'Studerade tillsammans',                 dk: 'Studerede sammen' } },
   // Personal
   { key: 'friend',           labels: { en: 'A friend',                             no: 'Var en venn',                       se: 'Var en vän',                            dk: 'Var en ven' } },
 ]
