@@ -39,9 +39,9 @@ describe('usageOfRole()', () => {
       id: 'p',
       roles: [{ id: 'pr', role_id: 'r', name: {}, sort_order: 0, disabled: false }],
     }))
-    store.work_experiences.push(makeWork({ id: 'w', role_id: 'r' }))
+    store.work_experiences.push(makeWork({ id: 'w', role_ids: ['r'] }))
     // A second employment that doesn't link is excluded.
-    store.work_experiences.push(makeWork({ id: 'w2', role_id: null }))
+    store.work_experiences.push(makeWork({ id: 'w2', role_ids: [] }))
 
     const u = usageOfRole(store, 'r')
     expect(u.projects.map((p) => p.id)).toEqual(['p'])
@@ -70,7 +70,7 @@ describe('isSkillUnused() / isRoleUnused()', () => {
     const store = emptyStore()
     store.roles.push(makeRole({ id: 'r' }))
     expect(isRoleUnused(store, 'r')).toBe(true)
-    store.work_experiences.push(makeWork({ role_id: 'r' }))
+    store.work_experiences.push(makeWork({ role_ids: ['r'] }))
     expect(isRoleUnused(store, 'r')).toBe(false)
   })
 })

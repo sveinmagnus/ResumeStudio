@@ -394,7 +394,7 @@ export function importFromCVPartner(raw: Record<string, unknown>): ResumeStore {
       company_url: null,
       start: yearMonth(w.year_from as string, w.month_from as string),
       end: w.year_to && w.year_to !== '' ? yearMonth(w.year_to as string, w.month_to as string) : null,
-      role_id: null,
+      role_ids: [],
       skill_tags: [],
       sort_order: (w.order as number) || 0,
       starred: (w.starred as boolean) || false,

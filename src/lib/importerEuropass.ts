@@ -146,7 +146,7 @@ export function importFromEuropassJson(json: unknown): ResumeStore {
       employment_type: null, company_size: null, company_url: null,
       start: parseEuropassDate(w['startDate'] ?? w['from']),
       end: (w['ongoing'] === true) ? null : parseEuropassDate(w['endDate'] ?? w['to']),
-      role_id: null, skill_tags: [], sort_order: i,
+      role_ids: [], skill_tags: [], sort_order: i,
       starred: false, disabled: false, internal_notes: null,
     }
     store.work_experiences.push(we)
@@ -253,7 +253,7 @@ export function importFromEuropassXml(xml: string): ResumeStore {
       end: w.querySelector('Period > Current')?.textContent?.trim() === 'true'
         ? null
         : dateFrom(w.querySelector('Period > To')),
-      role_id: null, skill_tags: [], sort_order: i,
+      role_ids: [], skill_tags: [], sort_order: i,
       starred: false, disabled: false, internal_notes: null,
     }
     store.work_experiences.push(we)

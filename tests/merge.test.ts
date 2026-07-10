@@ -90,22 +90,23 @@ describe('mergeRoles()', () => {
     expect(out.projects[0].roles[0].name).toEqual({ en: 'Solution Architect' })
   })
 
-  it('rewrites work_experiences[].role_id and refreshes their role_title snapshot', () => {
+  it('rewrites work_experiences[].role_ids (deduped) and leaves the company-specific role_title untouched', () => {
     const store = emptyStore()
     store.roles.push(makeRole({ id: 'src', name: { en: 'Architect' } }))
     store.roles.push(makeRole({ id: 'tgt', name: { en: 'Solution Architect' } }))
     store.work_experiences.push(makeWork({
-      id: 'w1', role_id: 'src', role_title: { en: 'Architect (old)' },
+      id: 'w1', role_ids: ['src'], role_title: { en: 'Architect (old)' },
     }))
-    // An employment with a different role link is left alone.
+    // Already links the target too — the merge must dedup, not duplicate it.
     store.work_experiences.push(makeWork({
-      id: 'w2', role_id: null, role_title: { en: 'Engineer' },
+      id: 'w2', role_ids: ['src', 'tgt'], role_title: { en: 'Lead Engineer' },
     }))
     const out = mergeRoles(store, 'src', 'tgt')
-    expect(out.work_experiences[0].role_id).toBe('tgt')
-    expect(out.work_experiences[0].role_title).toEqual({ en: 'Solution Architect' })
-    expect(out.work_experiences[1].role_id).toBe(null)
-    expect(out.work_experiences[1].role_title).toEqual({ en: 'Engineer' })
+    expect(out.work_experiences[0].role_ids).toEqual(['tgt'])
+    // role_title is the company-specific title — never rewritten by a role merge.
+    expect(out.work_experiences[0].role_title).toEqual({ en: 'Architect (old)' })
+    expect(out.work_experiences[1].role_ids).toEqual(['tgt'])
+    expect(out.work_experiences[1].role_title).toEqual({ en: 'Lead Engineer' })
   })
 
   it('is a no-op when either id is missing', () => {
@@ -152,7 +153,7 @@ describe('countRoleReferences()', () => {
         { id: 'b', role_id: 'r', name: {}, sort_order: 0, disabled: false },
       ],
     }))
-    store.work_experiences.push(makeWork({ role_id: 'r' }))
+    store.work_experiences.push(makeWork({ role_ids: ['r'] }))
     expect(countRoleReferences(store, 'r')).toBe(3)
   })
 })

@@ -262,21 +262,33 @@ export interface WorkExperience {
   id: string
   resume_id: string
   employer: LocalizedString
+  /** The company-specific position title (e.g. "Senior Consultant, Platform"). Free text, independent of the role-type links. */
   role_title: LocalizedString
   description: LocalizedString
   long_description: LocalizedString
-  employment_type: 'permanent' | 'contract' | 'freelance' | 'part_time' | null
+  employment_type: 'permanent' | 'contract' | 'freelance' | 'part_time' | 'internship' | null
+  /**
+   * @deprecated Superseded by the company_size_* triple (shape v7). Kept so
+   * pre-v7 data round-trips; `migrate.ts` seeds `company_size_national` from it.
+   */
   company_size: string | null
+  /** Descriptive headcount of the local company / office (free text, e.g. "~50"). Additive (shape v7). */
+  company_size_local?: string | null
+  /** Descriptive headcount of the national / regional division (free text). Additive (shape v7). */
+  company_size_national?: string | null
+  /** Descriptive headcount of the global group (free text, e.g. "40,000"). Additive (shape v7). */
+  company_size_global?: string | null
   company_url: string | null
   start: YearMonth | null
   end: YearMonth | null
   /**
-   * Optional link to a registry Role. When set, the registry role's name is
-   * the canonical title (and registry merges rewrite this id alongside
-   * project role links). `role_title` stays as a free-text override so older
-   * data without a registry link still renders.
+   * Optional links to registry Roles indicating the GENERAL role type(s) held
+   * (e.g. "Architect", "Team Lead") — independent of the company-specific
+   * `role_title`. Used to summarise experience across positions and by the Role
+   * registry usage panel; registry merges rewrite these ids. Multiple allowed
+   * (shape v7, migrated from the single pre-v7 `role_id`). Not shown in exports.
    */
-  role_id: string | null
+  role_ids: string[]
   skill_tags: string[]
   sort_order: number
   starred: boolean

@@ -184,7 +184,7 @@ export function importFromLinkedIn(files: Record<string, string>): ResumeStore {
       employment_type: null, company_size: null, company_url: null,
       start: parseLinkedInDate(p['Started On']),
       end: parseLinkedInDate(p['Finished On']),
-      role_id: null, skill_tags: [], sort_order: i,
+      role_ids: [], skill_tags: [], sort_order: i,
       starred: false, disabled: false, internal_notes: null,
     })
   })

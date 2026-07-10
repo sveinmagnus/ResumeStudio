@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   appendLocalized, buildRoleParagraph, foldRoleDescriptions,
-  extractKeyPointsToCompetencies, defaultEmploymentRoleLinks, internProjectIndustries,
+  extractKeyPointsToCompetencies, migrateEmploymentShape, internProjectIndustries,
   internSkillCategories, unifyShowcaseCategories, localizeRecommenderTitles,
   migrateStore, isNewerShape, CURRENT_SHAPE_VERSION,
 } from '../src/lib/migrate'
@@ -207,30 +207,42 @@ describe('extractKeyPointsToCompetencies()', () => {
   })
 })
 
-// ─── defaultEmploymentRoleLinks ────────────────────────────────────────────
+// ─── migrateEmploymentShape ─────────────────────────────────────────────────
 
-describe('defaultEmploymentRoleLinks()', () => {
-  it('backfills role_id: null on legacy work_experiences', () => {
+describe('migrateEmploymentShape()', () => {
+  it('converts a pre-v8 single role_id into role_ids[]', () => {
     const store = emptyStore()
-    // Strip the field as if this came from an older save.
-    const legacy = makeWork() as Partial<WorkExperience>
-    delete legacy.role_id
+    const legacy = makeWork() as Partial<WorkExperience> & { role_id?: string | null }
+    delete (legacy as { role_ids?: unknown }).role_ids
+    legacy.role_id = 'r-abc'
     store.work_experiences.push(legacy as WorkExperience)
-    const out = defaultEmploymentRoleLinks(store)
-    expect(out.work_experiences[0].role_id).toBe(null)
+    const out = migrateEmploymentShape(store)
+    expect(out.work_experiences[0].role_ids).toEqual(['r-abc'])
   })
 
-  it('preserves an existing role_id when present', () => {
+  it('yields [] when the legacy role_id was null / absent', () => {
     const store = emptyStore()
-    store.work_experiences.push(makeWork({ role_id: 'r-abc' }))
-    const out = defaultEmploymentRoleLinks(store)
-    expect(out.work_experiences[0].role_id).toBe('r-abc')
+    const legacy = makeWork() as Partial<WorkExperience> & { role_id?: string | null }
+    delete (legacy as { role_ids?: unknown }).role_ids
+    legacy.role_id = null
+    store.work_experiences.push(legacy as WorkExperience)
+    const out = migrateEmploymentShape(store)
+    expect(out.work_experiences[0].role_ids).toEqual([])
+  })
+
+  it('seeds company_size_national from the deprecated company_size', () => {
+    const store = emptyStore()
+    const legacy = makeWork({ company_size: '~50 employees' }) as WorkExperience
+    delete (legacy as { company_size_national?: unknown }).company_size_national
+    store.work_experiences.push(legacy)
+    const out = migrateEmploymentShape(store)
+    expect(out.work_experiences[0].company_size_national).toBe('~50 employees')
   })
 
   it('returns the same reference when nothing changed (idempotent)', () => {
     const store = emptyStore()
-    store.work_experiences.push(makeWork({ role_id: null }))
-    expect(defaultEmploymentRoleLinks(store)).toBe(store)
+    store.work_experiences.push(makeWork({ role_ids: [], company_size: null }))
+    expect(migrateEmploymentShape(store)).toBe(store)
   })
 })
 

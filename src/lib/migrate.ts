@@ -14,7 +14,8 @@
  *    `long_description`, leaving roles as registry links only.
  *  - extractKeyPointsToCompetencies: promote per-KQ key_points to the
  *    standalone key_competencies section.
- *  - defaultEmploymentRoleLinks: backfill WorkExperience.role_id as null.
+ *  - migrateEmploymentShape: WorkExperience role_id → role_ids[] + seed the
+ *    company_size_* triple from the deprecated single company_size (shape v8).
  */
 
 import type {
@@ -64,7 +65,7 @@ import { v4 as uuidv4 } from 'uuid'
  * (like `industries`) is NOT a tolerable "optional field" — it must be
  * guaranteed present, hence the bump + migration.
  */
-export const CURRENT_SHAPE_VERSION = 7
+export const CURRENT_SHAPE_VERSION = 8
 
 /**
  * True when `store` was written by a build with a NEWER shape than this one
@@ -96,7 +97,7 @@ export function migrateStore(store: ResumeStore): ResumeStore {
     unifyShowcaseCategories(
       internSkillCategories(
         internProjectIndustries(
-          defaultEmploymentRoleLinks(
+          migrateEmploymentShape(
             extractKeyPointsToCompetencies(foldRoleDescriptions(store)),
           ),
         ),
@@ -225,19 +226,30 @@ function pointHasText(p: KeyPoint): boolean {
   return any(p.name) || any(p.long_description)
 }
 
-// ─── Default WorkExperience.role_id ──────────────────────────────────────────
+// ─── WorkExperience shape (role links + company size) ────────────────────────
 //
-// `role_id` (an optional registry link, parallel to Project.roles[].role_id)
-// was added after launch. Older persisted data omits the field entirely; this
-// migration backfills it as null so downstream code can treat it as a known
-// shape. Idempotent — once present (even as null), the field is preserved.
+// Two idempotent shape-sniffs on employment, folded into one pass:
+//  - role links: the pre-v8 single `role_id` (optional registry link) becomes
+//    `role_ids: string[]` (multiple general role types, independent of the
+//    company-specific `role_title`). `role_id ? [role_id] : []`. Unstamped
+//    legacy data (neither field) yields `[]`.
+//  - company size: the pre-v8 single free-text `company_size` seeds the new
+//    `company_size_national` (National / Regional division) so the value the
+//    consultant already entered isn't lost; the local/global fields start blank.
+//    The deprecated `company_size` is left in place (round-trips harmlessly).
 
-export function defaultEmploymentRoleLinks(store: ResumeStore): ResumeStore {
+export function migrateEmploymentShape(store: ResumeStore): ResumeStore {
   let changed = false
   const work_experiences = store.work_experiences.map((w) => {
-    if ('role_id' in w) return w
+    const legacy = w as WorkExperience & { role_id?: string | null }
+    const needsRoles = !Array.isArray(legacy.role_ids)
+    const needsSize = legacy.company_size_national === undefined
+      && (legacy.company_size ?? '').trim() !== ''
+    if (!needsRoles && !needsSize) return w
     changed = true
-    const copy: WorkExperience = { ...(w as WorkExperience), role_id: null }
+    const copy: WorkExperience = { ...legacy }
+    if (needsRoles) copy.role_ids = legacy.role_id ? [legacy.role_id] : []
+    if (needsSize) copy.company_size_national = legacy.company_size
     return copy
   })
   if (!changed) return store

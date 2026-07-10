@@ -29,7 +29,7 @@ export function WorkEditor() {
     const w: WorkExperience = {
       id: newId(), resume_id: data.resume!.id, employer: {}, role_title: {}, description: {},
       long_description: {}, employment_type: null, company_size: null, company_url: null,
-      start: null, end: null, role_id: null, skill_tags: [], sort_order: items.length, starred: false, disabled: false, internal_notes: null,
+      start: null, end: null, role_ids: [], skill_tags: [], sort_order: items.length, starred: false, disabled: false, internal_notes: null,
     }
     addItem('work_experiences', w)
   }
@@ -47,8 +47,8 @@ export function WorkEditor() {
           meta={fmtRange(w.start, w.end)} preview={richToPlain(resolve(w.long_description, primaryLocale))}
           starred={w.starred} disabled={w.disabled}>
           <DualField label="Employer" value={w.employer} onChange={(v) => updateItem('work_experiences', w.id, { employer: v })} />
-          <DualField label="Role / title" value={w.role_title} onChange={(v) => updateItem('work_experiences', w.id, { role_title: v })} />
-          <EmploymentRoleLink work={w} />
+          <DualField label="Position title" value={w.role_title} onChange={(v) => updateItem('work_experiences', w.id, { role_title: v })} placeholder="Your title as held at this company" />
+          <EmploymentRoleTypes work={w} />
           <RichField label="Description" value={w.long_description} onChange={(v) => updateItem('work_experiences', w.id, { long_description: v })} />
           <FieldRow>
             <DateField label="Start" value={w.start} onChange={(v) => updateItem('work_experiences', w.id, { start: v })} />
@@ -64,10 +64,15 @@ export function WorkEditor() {
                 <option value="contract">Contract</option>
                 <option value="freelance">Freelance</option>
                 <option value="part_time">Part-time</option>
+                <option value="internship">Internship</option>
               </select>
             </label>
-            <TextField label="Company size" value={w.company_size || ''} onChange={(v) => updateItem('work_experiences', w.id, { company_size: v })} />
             <TextField label="Company URL" value={w.company_url || ''} onChange={(v) => updateItem('work_experiences', w.id, { company_url: v })} />
+          </FieldRow>
+          <FieldRow>
+            <TextField label="Headcount — local company" value={w.company_size_local || ''} onChange={(v) => updateItem('work_experiences', w.id, { company_size_local: v })} placeholder="e.g. ~50" />
+            <TextField label="National / regional division" value={w.company_size_national || ''} onChange={(v) => updateItem('work_experiences', w.id, { company_size_national: v })} placeholder="e.g. 1,200" />
+            <TextField label="Global group" value={w.company_size_global || ''} onChange={(v) => updateItem('work_experiences', w.id, { company_size_global: v })} placeholder="e.g. 40,000" />
           </FieldRow>
         </EditorCard>
       ))}
@@ -77,30 +82,27 @@ export function WorkEditor() {
 }
 
 /**
- * Optional link from a work_experience to a registry Role. Mirrors the
- * project.roles[].role_id pattern so role-registry merges can rewrite
- * employment links in lockstep and the role-usage panel can list both.
- *
- * Behaviour: when linked, show the registry name with an unlink button.
- * When unlinked, show an autocomplete (existing roles + add-new) that
- * pulls from the role registry.
+ * Links a work_experience to one or MORE registry Roles indicating the general
+ * ROLE TYPE(S) held (e.g. "Architect", "Team Lead") — independent of the
+ * company-specific `role_title`. Mirrors the project.roles[] chip pattern so
+ * role-registry merges rewrite these links and the role-usage panel lists
+ * employments. Picking or creating a role never touches `role_title`.
  */
-function EmploymentRoleLink({ work }: { work: WorkExperience }) {
+function EmploymentRoleTypes({ work }: { work: WorkExperience }) {
   const { data, primaryLocale, addItem, updateItem } = useStore()
-  const [editing, setEditing] = useState(false)
-  const linked = work.role_id ? data.roles.find((r) => r.id === work.role_id) : null
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const linked = work.role_ids
+    .map((id) => data.roles.find((r) => r.id === id))
+    .filter((r): r is Role => !!r)
+  const editing = editingId ? data.roles.find((r) => r.id === editingId) ?? null : null
 
-  const link = (roleId: string) => {
-    const reg = data.roles.find((r) => r.id === roleId)
-    updateItem('work_experiences', work.id, {
-      role_id: roleId,
-      // Refresh the snapshot so a later registry rename doesn't silently
-      // rewrite the employment's display title (consistent with mergeRoles).
-      role_title: reg ? reg.name : work.role_title,
-    })
+  const add = (roleId: string) => {
+    if (work.role_ids.includes(roleId)) return
+    updateItem('work_experiences', work.id, { role_ids: [...work.role_ids, roleId] })
   }
-  const unlink = () => updateItem('work_experiences', work.id, { role_id: null })
-  const createAndLink = (text: string) => {
+  const remove = (roleId: string) =>
+    updateItem('work_experiences', work.id, { role_ids: work.role_ids.filter((id) => id !== roleId) })
+  const createAndAdd = (text: string) => {
     const r: Role = {
       id: newId(), resume_id: data.resume!.id,
       name: { [primaryLocale]: text },
@@ -108,66 +110,67 @@ function EmploymentRoleLink({ work }: { work: WorkExperience }) {
       starred: false, sort_order: data.roles.length, disabled: false,
     }
     // open:false — creating the role must not steal focus from (and collapse)
-    // this employment card. Link the new id immediately.
+    // this employment card. Link the new id immediately (title untouched).
     addItem('roles', r, { open: false })
-    updateItem('work_experiences', work.id, { role_id: r.id, role_title: r.name })
+    updateItem('work_experiences', work.id, { role_ids: [...work.role_ids, r.id] })
   }
 
   return (
     <div className="erl-wrap">
-      <label className="erl-label">Registry role link <span className="erl-hint">— share this title with projects / merges</span></label>
-      {linked ? (
-        <div className="erl-linked">
-          <button type="button" className="erl-pill erl-pill-btn" onClick={() => setEditing((o) => !o)} title="Edit translation in both languages">
-            {resolve(linked.name, primaryLocale) || '(unnamed role)'}
-          </button>
-          <button type="button" className="erl-unlink" onClick={unlink} title="Unlink from the role registry">
-            <X size={13} /> Unlink
-          </button>
-          {editing && (
-            <TranslationPopover
-              title={`Edit “${resolve(linked.name, primaryLocale) || 'role'}” translation`}
-              fieldLabel="Role name"
-              value={linked.name}
-              footnote="Changes the registry — all references update."
-              onClose={() => setEditing(false)}
-              onChange={(name) => updateItem('roles', linked.id, { name })}
-            />
-          )}
+      <label className="erl-label">Role type(s) <span className="erl-hint">— the general role held, for summarising experience across positions (independent of the title above)</span></label>
+      {linked.length > 0 && (
+        <div className="erl-chips">
+          {linked.map((r) => (
+            <span key={r.id} className="erl-chip">
+              <button type="button" className="erl-chip-name" onClick={() => setEditingId((o) => (o === r.id ? null : r.id))} title="Edit translation in both languages">
+                {resolve(r.name, primaryLocale) || '(unnamed role)'}
+              </button>
+              <button type="button" className="erl-chip-x" onClick={() => remove(r.id)} aria-label={`Remove ${resolve(r.name, primaryLocale) || 'role'}`}>
+                <X size={12} />
+              </button>
+            </span>
+          ))}
         </div>
-      ) : (
-        <Autocomplete
-          options={data.roles
-            .filter((r) => !r.disabled)
-            .map((r) => ({ id: r.id, label: resolve(r.name, primaryLocale) || '(unnamed)' }))}
-          onPick={link}
-          onAddNew={createAndLink}
-          addLabel="role"
-          placeholder="Link to a role from the registry…"
+      )}
+      <Autocomplete
+        options={data.roles
+          .filter((r) => !r.disabled && !work.role_ids.includes(r.id))
+          .map((r) => ({ id: r.id, label: resolve(r.name, primaryLocale) || '(unnamed)' }))}
+        onPick={add}
+        onAddNew={createAndAdd}
+        addLabel="role type"
+        placeholder="Add a role type from the registry…"
+      />
+      {editing && (
+        <TranslationPopover
+          title={`Edit “${resolve(editing.name, primaryLocale) || 'role'}” translation`}
+          fieldLabel="Role name"
+          value={editing.name}
+          footnote="Changes the registry — all references update."
+          onClose={() => setEditingId(null)}
+          onChange={(name) => updateItem('roles', editing.id, { name })}
         />
       )}
       <style>{`
-        .erl-wrap { margin-bottom: 18px; }
+        .erl-wrap { margin-bottom: 18px; position: relative; }
         .erl-label {
           display: block; font-size: 11px; font-weight: 600; letter-spacing: .08em;
           text-transform: uppercase; color: var(--ink-faint); margin-bottom: 7px;
         }
         .erl-hint { font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--ink-faint); margin-left: 2px; }
-        .erl-linked { display: flex; align-items: center; gap: 8px; position: relative; }
-        .erl-pill {
-          display: inline-flex; align-items: center; padding: 5px 11px;
+        .erl-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+        .erl-chip {
+          display: inline-flex; align-items: center; gap: 2px;
           background: var(--accent-wash); color: var(--accent);
-          border-radius: 999px; font-size: 13px; font-weight: 600;
+          border-radius: 999px; font-size: 13px; font-weight: 600; padding-left: 4px;
         }
-        .erl-pill-btn { cursor: pointer; transition: background .12s; }
-        .erl-pill-btn:hover { background: var(--accent); color: #fff; }
-        .erl-unlink {
-          display: inline-flex; align-items: center; gap: 4px;
-          padding: 4px 10px; font-size: 12px; color: var(--ink-faint);
-          border: 1px solid var(--line); border-radius: var(--r-sm);
-          background: var(--paper);
+        .erl-chip-name { padding: 5px 4px 5px 8px; cursor: pointer; border-radius: 999px 0 0 999px; }
+        .erl-chip-name:hover { text-decoration: underline; }
+        .erl-chip-x {
+          display: inline-flex; align-items: center; padding: 5px 8px 5px 4px;
+          color: var(--accent); border-radius: 0 999px 999px 0; opacity: .7;
         }
-        .erl-unlink:hover { color: var(--accent); border-color: var(--accent); }
+        .erl-chip-x:hover { opacity: 1; background: var(--accent); color: #fff; }
       `}</style>
     </div>
   )

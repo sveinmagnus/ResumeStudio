@@ -42,15 +42,15 @@ export function usageOfSkill(store: ResumeStore, skillId: string): SkillUsage {
 
 /**
  * All entities that reference a given role: projects through any
- * `ProjectRole.role_id`, plus work_experiences through the optional
- * `WorkExperience.role_id` registry link.
+ * `ProjectRole.role_id`, plus work_experiences through their
+ * `WorkExperience.role_ids` registry links.
  */
 export function usageOfRole(store: ResumeStore, roleId: string): RoleUsage {
   const projects = store.projects.filter((p) =>
     p.roles.some((pr) => pr.role_id === roleId),
   )
   const work_experiences = store.work_experiences.filter(
-    (w) => w.role_id === roleId,
+    (w) => w.role_ids.includes(roleId),
   )
   return { projects, work_experiences }
 }

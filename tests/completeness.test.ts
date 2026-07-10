@@ -240,7 +240,7 @@ describe('computeCompleteness() — used registry items (skills / roles)', () =>
     const store = emptyStore()
     clearHeader(store)
     store.roles = [makeRole({ id: 'r1', name: { en: 'Architect' } })] // no Norwegian
-    store.work_experiences = [makeWork({ id: 'w1', employer: { en: 'C', no: 'C' }, long_description: { en: 'x', no: 'x' }, role_id: 'r1' })]
+    store.work_experiences = [makeWork({ id: 'w1', employer: { en: 'C', no: 'C' }, long_description: { en: 'x', no: 'x' }, role_ids: ['r1'] })]
     const out = computeCompleteness(store, ['en', 'no'])
     expect(out.no.missing.some((m) => m.section === 'roles' && m.itemId === 'r1')).toBe(true)
   })
@@ -264,7 +264,7 @@ describe('computeCompleteness() — used registry items (skills / roles)', () =>
     const store = emptyStore()
     clearHeader(store)
     store.roles = [makeRole({ id: 'r1', name: { en: 'Architect' } })] // no Norwegian
-    store.work_experiences = [makeWork({ id: 'w1', disabled: true, employer: { en: 'C', no: 'C' }, long_description: { en: 'x', no: 'x' }, role_id: 'r1' })]
+    store.work_experiences = [makeWork({ id: 'w1', disabled: true, employer: { en: 'C', no: 'C' }, long_description: { en: 'x', no: 'x' }, role_ids: ['r1'] })]
     const out = computeCompleteness(store, ['en', 'no'])
     expect(out.no).toEqual({ percent: 100, missing: [] })
   })

@@ -61,14 +61,18 @@ const REGISTRIES: Record<RegistryKind, RegistryDescriptor> = {
           pr.role_id === sourceId ? { ...pr, role_id: target.id, name: target.name } : pr,
         ),
       })),
+      // Employment role-type links: remap the id in place, deduped (never
+      // touches the independent, company-specific role_title).
       work_experiences: store.work_experiences.map((w) =>
-        w.role_id === sourceId ? { ...w, role_id: target.id, role_title: target.name } : w,
+        w.role_ids.includes(sourceId)
+          ? { ...w, role_ids: [...new Set(w.role_ids.map((id) => (id === sourceId ? target.id : id)))] }
+          : w,
       ),
     }),
     count: (store, id) => {
       let n = 0
       for (const p of store.projects) for (const pr of p.roles) if (pr.role_id === id) n++
-      for (const w of store.work_experiences) if (w.role_id === id) n++
+      for (const w of store.work_experiences) if (w.role_ids.includes(id)) n++
       return n
     },
   },

@@ -142,7 +142,7 @@ export function computeCompleteness(
     for (const pr of p.roles) usedRoleIds.add(pr.role_id)
     for (const pi of p.industries) usedIndustryIds.add(pi.industry_id)
   }
-  for (const w of data.work_experiences) if (!w.disabled && w.role_id) usedRoleIds.add(w.role_id)
+  for (const w of data.work_experiences) if (!w.disabled) for (const id of w.role_ids) usedRoleIds.add(id)
   // A category counts as "used" once it has ≥1 linked skill — mirroring the
   // Skills Showcase export, which only ever shows categories with members.
   for (const s of data.skills) if (s.category_id) usedCategoryIds.add(s.category_id)
