@@ -34,6 +34,29 @@ describe('SECTION_CATALOG — coverage', () => {
   })
 })
 
+describe('positions — type excluded from summary, kept in full', () => {
+  const pos = item({
+    name: { en: 'Board Member' },
+    organisation: { en: 'Cartavio AS' },
+    position_type: 'board_member',
+    start: { year: 2020, month: 1 }, end: { year: 2022, month: 6 },
+  })
+
+  it('summary omits the position type (not an item-layout slot)', () => {
+    const s = SECTION_CATALOG.positions.summary!(pos, html)!
+    expect(s.parts.map((p) => p.key)).not.toContain('role')
+    expect(s.parts.find((p) => p.key === 'title')?.value).toBe('Board Member')
+    expect(s.parts.find((p) => p.key === 'org')?.value).toBe('Cartavio AS')
+    const { meta } = summaryTitleMeta(s)
+    expect(meta.join(' · ')).not.toMatch(/Board member/i)
+  })
+
+  it('full detail still shows the type', () => {
+    const v = SECTION_CATALOG.positions.full!(pos, html)!
+    expect(v.meta).toContain('Board member')
+  })
+})
+
 describe('projects — anonymization (both render paths)', () => {
   const anonProject = makeProject({
     customer: { en: 'Real Client AS' },

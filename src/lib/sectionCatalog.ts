@@ -470,9 +470,12 @@ export const SECTION_CATALOG: Record<string, SectionDescriptor> = {
     },
     summary: (it, ctx) => {
       const { start, end } = rangeParts(it, ctx)
+      // The position_type ("Board member", "Volunteer", …) is a categorisation,
+      // not one of the item-layout slots (Title / Organisation / Date), so it is
+      // deliberately left OUT of the summary — otherwise tabulation gave it its
+      // own surprise column. It still shows in the full-detail render below.
       return summaryOf({
         title: ls(it, 'name', ctx.locale) || 'Role',
-        role: positionTypeLabel(it.position_type as string | undefined),
         org: ls(it, 'organisation', ctx.locale),
         start, end,
       })
