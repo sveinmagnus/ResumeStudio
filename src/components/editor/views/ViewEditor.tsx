@@ -19,15 +19,18 @@ import { VIEW_TEMPLATES, getTemplate, applyTemplate } from '../../../lib/viewTem
 import { buildViewText, buildViewMarkdown } from '../../../lib/viewText'
 import { exportFilename } from '../../../lib/exportFilename'
 import type {
-  ResumeView, ViewStyle, SectionStyle, SectionDetail,
+  ResumeView, ViewStyle, SectionStyle, SectionDetail, ViewSection,
   ViewHeaderConfig, ViewFooterConfig,
 } from '../../../types'
 import {
-  Trash2, ChevronUp, ChevronDown, GripVertical, Pencil,
+  Trash2, ChevronUp, ChevronDown, ChevronRight, GripVertical, Pencil,
   ArrowLeft, Star, FileText, FileDown, FileType, FileCode,
   PanelRight, PanelRightClose, ExternalLink,
 } from 'lucide-react'
-import { DetailToggle, SectionStylePanel } from './SectionStylePanel'
+import {
+  DetailToggle, SectionStylePanel,
+  SUMMARY_LAYOUT_OPTIONS, FULL_LAYOUT_OPTIONS,
+} from './SectionStylePanel'
 import { Select } from './Select'
 import { ViewStyleControls } from './ViewStyleControls'
 import { ViewHeaderControls } from './ViewHeaderControls'
@@ -46,6 +49,44 @@ const KQ_PARTS: Array<{ key: 'kq_show_label' | 'kq_show_tagline' | 'kq_show_shor
   { key: 'kq_show_short', label: 'Short summary', def: false },
   { key: 'kq_show_long', label: 'Long summary', def: true },
 ]
+
+// Compact labels for the collapsed-section overview chips.
+const LAYOUT_LABEL = new Map<string, string>(SUMMARY_LAYOUT_OPTIONS)
+const FULL_LAYOUT_LABEL = new Map<string, string>(FULL_LAYOUT_OPTIONS)
+const DATE_FORMAT_LABEL: Record<string, string> = {
+  'month-year': 'Mar 2021', 'year-month': '2021 Mar',
+  'month-year-num': '03/2021', 'year-month-num': '2021/03', 'year-only': '2021',
+}
+const cap = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1)
+
+/**
+ * Short chips summarising a section's chosen options, shown on the collapsed
+ * row so the whole section list reads as an overview. Only non-default choices
+ * appear; an untouched section shows nothing (caller renders "Default styling").
+ */
+function sectionConfigChips(vs: ViewSection): string[] {
+  const s = vs.style ?? {}
+  const chips: string[] = []
+  if (vs.detail === 'summary') {
+    if (s.tabulate) chips.push('Tabulated')
+    if (s.summary_layout) chips.push(LAYOUT_LABEL.get(s.summary_layout) ?? s.summary_layout)
+  } else if (vs.detail === 'full') {
+    if (s.date_position === 'leading') chips.push(FULL_LAYOUT_LABEL.get('leading') ?? 'Date first')
+  }
+  if (s.hide_heading) chips.push('No heading')
+  else if (s.heading_text && Object.values(s.heading_text).some((v) => (v ?? '').trim())) chips.push('Custom heading')
+  if (s.hide_dates) chips.push('No dates')
+  if (s.date_format) chips.push(DATE_FORMAT_LABEL[s.date_format] ?? s.date_format)
+  if (s.density) chips.push(cap(s.density))
+  if (s.item_divider === false) chips.push('No divider')
+  else if (s.divider_style) chips.push(`${cap(s.divider_style)} rule`)
+  if (s.tag_style) chips.push(s.tag_style === 'chips' ? 'Chip tags' : 'Inline tags')
+  if (vs.key === 'key_qualifications') {
+    const parts = KQ_PARTS.filter((p) => (s[p.key] ?? p.def)).map((p) => p.label)
+    if (parts.length) chips.push(parts.join(' + '))
+  }
+  return chips
+}
 
 /**
  * A draggable section row in the view's section list. Provides a grip handle to
@@ -113,6 +154,9 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
   const [showPreview, setShowPreview] = useState(true)
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const popoutRef = useRef<Window | null>(null)
+  // Last known preview scroll offset, preserved across rebuilds so tweaking a
+  // control doesn't fling the preview back to the top of the résumé (#5).
+  const previewScrollRef = useRef(0)
 
   useEffect(() => {
     const t = window.setTimeout(() => {
@@ -154,9 +198,22 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
       if (!body) return
       setPageCount(Math.max(1, Math.ceil(body.scrollHeight / A4_PX)))
     }
+    const restoreScroll = () => {
+      const win = iframe.contentWindow
+      try { win?.scrollTo(0, previewScrollRef.current) } catch { /* jsdom / cross-origin */ }
+    }
     const onLoad = () => {
+      const win = iframe.contentWindow
+      if (win) {
+        // Reapply the saved offset, then keep tracking the user's scrolling on
+        // the freshly-loaded document (the old window's listeners died with it).
+        restoreScroll()
+        win.addEventListener('scroll', () => { previewScrollRef.current = win.scrollY }, { passive: true })
+      }
       measure()
-      refine = window.setTimeout(measure, 400) // re-measure once webfonts settle
+      // Web fonts settle a little after load and shift the layout; re-measure
+      // and re-pin the scroll so the position holds once heights are final.
+      refine = window.setTimeout(() => { measure(); restoreScroll() }, 400)
     }
     iframe.addEventListener('load', onLoad)
     return () => {
@@ -236,6 +293,15 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
   const [exportError, setExportError] = useState<string | null>(null)
   // The view name is display-only until the user opens it with the pencil.
   const [editingName, setEditingName] = useState(false)
+  // Which section rows are expanded (item list + style overrides shown). All
+  // collapsed by default so the list reads as a sortable overview (#3).
+  const [openSections, setOpenSections] = useState<Set<string>>(() => new Set())
+  const toggleSection = (key: string) => setOpenSections((prev) => {
+    const next = new Set(prev)
+    if (next.has(key)) next.delete(key)
+    else next.add(key)
+    return next
+  })
 
   const handleExport = () => {
     setExportError(null)
@@ -455,6 +521,8 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
 
             const off = vs.detail === 'off'
             const hasStyle = !!vs.style && Object.keys(vs.style).length > 0
+            const isOpen = openSections.has(vs.key)
+            const chips = off ? [] : sectionConfigChips(vs)
 
             return (
               <SortableSecRow key={vs.key} id={vs.key} off={off}>
@@ -484,65 +552,85 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
                       value={vs.detail}
                       onChange={(d) => setSectionDetail(vs.key, d)}
                     />
+                    {!off && (
+                      <button
+                        type="button"
+                        className="rv-sec-expand"
+                        aria-expanded={isOpen}
+                        aria-label={`${isOpen ? 'Collapse' : 'Expand'} ${def.label} settings`}
+                        onClick={() => toggleSection(vs.key)}
+                      >
+                        <ChevronRight size={16} className={isOpen ? 'rv-chev-open' : ''} />
+                      </button>
+                    )}
                   </div>
 
-                  {/* The professional-summary box is made of distinct parts;
-                      which ones this view shows is core configuration, not a
-                      style override. */}
-                  {!off && vs.key === 'key_qualifications' && (
-                    <div className="rv-kq-parts">
-                      <span className="rv-kq-parts-label">Show parts</span>
-                      {KQ_PARTS.map((p) => (
-                        <label key={p.key} className="rv-kq-part">
-                          <input
-                            type="checkbox"
-                            checked={vs.style?.[p.key] ?? p.def}
-                            onChange={(e) => setSectionStyle(vs.key, { [p.key]: e.target.checked } as SectionStyle)}
-                          />
-                          <span>{p.label}</span>
-                        </label>
-                      ))}
+                  {/* Collapsed: a one-line overview of the chosen options so the
+                      whole section list can be scanned and sorted at a glance. */}
+                  {!off && !isOpen && (
+                    <div className="rv-sec-config">
+                      {chips.length
+                        ? chips.map((c, i) => <span key={i} className="rv-sec-chip">{c}</span>)
+                        : <span className="rv-sec-config-empty">Default styling</span>}
                     </div>
                   )}
 
-                  {!off && (
-                    <SectionStylePanel
-                      sectionKey={vs.key}
-                      detail={vs.detail}
-                      style={vs.style}
-                      onChange={(patch) => setSectionStyle(vs.key, patch)}
-                      onReset={() => setSectionStyle(vs.key, null)}
-                      hasStyle={hasStyle}
-                    />
-                  )}
+                  {/* Expanded: parts (KQ), the style overrides (always shown —
+                      almost always needed) and the item list. */}
+                  {!off && isOpen && (
+                    <>
+                      {vs.key === 'key_qualifications' && (
+                        <div className="rv-kq-parts">
+                          <span className="rv-kq-parts-label">Show parts</span>
+                          {KQ_PARTS.map((p) => (
+                            <label key={p.key} className="rv-kq-part">
+                              <input
+                                type="checkbox"
+                                checked={vs.style?.[p.key] ?? p.def}
+                                onChange={(e) => setSectionStyle(vs.key, { [p.key]: e.target.checked } as SectionStyle)}
+                              />
+                              <span>{p.label}</span>
+                            </label>
+                          ))}
+                        </div>
+                      )}
 
-                  {!off && storeItems.length > 0 && (
-                    <div className="rv-item-list">
-                      {storeItems.map((item) => {
-                        const excluded = view.excluded_item_ids.includes(item.id)
-                        const title = getItemTitle(vs.key, item, primaryLocale)
-                        const subtitle = getItemSubtitle(vs.key, item, primaryLocale)
-                        return (
-                          <label key={item.id} className={`rv-item-row ${excluded ? 'rv-item-hidden' : ''}`}>
-                            <input
-                              type="checkbox"
-                              checked={!excluded}
-                              onChange={() => toggleItem(item.id)}
-                              className="rv-item-check"
-                            />
-                            <span className="rv-item-info">
-                              <span className="rv-item-title">{title}</span>
-                              {item.starred && <Star size={11} className="rv-item-star" />}
-                              {subtitle && <span className="rv-item-sub">{subtitle}</span>}
-                            </span>
-                          </label>
-                        )
-                      })}
-                    </div>
-                  )}
+                      <SectionStylePanel
+                        sectionKey={vs.key}
+                        detail={vs.detail}
+                        style={vs.style}
+                        onChange={(patch) => setSectionStyle(vs.key, patch)}
+                        onReset={() => setSectionStyle(vs.key, null)}
+                        hasStyle={hasStyle}
+                      />
 
-                  {!off && storeItems.length === 0 && (
-                    <div className="rv-item-empty">No items in master CV</div>
+                      {storeItems.length > 0 ? (
+                        <div className="rv-item-list">
+                          {storeItems.map((item) => {
+                            const excluded = view.excluded_item_ids.includes(item.id)
+                            const title = getItemTitle(vs.key, item, primaryLocale)
+                            const subtitle = getItemSubtitle(vs.key, item, primaryLocale)
+                            return (
+                              <label key={item.id} className={`rv-item-row ${excluded ? 'rv-item-hidden' : ''}`}>
+                                <input
+                                  type="checkbox"
+                                  checked={!excluded}
+                                  onChange={() => toggleItem(item.id)}
+                                  className="rv-item-check"
+                                />
+                                <span className="rv-item-info">
+                                  <span className="rv-item-title">{title}</span>
+                                  {item.starred && <Star size={11} className="rv-item-star" />}
+                                  {subtitle && <span className="rv-item-sub">{subtitle}</span>}
+                                </span>
+                              </label>
+                            )
+                          })}
+                        </div>
+                      ) : (
+                        <div className="rv-item-empty">No items in master CV</div>
+                      )}
+                    </>
                   )}
                 </div>
                 </>

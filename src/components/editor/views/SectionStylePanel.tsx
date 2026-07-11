@@ -68,22 +68,25 @@ export function SectionStylePanel({ sectionKey, detail, style, onChange, onReset
   const s: SectionStyle = style ?? {}
   const showTag = TAG_SECTIONS.has(sectionKey)
   const isSummary = detail === 'summary'
+  // Rendered inline whenever its section row is expanded (the row is the
+  // collapse unit now), so the overrides are always visible without a second
+  // click — they're almost always what the user came to adjust.
   return (
-    <details className="rv-secstyle">
-      <summary className="rv-secstyle-summary">
+    <div className="rv-secstyle">
+      <div className="rv-secstyle-header">
         <Sliders size={11} /> Style overrides
         {hasStyle && <span className="rv-secstyle-badge">custom</span>}
         {hasStyle && (
           <button
             type="button"
             className="rv-secstyle-reset"
-            onClick={(e) => { e.preventDefault(); onReset() }}
+            onClick={onReset}
             title="Use view defaults for this section"
           >
             <RotateCcw size={10} /> Reset
           </button>
         )}
-      </summary>
+      </div>
       <div className="rv-secstyle-body">
         {/* Toggles on the left — checkbox before its label so what's on is clear. */}
         <div className="rv-secstyle-toggles">
@@ -226,6 +229,6 @@ export function SectionStylePanel({ sectionKey, detail, style, onChange, onReset
           />
         </div>
       )}
-    </details>
+    </div>
   )
 }

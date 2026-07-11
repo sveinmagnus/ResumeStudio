@@ -410,6 +410,58 @@ describe('buildViewHtml()', () => {
     expect(html).toMatch(/Jan 2020[\s\S]*<strong>BigCo<\/strong>/)
   })
 
+  it('every summary item-layout renders the slots in its declared order', () => {
+    // work summary slots: title = employer, org = role_title, date = range.
+    const store = emptyStore()
+    store.work_experiences.push(makeWork({
+      id: 'w1', employer: { en: 'BigCo' }, role_title: { en: 'Engineer' },
+      start: { year: 2020, month: 1 }, end: { year: 2022, month: 6 },
+    }))
+    const TITLE = 'BigCo', ORG = 'Engineer', DATE = 'Jan 2020'
+    const order = (html: string): string[] =>
+      [['title', html.indexOf(TITLE)], ['org', html.indexOf(ORG)], ['date', html.indexOf(DATE)]]
+        .sort((a, b) => (a[1] as number) - (b[1] as number))
+        .map(([k]) => k as string)
+    const cases: Array<[string, string[]]> = [
+      ['title-org-date', ['title', 'org', 'date']],
+      ['title-date-org', ['title', 'date', 'org']],
+      ['org-title-date', ['org', 'title', 'date']],
+      ['org-date-title', ['org', 'date', 'title']],
+      ['date-title-org', ['date', 'title', 'org']],
+      ['date-org-title', ['date', 'org', 'title']],
+    ]
+    for (const [layout, expected] of cases) {
+      const view = makeView({
+        sections: [{ key: 'work_experiences', detail: 'summary' as const, sort_order: 0, style: { summary_layout: layout as never } }],
+      })
+      expect(order(buildViewHtml(store, view, 'en')), layout).toEqual(expected)
+    }
+  })
+
+  it('every tabulated summary layout orders its columns in declared order', () => {
+    const store = emptyStore()
+    store.work_experiences.push(makeWork({
+      id: 'w1', employer: { en: 'BigCo' }, role_title: { en: 'Engineer' },
+      start: { year: 2020, month: 1 }, end: { year: 2022, month: 6 },
+    }))
+    const TITLE = 'BigCo', ORG = 'Engineer', DATE = 'Jan 2020'
+    const order = (html: string): string[] =>
+      [['title', html.indexOf(TITLE)], ['org', html.indexOf(ORG)], ['date', html.indexOf(DATE)]]
+        .sort((a, b) => (a[1] as number) - (b[1] as number))
+        .map(([k]) => k as string)
+    const cases: Array<[string, string[]]> = [
+      ['title-org-date', ['title', 'org', 'date']],
+      ['date-title-org', ['date', 'title', 'org']],
+      ['date-org-title', ['date', 'org', 'title']],
+    ]
+    for (const [layout, expected] of cases) {
+      const view = makeView({
+        sections: [{ key: 'work_experiences', detail: 'summary' as const, sort_order: 0, style: { summary_layout: layout as never, tabulate: true } }],
+      })
+      expect(order(buildViewHtml(store, view, 'en')), layout).toEqual(expected)
+    }
+  })
+
   it("date_position:'leading' puts the meta line before the item title", () => {
     const store = emptyStore()
     store.work_experiences.push(makeWork({

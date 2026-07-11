@@ -48,6 +48,22 @@ describe('<ResumeViewsEditor>', () => {
     expect(useStore.getState().data.views[0].name).toBe('Board CV')
   })
 
+  it('section rows are collapsed by default and expand to reveal style overrides + items', async () => {
+    seed()
+    render(<ResumeViewsEditor />)
+    await userEvent.click(screen.getByRole('button', { name: /new view/i }))
+
+    // Collapsed by default: no style-overrides panels are rendered yet.
+    expect(screen.queryAllByText(/style overrides/i)).toHaveLength(0)
+
+    // Expanding one section reveals its style overrides immediately (no second
+    // click) — they are almost always what needs adjusting.
+    const expandBtns = screen.getAllByRole('button', { name: /^expand .* settings$/i })
+    expect(expandBtns.length).toBeGreaterThan(0)
+    await userEvent.click(expandBtns[0])
+    expect(screen.getAllByText(/style overrides/i)).toHaveLength(1)
+  })
+
   it('switches a section to off via the detail toggle', async () => {
     seed()
     render(<ResumeViewsEditor />)
@@ -195,6 +211,8 @@ describe('<ResumeViewsEditor>', () => {
     // Scope to the Skills Showcase section row (its title is unique).
     const showcaseTitle = screen.getByText('Skills Showcase')
     const sectionRow = showcaseTitle.closest('.rv-sec-row')!
+    // Section rows are collapsed by default — expand to reveal the item list.
+    await userEvent.click(within(sectionRow as HTMLElement).getByRole('button', { name: /expand skills showcase/i }))
     // The category name appears as an excludable item; the raw skill name does not.
     expect(sectionRow.textContent).toContain('Languages')
     expect(sectionRow.textContent).not.toContain('TypeScript')

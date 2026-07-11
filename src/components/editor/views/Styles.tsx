@@ -164,25 +164,37 @@ export function Styles() {
         margin-top: 8px; padding: 9px 11px;
         background: var(--paper-sunken); border-radius: var(--r-sm);
       }
-      .rv-secstyle-summary {
-        display: flex; align-items: center; gap: 7px; cursor: pointer;
+      .rv-secstyle-header {
+        display: flex; align-items: center; gap: 7px;
         font-size: 11px; font-weight: 600; color: var(--ink-soft);
-        letter-spacing: .04em; text-transform: uppercase;
-        list-style: none; user-select: none;
+        letter-spacing: .04em; text-transform: uppercase; user-select: none;
       }
-      .rv-secstyle-summary::-webkit-details-marker { display: none; }
-      .rv-secstyle-summary:hover { color: var(--accent); }
-      .rv-secstyle-summary .rv-secstyle-badge {
+      .rv-secstyle-header .rv-secstyle-badge {
         font-size: 9px; padding: 1px 6px; border-radius: 9px;
         background: var(--accent-wash); color: var(--accent); font-weight: 700;
         letter-spacing: .04em;
       }
-      .rv-secstyle-summary .rv-secstyle-reset {
+      .rv-secstyle-header .rv-secstyle-reset {
         margin-left: auto; padding: 2px 6px; border-radius: var(--r-sm);
         color: var(--ink-faint); display: inline-flex; align-items: center; gap: 3px;
-        font-size: 10px; font-weight: 600;
+        font-size: 10px; font-weight: 600; cursor: pointer;
       }
-      .rv-secstyle-summary .rv-secstyle-reset:hover { color: var(--accent); background: var(--paper); }
+      .rv-secstyle-header .rv-secstyle-reset:hover { color: var(--accent); background: var(--paper); }
+
+      /* ── Section expand/collapse chevron + collapsed config overview ── */
+      .rv-sec-expand {
+        display: grid; place-items: center; padding: 4px; margin-left: 2px;
+        color: var(--ink-faint); border-radius: var(--r-sm); cursor: pointer;
+        transition: color .13s, background .13s;
+      }
+      .rv-sec-expand:hover { color: var(--accent); background: var(--paper-sunken); }
+      .rv-sec-expand .rv-chev-open { transform: rotate(90deg); }
+      .rv-sec-config { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
+      .rv-sec-chip {
+        font-size: 10.5px; font-weight: 500; padding: 2px 8px; border-radius: 10px;
+        background: var(--accent-wash); color: var(--accent); white-space: nowrap;
+      }
+      .rv-sec-config-empty { font-size: 11px; color: var(--ink-faint); font-style: italic; }
       /* Toggles (left) | dropdowns (right). */
       .rv-secstyle-body {
         display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
