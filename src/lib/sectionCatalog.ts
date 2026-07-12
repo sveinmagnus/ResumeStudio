@@ -234,9 +234,15 @@ export const SECTION_CATALOG: Record<string, SectionDescriptor> = {
     subtitle: (it) => rawRange(it),
     docxSortByStart: true,
     summary(it, ctx) {
-      const title = projectCustomer(it, ctx.locale) || ls(it, 'description', ctx.locale) || 'Untitled project'
       const { start, end } = rangeParts(it, ctx)
-      return summaryOf({ title, role: projectRoleNames(it, ctx.locale).join(', '), start, end })
+      // Title = the role(s) held; Org = the client — matching the slot labels.
+      // Fall back to the project description, then the client, so the line
+      // always has an anchor.
+      const roles = projectRoleNames(it, ctx.locale).join(', ')
+      const customer = projectCustomer(it, ctx.locale)
+      const desc = ls(it, 'description', ctx.locale)
+      const title = roles || desc || customer || 'Project'
+      return summaryOf({ title, org: (roles || desc) ? customer : '', start, end })
     },
     full(it, ctx) {
       const { locale } = ctx

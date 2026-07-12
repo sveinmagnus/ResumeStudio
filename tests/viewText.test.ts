@@ -15,6 +15,7 @@ function sampleStore() {
   store.projects.push(makeProject({
     id: 'p1',
     customer: { en: 'AcmeCo' },
+    roles: [{ id: 'pr1', role_id: 'r1', name: { en: 'Lead Developer' }, sort_order: 0, disabled: false }],
     industries: [{ id: 'pi1', industry_id: 'ind1', name: { en: 'Finance' }, sort_order: 0 }],
     long_description: { en: '<p>Built the <b>platform</b></p><ul><li>Led the team</li></ul>' },
     start: { year: 2022, month: 3 }, end: null,
@@ -56,7 +57,8 @@ describe('buildViewText', () => {
       s.key === 'projects' ? { ...s, detail: 'summary' as const } : s,
     )
     const txt = buildViewText(sampleStore(), makeView({ sections }), 'en')
-    expect(txt).toMatch(/- AcmeCo — .*Mar 2022/)
+    // Title = the role; the client (AcmeCo) trails in the Org meta.
+    expect(txt).toMatch(/- Lead Developer — .*AcmeCo.*Mar 2022/)
   })
 
   it('respects exclusions and off sections', () => {
@@ -146,7 +148,7 @@ describe('buildViewMarkdown', () => {
       s.key === 'projects' ? { ...s, detail: 'summary' as const } : s,
     )
     const md = buildViewMarkdown(sampleStore(), makeView({ sections }), 'en')
-    expect(md).toContain('- **AcmeCo**')
+    expect(md).toContain('- **Lead Developer**')
   })
 
   it('renders key qualification points as labelled bullets', () => {

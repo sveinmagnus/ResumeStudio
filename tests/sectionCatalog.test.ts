@@ -81,6 +81,16 @@ describe('work / education summary — Title = role/degree, Org = employer/schoo
     expect(s.parts.find((p) => p.key === 'title')?.value).toBe('MSc Computer Science')
     expect(s.parts.find((p) => p.key === 'org')?.value).toBe('NTNU')
   })
+
+  it('project summary puts the role in Title and the client in Org', () => {
+    const p = makeProject({
+      customer: { en: 'AcmeCo' },
+      roles: [{ id: 'pr1', role_id: 'r1', name: { en: 'Architect' }, sort_order: 0, disabled: false }],
+    }) as unknown as Record<string, unknown>
+    const s = SECTION_CATALOG.projects.summary!(p, html)!
+    expect(s.parts.find((pt) => pt.key === 'title')?.value).toBe('Architect')
+    expect(s.parts.find((pt) => pt.key === 'org')?.value).toBe('AcmeCo')
+  })
 })
 
 describe('projects — anonymization (both render paths)', () => {
@@ -100,7 +110,10 @@ describe('projects — anonymization (both render paths)', () => {
 
   it('summary() uses the anonymized customer too', () => {
     const s = SECTION_CATALOG.projects.summary!(anonProject, html)!
-    expect(summaryTitleMeta(s).title).toBe('Large Nordic Bank')
+    // The client is the Org slot now; it must be the alias, never the real name.
+    const all = [summaryTitleMeta(s).title, ...summaryTitleMeta(s).meta].join(' ')
+    expect(all).toContain('Large Nordic Bank')
+    expect(all).not.toContain('Real Client')
   })
 
   it('never falls back to the real name when the alias is missing', () => {
