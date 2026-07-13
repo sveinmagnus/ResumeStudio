@@ -1,13 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
-import { Download, Undo2, Redo2, History, ChevronDown, FileText, Menu, Settings, Search } from 'lucide-react'
-import { useStore } from '../store/useStore'
+import { Undo2, Redo2, History, ChevronDown, FileText, Menu, Settings, Search } from 'lucide-react'
 import { useUndoRedo } from '../store/useUndoRedo'
 import { SaveStatus, type SaveState } from './layout/SaveStatus'
 import { LanguageSwitcher } from './layout/LanguageSwitcher'
 import { SnapshotHistory } from './SnapshotHistory'
 import { SettingsModal } from './SettingsModal'
 import { GlobalSearch } from './GlobalSearch'
-import { downloadBackup } from '../lib/backup'
 import { api, type ResumeMeta, UnauthorizedError } from '../lib/api'
 import { Link, navigate } from '../lib/router'
 import type { SectionDef } from '../lib/sections'
@@ -28,9 +26,10 @@ interface AppHeaderProps {
 
 /**
  * The editor's top bar: resume switcher, breadcrumb/title, save status,
- * undo/redo, language switcher, history, backup-export. The load-file
- * affordance moved to the picker (decision 6 — backup load is always
- * "create a new resume").
+ * undo/redo, language switcher, history, settings. Saving a resume to a
+ * portable file now lives in Settings (next to the backup folder) — it's an
+ * occasional task, not a top-bar action. The load-file affordance is on the
+ * picker (decision 6 — backup load is always "create a new resume").
  *
  * Layout note: the title block and control cluster sit at opposite ends of a
  * flex-wrap row at desktop width. As the viewport shrinks the cluster wraps
@@ -164,15 +163,6 @@ export function AppHeader({
         </button>
 
         <button
-          className="ah-export"
-          onClick={() => downloadBackup(useStore.getState().data)}
-          title="Download a portable backup of this resume"
-          aria-label="Save to file"
-        >
-          <Download size={16} /> <span className="ah-btn-text">Save to file</span>
-        </button>
-
-        <button
           className="ah-settings"
           onClick={() => setShowSettings(true)}
           title="Settings"
@@ -238,12 +228,6 @@ export function AppHeader({
           font-weight: 600; font-size: 13px; color: var(--ink-soft); transition: color .15s, background .15s, border-color .15s, box-shadow .15s;
         }
         .ah-btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
-        .ah-export {
-          display: inline-flex; align-items: center; gap: 7px; padding: 11px 18px;
-          background: var(--ink); color: var(--paper); border-radius: var(--r-md);
-          font-weight: 600; font-size: 14px; transition: color .15s, background .15s, border-color .15s, box-shadow .15s;
-        }
-        .ah-export:hover { background: var(--accent); }
         .ah-settings {
           width: 38px; height: 38px; display: grid; place-items: center;
           border: 1.5px solid var(--line-strong); border-radius: var(--r-md);
@@ -275,7 +259,6 @@ export function AppHeader({
           .ah-crumb { margin-top: 4px; }
           .ah-btn-text { display: none; }
           .ah-btn-secondary { padding: 9px 11px; }
-          .ah-export { padding: 9px 12px; }
         }
       `}</style>
     </header>

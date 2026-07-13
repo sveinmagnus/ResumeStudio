@@ -8,6 +8,8 @@ import {
 } from '../lib/api'
 import { resetTranslationAvailability } from '../lib/translateClient'
 import { useDialog } from './ui/useDialog'
+import { useStore } from '../store/useStore'
+import { downloadBackup } from '../lib/backup'
 
 /** UI-level provider choice. LibreTranslate splits into two entries (the
  *  underlying provider is the same; only translate_docker differs). */
@@ -18,6 +20,35 @@ interface SettingsModalProps {
   /** Called after a successful save so the picker can refresh sync status etc. */
   onChanged: () => void
   onUnauthorized: () => void
+}
+
+/**
+ * Download a portable JSON backup of the CURRENT resume. Moved here from the
+ * top bar (it's an occasional action, not something done every session).
+ * Distinct from the auto-sync backup FOLDER: this is a manual, one-off copy of
+ * the open resume that can be re-imported from the picker as a new resume.
+ */
+function SaveToFileSection() {
+  const resume = useStore((s) => s.data.resume)
+  return (
+    <section className="sm-sec">
+      <div className="sm-sec-head"><Download size={15} /> Save this resume to a file</div>
+      <p className="sm-help">
+        Download a portable JSON copy of the resume you're editing. Load it later
+        from the resume picker — it creates a new resume. This is a manual, one-off
+        copy, separate from the auto-synced backup folder.
+      </p>
+      <div className="sm-btn-row">
+        <button
+          className="sm-btn"
+          onClick={() => downloadBackup(useStore.getState().data)}
+          disabled={!resume}
+        >
+          <Download size={13} /> Save to file
+        </button>
+      </div>
+    </section>
+  )
 }
 
 /**
@@ -184,6 +215,7 @@ export function SettingsModal({ onClose, onChanged, onUnauthorized }: SettingsMo
                 {status.translate.configured ? 'Configured' : 'Off'}
               </span>
             </div>
+            <SaveToFileSection />
           </div>
         )}
 
@@ -316,6 +348,9 @@ export function SettingsModal({ onClose, onChanged, onUnauthorized }: SettingsMo
                 value={backupDir} onChange={(e) => setBackupDir(e.target.value)} aria-label="Backup folder"
               />
             </section>
+
+            {/* ── Save this resume to a file ──────────────────────────── */}
+            <SaveToFileSection />
 
             {/* ── Updates ─────────────────────────────────────────────── */}
             {upd?.supported && (

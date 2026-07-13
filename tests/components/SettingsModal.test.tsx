@@ -6,6 +6,10 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { SettingsModal } from '../../src/components/SettingsModal'
 import { api, type SettingsStatus } from '../../src/lib/api'
+import { useStore } from '../../src/store/useStore'
+import { resetStore } from '../helpers/store-reset'
+import { emptyStore, makeResume } from '../fixtures'
+import * as backup from '../../src/lib/backup'
 
 const managedStatus = (over: Partial<SettingsStatus['settings']> = {}): SettingsStatus => ({
   managed: true,
@@ -52,6 +56,18 @@ describe('<SettingsModal>', () => {
       expect.stringMatching(/remote URL/i),
     ]))
     expect(screen.getByLabelText(/Backup folder/i)).toBeInTheDocument()
+    // The "Save to file" action moved here from the top bar, beside the folder.
+    expect(screen.getByRole('button', { name: /save to file/i })).toBeInTheDocument()
+  })
+
+  it('downloads a portable backup from "Save to file"', async () => {
+    resetStore()
+    useStore.setState({ data: { ...emptyStore(), resume: makeResume() }, hasData: true })
+    vi.spyOn(api, 'getSettings').mockResolvedValue(managedStatus())
+    const spy = vi.spyOn(backup, 'downloadBackup').mockImplementation(() => {})
+    render(<SettingsModal onClose={() => {}} onChanged={() => {}} onUnauthorized={() => {}} />)
+    await userEvent.click(await screen.findByRole('button', { name: /save to file/i }))
+    expect(spy).toHaveBeenCalledOnce()
   })
 
   it('saves a DeepL key', async () => {

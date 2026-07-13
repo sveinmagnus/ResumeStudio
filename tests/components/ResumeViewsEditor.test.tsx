@@ -235,4 +235,20 @@ describe('<ResumeViewsEditor>', () => {
     )
     expect(useStore.getState().data.views[0].introduction.en).toBe('Targeted for boards')
   })
+
+  it('exposes export actions via the top "Export view" dropdown', async () => {
+    seed()
+    render(<ResumeViewsEditor />)
+    await userEvent.click(screen.getByRole('button', { name: /new view/i }))
+
+    // The export controls now live at the top, beside the preview toggle: an
+    // "Export view" dropdown and the language selector (which also drives the
+    // live preview).
+    expect(screen.getByLabelText(/export language/i)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: /export view/i }))
+    expect(screen.getByRole('menuitem', { name: /export pdf/i })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: /export docx/i })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: /text \(ats\)/i })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: /markdown/i })).toBeInTheDocument()
+  })
 })

@@ -119,6 +119,78 @@ function SortableSecRow({ id, off, children }: {
   )
 }
 
+/**
+ * The "Export view" dropdown shown at the top of the editor, next to the
+ * preview toggle. Groups the PDF / DOCX / Text / Markdown actions behind one
+ * trigger so exporting — the frequent task — is always one click away without
+ * scrolling to the bottom of the config. Closes on outside-click / Escape.
+ */
+function ExportMenu({ onPdf, onDocx, onText, onMarkdown, docxBusy, lastExportedAt }: {
+  onPdf: () => void
+  onDocx: () => void
+  onText: () => void
+  onMarkdown: () => void
+  docxBusy: boolean
+  lastExportedAt: string | null
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('mousedown', onClick)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onClick)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  // DOCX runs asynchronously and shows a busy label — keep the menu open for it
+  // so the progress is visible; the others complete synchronously and close.
+  const pick = (fn: () => void, keepOpen = false) => { fn(); if (!keepOpen) setOpen(false) }
+
+  return (
+    <div className="rv-exportmenu" ref={ref}>
+      <button
+        type="button"
+        className="rv-export-trigger"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        aria-haspopup="menu"
+      >
+        <FileDown size={15} /> Export view
+        <ChevronDown size={13} className={open ? 'rv-exp-chev open' : 'rv-exp-chev'} />
+      </button>
+      {open && (
+        <div className="rv-export-pop" role="menu">
+          <button type="button" role="menuitem" className="rv-export-item" onClick={() => pick(onPdf)}>
+            <FileText size={15} /> Export PDF
+          </button>
+          <button type="button" role="menuitem" className="rv-export-item" onClick={() => pick(onDocx, true)} disabled={docxBusy}>
+            <FileDown size={15} /> {docxBusy ? 'Building DOCX…' : 'Export DOCX'}
+          </button>
+          <button type="button" role="menuitem" className="rv-export-item" onClick={() => pick(onText)}>
+            <FileType size={15} /> Text (ATS)
+          </button>
+          <button type="button" role="menuitem" className="rv-export-item" onClick={() => pick(onMarkdown)}>
+            <FileCode size={15} /> Markdown
+          </button>
+          {lastExportedAt && (
+            <div className="rv-export-menu-foot">
+              Last exported {new Date(lastExportedAt).toLocaleDateString()}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── View editor ──────────────────────────────────────────────────────────────
 
 export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
@@ -374,6 +446,29 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
           {visibleItems} items visible
         </div>
         <div className="rv-preview-controls">
+          {/* The export language drives the LIVE preview too (buildViewHtml uses
+              exportLocale), so the pane always shows what will be exported. */}
+          <select
+            className="rv-locale-select"
+            aria-label="Export language"
+            value={exportLocale}
+            onChange={(e) => changeExportLocale(e.target.value)}
+            title="Language for the preview and export"
+          >
+            {locales.map((lc) => (
+              <option key={lc} value={lc}>
+                {LOCALE_LABELS[lc]?.flag} {LOCALE_LABELS[lc]?.name ?? lc}
+              </option>
+            ))}
+          </select>
+          <ExportMenu
+            onPdf={handleExport}
+            onDocx={() => void handleExportDocx()}
+            onText={() => handleExportTextual('txt')}
+            onMarkdown={() => handleExportTextual('md')}
+            docxBusy={docxBusy}
+            lastExportedAt={view.last_exported_at}
+          />
           <button
             className="rv-prev-ctrl"
             onClick={() => setShowPreview((v) => !v)}
@@ -390,6 +485,13 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
           <Trash2 size={14} /> Delete view
         </button>
       </div>
+
+      {exportError && (
+        <div className="rv-export-error rv-export-error-top" role="alert">
+          {exportError}
+          <button className="rv-export-error-x" onClick={() => setExportError(null)} aria-label="Dismiss">×</button>
+        </div>
+      )}
 
       <div className={`rv-editor-grid${showPreview ? '' : ' rv-grid-solo'}`}>
         <div className="rv-editor-controls">
@@ -694,61 +796,6 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
           hasCompany={!!(data.resume?.company_name ?? '').trim()}
           onChange={updateFooter}
         />
-      </div>
-
-      {/* ── Export ── */}
-      <div className="rv-section-block rv-export-block">
-        <div className="rv-block-heading">Export</div>
-        <div className="rv-export-row">
-          <select
-            className="rv-locale-select"
-            aria-label="Export language"
-            value={exportLocale}
-            onChange={(e) => changeExportLocale(e.target.value)}
-          >
-            {locales.map((lc) => (
-              <option key={lc} value={lc}>
-                {LOCALE_LABELS[lc]?.flag} {LOCALE_LABELS[lc]?.name ?? lc}
-              </option>
-            ))}
-          </select>
-          <button className="rv-export-btn" onClick={handleExport}>
-            <FileText size={15} /> Export PDF
-          </button>
-          <button
-            className="rv-export-btn rv-export-docx"
-            onClick={() => void handleExportDocx()}
-            disabled={docxBusy}
-            title="Generate a Microsoft Word (.docx) file"
-          >
-            <FileDown size={15} /> {docxBusy ? 'Building…' : 'Export DOCX'}
-          </button>
-          <button
-            className="rv-export-btn rv-export-ats"
-            onClick={() => handleExportTextual('txt')}
-            title="Plain text — for ATS systems and online application forms"
-          >
-            <FileType size={15} /> Text
-          </button>
-          <button
-            className="rv-export-btn rv-export-ats"
-            onClick={() => handleExportTextual('md')}
-            title="Markdown — for LinkedIn, email, or further editing"
-          >
-            <FileCode size={15} /> Markdown
-          </button>
-        </div>
-        {view.last_exported_at && (
-          <div className="rv-last-export">
-            Last exported {new Date(view.last_exported_at).toLocaleDateString()}
-          </div>
-        )}
-        {exportError && (
-          <div className="rv-export-error" role="alert">
-            {exportError}
-            <button className="rv-export-error-x" onClick={() => setExportError(null)} aria-label="Dismiss">×</button>
-          </div>
-        )}
       </div>
 
         </div>

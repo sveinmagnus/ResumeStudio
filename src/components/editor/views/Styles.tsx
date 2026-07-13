@@ -60,8 +60,8 @@ export function Styles() {
 
       /* ── Editor header ── */
       .rv-editor-header {
-        display: flex; align-items: center; gap: 12px; margin-bottom: 24px;
-        padding-bottom: 20px; border-bottom: 1px solid var(--line);
+        display: flex; align-items: center; gap: 12px; row-gap: 10px; margin-bottom: 24px;
+        padding-bottom: 20px; border-bottom: 1px solid var(--line); flex-wrap: wrap;
       }
       .rv-back-btn {
         display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px;
@@ -363,31 +363,50 @@ export function Styles() {
       }
       .rv-page-input:focus { outline: none; border-color: var(--accent); }
 
-      /* ── Export ── */
-      .rv-export-block { background: var(--accent-wash); border-radius: var(--r-md); padding: 20px 22px; border: none; }
-      .rv-export-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+      /* ── Export (top-of-editor language selector + Export view dropdown) ── */
       .rv-locale-select {
-        padding: 9px 12px; background: #fff; border: 1px solid var(--line);
-        border-radius: var(--r-sm); font-size: 14px; min-width: 150px;
+        padding: 7px 10px; background: var(--paper-sunken); border: 1px solid var(--line);
+        border-radius: var(--r-sm); font-size: 12.5px; font-weight: 600;
+        color: var(--ink-soft); min-width: 130px;
       }
+      .rv-locale-select:hover { border-color: var(--accent); }
       .rv-locale-select:focus { outline: none; border-color: var(--accent); }
-      .rv-export-btn {
-        display: inline-flex; align-items: center; gap: 7px; padding: 10px 20px;
-        background: var(--accent); color: #fff; border-radius: var(--r-md);
-        font-weight: 600; font-size: 14px; transition: background .15s;
+      .rv-exportmenu { position: relative; }
+      .rv-export-trigger {
+        display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px;
+        background: var(--accent); color: #fff; border-radius: var(--r-sm);
+        font-size: 12.5px; font-weight: 600; transition: background .15s;
       }
-      .rv-export-btn:hover:not(:disabled) { background: var(--accent-bright); }
-      .rv-export-btn:disabled { opacity: .6; cursor: progress; }
-      .rv-export-docx {
-        background: #fff; color: var(--accent); border: 1.5px solid var(--accent);
+      .rv-export-trigger:hover { background: var(--accent-bright); }
+      .rv-exp-chev { transition: transform .15s; }
+      .rv-exp-chev.open { transform: rotate(180deg); }
+      .rv-export-pop {
+        position: absolute; top: calc(100% + 6px); right: 0; z-index: 40;
+        min-width: 210px; padding: 5px; background: var(--paper);
+        border: 1px solid var(--line); border-radius: var(--r-md); box-shadow: var(--shadow-md);
+        display: flex; flex-direction: column; gap: 1px;
+        animation: rv-exp-fade .12s ease;
       }
-      .rv-export-docx:hover:not(:disabled) { background: var(--accent-wash); color: var(--accent); }
-      .rv-last-export { margin-top: 10px; font-size: 12px; color: var(--ink-faint); }
+      @keyframes rv-exp-fade { from { opacity: 0; transform: translateY(-2px); } to { opacity: 1; transform: none; } }
+      .rv-export-item {
+        display: flex; align-items: center; gap: 9px; width: 100%; text-align: left;
+        padding: 9px 11px; border-radius: var(--r-sm); font-size: 13px; font-weight: 600;
+        color: var(--ink); transition: background .12s, color .12s;
+      }
+      .rv-export-item:hover:not(:disabled) { background: var(--accent-wash); color: var(--accent); }
+      .rv-export-item:disabled { opacity: .6; cursor: progress; }
+      .rv-export-item svg { color: var(--accent); flex-shrink: 0; }
+      .rv-export-item:hover:not(:disabled) svg { color: var(--accent); }
+      .rv-export-menu-foot {
+        margin-top: 4px; padding: 7px 11px 3px; border-top: 1px solid var(--line);
+        font-size: 11.5px; color: var(--ink-faint);
+      }
       .rv-export-error {
         margin-top: 10px; display: flex; align-items: flex-start; gap: 8px;
         font-size: 12.5px; color: var(--err-ink); background: var(--err-wash);
         border: 1px solid var(--err-ink); border-radius: var(--r-sm); padding: 8px 10px;
       }
+      .rv-export-error-top { margin-top: 0; margin-bottom: 20px; }
       .rv-export-error-x {
         margin-left: auto; flex-shrink: 0; color: var(--err-ink); font-size: 16px;
         line-height: 1; padding: 0 2px; cursor: pointer;
