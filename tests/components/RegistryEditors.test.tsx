@@ -13,7 +13,7 @@ import {
 } from '../../src/lib/skillTaxonomy'
 import { resetStore } from '../helpers/store-reset'
 import { resolveConfirm } from '../helpers/confirm'
-import { emptyStore, makeSkill, makeSkillCategory, makeProject, makeIndustry, makeRole } from '../fixtures'
+import { emptyStore, makeSkill, makeSkillCategory, makeProject, makeIndustry, makeRole, makeWork } from '../fixtures'
 import type { ResumeStore } from '../../src/types'
 
 function seed(data: ResumeStore = emptyStore()) {
@@ -213,10 +213,56 @@ describe('<SkillsEditor> — add + merge', () => {
     await resolveConfirm('cancel')
     expect(useStore.getState().data.skills).toHaveLength(2)
   })
+
+  it('shows computed experience from projects and edits the ± adjustment', async () => {
+    const sk = makeSkill({ id: 'sk', name: { en: 'React' } })
+    const project = makeProject({
+      id: 'p',
+      skills: [{ id: 'ps', skill_id: 'sk', name: {}, duration_in_years: 0, offset_in_years: 0, total_duration_in_years: 0, sort_order: 0 }],
+      start: { year: 2020, month: 1 }, end: { year: 2020, month: 12 },
+    })
+    seed({ ...emptyStore(), skills: [sk], projects: [project] })
+    useStore.setState({ expandedItemId: 'sk' })
+    render(<SkillsEditor />)
+
+    // 2020-01..2020-12 = 12 months = "1y" computed (read-only).
+    const group = screen.getByRole('group', { name: /years of experience/i })
+    expect(group.querySelector('.exp-value:not(.exp-total)')).toHaveTextContent('1y')
+
+    // Set the adjustment to +3 years → stored as a decimal-year offset.
+    const yearsInput = within(group).getByLabelText('Adjustment years')
+    await userEvent.clear(yearsInput)
+    await userEvent.type(yearsInput, '3')
+    expect(useStore.getState().data.skills[0].experience_offset_years).toBe(3)
+    // Total = 12 + 36 months = "4y".
+    expect(group.querySelector('.exp-total')).toHaveTextContent('4y')
+  })
 })
 
 describe('<RolesEditor>', () => {
   beforeEach(() => resetStore())
+
+  it('computes role experience from linked assignments and edits the adjustment', async () => {
+    const role = makeRole({ id: 'r', name: { en: 'Architect' } })
+    seed({
+      ...emptyStore(),
+      roles: [role],
+      work_experiences: [makeWork({ id: 'w', role_ids: ['r'], start: { year: 2019, month: 1 }, end: { year: 2020, month: 12 } })],
+    })
+    useStore.setState({ activeSection: 'roles', expandedItemId: 'r' })
+    render(<RolesEditor />)
+
+    // 2019-01..2020-12 = 24 months = "2y" computed.
+    const group = screen.getByRole('group', { name: /years of experience/i })
+    expect(group.querySelector('.exp-value:not(.exp-total)')).toHaveTextContent('2y')
+
+    // +6 months adjustment → 0.5 decimal-years stored; total 2y 6m.
+    const monthsInput = within(group).getByLabelText('Adjustment months')
+    await userEvent.clear(monthsInput)
+    await userEvent.type(monthsInput, '6')
+    expect(useStore.getState().data.roles[0].years_of_experience_offset).toBe(0.5)
+    expect(group.querySelector('.exp-total')).toHaveTextContent('2y 6m')
+  })
   it('adds a role', async () => {
     seed()
     render(<RolesEditor />)

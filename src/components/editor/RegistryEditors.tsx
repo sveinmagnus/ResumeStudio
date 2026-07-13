@@ -27,11 +27,15 @@ import {
   countSkillReferences, countRoleReferences, countIndustryReferences,
 } from '../../lib/merge'
 import { usageOfSkill, usageOfRole, usageOfIndustry, isSkillUnused, isRoleUnused } from '../../lib/usage'
+import {
+  skillExperience, roleExperience, fmtYearsMonths, splitMonths, monthsToYears,
+  type ExperienceSummary,
+} from '../../lib/experience'
 import type {
   Skill, Role, Industry, Reference,
-  LocalizedString, Project, WorkExperience,
+  LocalizedString, Project, WorkExperience, Position,
 } from '../../types'
-import { X, Plus, Sparkles, Combine, Filter as FilterIcon, Briefcase, FolderKanban, List, LayoutGrid, Wand2, Check } from 'lucide-react'
+import { X, Plus, Sparkles, Combine, Filter as FilterIcon, Briefcase, FolderKanban, Users, List, LayoutGrid, Wand2, Check } from 'lucide-react'
 
 /** Filter-dropdown sentinel for "no category" — never collides with a real category uuid. */
 const UNCATEGORIZED_FILTER = '__uncategorized__'
@@ -470,6 +474,66 @@ function CategoryField({ value, categories, onChange, ariaLabel }: {
 }
 
 /**
+ * Read-only computed experience + editable ± adjustment (years/months) + a
+ * read-only total. Shared by the Skill and Role editors. The experience itself
+ * is derived from assignments (`lib/experience.ts`) and can't be typed; the two
+ * small inputs edit a single signed decimal-year offset value.
+ */
+function ExperienceField({ summary, onChangeOffsetYears }: {
+  summary: ExperienceSummary
+  onChangeOffsetYears: (years: number) => void
+}) {
+  const yId = useId()
+  const mId = useId()
+  const adj = splitMonths(summary.adjustmentMonths)
+  const setYM = (years: number, months: number) => onChangeOffsetYears(monthsToYears(years * 12 + months))
+  return (
+    <div className="exp-field" role="group" aria-label="Years of experience">
+      <div className="exp-cell">
+        <span className="pf-label">
+          From assignments{summary.usesFallback ? ' *' : ''}
+        </span>
+        <span className="exp-value" aria-live="polite">{fmtYearsMonths(summary.computedMonths)}</span>
+      </div>
+      <div className="exp-cell exp-adjust">
+        <span className="pf-label">Adjustment (±)</span>
+        <div className="exp-ym">
+          <input id={yId} className="pf-input exp-num" type="number" step={1} aria-label="Adjustment years"
+            value={adj.years || 0} onChange={(e) => setYM(parseInt(e.target.value, 10) || 0, adj.months)} />
+          <label htmlFor={yId} className="exp-unit">yr</label>
+          <input id={mId} className="pf-input exp-num" type="number" step={1} aria-label="Adjustment months"
+            value={adj.months || 0} onChange={(e) => setYM(adj.years, parseInt(e.target.value, 10) || 0)} />
+          <label htmlFor={mId} className="exp-unit">mo</label>
+        </div>
+      </div>
+      <div className="exp-cell">
+        <span className="pf-label">Total experience</span>
+        <span className="exp-value exp-total">{fmtYearsMonths(summary.totalMonths)}</span>
+      </div>
+      {summary.usesFallback && (
+        <p className="exp-note">* No dated assignments yet — showing the imported figure. Link this to projects/employments to compute it from their dates.</p>
+      )}
+      <style>{`
+        .exp-field {
+          display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 10px 16px; align-items: end; margin-bottom: 18px;
+          padding: 12px 14px; background: var(--paper-sunken); border-radius: var(--r-md);
+        }
+        .exp-cell { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+        .exp-value { font-size: 15px; font-weight: 700; color: var(--ink); }
+        .exp-total { color: var(--accent); }
+        .exp-ym { display: flex; align-items: center; gap: 5px; }
+        .exp-num { width: 3.5em; text-align: right; }
+        .exp-unit { font-size: 12px; color: var(--ink-faint); font-weight: 600; }
+        .exp-note {
+          grid-column: 1 / -1; margin: 0; font-size: 11.5px; color: var(--ink-faint);
+        }
+      `}</style>
+    </div>
+  )
+}
+
+/**
  * A skill's edit fields — shared by the list-view card and the category-view
  * lightbox so both surfaces show the same editor.
  */
@@ -505,9 +569,11 @@ function SkillEditBody({ skill, allSkills, categories, catNamesById, onMerge }: 
           <input className="pf-input" type="number" min={0} max={5} value={skill.proficiency}
             onChange={(e) => updateItem('skills', skill.id, { proficiency: parseInt(e.target.value) || 0 })} />
         </label>
-        <TextField label="Total years" value={skill.total_duration_in_years.toFixed(1)}
-          onChange={(v) => updateItem('skills', skill.id, { total_duration_in_years: parseFloat(v) || 0 })} />
       </FieldRow>
+      <ExperienceField
+        summary={skillExperience(data, skill)}
+        onChangeOffsetYears={(y) => updateItem('skills', skill.id, { experience_offset_years: y })}
+      />
       <label className="check-row">
         <input type="checkbox" checked={skill.is_highlighted} onChange={(e) => updateItem('skills', skill.id, { is_highlighted: e.target.checked })} />
         Highlight in the Skills Showcase &amp; compact skill summaries
@@ -781,11 +847,11 @@ function RoleEditBody({ role, allRoles, categories, onMerge }: {
   return (
     <>
       <DualField label="Role name" value={role.name} onChange={(v) => updateItem('roles', role.id, { name: v })} />
+      <ExperienceField
+        summary={roleExperience(data, role)}
+        onChangeOffsetYears={(y) => updateItem('roles', role.id, { years_of_experience_offset: y })}
+      />
       <FieldRow>
-        <TextField label="Years of experience" value={role.years_of_experience.toString()} type="number"
-          onChange={(v) => updateItem('roles', role.id, { years_of_experience: parseFloat(v) || 0 })} />
-        <TextField label="Manual offset (±)" value={role.years_of_experience_offset.toString()} type="number"
-          onChange={(v) => updateItem('roles', role.id, { years_of_experience_offset: parseFloat(v) || 0 })} />
         <div className="pf-wrap">
           <span className="pf-label">Category</span>
           <CategoryField
@@ -796,7 +862,7 @@ function RoleEditBody({ role, allRoles, categories, onMerge }: {
           />
         </div>
       </FieldRow>
-      <RoleUsagePanel projects={u.projects} employments={u.work_experiences} />
+      <RoleUsagePanel projects={u.projects} employments={u.work_experiences} positions={u.positions} />
       <MergeRow
         kind="role"
         sourceId={role.id}
@@ -888,7 +954,7 @@ export function RolesEditor() {
 
   return (
     <div className="section-pane">
-      <p className="registry-note">Reusable role titles like "Solution Architect", defined once here and linked from projects and employments.</p>
+      <p className="registry-note">Reusable role titles like "Solution Architect", defined once here and linked from projects, employments and other roles. Years of experience are computed from the assignments that link each role.</p>
       <div className="reg-view-toggle" role="group" aria-label="Role view">
         <button type="button" className={`rvt-btn ${view === 'list' ? 'active' : ''}`} onClick={() => setView('list')} aria-pressed={view === 'list'}>
           <List size={14} /> List
@@ -1133,17 +1199,17 @@ function SkillUsagePanel({ projects }: { projects: Project[] }) {
 }
 
 function RoleUsagePanel({
-  projects, employments,
-}: { projects: Project[]; employments: WorkExperience[] }) {
+  projects, employments, positions,
+}: { projects: Project[]; employments: WorkExperience[]; positions: Position[] }) {
   const { primaryLocale, setActiveSection, setExpandedItem } = useStore()
   const goto = (section: string, id: string) => {
     setActiveSection(section)
     setExpandedItem(id)
   }
-  if (projects.length === 0 && employments.length === 0) {
+  if (projects.length === 0 && employments.length === 0 && positions.length === 0) {
     return (
       <div className="usage-block usage-empty">
-        <strong>Unused</strong> — no projects or employments reference this role yet.
+        <strong>Unused</strong> — no projects, employments or other roles reference this role yet.
       </div>
     )
   }
@@ -1172,6 +1238,19 @@ function RoleUsagePanel({
               icon={<Briefcase size={13} />}
               label={`${resolve(w.employer, primaryLocale) || 'Untitled employer'} ${fmtRange(w.start, w.end) ? '· ' + fmtRange(w.start, w.end) : ''}`.trim()}
               onClick={() => goto('work_experiences', w.id)}
+            />
+          ))}
+        </>
+      )}
+      {positions.length > 0 && (
+        <>
+          <div className="usage-sub">{positions.length} other role{positions.length === 1 ? '' : 's'}</div>
+          {positions.map((pos) => (
+            <UsageRow
+              key={pos.id}
+              icon={<Users size={13} />}
+              label={`${resolve(pos.name, primaryLocale) || resolve(pos.organisation, primaryLocale) || 'Untitled role'} ${fmtRange(pos.start, pos.end) ? '· ' + fmtRange(pos.start, pos.end) : ''}`.trim()}
+              onClick={() => goto('positions', pos.id)}
             />
           ))}
         </>

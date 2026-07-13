@@ -15,6 +15,7 @@
 
 import type { ResumeStore, ResumeView, YearMonth } from '../types'
 import { resolve, fmtDate } from './locales'
+import { skillExperience } from './experience'
 
 export interface SkillMatrixRow {
   /** Skill registry id (excludable via the view's item list). */
@@ -39,23 +40,6 @@ export interface SkillMatrixRow {
 
 const monthsOf = (ym: YearMonth): number => ym.year * 12 + (ym.month ?? 1)
 
-/** Total length in years of the union of [start..end] project intervals. */
-function unionYears(ranges: Array<{ start: YearMonth; end: YearMonth }>): number {
-  if (!ranges.length) return 0
-  const sorted = ranges
-    .map((r) => ({ a: monthsOf(r.start), b: Math.max(monthsOf(r.start), monthsOf(r.end)) }))
-    .sort((x, y) => x.a - y.a)
-  let total = 0
-  let curA = sorted[0].a
-  let curB = sorted[0].b
-  for (const r of sorted.slice(1)) {
-    if (r.a <= curB) { curB = Math.max(curB, r.b) }
-    else { total += curB - curA + 1; curA = r.a; curB = r.b }
-  }
-  total += curB - curA + 1
-  return Math.round((total / 12) * 10) / 10
-}
-
 export interface SkillMatrixOptions {
   /** 'summary' detail: highlighted skills only. */
   highlightedOnly?: boolean
@@ -75,23 +59,18 @@ export function skillMatrixRows(
   // effectiveSkillCategory's "Uncategorized" (a UI label, not export data).
   const categoryNames = new Map((store.skill_categories ?? []).map((c) => [c.id, resolve(c.name, locale)]))
 
-  // Per-skill usage from enabled projects: declared durations + date ranges.
-  const usage = new Map<string, {
-    declaredYears: number
-    ranges: Array<{ start: YearMonth; end: YearMonth }>
-    lastUsed: YearMonth | null
-    ongoing: boolean
-  }>()
+  // Per-skill last-used / ongoing flags from enabled projects. The YEARS value
+  // comes from lib/experience.ts so the matrix, the Skill Registry editor and
+  // the exports all agree on one computed number.
+  const usage = new Map<string, { lastUsed: YearMonth | null; ongoing: boolean }>()
   for (const p of store.projects) {
     if (p.disabled) continue
     for (const ps of p.skills) {
       if (!ps.skill_id) continue
       let u = usage.get(ps.skill_id)
-      if (!u) { u = { declaredYears: 0, ranges: [], lastUsed: null, ongoing: false }; usage.set(ps.skill_id, u) }
-      u.declaredYears += ps.duration_in_years || 0
+      if (!u) { u = { lastUsed: null, ongoing: false }; usage.set(ps.skill_id, u) }
       if (p.start) {
         const end = p.end ?? nowYm
-        u.ranges.push({ start: p.start, end })
         if (!p.end) u.ongoing = true
         if (!u.lastUsed || monthsOf(end) > monthsOf(u.lastUsed)) u.lastUsed = p.end ? p.end : nowYm
       }
@@ -105,11 +84,7 @@ export function skillMatrixRows(
     .filter((s) => !opts.highlightedOnly || s.is_highlighted)
     .map((s): SkillMatrixRow => {
       const u = usage.get(s.id)
-      const years = s.total_duration_in_years > 0
-        ? s.total_duration_in_years
-        : u
-          ? (u.declaredYears > 0 ? Math.round(u.declaredYears * 10) / 10 : unionYears(u.ranges))
-          : 0
+      const years = Math.round((skillExperience(store, s).totalMonths / 12) * 10) / 10
       return {
         id: s.id,
         name: resolve(s.name, locale),

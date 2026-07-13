@@ -68,11 +68,18 @@ const REGISTRIES: Record<RegistryKind, RegistryDescriptor> = {
           ? { ...w, role_ids: [...new Set(w.role_ids.map((id) => (id === sourceId ? target.id : id)))] }
           : w,
       ),
+      // Other-roles (positions) role-type links: same remap, dedupe.
+      positions: store.positions.map((pos) =>
+        (pos.role_ids ?? []).includes(sourceId)
+          ? { ...pos, role_ids: [...new Set((pos.role_ids ?? []).map((id) => (id === sourceId ? target.id : id)))] }
+          : pos,
+      ),
     }),
     count: (store, id) => {
       let n = 0
       for (const p of store.projects) for (const pr of p.roles) if (pr.role_id === id) n++
       for (const w of store.work_experiences) if (w.role_ids.includes(id)) n++
+      for (const pos of store.positions) if ((pos.role_ids ?? []).includes(id)) n++
       return n
     },
   },

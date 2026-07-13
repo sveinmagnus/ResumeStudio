@@ -37,9 +37,14 @@ describe('skillMatrixRows', () => {
   const rows = skillMatrixRows(matrixStore(), makeView(), 'en')
   const byName = Object.fromEntries(rows.map((r) => [r.name, r]))
 
-  it('prefers the registry total_duration, then declared project durations', () => {
+  it('uses the stored legacy total when the skill has no dated usage', () => {
     expect(byName['TypeScript'].years).toBe(8)
-    expect(byName['Go'].years).toBe(2.5) // 1.5 + 1 declared
+  })
+
+  it('computes years from the union of project date spans (not declared per-skill durations)', () => {
+    // Go spans p1 (2019-01..2020-06 = 1.5y) plus p2 (2021-01..ongoing), unioned
+    // — well past the old declared-sum of 2.5.
+    expect(byName['Go'].years).toBeGreaterThan(5)
   })
 
   it('derives years from project date spans when nothing is declared', () => {

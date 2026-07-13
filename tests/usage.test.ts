@@ -3,7 +3,7 @@ import {
   usageOfSkill, usageOfRole, isSkillUnused, isRoleUnused,
 } from '../src/lib/usage'
 import {
-  emptyStore, makeSkill, makeRole, makeProject, makeWork,
+  emptyStore, makeSkill, makeRole, makeProject, makeWork, makePosition,
 } from './fixtures'
 
 describe('usageOfSkill()', () => {
@@ -42,16 +42,20 @@ describe('usageOfRole()', () => {
     store.work_experiences.push(makeWork({ id: 'w', role_ids: ['r'] }))
     // A second employment that doesn't link is excluded.
     store.work_experiences.push(makeWork({ id: 'w2', role_ids: [] }))
+    // An "Other role" (position) that links the role is included too.
+    store.positions.push(makePosition({ id: 'pos', role_ids: ['r'] }))
+    store.positions.push(makePosition({ id: 'pos2' })) // no role_ids → excluded
 
     const u = usageOfRole(store, 'r')
     expect(u.projects.map((p) => p.id)).toEqual(['p'])
     expect(u.work_experiences.map((w) => w.id)).toEqual(['w'])
+    expect(u.positions.map((p) => p.id)).toEqual(['pos'])
   })
 
   it('returns empty arrays for an unreferenced role', () => {
     const store = emptyStore()
     store.roles.push(makeRole({ id: 'r' }))
-    expect(usageOfRole(store, 'r')).toEqual({ projects: [], work_experiences: [] })
+    expect(usageOfRole(store, 'r')).toEqual({ projects: [], work_experiences: [], positions: [] })
   })
 })
 

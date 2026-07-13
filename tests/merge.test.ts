@@ -4,7 +4,7 @@ import {
   countSkillReferences, countRoleReferences, countIndustryReferences,
 } from '../src/lib/merge'
 import {
-  emptyStore, makeSkill, makeRole, makeIndustry, makeProject, makeWork,
+  emptyStore, makeSkill, makeRole, makeIndustry, makeProject, makeWork, makePosition,
 } from './fixtures'
 
 // ─── mergeSkills ────────────────────────────────────────────────────────────
@@ -109,6 +109,17 @@ describe('mergeRoles()', () => {
     expect(out.work_experiences[1].role_title).toEqual({ en: 'Lead Engineer' })
   })
 
+  it('rewrites positions[].role_ids (deduped) for "Other roles"', () => {
+    const store = emptyStore()
+    store.roles.push(makeRole({ id: 'src' }))
+    store.roles.push(makeRole({ id: 'tgt' }))
+    store.positions.push(makePosition({ id: 'pos1', role_ids: ['src'] }))
+    store.positions.push(makePosition({ id: 'pos2', role_ids: ['src', 'tgt'] }))
+    const out = mergeRoles(store, 'src', 'tgt')
+    expect(out.positions[0].role_ids).toEqual(['tgt'])
+    expect(out.positions[1].role_ids).toEqual(['tgt'])
+  })
+
   it('is a no-op when either id is missing', () => {
     const store = emptyStore()
     store.roles.push(makeRole({ id: 'only' }))
@@ -154,7 +165,8 @@ describe('countRoleReferences()', () => {
       ],
     }))
     store.work_experiences.push(makeWork({ role_ids: ['r'] }))
-    expect(countRoleReferences(store, 'r')).toBe(3)
+    store.positions.push(makePosition({ role_ids: ['r'] })) // "Other role" counts too
+    expect(countRoleReferences(store, 'r')).toBe(4)
   })
 })
 

@@ -12,7 +12,7 @@
  */
 
 import type {
-  ResumeStore, Project, WorkExperience,
+  ResumeStore, Project, WorkExperience, Position,
 } from '../types'
 
 export interface SkillUsage {
@@ -22,6 +22,7 @@ export interface SkillUsage {
 export interface RoleUsage {
   projects: Project[]
   work_experiences: WorkExperience[]
+  positions: Position[]
 }
 
 export interface IndustryUsage {
@@ -42,8 +43,9 @@ export function usageOfSkill(store: ResumeStore, skillId: string): SkillUsage {
 
 /**
  * All entities that reference a given role: projects through any
- * `ProjectRole.role_id`, plus work_experiences through their
- * `WorkExperience.role_ids` registry links.
+ * `ProjectRole.role_id`, work_experiences through their
+ * `WorkExperience.role_ids`, and positions ("Other roles") through their
+ * `Position.role_ids` registry links.
  */
 export function usageOfRole(store: ResumeStore, roleId: string): RoleUsage {
   const projects = store.projects.filter((p) =>
@@ -52,7 +54,10 @@ export function usageOfRole(store: ResumeStore, roleId: string): RoleUsage {
   const work_experiences = store.work_experiences.filter(
     (w) => w.role_ids.includes(roleId),
   )
-  return { projects, work_experiences }
+  const positions = store.positions.filter(
+    (p) => (p.role_ids ?? []).includes(roleId),
+  )
+  return { projects, work_experiences, positions }
 }
 
 /** True when no entity anywhere references this skill — safe to remove. */
@@ -63,7 +68,7 @@ export function isSkillUnused(store: ResumeStore, skillId: string): boolean {
 /** True when no entity anywhere references this role — safe to remove. */
 export function isRoleUnused(store: ResumeStore, roleId: string): boolean {
   const u = usageOfRole(store, roleId)
-  return u.projects.length === 0 && u.work_experiences.length === 0
+  return u.projects.length === 0 && u.work_experiences.length === 0 && u.positions.length === 0
 }
 
 /** All projects that reference a given industry via `industries[]`. */

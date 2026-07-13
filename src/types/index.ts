@@ -84,7 +84,22 @@ export interface Skill {
   id: string
   resume_id: string
   name: LocalizedString
+  /**
+   * @deprecated as a user-editable total. Now a LEGACY FALLBACK base: the
+   * skill's years of experience are computed from the calendar span of the
+   * projects that reference it (`lib/experience.ts → skillExperience`); this
+   * stored number is only used when the skill has no dated project usage (so
+   * imported numbers aren't lost). The user-facing knob is
+   * `experience_offset_years`.
+   */
   total_duration_in_years: number
+  /**
+   * Signed manual ADJUSTMENT to the computed experience, in years (decimals =
+   * month precision, e.g. 0.5 = +6 months, -0.25 = -3 months). Added on top of
+   * the calendar time computed from referencing projects. Additive/optional —
+   * absent reads as 0.
+   */
+  experience_offset_years?: number
   proficiency: number   // 0–5
   /**
    * Featured in the compact Skills Showcase view section (roadmap: showcase
@@ -154,7 +169,20 @@ export interface Role {
   id: string
   resume_id: string
   name: LocalizedString
+  /**
+   * @deprecated as a user-editable total. Now a LEGACY FALLBACK base: a role's
+   * years of experience are computed from the calendar span of the projects,
+   * employments and other-roles that link it (`lib/experience.ts →
+   * roleExperience`); this stored number is only used when the role has no
+   * dated assignments (so imported numbers aren't lost). The user-facing knob
+   * is `years_of_experience_offset`.
+   */
   years_of_experience: number
+  /**
+   * Signed manual ADJUSTMENT to the computed experience, in years (decimals =
+   * month precision). Added on top of the calendar time computed from the
+   * assignments that reference the role.
+   */
   years_of_experience_offset: number
   starred: boolean
   sort_order: number
@@ -364,6 +392,14 @@ export interface Position {
   position_type?: string | null
   start: YearMonth | null
   end: YearMonth | null
+  /**
+   * Optional links to registry Roles indicating the general role type(s) this
+   * engagement represents (e.g. "Board Member", "Advisor") — so an "Other role"
+   * feeds the Role registry's computed years-of-experience like employments and
+   * projects do. Mirrors {@link WorkExperience.role_ids}. Additive/optional —
+   * absent reads as `[]`. Registry merges rewrite these ids. Not shown in exports.
+   */
+  role_ids?: string[]
   skill_tags: string[]
   sort_order: number
   starred: boolean

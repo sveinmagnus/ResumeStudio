@@ -50,7 +50,8 @@ export function WorkEditor() {
           starred={w.starred} disabled={w.disabled}>
           <DualField label="Employer" value={w.employer} onChange={(v) => updateItem('work_experiences', w.id, { employer: v })} />
           <DualField label="Position title" value={w.role_title} onChange={(v) => updateItem('work_experiences', w.id, { role_title: v })} placeholder="Your title as held at this company" />
-          <EmploymentRoleTypes work={w} />
+          <RoleTypeLinks roleIds={w.role_ids} hint="— the general role held, for summarising experience across positions (independent of the title above)"
+            onChange={(ids) => updateItem('work_experiences', w.id, { role_ids: ids })} />
           <RichField label="Description" value={w.long_description} onChange={(v) => updateItem('work_experiences', w.id, { long_description: v })} />
           <FieldRow>
             <DateField label="Start" value={w.start} onChange={(v) => updateItem('work_experiences', w.id, { start: v })} />
@@ -84,26 +85,30 @@ export function WorkEditor() {
 }
 
 /**
- * Links a work_experience to one or MORE registry Roles indicating the general
- * ROLE TYPE(S) held (e.g. "Architect", "Team Lead") — independent of the
- * company-specific `role_title`. Mirrors the project.roles[] chip pattern so
- * role-registry merges rewrite these links and the role-usage panel lists
- * employments. Picking or creating a role never touches `role_title`.
+ * Links an item (employment or "Other role") to one or MORE registry Roles
+ * indicating the general ROLE TYPE(S) held (e.g. "Architect", "Board Member") —
+ * independent of the item's own free-text title. Mirrors the project.roles[]
+ * chip pattern so role-registry merges rewrite these links, the role-usage
+ * panel lists the item, and its calendar span feeds the role's computed years
+ * of experience. The caller owns persistence via `onChange`.
  */
-function EmploymentRoleTypes({ work }: { work: WorkExperience }) {
+function RoleTypeLinks({ roleIds, onChange, hint }: {
+  roleIds: string[]
+  onChange: (roleIds: string[]) => void
+  hint: string
+}) {
   const { data, primaryLocale, addItem, updateItem } = useStore()
   const [editingId, setEditingId] = useState<string | null>(null)
-  const linked = work.role_ids
+  const linked = roleIds
     .map((id) => data.roles.find((r) => r.id === id))
     .filter((r): r is Role => !!r)
   const editing = editingId ? data.roles.find((r) => r.id === editingId) ?? null : null
 
   const add = (roleId: string) => {
-    if (work.role_ids.includes(roleId)) return
-    updateItem('work_experiences', work.id, { role_ids: [...work.role_ids, roleId] })
+    if (roleIds.includes(roleId)) return
+    onChange([...roleIds, roleId])
   }
-  const remove = (roleId: string) =>
-    updateItem('work_experiences', work.id, { role_ids: work.role_ids.filter((id) => id !== roleId) })
+  const remove = (roleId: string) => onChange(roleIds.filter((id) => id !== roleId))
   const createAndAdd = (text: string) => {
     const r: Role = {
       id: newId(), resume_id: data.resume!.id,
@@ -112,14 +117,14 @@ function EmploymentRoleTypes({ work }: { work: WorkExperience }) {
       starred: false, sort_order: data.roles.length, disabled: false,
     }
     // open:false — creating the role must not steal focus from (and collapse)
-    // this employment card. Link the new id immediately (title untouched).
+    // the parent card. Link the new id immediately (the item's title untouched).
     addItem('roles', r, { open: false })
-    updateItem('work_experiences', work.id, { role_ids: [...work.role_ids, r.id] })
+    onChange([...roleIds, r.id])
   }
 
   return (
     <div className="erl-wrap">
-      <label className="erl-label">Role type(s) <span className="erl-hint">— the general role held, for summarising experience across positions (independent of the title above)</span></label>
+      <label className="erl-label">Role type(s) <span className="erl-hint">{hint}</span></label>
       {linked.length > 0 && (
         <div className="erl-chips">
           {linked.map((r) => (
@@ -136,7 +141,7 @@ function EmploymentRoleTypes({ work }: { work: WorkExperience }) {
       )}
       <Autocomplete
         options={data.roles
-          .filter((r) => !r.disabled && !work.role_ids.includes(r.id))
+          .filter((r) => !r.disabled && !roleIds.includes(r.id))
           .map((r) => ({ id: r.id, label: resolve(r.name, primaryLocale) || '(unnamed)' }))}
         onPick={add}
         onAddNew={createAndAdd}
@@ -310,7 +315,7 @@ export function PositionsEditor() {
   const add = () => {
     const p: Position = {
       id: newId(), resume_id: data.resume!.id, name: {}, organisation: {}, description: {},
-      start: null, end: null, skill_tags: [], sort_order: items.length, starred: false, disabled: false,
+      start: null, end: null, role_ids: [], skill_tags: [], sort_order: items.length, starred: false, disabled: false,
     }
     addItem('positions', p)
   }
@@ -330,6 +335,8 @@ export function PositionsEditor() {
           starred={p.starred} disabled={p.disabled}>
           <DualField label="Position / role" value={p.name} onChange={(v) => updateItem('positions', p.id, { name: v })} />
           <DualField label="Organisation" value={p.organisation} onChange={(v) => updateItem('positions', p.id, { organisation: v })} />
+          <RoleTypeLinks roleIds={p.role_ids ?? []} hint="— link a registry role type so this engagement feeds that role's years of experience"
+            onChange={(ids) => updateItem('positions', p.id, { role_ids: ids })} />
           <RichField label="Description" value={p.description} onChange={(v) => updateItem('positions', p.id, { description: v })} />
           <FieldRow>
             <label className="pf-wrap">
