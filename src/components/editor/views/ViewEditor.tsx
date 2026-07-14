@@ -20,7 +20,7 @@ import { VIEW_TEMPLATES, getTemplate, applyTemplate } from '../../../lib/viewTem
 import { buildViewText, buildViewMarkdown } from '../../../lib/viewText'
 import { exportFilename } from '../../../lib/exportFilename'
 import type {
-  ResumeView, ViewStyle, SectionStyle, SectionDetail, ViewSection,
+  ResumeView, ViewStyle, SectionStyle, ViewSection,
   ViewHeaderConfig, ViewFooterConfig, SortMode,
 } from '../../../types'
 import {
@@ -29,7 +29,7 @@ import {
   PanelRight, PanelRightClose, ExternalLink,
 } from 'lucide-react'
 import {
-  DetailToggle, SectionStylePanel,
+  DetailToggle, SectionStylePanel, type SectionMode,
   SUMMARY_LAYOUT_OPTIONS, FULL_LAYOUT_OPTIONS,
 } from './SectionStylePanel'
 import { Select } from './Select'
@@ -69,8 +69,9 @@ function sectionConfigChips(vs: ViewSection): string[] {
   const s = vs.style ?? {}
   const chips: string[] = []
   if (vs.detail === 'summary') {
-    if (s.tabulate) chips.push('Tabulated')
+    // 'Tabulated' is shown by the mode button now, not as a chip.
     if (s.summary_layout) chips.push(LAYOUT_LABEL.get(s.summary_layout) ?? s.summary_layout)
+    if (s.short_desc_line === 'inline') chips.push('Short desc inline')
   } else if (vs.detail === 'full') {
     if (s.date_position) {
       const fl = normalizeFullLayout(s.date_position)
@@ -312,11 +313,26 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
   // configurable. Section edits write the full normalized list back.
   const sections = normalizeViewSections(view.sections)
 
-  const setSectionDetail = (key: string, detail: SectionDetail) => {
+  // The 4-way mode (Off / Tabulated / Summary / Full) maps onto the stored
+  // detail + style.tabulate pair.
+  const modeOf = (vs: ViewSection): SectionMode =>
+    vs.detail === 'off' ? 'off'
+      : vs.detail === 'full' ? 'full'
+        : (vs.style?.tabulate ? 'tabulated' : 'summary')
+
+  const setSectionMode = (key: string, mode: SectionMode) => {
     onUpdate({
-      sections: sections.map((s) =>
-        s.key === key ? { ...s, detail } : s
-      ),
+      sections: sections.map((s) => {
+        if (s.key !== key) return s
+        if (mode === 'off') return { ...s, detail: 'off' as const }
+        if (mode === 'full') return { ...s, detail: 'full' as const }
+        // Summary variants: 'tabulated' turns tabulate on, 'summary' off.
+        const nextStyle = { ...(s.style ?? {}) }
+        if (mode === 'tabulated') nextStyle.tabulate = true
+        else delete nextStyle.tabulate
+        const style = Object.keys(nextStyle).length ? nextStyle : undefined
+        return { ...s, detail: 'summary' as const, style }
+      }),
     })
   }
 
@@ -683,8 +699,8 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
                       </span>
                     </div>
                     <DetailToggle
-                      value={vs.detail}
-                      onChange={(d) => setSectionDetail(vs.key, d)}
+                      value={modeOf(vs)}
+                      onChange={(m) => setSectionMode(vs.key, m)}
                     />
                     {/* The expander is ALWAYS present (even when Off) so the
                         Off/Summary/Full group never shifts. An Off section still

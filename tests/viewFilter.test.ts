@@ -568,6 +568,49 @@ describe('buildViewHtml()', () => {
     expect(html).toMatch(/\.ve-sec-work_experiences \.ve-tab-row \{[^}]*dashed/)
   })
 
+  it('shows an item short_description below the summary line by default', () => {
+    const store = emptyStore()
+    store.resume = makeResume()
+    store.work_experiences.push(makeWork({
+      id: 'w1', employer: { en: 'BigCo' }, role_title: { en: 'Engineer' },
+      short_description: { en: 'Led the platform team' },
+      start: { year: 2020, month: 1 }, end: { year: 2022, month: 6 },
+    }))
+    const view = makeView({ sections: [{ key: 'work_experiences', detail: 'summary' as const, sort_order: 0 }] })
+    const html = buildViewHtml(store, view, 'en')
+    // The short description renders as its own div below the summary line.
+    expect(html).toMatch(/ve-summary-short-below">Led the platform team<\/div>/)
+  })
+
+  it('appends the short_description inline when the section asks for it', () => {
+    const store = emptyStore()
+    store.resume = makeResume()
+    store.work_experiences.push(makeWork({
+      id: 'w1', employer: { en: 'BigCo' }, role_title: { en: 'Engineer' },
+      short_description: { en: 'Led the platform team' },
+      start: { year: 2020, month: 1 }, end: null,
+    }))
+    const view = makeView({ sections: [{ key: 'work_experiences', detail: 'summary' as const, sort_order: 0, style: { short_desc_line: 'inline' } }] })
+    const html = buildViewHtml(store, view, 'en')
+    expect(html).toContain('Led the platform team')
+    // No below-div element (the class still appears in the CSS block, so match markup).
+    expect(html).not.toMatch(/ve-summary-short-below">/)
+  })
+
+  it('does not use the short_description in full mode (long description wins)', () => {
+    const store = emptyStore()
+    store.resume = makeResume()
+    store.work_experiences.push(makeWork({
+      id: 'w1', employer: { en: 'BigCo' }, role_title: { en: 'Engineer' },
+      short_description: { en: 'SHORT-ONLY-TEXT' }, long_description: { en: 'The full story' },
+      start: { year: 2020, month: 1 }, end: null,
+    }))
+    const view = makeView({ sections: [{ key: 'work_experiences', detail: 'full' as const, sort_order: 0 }] })
+    const html = buildViewHtml(store, view, 'en')
+    expect(html).toContain('The full story')
+    expect(html).not.toContain('SHORT-ONLY-TEXT')
+  })
+
   // ─── XSS — escape every interpolated user value ────────────────────────────
 
   describe('HTML escaping (XSS)', () => {

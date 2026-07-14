@@ -11,7 +11,7 @@
  * escaping applies. Do not repurpose these strings into an HTML context.
  */
 
-import type { ResumeStore, ResumeView } from '../types'
+import type { ResumeStore, ResumeView, LocalizedString } from '../types'
 import { SECTIONS, localizedSectionHeading } from './sections'
 import {
   applyView, isExportableSection, defaultViewDetail, promotedProjectItems,
@@ -178,7 +178,14 @@ function buildViewDoc(store: ResumeStore, view: ResumeView, locale: string, fmt:
     for (const item of items as Array<Record<string, unknown>>) {
       if (s.detail === 'summary' && !desc.alwaysFull) {
         const sum = desc.summary?.(item, cctx)
-        if (sum) { const { title, meta } = summaryTitleMeta(sum); body.push(summaryLine(title, meta.join(' · '), sum.sep, fmt)) }
+        if (sum) {
+          const { title, meta } = summaryTitleMeta(sum)
+          const short = resolve(item.short_description as LocalizedString | undefined, locale).trim()
+          const below = !!short && resolved.short_desc_line !== 'inline'
+          const metaStr = short && !below ? [meta.join(' · '), short].filter(Boolean).join(' — ') : meta.join(' · ')
+          body.push(summaryLine(title, metaStr, sum.sep, fmt))
+          if (below) body.push(md ? `  ${short}` : `  ${short}`)
+        }
         continue
       }
       const v = desc.full?.(item, cctx)

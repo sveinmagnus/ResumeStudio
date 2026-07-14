@@ -224,6 +224,9 @@ export interface KeyCompetency {
   resume_id: string
   title: LocalizedString
   description: LocalizedString
+  /** Single-line summary shown in a view's SUMMARY mode (in place of the long
+   *  description used in FULL mode). Additive/optional. */
+  short_description?: LocalizedString
   sort_order: number
   starred: boolean
   disabled: boolean
@@ -245,6 +248,8 @@ export interface Recommendation {
   relationship: LocalizedString
   /** The testimonial text (localized). */
   text: LocalizedString
+  /** Single-line summary shown in SUMMARY mode (in place of the long text). Additive/optional. */
+  short_description?: LocalizedString
   /** When the recommendation was given. */
   date: YearMonth | null
   /** Where it came from, e.g. "LinkedIn". */
@@ -273,6 +278,8 @@ export interface Project {
   industries: ProjectIndustry[]
   description: LocalizedString
   long_description: LocalizedString
+  /** Single-line summary shown in SUMMARY mode (in place of the long description). Additive/optional. */
+  short_description?: LocalizedString
   highlights: LocalizedString[]
   roles: ProjectRole[]
   skills: ProjectSkill[]
@@ -297,6 +304,8 @@ export interface WorkExperience {
   role_title: LocalizedString
   description: LocalizedString
   long_description: LocalizedString
+  /** Single-line summary shown in SUMMARY mode (in place of the long description). Additive/optional. */
+  short_description?: LocalizedString
   employment_type: 'permanent' | 'contract' | 'freelance' | 'part_time' | 'internship' | null
   /**
    * @deprecated Superseded by the company_size_* triple (shape v7). Kept so
@@ -333,6 +342,8 @@ export interface Education {
   school: LocalizedString
   degree: LocalizedString
   description: LocalizedString
+  /** Single-line summary shown in SUMMARY mode. Additive/optional. */
+  short_description?: LocalizedString
   grade: string | null
   exchange: boolean
   start: YearMonth | null
@@ -349,6 +360,8 @@ export interface Course {
   name: LocalizedString
   program: LocalizedString
   description: LocalizedString
+  /** Single-line summary shown in SUMMARY mode. Additive/optional. */
+  short_description?: LocalizedString
   completed: YearMonth | null
   skill_ids: string[]
   skill_tags: string[]
@@ -363,6 +376,8 @@ export interface Certification {
   name: LocalizedString
   organiser: LocalizedString
   description: LocalizedString
+  /** Single-line summary shown in SUMMARY mode. Additive/optional. */
+  short_description?: LocalizedString
   issued: YearMonth | null
   expires: YearMonth | null
   credential_url: string | null
@@ -388,6 +403,8 @@ export interface Position {
   name: LocalizedString
   organisation: LocalizedString
   description: LocalizedString
+  /** Single-line summary shown in SUMMARY mode. Additive/optional. */
+  short_description?: LocalizedString
   /** Classification for sorting/filtering (board_member, volunteer, mentor…; see lib/positionTypes.ts). Additive/optional. */
   position_type?: string | null
   start: YearMonth | null
@@ -412,6 +429,8 @@ export interface Presentation {
   title: LocalizedString
   event: LocalizedString
   description: LocalizedString
+  /** Single-line summary shown in SUMMARY mode. Additive/optional. */
+  short_description?: LocalizedString
   url: string | null
   date: YearMonth | null
   skill_tags: string[]
@@ -427,6 +446,8 @@ export interface HonorAward {
   issuer: LocalizedString
   for_work: LocalizedString
   description: LocalizedString
+  /** Single-line summary shown in SUMMARY mode. Additive/optional. */
+  short_description?: LocalizedString
   date: YearMonth | null
   skill_tags: string[]
   sort_order: number
@@ -440,6 +461,8 @@ export interface Publication {
   publisher: LocalizedString
   co_authors: string[]
   abstract: LocalizedString
+  /** Single-line summary shown in SUMMARY mode (in place of the abstract). Additive/optional. */
+  short_description?: LocalizedString
   url: string | null
   date: YearMonth | null
   publication_type: 'article' | 'research' | 'whitepaper' | 'book' | 'book_chapter' | 'blog_post' | 'report' | 'thesis'
@@ -616,6 +639,12 @@ export interface SectionStyle {
   tabulate?: boolean
   /** Override the date format for this section. Undefined = inherit the view default. */
   date_format?: DateFormat
+  /**
+   * In plain (non-tabulated) SUMMARY mode, where an item's `short_description`
+   * sits relative to the core one-line summary: `'below'` on its own line
+   * (default), or `'inline'` appended to the summary line. Undefined → 'below'.
+   */
+  short_desc_line?: 'inline' | 'below'
   // ── Professional-summary (key_qualifications) part toggles ──
   // Which parts of each profile block render. Only read by the
   // key_qualifications renderer. Undefined defaults: label/tagline/long shown,

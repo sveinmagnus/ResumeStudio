@@ -466,7 +466,15 @@ function renderSection(key: string, label: string, items: unknown[], ctx: Export
   for (const it of list) {
     if (ctx.detail === 'summary' && !desc.alwaysFull) {
       const s = desc.summary?.(it, cctx)
-      if (s) { const { title, meta } = summaryTitleMeta(s); out.push(summaryLine(title, meta.join(' · '), ctx)) }
+      if (s) {
+        const { title, meta } = summaryTitleMeta(s)
+        const short = L((it as Record<string, unknown>).short_description as LocalizedString | undefined, ctx.locale).trim()
+        const metaStr = meta.join(' · ')
+        const below = !!short && ctx.resolved.short_desc_line !== 'inline'
+        const line = short && !below ? [metaStr, short].filter(Boolean).join(' — ') : metaStr
+        out.push(summaryLine(title, line, ctx))
+        if (below) out.push(para(short, ctx, { color: SUBTLE_HEX, after: 60 }))
+      }
       continue
     }
     const v = desc.full?.(it, cctx)

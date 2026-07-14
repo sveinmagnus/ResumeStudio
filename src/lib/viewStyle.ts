@@ -235,6 +235,8 @@ export interface ResolvedSectionStyle extends ViewStyle {
   tabulate: boolean
   /** Date format (resolved: section → view → 'month-year'). */
   date_format: DateFormat
+  /** Plain-summary short-description placement (resolved: section → 'below'). */
+  short_desc_line: 'inline' | 'below'
   /** Professional-summary part toggles (see SectionStyle.kq_show_*). */
   kq_show_label?: boolean
   kq_show_tagline?: boolean
@@ -319,6 +321,7 @@ export function resolveSectionStyle(
     date_position: normalizeFullLayout(section?.date_position ?? view.date_position),
     tabulate: section?.tabulate ?? view.tabulate ?? false,
     date_format: section?.date_format ?? view.date_format ?? 'month-year',
+    short_desc_line: section?.short_desc_line ?? 'below',
     kq_show_label: section?.kq_show_label,
     kq_show_tagline: section?.kq_show_tagline,
     kq_show_short: section?.kq_show_short,

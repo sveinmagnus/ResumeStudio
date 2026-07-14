@@ -83,6 +83,36 @@ describe('<ResumeViewsEditor>', () => {
     expect(within(row).queryAllByText(/style overrides/i)).toHaveLength(0)
   })
 
+  it('the Tabulated mode maps to summary detail + tabulate, and Summary clears it', async () => {
+    seed()
+    render(<ResumeViewsEditor />)
+    await userEvent.click(screen.getByRole('button', { name: /new view/i }))
+
+    await userEvent.click(screen.getAllByRole('radio', { name: /^tabulated$/i })[0])
+    const sec = useStore.getState().data.views[0].sections[0]
+    expect(sec.detail).toBe('summary')
+    expect(sec.style?.tabulate).toBe(true)
+
+    await userEvent.click(screen.getAllByRole('radio', { name: /^summary$/i })[0])
+    const sec2 = useStore.getState().data.views[0].sections[0]
+    expect(sec2.detail).toBe('summary')
+    expect(sec2.style?.tabulate).toBeFalsy()
+  })
+
+  it('shows the short-description placement control in plain summary mode only', async () => {
+    seed()
+    render(<ResumeViewsEditor />)
+    await userEvent.click(screen.getByRole('button', { name: /new view/i }))
+    const expandBtn = screen.getAllByRole('button', { name: /^expand .* settings$/i })[0]
+    const row = expandBtn.closest('.rv-sec-row') as HTMLElement
+    await userEvent.click(expandBtn)
+    await userEvent.click(within(row).getByRole('radio', { name: /^summary$/i }))
+    expect(within(row).getByLabelText(/short-description placement/i)).toBeInTheDocument()
+    // Tabulated is a distinct mode — the short-description line doesn't apply.
+    await userEvent.click(within(row).getByRole('radio', { name: /^tabulated$/i }))
+    expect(within(row).queryByLabelText(/short-description placement/i)).not.toBeInTheDocument()
+  })
+
   it('offers a per-section item sort in the expanded panel', async () => {
     seed()
     render(<ResumeViewsEditor />)

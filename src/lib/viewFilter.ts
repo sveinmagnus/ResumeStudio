@@ -263,8 +263,14 @@ const SLOT_KEYS: Record<Slot, SummaryPartKey[]> = {
 
 const slotsFor = (layout: SummaryLayout): Slot[] => LAYOUT_SLOTS[layout] ?? LAYOUT_SLOTS['title-org-date']
 
-/** Render a summary as a single free-flowing line, slots in the chosen order. */
-function renderSummaryInline(s: SummaryView, layout: SummaryLayout): string {
+/**
+ * Render a summary as a single free-flowing line, slots in the chosen order.
+ * An optional `short` description is appended inline or placed on its own line
+ * below (per `shortLine`).
+ */
+function renderSummaryInline(
+  s: SummaryView, layout: SummaryLayout, short = '', shortLine: 'inline' | 'below' = 'below',
+): string {
   const slots = slotsFor(layout)
   const groups = slots
     .map((slot) => ({
@@ -275,9 +281,10 @@ function renderSummaryInline(s: SummaryView, layout: SummaryLayout): string {
         .filter(Boolean).join(slot === 'date' ? ' – ' : ' · '),
     }))
     .filter((g) => g.text)
-  if (!groups.length) return ''
+  const shortEsc = short.trim() ? escapeHtml(short.trim()) : ''
+  if (!groups.length && !shortEsc) return ''
   const titleFirst = slots[0] === 'title'
-  const html = groups
+  let html = groups
     .map((g, i) => {
       const inner = g.slot === 'title'
         ? `<strong>${escapeHtml(g.text)}</strong>`
@@ -289,7 +296,13 @@ function renderSummaryInline(s: SummaryView, layout: SummaryLayout): string {
       return `${joiner}${inner}`
     })
     .join('')
-  return `<div class="ve-item ve-item-line">${html}</div>`
+  let below = ''
+  if (shortEsc) {
+    const chunk = `<span class="ve-summary-short">${shortEsc}</span>`
+    if (shortLine === 'inline') html += `${html ? ' — ' : ''}${chunk}`
+    else below = `<div class="ve-summary-short ve-summary-short-below">${shortEsc}</div>`
+  }
+  return `<div class="ve-item ve-item-line">${html}${below}</div>`
 }
 
 /** The tabulation columns for a set of summaries: every part key present, in slot order. */
@@ -364,7 +377,8 @@ function renderItem(sectionKey: string, item: unknown, ctx: RenderCtx): string {
   if (ctx.detail === 'summary' && !desc.alwaysFull) {
     const s = desc.summary?.(item as AnyItem, cctx)
     if (!s) return ''
-    return renderSummaryInline(s, ctx.style.summary_layout)
+    const short = resolve((item as AnyItem).short_description as LocalizedString | undefined, ctx.locale)
+    return renderSummaryInline(s, ctx.style.summary_layout, short, ctx.style.short_desc_line)
   }
 
   const v = desc.full?.(item as AnyItem, cctx)
@@ -735,6 +749,8 @@ export function buildViewHtml(store: ResumeStore, view: ResumeView, locale: stri
     .ve-tab-sep { color: #9CA3AF; text-align: center; white-space: nowrap; }
     .ve-item:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
     .ve-item-line { padding-bottom: 0; border-bottom: none; margin-bottom: 4px; font-size: ${tokens.smallFontSizePt}pt; }
+    .ve-summary-short { color: #6B7280; }
+    .ve-summary-short-below { margin-top: 1px; font-size: ${tokens.metaFontSizePt}pt; }
     .ve-meta-inline { color: #6B7280; }
     .ve-inline { display: inline-block; margin-right: 20px; }
     .ve-meta { font-size: ${tokens.metaFontSizePt}pt; color: #6B7280; margin: 2px 0 5px; }

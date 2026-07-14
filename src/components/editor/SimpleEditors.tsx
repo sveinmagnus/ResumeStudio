@@ -53,6 +53,7 @@ export function WorkEditor() {
           <RoleTypeLinks roleIds={w.role_ids} hint="— the general role held, for summarising experience across positions (independent of the title above)"
             onChange={(ids) => updateItem('work_experiences', w.id, { role_ids: ids })} />
           <RichField label="Description" value={w.long_description} onChange={(v) => updateItem('work_experiences', w.id, { long_description: v })} />
+          <DualField label="Short description (summary mode)" value={w.short_description ?? {}} onChange={(v) => updateItem('work_experiences', w.id, { short_description: v })} placeholder="One concise line shown in summary mode" />
           <FieldRow>
             <DateField label="Start" value={w.start} onChange={(v) => updateItem('work_experiences', w.id, { start: v })} />
             <DateField label="End" value={w.end} onChange={(v) => updateItem('work_experiences', w.id, { end: v })} allowOngoing />
@@ -213,6 +214,7 @@ export function EducationEditor() {
           <DualField label="School" value={e.school} onChange={(v) => updateItem('educations', e.id, { school: v })} />
           <DualField label="Degree" value={e.degree} onChange={(v) => updateItem('educations', e.id, { degree: v })} />
           <RichField label="Description" value={e.description} onChange={(v) => updateItem('educations', e.id, { description: v })} />
+          <DualField label="Short description (summary mode)" value={e.short_description ?? {}} onChange={(v) => updateItem('educations', e.id, { short_description: v })} placeholder="One concise line shown in summary mode" />
           <FieldRow>
             <DateField label="Start" value={e.start} onChange={(v) => updateItem('educations', e.id, { start: v })} />
             <DateField label="End" value={e.end} onChange={(v) => updateItem('educations', e.id, { end: v })} allowOngoing />
@@ -258,6 +260,7 @@ export function CoursesEditor() {
           <DualField label="Course name" value={c.name} onChange={(v) => updateItem('courses', c.id, { name: v })} />
           <DualField label="Provider" value={c.program} onChange={(v) => updateItem('courses', c.id, { program: v })} />
           <RichField label="Description" value={c.description} onChange={(v) => updateItem('courses', c.id, { description: v })} />
+          <DualField label="Short description (summary mode)" value={c.short_description ?? {}} onChange={(v) => updateItem('courses', c.id, { short_description: v })} placeholder="One concise line shown in summary mode" />
           <DateField label="Completed" value={c.completed} onChange={(v) => updateItem('courses', c.id, { completed: v })} />
         </EditorCard>
       ))}
@@ -295,6 +298,7 @@ export function CertificationsEditor() {
           <DualField label="Certification" value={c.name} onChange={(v) => updateItem('certifications', c.id, { name: v })} />
           <DualField label="Issuing organisation" value={c.organiser} onChange={(v) => updateItem('certifications', c.id, { organiser: v })} />
           <RichField label="Description" value={c.description} onChange={(v) => updateItem('certifications', c.id, { description: v })} />
+          <DualField label="Short description (summary mode)" value={c.short_description ?? {}} onChange={(v) => updateItem('certifications', c.id, { short_description: v })} placeholder="One concise line shown in summary mode" />
           <FieldRow>
             <DateField label="Issued" value={c.issued} onChange={(v) => updateItem('certifications', c.id, { issued: v })} />
             <DateField label="Expires" value={c.expires} onChange={(v) => updateItem('certifications', c.id, { expires: v })} allowOngoing />
@@ -338,6 +342,7 @@ export function PositionsEditor() {
           <RoleTypeLinks roleIds={p.role_ids ?? []} hint="— link a registry role type so this engagement feeds that role's years of experience"
             onChange={(ids) => updateItem('positions', p.id, { role_ids: ids })} />
           <RichField label="Description" value={p.description} onChange={(v) => updateItem('positions', p.id, { description: v })} />
+          <DualField label="Short description (summary mode)" value={p.short_description ?? {}} onChange={(v) => updateItem('positions', p.id, { short_description: v })} placeholder="One concise line shown in summary mode" />
           <FieldRow>
             <label className="pf-wrap">
               <span className="pf-label">Type</span>
@@ -387,6 +392,7 @@ export function PresentationsEditor() {
           <DualField label="Title" value={p.title} onChange={(v) => updateItem('presentations', p.id, { title: v })} />
           <DualField label="Event / venue" value={p.event} onChange={(v) => updateItem('presentations', p.id, { event: v })} />
           <RichField label="Abstract" value={p.description} onChange={(v) => updateItem('presentations', p.id, { description: v })} />
+          <DualField label="Short description (summary mode)" value={p.short_description ?? {}} onChange={(v) => updateItem('presentations', p.id, { short_description: v })} placeholder="One concise line shown in summary mode" />
           <FieldRow>
             <DateField label="Date" value={p.date} onChange={(v) => updateItem('presentations', p.id, { date: v })} />
             <TextField label="URL" value={p.url || ''} onChange={(v) => updateItem('presentations', p.id, { url: v })} />
@@ -434,6 +440,7 @@ export function PublicationsEditor() {
             placeholder="Comma-separated, e.g. Jane Doe, John Roe"
           />
           <RichField label="Abstract" value={p.abstract} onChange={(v) => updateItem('publications', p.id, { abstract: v })} />
+          <DualField label="Short description (summary mode)" value={p.short_description ?? {}} onChange={(v) => updateItem('publications', p.id, { short_description: v })} placeholder="One concise line shown in summary mode" />
           <FieldRow>
             <label className="pf-wrap">
               <span className="pf-label">Type</span>
@@ -483,6 +490,7 @@ export function AwardsEditor() {
           <DualField label="Issuer" value={a.issuer} onChange={(v) => updateItem('honor_awards', a.id, { issuer: v })} />
           <DualField label="For work" value={a.for_work} onChange={(v) => updateItem('honor_awards', a.id, { for_work: v })} />
           <RichField label="Description" value={a.description} onChange={(v) => updateItem('honor_awards', a.id, { description: v })} />
+          <DualField label="Short description (summary mode)" value={a.short_description ?? {}} onChange={(v) => updateItem('honor_awards', a.id, { short_description: v })} placeholder="One concise line shown in summary mode" />
           <DateField label="Date" value={a.date} onChange={(v) => updateItem('honor_awards', a.id, { date: v })} />
         </EditorCard>
       ))}
@@ -549,6 +557,7 @@ export function KeyCompetenciesEditor() {
           starred={k.starred} disabled={k.disabled}>
           <DualField label="Competency" value={k.title} onChange={(v) => updateItem('key_competencies', k.id, { title: v })} placeholder="e.g. Solution architecture" />
           <RichField label="Description" value={k.description} onChange={(v) => updateItem('key_competencies', k.id, { description: v })} />
+          <DualField label="Short description (summary mode)" value={k.short_description ?? {}} onChange={(v) => updateItem('key_competencies', k.id, { short_description: v })} placeholder="One concise line shown in summary mode" />
         </EditorCard>
       ))}
       </SortableList>
@@ -593,6 +602,7 @@ export function RecommendationsEditor() {
             <TextField label="Link" value={r.contact_url || ''} onChange={(v) => updateItem('recommendations', r.id, { contact_url: v || null })} />
           </FieldRow>
           <RichField label="Testimonial" value={r.text} onChange={(v) => updateItem('recommendations', r.id, { text: v })} />
+          <DualField label="Short description (summary mode)" value={r.short_description ?? {}} onChange={(v) => updateItem('recommendations', r.id, { short_description: v })} placeholder="One concise line shown in summary mode" />
           <FieldRow>
             <TextField label="Recommender" value={r.recommender_name} onChange={(v) => updateItem('recommendations', r.id, { recommender_name: v })} />
             <TextField label="Company" value={r.recommender_company || ''} onChange={(v) => updateItem('recommendations', r.id, { recommender_company: v || null })} />

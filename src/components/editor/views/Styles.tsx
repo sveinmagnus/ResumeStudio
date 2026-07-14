@@ -214,13 +214,15 @@ export function Styles() {
         font-size: 12px; color: var(--ink-soft); cursor: pointer;
       }
       .rv-toggle input[type=checkbox] { flex-shrink: 0; accent-color: var(--accent); width: 15px; height: 15px; }
+      /* Stack the label above the control so every dropdown is the SAME width
+         (the full column cell) rather than sized to its content. */
       .rv-sel {
-        display: flex; align-items: center; justify-content: space-between; gap: 8px;
+        display: flex; flex-direction: column; align-items: stretch; gap: 3px;
         font-size: 12px; color: var(--ink-soft);
       }
       .rv-sel select {
-        font-size: 12px; padding: 3px 6px; border: 1px solid var(--line);
-        border-radius: var(--r-sm); background: var(--paper); min-width: 110px;
+        width: 100%; font-size: 12px; padding: 3px 6px; border: 1px solid var(--line);
+        border-radius: var(--r-sm); background: var(--paper);
       }
       .rv-secstyle-heading { margin-top: 12px; }
 

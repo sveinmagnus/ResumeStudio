@@ -39,20 +39,29 @@ const anyLocale = (v: LocalizedString): boolean => Object.values(v).some((x) => 
 
 // ─── Detail toggle ──────────────────────────────────────────────────────────
 
-export function DetailToggle({ value, onChange }: { value: SectionDetail; onChange: (d: SectionDetail) => void }) {
-  const opts: SectionDetail[] = ['off', 'summary', 'full']
+/**
+ * The section render mode as one 4-way control. 'tabulated' and 'summary' both
+ * map to `detail:'summary'` — 'tabulated' additionally sets `style.tabulate`.
+ * (The store keeps detail + tabulate separate; this is the UI presentation.)
+ */
+export type SectionMode = 'off' | 'tabulated' | 'summary' | 'full'
+const MODE_OPTIONS: Array<[SectionMode, string]> = [
+  ['off', 'Off'], ['tabulated', 'Tabulated'], ['summary', 'Summary'], ['full', 'Full'],
+]
+
+export function DetailToggle({ value, onChange }: { value: SectionMode; onChange: (m: SectionMode) => void }) {
   return (
     <div className="rv-detail-toggle" role="radiogroup" aria-label="Section detail level">
-      {opts.map((opt) => (
+      {MODE_OPTIONS.map(([mode, label]) => (
         <button
-          key={opt}
+          key={mode}
           type="button"
           role="radio"
-          aria-checked={value === opt}
-          className={`rv-detail-opt ${value === opt ? 'is-active' : ''}`}
-          onClick={() => onChange(opt)}
+          aria-checked={value === mode}
+          className={`rv-detail-opt ${value === mode ? 'is-active' : ''}`}
+          onClick={() => onChange(mode)}
         >
-          {opt}
+          {label}
         </button>
       ))}
     </div>
@@ -77,6 +86,9 @@ export function SectionStylePanel({ sectionKey, detail, style, onChange, onReset
   const s: SectionStyle = style ?? {}
   const showTag = TAG_SECTIONS.has(sectionKey)
   const isSummary = detail === 'summary'
+  // Tabulated is a summary variant; the short-description line is a plain-summary
+  // feature (it's what separates the two modes), so it's hidden when tabulated.
+  const isPlainSummary = isSummary && !s.tabulate
   const sortModes = availableSortModes(sectionKey)
   // Rendered inline whenever its section row is expanded (the row is the
   // collapse unit now), so the overrides are always visible without a second
@@ -98,7 +110,8 @@ export function SectionStylePanel({ sectionKey, detail, style, onChange, onReset
         )}
       </div>
       <div className="rv-secstyle-body">
-        {/* Toggles on the left — checkbox before its label so what's on is clear. */}
+        {/* Toggles on the left — checkbox before its label so what's on is clear.
+            The date format lives here too (under Hide dates). */}
         <div className="rv-secstyle-toggles">
           <label className="rv-toggle">
             <input
@@ -116,17 +129,19 @@ export function SectionStylePanel({ sectionKey, detail, style, onChange, onReset
             />
             <span>Hide dates</span>
           </label>
-          {/* Tabulation is a summary-only layout — hidden for full sections. */}
-          {isSummary && (
-            <label className="rv-toggle">
-              <input
-                type="checkbox"
-                checked={!!s.tabulate}
-                onChange={(e) => onChange({ tabulate: e.target.checked || undefined })}
-              />
-              <span>Tabulate summary</span>
-            </label>
-          )}
+          <div className="rv-sel">
+            <span>Date format</span>
+            <select
+              aria-label="Section date format"
+              value={s.date_format ?? ''}
+              onChange={(e) => onChange({ date_format: (e.target.value || undefined) as DateFormat | undefined })}
+            >
+              <option value="">— view default —</option>
+              {DATE_FORMAT_OPTIONS.map(([v, label]) => (
+                <option key={v} value={v}>{label}</option>
+              ))}
+            </select>
+          </div>
         </div>
         {/* Dropdowns on the right. Labelled by their visible span (not a wrapping
             <label>) so they don't collide with the identically-named view-wide
@@ -226,19 +241,21 @@ export function SectionStylePanel({ sectionKey, detail, style, onChange, onReset
               <option value="space">Space only</option>
             </select>
           </div>
-          <div className="rv-sel">
-            <span>Date format</span>
-            <select
-              aria-label="Section date format"
-              value={s.date_format ?? ''}
-              onChange={(e) => onChange({ date_format: (e.target.value || undefined) as DateFormat | undefined })}
-            >
-              <option value="">— view default —</option>
-              {DATE_FORMAT_OPTIONS.map(([v, label]) => (
-                <option key={v} value={v}>{label}</option>
-              ))}
-            </select>
-          </div>
+          {/* Plain-summary only: where the item's short description sits. */}
+          {isPlainSummary && (
+            <div className="rv-sel">
+              <span>Short description</span>
+              <select
+                aria-label="Section short-description placement"
+                value={s.short_desc_line ?? ''}
+                onChange={(e) => onChange({ short_desc_line: (e.target.value || undefined) as 'inline' | 'below' | undefined })}
+              >
+                <option value="">— view default (below) —</option>
+                <option value="below">On its own line below</option>
+                <option value="inline">Same line as the core info</option>
+              </select>
+            </div>
+          )}
         </div>
       </div>
       {!s.hide_heading && (
