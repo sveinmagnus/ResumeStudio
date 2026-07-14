@@ -241,6 +241,8 @@ CSS custom properties in `src/index.css` are the design system:
 
 **Fonts are self-hosted** (`public/fonts/*.woff2` + `@font-face`, preloaded from `index.html`) — no Google Fonts CDN (GDPR, offline, `font-src 'self'`). Don't reintroduce a fonts CDN.
 
+**Configurable view fonts** (`lib/fonts.ts`): a catalog of brand + common cross-platform families. A view's `heading_font`/`body_font` is a catalog id or `'inherit'` (the app-wide default, stored in `lib/appPrefs.ts` localStorage, edited in Settings). `viewStyle.withResolvedFonts` maps `'inherit'` → the concrete id at each export boundary (the pure exporters take an optional `globalFonts` param). PDF can't embed arbitrary fonts, so each family maps onto a pdfmake standard-14 base font (`pdfFont`: Times/Helvetica/Courier — no binaries; brand fonts keep embedded Roboto). Word references the name (can't embed) → `installUrl` surfaces a "download & install" link. **We deliberately do NOT bundle new font binaries** (the chosen "light" approach) — don't add `@fontsource`/font files without confirming.
+
 **Minimum text size is 11px** (bumped in v0.3.1). Don't add new text below 11px.
 
 **Utility classes** (use instead of redefining inline): `.check-row`, `.skip-link`, `.sr-only`. `index.css` also owns the global `:focus-visible` ring, `forced-colors` outline fallback, and `prefers-reduced-motion` collapse — don't duplicate those per component.
