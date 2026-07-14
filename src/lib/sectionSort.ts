@@ -11,14 +11,21 @@
  * moveItem/reorderItem) and the editor hooks/components.
  */
 
-import type { YearMonth } from '../types'
-import { getItemTitle } from './viewFilter'
+import type { YearMonth, SortMode } from '../types'
+import { SECTION_CATALOG, type AnyItem } from './sectionCatalog'
 
-export type SortMode =
-  | 'custom' | 'alpha'
-  | 'start' | 'start_asc'
-  | 'end' | 'end_asc'
-  | 'date' | 'date_asc'
+// Re-exported so existing importers (`import { SortMode } from './sectionSort'`)
+// keep working; the canonical definition now lives in `types` so `ViewSection`
+// can reference it without a runtime import.
+export type { SortMode }
+
+/** An item's display title for the alphabetical sort — via the section catalog
+ *  directly (not viewFilter) so this module has no import cycle with it. */
+function titleOf(section: string, item: unknown, locale: string): string {
+  const it = item as AnyItem
+  const desc = SECTION_CATALOG[section]
+  return desc ? desc.title(it, locale) : String(it.id ?? 'Item')
+}
 
 export const SORT_LABELS: Record<SortMode, string> = {
   custom:    'Custom order',
@@ -98,8 +105,8 @@ export function sortItems<T extends Sortable>(
   switch (mode) {
     case 'alpha':
       return arr.sort((a, b) =>
-        getItemTitle(section, a, locale).localeCompare(
-          getItemTitle(section, b, locale), undefined, { sensitivity: 'base' },
+        titleOf(section, a, locale).localeCompare(
+          titleOf(section, b, locale), undefined, { sensitivity: 'base' },
         ),
       )
     case 'start':

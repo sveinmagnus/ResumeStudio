@@ -83,6 +83,29 @@ describe('<ResumeViewsEditor>', () => {
     expect(within(row).queryAllByText(/style overrides/i)).toHaveLength(0)
   })
 
+  it('offers a per-section item sort in the expanded panel', async () => {
+    seed()
+    render(<ResumeViewsEditor />)
+    await userEvent.click(screen.getByRole('button', { name: /new view/i }))
+    const expandBtn = screen.getAllByRole('button', { name: /^expand .* settings$/i })[0]
+    await userEvent.click(expandBtn)
+    expect(screen.getAllByLabelText(/section item sort/i).length).toBeGreaterThan(0)
+  })
+
+  it('an Off section keeps its expander and expands to items but hides style overrides', async () => {
+    seed()
+    render(<ResumeViewsEditor />)
+    await userEvent.click(screen.getByRole('button', { name: /new view/i }))
+    // Turn the first section off.
+    await userEvent.click(screen.getAllByRole('radio', { name: /^off$/i })[0])
+    // Off sections keep an expander (labelled "… items", not "… settings").
+    const expandBtn = screen.getAllByRole('button', { name: /^expand .* items$/i })[0]
+    const row = expandBtn.closest('.rv-sec-row') as HTMLElement
+    await userEvent.click(expandBtn)
+    // Expanded, but with no style-overrides panel (nothing to style when hidden).
+    expect(within(row).queryAllByText(/style overrides/i)).toHaveLength(0)
+  })
+
   it('clicking the detail toggle does not expand the section', async () => {
     seed()
     render(<ResumeViewsEditor />)

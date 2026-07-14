@@ -89,15 +89,19 @@ describe('deriveTokens()', () => {
 // ─── resolveFontCss / resolveFontDocx ──────────────────────────────────────────
 
 describe('resolveFontCss() / resolveFontDocx()', () => {
-  it('maps known fonts', () => {
-    expect(resolveFontCss('serif')).toContain('Georgia')
-    expect(resolveFontDocx('serif')).toBe('Georgia')
-    expect(resolveFontCss('body')).toContain('Ubuntu')
+  it('maps a catalog id to its css / docx name', () => {
+    expect(resolveFontCss('serif', 'sans')).toContain('Georgia')
+    expect(resolveFontDocx('serif', 'sans')).toBe('Georgia')
   })
-  it('falls back to the default heading font for unknown values (no throw)', () => {
-    expect(() => resolveFontCss('evil' as never)).not.toThrow()
-    expect(resolveFontCss('evil' as never)).toContain('Open Sans Condensed')
-    expect(resolveFontDocx('evil' as never)).toBe('Open Sans Condensed')
+  it("'body' resolves to the supplied body-font id", () => {
+    expect(resolveFontCss('body', 'sans')).toContain('Ubuntu')
+    expect(resolveFontCss('body', 'serif')).toContain('Georgia')
+    expect(resolveFontDocx('body', 'times')).toBe('Times New Roman')
+  })
+  it('falls back safely for unknown values (no throw)', () => {
+    expect(() => resolveFontCss('evil' as never, 'sans')).not.toThrow()
+    expect(resolveFontCss('evil' as never, 'sans')).toContain('Ubuntu')
+    expect(resolveFontDocx('evil' as never, 'sans')).toBe('Ubuntu')
   })
 })
 

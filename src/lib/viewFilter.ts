@@ -8,7 +8,9 @@ import type { SummaryLayout } from '../types'
 import { skillMatrixRows, fmtLastUsed, fmtProficiency } from './skillMatrix'
 import { showcaseGroups } from './showcase'
 import { renderRichHtml } from './richText'
-import { deriveTokens, resolveSectionStyle, sectionHeadingText, kqVisibility, withDefaults, resolveFontCss, type ResolvedSectionStyle, type StyleTokens } from './viewStyle'
+import { deriveTokens, resolveSectionStyle, sectionHeadingText, kqVisibility, withDefaults, withResolvedFonts, resolveFontCss, type ResolvedSectionStyle, type StyleTokens } from './viewStyle'
+import type { GlobalFonts } from './fonts'
+import { sortItems } from './sectionSort'
 import { withHeaderDefaults, withFooterDefaults, buildHeaderLines, buildCopyrightLine } from './viewHeader'
 
 // ─── Section helpers ──────────────────────────────────────────────────────────
@@ -413,6 +415,10 @@ function sectionStyleCss(secKey: string, resolved: ResolvedSectionStyle, baseTok
   const tokens = deriveTokens(resolved)
   const showDivider = resolved.item_divider
   const rule = showDivider ? dividerRule(resolved.divider_style, baseTokens.accentCss) : { border: 'none', extra: '' }
+  // Tabulated rows are subgrid boxes (see the base .ve-tab-row rule), so the
+  // SAME density (row gap + line height) and divider style apply to them too.
+  const rowGap = Math.max(2, Math.round(tokens.itemGapPx / 2))
+  const rowPad = showDivider ? Math.max(1, Math.round(rowGap / 2)) : 0
   return `
     .ve-sec-${secKey} .ve-item {
       margin-bottom: ${tokens.itemGapPx}px;
@@ -422,6 +428,14 @@ function sectionStyleCss(secKey: string, resolved: ResolvedSectionStyle, baseTok
       ${rule.extra}
     }
     .ve-sec-${secKey} .ve-item:last-child { border-bottom: none; background-image: none; padding-bottom: 0; margin-bottom: 0; }
+    .ve-sec-${secKey} .ve-tab-grid { row-gap: ${rowGap}px; }
+    .ve-sec-${secKey} .ve-tab-row {
+      line-height: ${tokens.lineHeight};
+      padding-bottom: ${rowPad}px;
+      border-bottom: ${rule.border};
+      ${rule.extra}
+    }
+    .ve-sec-${secKey} .ve-tab-row:last-child { border-bottom: none; background-image: none; padding-bottom: 0; }
   `
 }
 
@@ -447,11 +461,11 @@ function dividerRule(style: ResolvedSectionStyle['divider_style'], accentCss: st
   }
 }
 
-export function buildViewHtml(store: ResumeStore, view: ResumeView, locale: string): string {
+export function buildViewHtml(store: ResumeStore, view: ResumeView, locale: string, globalFonts?: GlobalFonts): string {
   const r = store.resume
   if (!r) return '<p>No resume data</p>'
 
-  const viewStyle = withDefaults(view.style)
+  const viewStyle = withResolvedFonts(withDefaults(view.style), globalFonts)
   const tokens = deriveTokens(viewStyle)
 
   const filtered = applyView(store, view)
@@ -467,6 +481,7 @@ export function buildViewHtml(store: ResumeStore, view: ResumeView, locale: stri
         sort_order: vs?.sort_order ?? 999,
         detail: vs?.detail ?? defaultViewDetail(s.key),
         sectionStyle: vs?.style,
+        sort: vs?.sort ?? 'custom',
       }
     })
     .filter((s) => s.detail !== 'off')
@@ -499,12 +514,23 @@ export function buildViewHtml(store: ResumeStore, view: ResumeView, locale: stri
       // virtual technology_categories (Skills Showcase) derives its groups
       // from the skill-category system; every other section reads its
       // filtered store array.
-      const items = s.key === 'promoted_projects'
+      const rawItems = s.key === 'promoted_projects'
         ? promotedProjectItems(store, view)
         : s.key === 'technology_categories'
           ? showcaseGroups(store, view, locale)
           : (filtered[s.storeKey] as unknown[])
-      if (!items.length) return ''
+      if (!rawItems.length) return ''
+      // Order by the view's per-section sort (default 'custom' = the resume's
+      // arranged sort_order) so the export matches the chosen order. The Skills
+      // Showcase groups arrive pre-ordered (by category), so leave them be.
+      const items = s.key === 'technology_categories'
+        ? rawItems
+        : sortItems(
+            renderKeyFor(s.key),
+            rawItems as Array<{ id: string; sort_order: number }>,
+            s.sort,
+            locale,
+          )
       const resolved = resolveSectionStyle(viewStyle, s.sectionStyle)
       const ctx: RenderCtx = { locale, detail: s.detail, style: resolved }
       const renderKey = renderKeyFor(s.key)
@@ -512,13 +538,12 @@ export function buildViewHtml(store: ResumeStore, view: ResumeView, locale: stri
       // Tabulation only applies to the one-line summary layout (never full or
       // always-full sections like spoken languages).
       const tabulated = resolved.tabulate && s.detail === 'summary' && !!desc?.summary && !desc?.alwaysFull
-      let itemsHtml: string
-      if (tabulated) {
-        itemsHtml = renderTabulatedSummary(renderKey, items, ctx)
-      } else {
-        perSectionCss.push(sectionStyleCss(s.key, resolved, tokens))
-        itemsHtml = items.map((item) => renderItem(renderKey, item, ctx)).filter(Boolean).join('\n')
-      }
+      // Per-section density/divider CSS applies to BOTH the regular item list and
+      // the tabulated grid (the rules target `.ve-item` and `.ve-tab-row`).
+      perSectionCss.push(sectionStyleCss(s.key, resolved, tokens))
+      const itemsHtml = tabulated
+        ? renderTabulatedSummary(renderKey, items, ctx)
+        : items.map((item) => renderItem(renderKey, item, ctx)).filter(Boolean).join('\n')
       if (!itemsHtml) return ''
       // s.label is a hardcoded constant from SECTIONS; the custom heading is
       // untrusted view config. Both go through escapeHtml here.
@@ -544,8 +569,8 @@ export function buildViewHtml(store: ResumeStore, view: ResumeView, locale: stri
 
   const nameSizePt = header.name_style.size_pt ?? tokens.h1Pt
   const titleSizePt = header.title_style.size_pt ?? tokens.smallFontSizePt + 1
-  const nameStyleCss = `font-family:${resolveFontCss(header.name_style.font)};font-size:${nameSizePt}pt;`
-  const titleStyleCss = `font-family:${resolveFontCss(header.title_style.font)};font-size:${titleSizePt}pt;`
+  const nameStyleCss = `font-family:${resolveFontCss(header.name_style.font, tokens.bodyFontId)};font-size:${nameSizePt}pt;`
+  const titleStyleCss = `font-family:${resolveFontCss(header.title_style.font, tokens.bodyFontId)};font-size:${titleSizePt}pt;`
 
   const lines = buildHeaderLines(header, r, store, locale)
   const sep = escapeHtml(header.separator)
@@ -697,8 +722,10 @@ export function buildViewHtml(store: ResumeStore, view: ResumeView, locale: stri
        (minmax 0), so a very long title wraps instead of pushing the row past the
        page edge. */
     .ve-tab-grid { display: grid; column-gap: 14px; row-gap: ${Math.max(2, Math.round(tokens.itemGapPx / 2))}px;
-                   align-items: baseline; font-size: ${tokens.smallFontSizePt}pt; margin-top: 2px; max-width: 100%; }
-    .ve-tab-row { display: contents; }
+                   font-size: ${tokens.smallFontSizePt}pt; margin-top: 2px; max-width: 100%; }
+    /* Each row is a subgrid box spanning all columns, so it stays column-aligned
+       AND can carry a per-section divider + density padding (unlike display:contents). */
+    .ve-tab-row { display: grid; grid-template-columns: subgrid; grid-column: 1 / -1; align-items: baseline; }
     /* Text columns wrap (min-width:0) so a long title/employer stays on the
        page; the short date columns never wrap. */
     .ve-tab-title { font-weight: 600; min-width: 0; overflow-wrap: anywhere; }

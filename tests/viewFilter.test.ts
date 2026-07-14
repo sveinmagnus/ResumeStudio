@@ -11,6 +11,7 @@ import {
   emptyStore, makeProject, makeWork, makeEducation, makeKQ,
   makeView, makeReference, makeSpokenLanguage, makeResume,
   makeKeyCompetency, makeRecommendation, makeSkill, makeSkillCategory,
+  makeCourse,
 } from './fixtures'
 
 // A 1x1 transparent PNG data URL (valid for the isDataImage guard + img embedding).
@@ -513,6 +514,58 @@ describe('buildViewHtml()', () => {
     expect(html).toContain('Jan 2020 – Jun 2022')     // dash between the dates
     expect(html).not.toContain('Jan 2020 · Jun 2022')  // never a dot between dates
     expect(html).toContain('·')                        // dot still separates the items
+  })
+
+  it('exports items in sort_order by default even when the array is out of order', () => {
+    const store = emptyStore()
+    store.resume = makeResume()
+    // Array order is Zebra, Alpha — but sort_order says Alpha first.
+    store.courses.push(makeCourse({ id: 'c2', name: { en: 'ZebraCourse' }, sort_order: 1 }))
+    store.courses.push(makeCourse({ id: 'c1', name: { en: 'AlphaCourse' }, sort_order: 0 }))
+    const view = makeView({ sections: [{ key: 'courses', detail: 'full' as const, sort_order: 0 }] })
+    const html = buildViewHtml(store, view, 'en')
+    expect(html.indexOf('AlphaCourse')).toBeLessThan(html.indexOf('ZebraCourse'))
+  })
+
+  it('honours a per-section sort override in the view', () => {
+    const store = emptyStore()
+    store.resume = makeResume()
+    store.courses.push(makeCourse({ id: 'c1', name: { en: 'AlphaCourse' }, sort_order: 0, completed: { year: 2019, month: 1 } }))
+    store.courses.push(makeCourse({ id: 'c2', name: { en: 'ZebraCourse' }, sort_order: 1, completed: { year: 2023, month: 1 } }))
+    // 'date' = newest first → 2023 (Zebra) before 2019 (Alpha), overriding sort_order.
+    const view = makeView({ sections: [{ key: 'courses', detail: 'full' as const, sort_order: 0, sort: 'date' }] })
+    const html = buildViewHtml(store, view, 'en')
+    expect(html.indexOf('ZebraCourse')).toBeLessThan(html.indexOf('AlphaCourse'))
+  })
+
+  it('applies the chosen heading/body fonts, and "inherit" uses the global default', () => {
+    const store = emptyStore()
+    store.resume = makeResume()
+    const picked = makeView({ style: { ...DEFAULT_VIEW_STYLE, heading_font: 'serif', body_font: 'times' } })
+    const pickedHtml = buildViewHtml(store, picked, 'en')
+    expect(pickedHtml).toContain('Georgia')          // serif heading css stack
+    expect(pickedHtml).toContain('Times New Roman')  // body css stack
+
+    const inherit = makeView({ style: { ...DEFAULT_VIEW_STYLE, heading_font: 'inherit', body_font: 'inherit' } })
+    const inheritHtml = buildViewHtml(store, inherit, 'en', { heading: 'serif', body: 'times' })
+    expect(inheritHtml).toContain('Georgia')
+    expect(inheritHtml).toContain('Times New Roman')
+  })
+
+  it('applies density + divider style to the tabulated summary grid', () => {
+    const store = emptyStore()
+    store.resume = makeResume()
+    store.work_experiences.push(makeWork({
+      id: 'w1', employer: { en: 'BigCo' }, role_title: { en: 'Engineer' },
+      start: { year: 2020, month: 1 }, end: { year: 2022, month: 6 },
+    }))
+    const view = makeView({
+      sections: [{ key: 'work_experiences', detail: 'summary' as const, sort_order: 0, style: { tabulate: true, divider_style: 'dashed' } }],
+    })
+    const html = buildViewHtml(store, view, 'en')
+    // The per-section density/divider CSS now targets the tab rows too.
+    expect(html).toContain('.ve-sec-work_experiences .ve-tab-row')
+    expect(html).toMatch(/\.ve-sec-work_experiences \.ve-tab-row \{[^}]*dashed/)
   })
 
   // ─── XSS — escape every interpolated user value ────────────────────────────

@@ -13,6 +13,7 @@ import {
   defaultViewDetail,
 } from '../../../lib/viewFilter'
 import { DEFAULT_VIEW_STYLE, normalizeFullLayout } from '../../../lib/viewStyle'
+import { getDefaultFonts, onDefaultFontsChanged } from '../../../lib/appPrefs'
 import { skillCategoryList } from '../../../lib/skillCategorize'
 import { withHeaderDefaults, withFooterDefaults } from '../../../lib/viewHeader'
 import { VIEW_TEMPLATES, getTemplate, applyTemplate } from '../../../lib/viewTemplates'
@@ -20,7 +21,7 @@ import { buildViewText, buildViewMarkdown } from '../../../lib/viewText'
 import { exportFilename } from '../../../lib/exportFilename'
 import type {
   ResumeView, ViewStyle, SectionStyle, SectionDetail, ViewSection,
-  ViewHeaderConfig, ViewFooterConfig,
+  ViewHeaderConfig, ViewFooterConfig, SortMode,
 } from '../../../types'
 import {
   Trash2, ChevronUp, ChevronDown, ChevronRight, GripVertical, Pencil,
@@ -222,9 +223,14 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
     onUpdate({ export_locale: lc })
   }
 
-  // ── Live preview: rebuild HTML on view/data/locale changes, debounced ──
+  // App-wide default fonts a view inherits (edited in Settings); refresh the
+  // preview when they change so an "inherit" view follows the new default.
+  const [globalFonts, setGlobalFonts] = useState(getDefaultFonts)
+  useEffect(() => onDefaultFontsChanged(() => setGlobalFonts(getDefaultFonts())), [])
+
+  // ── Live preview: rebuild HTML on view/data/locale/font changes, debounced ──
   const [previewHtml, setPreviewHtml] = useState(() =>
-    buildViewHtml(data, view, exportLocale)
+    buildViewHtml(data, view, exportLocale, globalFonts)
   )
   const [pageCount, setPageCount] = useState<number | null>(null)
   const [showPreview, setShowPreview] = useState(true)
@@ -236,10 +242,10 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
 
   useEffect(() => {
     const t = window.setTimeout(() => {
-      setPreviewHtml(buildViewHtml(data, view, exportLocale))
+      setPreviewHtml(buildViewHtml(data, view, exportLocale, globalFonts))
     }, 250)
     return () => window.clearTimeout(t)
-  }, [data, view, exportLocale])
+  }, [data, view, exportLocale, globalFonts])
 
   // Keep a popped-out preview window in sync with the live HTML.
   useEffect(() => {
@@ -310,6 +316,15 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
     onUpdate({
       sections: sections.map((s) =>
         s.key === key ? { ...s, detail } : s
+      ),
+    })
+  }
+
+  const setSectionSort = (key: string, sort: SortMode) => {
+    onUpdate({
+      // Drop the field when it's the default so the view stays lean.
+      sections: sections.map((s) =>
+        s.key === key ? { ...s, sort: sort === 'custom' ? undefined : sort } : s
       ),
     })
   }
@@ -388,7 +403,7 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
     void (async () => {
       try {
         const { exportPdf } = await import('../../../lib/pdfExporter')
-        await exportPdf(data, view, exportLocale)
+        await exportPdf(data, view, exportLocale, globalFonts)
         onUpdate({ last_exported_at: new Date().toISOString() })
       } catch (e) {
         setExportError(`Could not export PDF: ${(e as Error).message}`)
@@ -419,7 +434,7 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
     setExportError(null)
     try {
       const { exportDocx } = await import('../../../lib/exporter')
-      await exportDocx(data, view, exportLocale)
+      await exportDocx(data, view, exportLocale, globalFonts)
       onUpdate({ last_exported_at: new Date().toISOString() })
     } catch (e) {
       setExportError(`Could not export DOCX: ${(e as Error).message}`)
@@ -647,8 +662,8 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
                 </div>
 
                 <div
-                  className={`rv-sec-content${off ? '' : ' rv-sec-clickable'}`}
-                  onClick={off ? undefined : (e) => {
+                  className="rv-sec-content rv-sec-clickable"
+                  onClick={(e) => {
                     const t = e.target as HTMLElement
                     // The detail toggle owns its own clicks; and when expanded, a
                     // click inside the item list / style-override / KQ-parts panel
@@ -671,17 +686,19 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
                       value={vs.detail}
                       onChange={(d) => setSectionDetail(vs.key, d)}
                     />
-                    {!off && (
-                      <button
-                        type="button"
-                        className="rv-sec-expand"
-                        aria-expanded={isOpen}
-                        aria-label={`${isOpen ? 'Collapse' : 'Expand'} ${def.label} settings`}
-                        onClick={(e) => { e.stopPropagation(); toggleSection(vs.key) }}
-                      >
-                        <ChevronRight size={16} className={isOpen ? 'rv-chev-open' : ''} />
-                      </button>
-                    )}
+                    {/* The expander is ALWAYS present (even when Off) so the
+                        Off/Summary/Full group never shifts. An Off section still
+                        expands — to preview which items it holds — but shows no
+                        style overrides (there's nothing to style when hidden). */}
+                    <button
+                      type="button"
+                      className="rv-sec-expand"
+                      aria-expanded={isOpen}
+                      aria-label={`${isOpen ? 'Collapse' : 'Expand'} ${def.label}${off ? ' items' : ' settings'}`}
+                      onClick={(e) => { e.stopPropagation(); toggleSection(vs.key) }}
+                    >
+                      <ChevronRight size={16} className={isOpen ? 'rv-chev-open' : ''} />
+                    </button>
                   </div>
 
                   {/* Collapsed: a one-line overview of the chosen options so the
@@ -694,11 +711,11 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
                     </div>
                   )}
 
-                  {/* Expanded: parts (KQ), the style overrides (always shown —
-                      almost always needed) and the item list. */}
-                  {!off && isOpen && (
+                  {/* Expanded: the item list (always), plus — when the section
+                      is ON — the KQ parts and style overrides. */}
+                  {isOpen && (
                     <>
-                      {vs.key === 'key_qualifications' && (
+                      {!off && vs.key === 'key_qualifications' && (
                         <div className="rv-kq-parts">
                           <span className="rv-kq-parts-label">Show parts</span>
                           {KQ_PARTS.map((p) => (
@@ -714,14 +731,18 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
                         </div>
                       )}
 
-                      <SectionStylePanel
-                        sectionKey={vs.key}
-                        detail={vs.detail}
-                        style={vs.style}
-                        onChange={(patch) => setSectionStyle(vs.key, patch)}
-                        onReset={() => setSectionStyle(vs.key, null)}
-                        hasStyle={hasStyle}
-                      />
+                      {!off && (
+                        <SectionStylePanel
+                          sectionKey={vs.key}
+                          detail={vs.detail}
+                          style={vs.style}
+                          onChange={(patch) => setSectionStyle(vs.key, patch)}
+                          onReset={() => setSectionStyle(vs.key, null)}
+                          hasStyle={hasStyle}
+                          sort={vs.sort ?? 'custom'}
+                          onSortChange={(m) => setSectionSort(vs.key, m)}
+                        />
+                      )}
 
                       {storeItems.length > 0 ? (
                         <div className="rv-item-list">

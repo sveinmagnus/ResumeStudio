@@ -1,8 +1,21 @@
 import { DEFAULT_VIEW_STYLE, DEFAULT_SUMMARY_LAYOUT, normalizeFullLayout } from '../../../lib/viewStyle'
-import type { ViewStyle, Density, BodySize, HeadingFont, PageMargin, TagStyle, DividerStyle, SummaryLayout, FullLayout, DateFormat } from '../../../types'
-import { RotateCcw } from 'lucide-react'
+import { fontOptions, fontInstallInfo } from '../../../lib/fonts'
+import { getDefaultFonts } from '../../../lib/appPrefs'
+import type { ViewStyle, Density, BodySize, PageMargin, TagStyle, DividerStyle, SummaryLayout, FullLayout, DateFormat } from '../../../types'
+import { RotateCcw, Download } from 'lucide-react'
 import { Select } from './Select'
 import { SUMMARY_LAYOUT_OPTIONS, FULL_LAYOUT_OPTIONS, DATE_FORMAT_OPTIONS } from './SectionStylePanel'
+
+// Font <select> options: "Inherit global default" first, then the catalog.
+const FONT_SELECT_OPTIONS: Array<[string, string]> = [
+  ['inherit', 'Inherit global default'],
+  ...fontOptions().map((f): [string, string] => [f.id, f.label]),
+]
+
+/** Resolve a stored font value (possibly 'inherit') to a concrete catalog id. */
+function effectiveFont(value: string | undefined, fallback: string): string {
+  return !value || value === 'inherit' ? fallback : value
+}
 
 // ─── View styling controls ──────────────────────────────────────────────────
 
@@ -31,15 +44,17 @@ export function ViewStyleControls({ style, onChange }: { style: ViewStyle; onCha
           ]}
           onChange={(body_size) => onChange({ body_size })}
         />
-        <Select<HeadingFont>
+        <Select<string>
           label="Heading font"
-          value={style.heading_font}
-          options={[
-            ['condensed', 'Condensed (Cartavio)'],
-            ['sans',      'Sans (Ubuntu)'],
-            ['serif',     'Serif (Georgia)'],
-          ]}
+          value={style.heading_font ?? 'inherit'}
+          options={FONT_SELECT_OPTIONS}
           onChange={(heading_font) => onChange({ heading_font })}
+        />
+        <Select<string>
+          label="Body font"
+          value={style.body_font ?? 'inherit'}
+          options={FONT_SELECT_OPTIONS}
+          onChange={(body_font) => onChange({ body_font })}
         />
         <Select<PageMargin>
           label="Page margins"
@@ -125,6 +140,26 @@ export function ViewStyleControls({ style, onChange }: { style: ViewStyle; onCha
           </div>
         </div>
       </div>
+      {(() => {
+        // Offer to install the chosen fonts that aren't guaranteed on the
+        // machine, so Word (and the reader's copy) matches the preview.
+        const g = getDefaultFonts()
+        const ids = [effectiveFont(style.heading_font, g.heading), effectiveFont(style.body_font, g.body)]
+        const seen = new Set<string>()
+        const installs = ids
+          .map((id) => fontInstallInfo(id))
+          .filter((x): x is { label: string; url: string } => !!x && !seen.has(x.url) && (seen.add(x.url), true))
+        if (!installs.length) return null
+        return (
+          <p className="rv-vs-fonthint">
+            {installs.map((f) => (
+              <a key={f.url} className="rv-vs-fontlink" href={f.url} target="_blank" rel="noopener noreferrer">
+                <Download size={12} /> Install “{f.label}” so Word/PDF match
+              </a>
+            ))}
+          </p>
+        )
+      })()}
       <button type="button" className="rv-vs-reset" onClick={resetAll}>
         <RotateCcw size={12} /> Reset to defaults
       </button>

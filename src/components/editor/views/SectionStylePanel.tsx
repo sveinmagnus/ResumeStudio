@@ -1,5 +1,6 @@
-import type { SectionStyle, SectionDetail, Density, TagStyle, DividerStyle, SummaryLayout, FullLayout, DateFormat, LocalizedString } from '../../../types'
+import type { SectionStyle, SectionDetail, Density, TagStyle, DividerStyle, SummaryLayout, FullLayout, DateFormat, LocalizedString, SortMode } from '../../../types'
 import { Sliders, RotateCcw } from 'lucide-react'
+import { availableSortModes, SORT_LABELS } from '../../../lib/sectionSort'
 import { DualField } from '../../ui/DualField'
 
 // Item-layout option lists, shared with the view-wide controls. "Org" is the
@@ -67,12 +68,16 @@ interface SectionStylePanelProps {
   onChange: (patch: SectionStyle) => void
   onReset: () => void
   hasStyle: boolean
+  /** This view's item sort for the section (default 'custom'). */
+  sort: SortMode
+  onSortChange: (mode: SortMode) => void
 }
 
-export function SectionStylePanel({ sectionKey, detail, style, onChange, onReset, hasStyle }: SectionStylePanelProps) {
+export function SectionStylePanel({ sectionKey, detail, style, onChange, onReset, hasStyle, sort, onSortChange }: SectionStylePanelProps) {
   const s: SectionStyle = style ?? {}
   const showTag = TAG_SECTIONS.has(sectionKey)
   const isSummary = detail === 'summary'
+  const sortModes = availableSortModes(sectionKey)
   // Rendered inline whenever its section row is expanded (the row is the
   // collapse unit now), so the overrides are always visible without a second
   // click — they're almost always what the user came to adjust.
@@ -127,6 +132,18 @@ export function SectionStylePanel({ sectionKey, detail, style, onChange, onReset
             <label>) so they don't collide with the identically-named view-wide
             controls in automated/AT queries. */}
         <div className="rv-secstyle-selects">
+          <div className="rv-sel">
+            <span>Sort items</span>
+            <select
+              aria-label="Section item sort"
+              value={sort}
+              onChange={(e) => onSortChange(e.target.value as SortMode)}
+            >
+              {sortModes.map((m) => (
+                <option key={m} value={m}>{SORT_LABELS[m]}</option>
+              ))}
+            </select>
+          </div>
           <div className="rv-sel">
             <span>Density</span>
             <select

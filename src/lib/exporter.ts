@@ -31,9 +31,11 @@ import { resolve } from './locales'
 import { SECTION_CATALOG, summaryTitleMeta, type AnyItem as CatalogItem, type CatalogCtx, type ItemView } from './sectionCatalog'
 import { skillMatrixRows, fmtLastUsed, fmtProficiency, type SkillMatrixRow } from './skillMatrix'
 import { applyView, isExportableSection, defaultViewDetail, promotedProjectItems } from './viewFilter'
+import { sortItems } from './sectionSort'
 import { showcaseGroups } from './showcase'
 import { parseRichBlocks, type RichRun } from './richText'
-import { deriveTokens, resolveSectionStyle, sectionHeadingText, kqVisibility, withDefaults, resolveFontDocx, type ResolvedSectionStyle, type StyleTokens } from './viewStyle'
+import { deriveTokens, resolveSectionStyle, sectionHeadingText, kqVisibility, withDefaults, withResolvedFonts, resolveFontDocx, type ResolvedSectionStyle, type StyleTokens } from './viewStyle'
+import type { GlobalFonts } from './fonts'
 import { withHeaderDefaults, withFooterDefaults, buildHeaderLines, buildCopyrightLine } from './viewHeader'
 import { imageInfoFromDataUrl, applyShapeMaskToDataUrl, type ImageInfo } from './image'
 import { exportFilename } from './exportFilename'
@@ -196,7 +198,7 @@ function buildIdentityParagraphs(
       text: r.full_name,
       bold: true,
       size: (header.name_style.size_pt ?? baseTokens.h1Pt) * 2,
-      font: resolveFontDocx(header.name_style.font),
+      font: resolveFontDocx(header.name_style.font, baseTokens.bodyFontId),
       color: baseTokens.accentHex,
     })],
   }))
@@ -207,7 +209,7 @@ function buildIdentityParagraphs(
       children: [new TextRun({
         text: titleText,
         size: (header.title_style.size_pt ?? baseTokens.smallFontSizePt + 1) * 2,
-        font: resolveFontDocx(header.title_style.font),
+        font: resolveFontDocx(header.title_style.font, baseTokens.bodyFontId),
         color: '444444',
       })],
     }))
@@ -265,8 +267,8 @@ function footerBorderStyle(sep: FooterSeparator): (typeof BorderStyle)[keyof typ
  * Caller decides the export locale (typically one of the resume's
  * supported_locales).
  */
-export async function exportDocx(store: ResumeStore, view: ResumeView, locale: string): Promise<void> {
-  const viewStyle = withDefaults(view.style)
+export async function exportDocx(store: ResumeStore, view: ResumeView, locale: string, globalFonts?: GlobalFonts): Promise<void> {
+  const viewStyle = withResolvedFonts(withDefaults(view.style), globalFonts)
   const baseTokens = deriveTokens(viewStyle)
   const header = withHeaderDefaults(view.header)
   const footer = withFooterDefaults(view.footer)
@@ -347,6 +349,7 @@ export async function exportDocx(store: ResumeStore, view: ResumeView, locale: s
         sort_order: vs?.sort_order ?? 999,
         detail: vs?.detail ?? defaultViewDetail(s.key),
         sectionStyle: vs?.style as SectionStyle | undefined,
+        sort: vs?.sort ?? 'custom',
       }
     })
     .filter((s) => s.detail !== 'off')
@@ -367,12 +370,12 @@ export async function exportDocx(store: ResumeStore, view: ResumeView, locale: s
     // Virtual promoted_projects derives from the starred projects; virtual
     // technology_categories (Skills Showcase) derives its groups from the
     // skill-category system; everything else reads its filtered store array.
-    const items = def.key === 'promoted_projects'
+    const rawItems = def.key === 'promoted_projects'
       ? promotedProjectItems(store, view)
       : def.key === 'technology_categories'
         ? showcaseGroups(store, view, locale)
         : (filtered[def.storeKey] as unknown[])
-    if (!items.length) continue
+    if (!rawItems.length) continue
     const resolved = resolveSectionStyle(viewStyle, def.sectionStyle)
     const ctx: ExportCtx = {
       locale,
@@ -381,6 +384,10 @@ export async function exportDocx(store: ResumeStore, view: ResumeView, locale: s
       tokens: deriveTokens(resolved),
     }
     const renderKey = def.key === 'promoted_projects' ? 'projects' : def.key
+    // Order by the view's per-section sort (default 'custom' = arranged order).
+    const items = def.key === 'technology_categories'
+      ? rawItems
+      : sortItems(renderKey, rawItems as Array<{ id: string; sort_order: number }>, def.sort, locale)
     const block = renderSection(renderKey, sectionHeadingText(resolved, localizedSectionHeading(def.key, locale), locale), items, ctx)
     if (block.length) children.push(...block)
   }
@@ -453,8 +460,8 @@ function renderSection(key: string, label: string, items: unknown[], ctx: Export
   const desc = SECTION_CATALOG[key]
   if (!desc || (!desc.full && !desc.summary)) return []
   const cctx: CatalogCtx = { locale: ctx.locale, hideDates: !!ctx.resolved.hide_dates, dateFormat: ctx.resolved.date_format, target: 'docx', kq: kqVisibility(ctx.resolved) }
-  let list = items as CatalogItem[]
-  if (desc.docxSortByStart) list = [...list].sort(byStartDescending)
+  // Items arrive already ordered by the caller (the view's per-section sort).
+  const list = items as CatalogItem[]
   const out: Paragraph[] = []
   for (const it of list) {
     if (ctx.detail === 'summary' && !desc.alwaysFull) {
@@ -601,18 +608,6 @@ function skillMatrixTable(rows: SkillMatrixRow[], showDates: boolean, tokens: St
 }
 
 // ─── Misc ─────────────────────────────────────────────────────────────────────
-
-type AnyItem = Record<string, unknown>
-type YM = { year: number; month: number | null } | null
-
-
-function byStartDescending(a: AnyItem, b: AnyItem): number {
-  const aS = a.start as YM
-  const bS = b.start as YM
-  const aD = aS ? aS.year * 12 + (aS.month ?? 0) : 0
-  const bD = bS ? bS.year * 12 + (bS.month ?? 0) : 0
-  return bD - aD
-}
 
 function downloadBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob)

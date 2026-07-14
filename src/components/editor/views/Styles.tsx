@@ -114,17 +114,19 @@ export function Styles() {
       /* ── Section list ── */
       .rv-section-list { display: flex; flex-direction: column; gap: 6px; }
       .rv-sec-row {
-        display: flex; align-items: flex-start; gap: 8px; padding: 12px 14px;
+        display: flex; align-items: flex-start; gap: 8px; padding: 9px 12px;
         border: 1px solid var(--line); border-radius: var(--r-md);
         background: var(--paper-raised); transition: border-color .15s;
       }
       .rv-sec-on { border-color: var(--line); }
       .rv-sec-off { opacity: .55; background: var(--paper-sunken); }
 
-      .rv-sec-controls { display: flex; flex-direction: column; gap: 2px; flex-shrink: 0; padding-top: 2px; }
+      /* Drag handle at the left, the up/down reorder arrows to its right (one
+         compact horizontal strip rather than a tall stacked column). */
+      .rv-sec-controls { display: flex; flex-direction: row; align-items: center; gap: 1px; flex-shrink: 0; }
       .rv-ord-btn {
         display: flex; align-items: center; justify-content: center;
-        width: 22px; height: 22px; border-radius: var(--r-sm);
+        width: 20px; height: 22px; border-radius: var(--r-sm);
         color: var(--ink-faint); transition: color .13s, background .13s, border-color .13s, box-shadow .13s;
       }
       .rv-ord-btn:hover:not(:disabled) { background: var(--paper-sunken); color: var(--ink); }
@@ -267,6 +269,12 @@ export function Styles() {
         font-size: 12px; font-weight: 600; transition: color .13s, background .13s, border-color .13s, box-shadow .13s; margin-top: 10px;
       }
       .rv-vs-reset:hover { color: var(--accent); background: var(--accent-wash); }
+      .rv-vs-fonthint { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 10px 0 0; }
+      .rv-vs-fontlink {
+        display: inline-flex; align-items: center; gap: 5px;
+        font-size: 11.5px; font-weight: 600; color: var(--accent); text-decoration: none;
+      }
+      .rv-vs-fontlink:hover { text-decoration: underline; }
 
       /* ── Header controls ── */
       .rv-hdr-sub {
@@ -340,14 +348,15 @@ export function Styles() {
       /* ── Item list ── */
       .rv-item-list { display: flex; flex-direction: column; gap: 1px; margin-top: 10px; }
       .rv-item-row {
-        display: flex; align-items: flex-start; gap: 10px; padding: 7px 8px;
+        display: flex; align-items: center; gap: 10px; padding: 5px 8px;
         border-radius: var(--r-sm); cursor: pointer; transition: background .1s;
       }
       .rv-item-row:hover { background: var(--paper-sunken); }
       .rv-item-hidden { opacity: .45; }
       .rv-item-hidden .rv-item-title { text-decoration: line-through; }
-      .rv-item-check { flex-shrink: 0; margin-top: 3px; accent-color: var(--accent); width: 15px; height: 15px; }
-      .rv-item-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+      .rv-item-check { flex-shrink: 0; accent-color: var(--accent); width: 15px; height: 15px; }
+      /* Title, star and date/subtitle share ONE line (wrap only if very long). */
+      .rv-item-info { display: flex; flex-direction: row; align-items: center; flex-wrap: wrap; gap: 3px 8px; min-width: 0; }
       .rv-item-title { font-size: 13px; font-weight: 500; }
       .rv-item-star { color: var(--gold); flex-shrink: 0; }
       .rv-item-sub { font-size: 11px; color: var(--ink-faint); }

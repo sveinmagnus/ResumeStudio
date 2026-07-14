@@ -547,7 +547,18 @@ export type DividerStyle = 'line' | 'thick' | 'dashed' | 'dotted' | 'double' | '
 export interface ViewStyle {
   density: Density
   body_size: BodySize
-  heading_font: HeadingFont
+  /**
+   * Heading font — a font-catalog id (`lib/fonts.ts`) or the sentinel
+   * `'inherit'` (use the app-wide default). The legacy `HeadingFont` ids
+   * (`condensed`/`sans`/`serif`) are kept in the catalog so old views resolve
+   * unchanged. Widened from the old `HeadingFont` enum.
+   */
+  heading_font: string
+  /**
+   * Body font — a font-catalog id or `'inherit'`. Additive/optional; absent
+   * reads as the brand body font (Ubuntu). Previously the body font was fixed.
+   */
+  body_font?: string
   /** CSS hex color (with leading '#') for accent — defaults to Cartavio navy. */
   accent_color: string
   page_margin: PageMargin
@@ -619,12 +630,30 @@ export interface SectionStyle {
   kq_show_long?: boolean
 }
 
+/**
+ * How a section's items are ordered — the persisted order is always `sort_order`
+ * ("custom"); the rest are computed views (see `lib/sectionSort.ts`). Defined
+ * here (a pure type) so `ViewSection.sort` can reference it; `sectionSort.ts`
+ * re-exports it.
+ */
+export type SortMode =
+  | 'custom' | 'alpha'
+  | 'start' | 'start_asc'
+  | 'end' | 'end_asc'
+  | 'date' | 'date_asc'
+
 export interface ViewSection {
   key: string
   detail: SectionDetail
   sort_order: number
   /** Optional per-section styling override. Sparse — only set fields override the view default. */
   style?: SectionStyle
+  /**
+   * Per-view item sort for this section (independent of the editor's own sort
+   * mode). Absent = 'custom' (the resume's arranged `sort_order`). Lets one view
+   * list e.g. courses newest-first while the master order stays hand-tuned.
+   */
+  sort?: SortMode
 }
 
 // ─── View header & footer configuration ──────────────────────────────────────
@@ -671,8 +700,9 @@ export type LogoPlacement = 'none' | 'left' | 'center' | 'right'
 export interface HeaderTextStyle {
   /** Explicit point size; null = derive from the view's body-size scale. */
   size_pt: number | null
-  /** Font family — a heading font choice or the body font. */
-  font: HeadingFont | 'body'
+  /** Font family — a font-catalog id (`lib/fonts.ts`) or the sentinel `'body'`
+   *  (use the view's body font). Widened from the old `HeadingFont` enum. */
+  font: string
 }
 
 export interface ViewHeaderConfig {

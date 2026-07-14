@@ -32,10 +32,13 @@ import { skillMatrixRows, fmtLastUsed, fmtProficiency, type SkillMatrixRow } fro
 import { applyView, isExportableSection, defaultViewDetail, promotedProjectItems } from './viewFilter'
 import { showcaseGroups } from './showcase'
 import { parseRichBlocks } from './richText'
+import { sortItems } from './sectionSort'
 import {
   deriveTokens, resolveSectionStyle, sectionHeadingText, kqVisibility, withDefaults,
+  withResolvedFonts, resolveFontPdf,
   type ResolvedSectionStyle, type StyleTokens,
 } from './viewStyle'
+import type { GlobalFonts } from './fonts'
 import { withHeaderDefaults, withFooterDefaults, buildHeaderLines, buildCopyrightLine } from './viewHeader'
 import { imageInfoFromDataUrl, applyShapeMaskToDataUrl, type ImageInfo } from './image'
 import { exportFilename } from './exportFilename'
@@ -116,7 +119,7 @@ function sectionHeading(label: string, tokens: StyleTokens): PdfNode {
   return {
     table: {
       widths: ['*'],
-      body: [[{ text: label.toUpperCase(), bold: true, color: accent, fontSize: tokens.h2Pt, border: [false, false, false, true] }]],
+      body: [[{ text: label.toUpperCase(), bold: true, color: accent, fontSize: tokens.h2Pt, font: tokens.headingPdfFont, border: [false, false, false, true] }]],
     },
     layout: {
       hLineWidth: (i: number) => (i === 1 ? 0.8 : 0),
@@ -186,17 +189,6 @@ function renderItemPdf(v: ItemView, tokens: StyleTokens): PdfNode[] {
 
 // ─── Section dispatcher (mirrors renderSection) ─────────────────────────────
 
-type AnyRec = Record<string, unknown>
-type YM = { year: number; month: number | null } | null
-
-function byStartDescending(a: AnyRec, b: AnyRec): number {
-  const aS = a.start as YM
-  const bS = b.start as YM
-  const aD = aS ? aS.year * 12 + (aS.month ?? 0) : 0
-  const bD = bS ? bS.year * 12 + (bS.month ?? 0) : 0
-  return bD - aD
-}
-
 function renderSection(key: string, label: string, items: unknown[], ctx: ExportCtx): PdfNode[] {
   const desc = SECTION_CATALOG[key]
   if (!desc || (!desc.full && !desc.summary)) return []
@@ -204,8 +196,8 @@ function renderSection(key: string, label: string, items: unknown[], ctx: Export
     locale: ctx.locale, hideDates: !!ctx.resolved.hide_dates, dateFormat: ctx.resolved.date_format,
     target: 'docx', kq: kqVisibility(ctx.resolved),
   }
-  let list = items as CatalogItem[]
-  if (desc.docxSortByStart) list = [...list].sort(byStartDescending as (a: CatalogItem, b: CatalogItem) => number)
+  // Items arrive already ordered by the caller (the view's per-section sort).
+  const list = items as CatalogItem[]
   const body: PdfNode[] = []
   for (const it of list) {
     if (ctx.detail === 'summary' && !desc.alwaysFull) {
@@ -271,13 +263,13 @@ function buildIdentity(
 ): PdfNode[] {
   const accent = `#${tokens.accentHex}`
   const out: PdfNode[] = [{
-    text: r.full_name, bold: true, color: accent,
+    text: r.full_name, bold: true, color: accent, font: resolveFontPdf(header.name_style.font, tokens.bodyFontId),
     fontSize: header.name_style.size_pt ?? tokens.h1Pt, margin: [0, 0, 0, 3] as Margin,
   }]
   const titleText = L(header.title_override, locale) || L(r.title, locale)
   if (titleText) {
     out.push({
-      text: titleText, color: TITLE_INK,
+      text: titleText, color: TITLE_INK, font: resolveFontPdf(header.title_style.font, tokens.bodyFontId),
       fontSize: header.title_style.size_pt ?? tokens.smallFontSizePt + 1, margin: [0, 0, 0, 6] as Margin,
     })
   }
@@ -310,9 +302,9 @@ const FOOTER_DASH: Partial<Record<FooterSeparator, { length: number; space?: num
  * loading pdfmake itself.
  */
 export async function buildPdfDocDefinition(
-  store: ResumeStore, view: ResumeView, locale: string,
+  store: ResumeStore, view: ResumeView, locale: string, globalFonts?: GlobalFonts,
 ): Promise<Record<string, unknown>> {
-  const viewStyle = withDefaults(view.style)
+  const viewStyle = withResolvedFonts(withDefaults(view.style), globalFonts)
   const baseTokens = deriveTokens(viewStyle)
   const header = withHeaderDefaults(view.header)
   const footer = withFooterDefaults(view.footer)
@@ -378,6 +370,7 @@ export async function buildPdfDocDefinition(
         sort_order: vs?.sort_order ?? 999,
         detail: vs?.detail ?? defaultViewDetail(s.key),
         sectionStyle: vs?.style as SectionStyle | undefined,
+        sort: vs?.sort ?? 'custom',
       }
     })
     .filter((s) => s.detail !== 'off')
@@ -394,15 +387,18 @@ export async function buildPdfDocDefinition(
       content.push(skillMatrixTable(rows, !resolved.hide_dates, tokens))
       continue
     }
-    const items = def.key === 'promoted_projects'
+    const rawItems = def.key === 'promoted_projects'
       ? promotedProjectItems(store, view)
       : def.key === 'technology_categories'
         ? showcaseGroups(store, view, locale)
         : (filtered[def.storeKey] as unknown[])
-    if (!items.length) continue
+    if (!rawItems.length) continue
     const resolved = resolveSectionStyle(viewStyle, def.sectionStyle)
     const ctx: ExportCtx = { locale, detail: def.detail, resolved, tokens: deriveTokens(resolved) }
     const renderKey = def.key === 'promoted_projects' ? 'projects' : def.key
+    const items = def.key === 'technology_categories'
+      ? rawItems
+      : sortItems(renderKey, rawItems as Array<{ id: string; sort_order: number }>, def.sort, locale)
     content.push(...renderSection(renderKey, sectionHeadingText(resolved, localizedSectionHeading(def.key, locale), locale), items, ctx))
   }
 
@@ -432,7 +428,7 @@ export async function buildPdfDocDefinition(
   return {
     pageSize: 'A4',
     pageMargins,
-    defaultStyle: { fontSize: baseTokens.bodyFontSizePt, lineHeight: baseTokens.lineHeight, color: INK },
+    defaultStyle: { font: baseTokens.bodyPdfFont, fontSize: baseTokens.bodyFontSizePt, lineHeight: baseTokens.lineHeight, color: INK },
     content,
   }
 }
@@ -441,8 +437,8 @@ export async function buildPdfDocDefinition(
  * Render a ResumeView straight to a downloadable .pdf. Lazy-loads pdfmake and
  * its font vfs, then hands the browser the file — no print dialog.
  */
-export async function exportPdf(store: ResumeStore, view: ResumeView, locale: string): Promise<void> {
-  const docDefinition = await buildPdfDocDefinition(store, view, locale)
+export async function exportPdf(store: ResumeStore, view: ResumeView, locale: string, globalFonts?: GlobalFonts): Promise<void> {
+  const docDefinition = await buildPdfDocDefinition(store, view, locale, globalFonts)
   const [pdfMakeMod, fontsMod] = await Promise.all([
     import('pdfmake/build/pdfmake'),
     import('pdfmake/build/vfs_fonts'),
@@ -452,5 +448,15 @@ export async function exportPdf(store: ResumeStore, view: ResumeView, locale: st
   // wrapper too so a bundler interop quirk doesn't break the export.
   const fonts = fontsMod as unknown as { default?: Record<string, string> } & Record<string, string>
   pdfMake.vfs = fonts.default ?? fonts
+  // Roboto is embedded (bundled vfs); Times / Helvetica / Courier are the PDF
+  // standard-14 base fonts — pdfkit renders them without any embedded file, so a
+  // font choice maps onto one of these (see lib/fonts.ts) and the PDF matches
+  // the family's look without shipping extra font binaries.
+  pdfMake.fonts = {
+    Roboto: { normal: 'Roboto-Regular.ttf', bold: 'Roboto-Medium.ttf', italics: 'Roboto-Italic.ttf', bolditalics: 'Roboto-MediumItalic.ttf' },
+    Times: { normal: 'Times-Roman', bold: 'Times-Bold', italics: 'Times-Italic', bolditalics: 'Times-BoldItalic' },
+    Helvetica: { normal: 'Helvetica', bold: 'Helvetica-Bold', italics: 'Helvetica-Oblique', bolditalics: 'Helvetica-BoldOblique' },
+    Courier: { normal: 'Courier', bold: 'Courier-Bold', italics: 'Courier-Oblique', bolditalics: 'Courier-BoldOblique' },
+  }
   pdfMake.createPdf(docDefinition).download(exportFilename(store.resume?.full_name, view.name, 'pdf'))
 }

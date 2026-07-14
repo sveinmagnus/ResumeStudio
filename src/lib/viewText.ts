@@ -19,6 +19,7 @@ import {
 import { SECTION_CATALOG, summaryTitleMeta, type CatalogCtx, type ItemView } from './sectionCatalog'
 import { skillMatrixRows, fmtLastUsed, fmtProficiency } from './skillMatrix'
 import { showcaseGroups } from './showcase'
+import { sortItems } from './sectionSort'
 import { resolveSectionStyle, sectionHeadingText, kqVisibility, withDefaults } from './viewStyle'
 import { withHeaderDefaults, withFooterDefaults, buildHeaderLines, buildCopyrightLine } from './viewHeader'
 import { parseRichBlocks, type RichRun } from './richText'
@@ -122,6 +123,7 @@ function buildViewDoc(store: ResumeStore, view: ResumeView, locale: string, fmt:
         sort_order: vs?.sort_order ?? 999,
         detail: vs?.detail ?? defaultViewDetail(s.key),
         sectionStyle: vs?.style,
+        sort: vs?.sort ?? 'custom',
       }
     })
     .filter((s) => s.detail !== 'off')
@@ -157,13 +159,16 @@ function buildViewDoc(store: ResumeStore, view: ResumeView, locale: string, fmt:
       out.push('')
       continue
     }
-    const items = s.key === 'promoted_projects'
+    const rawItems = s.key === 'promoted_projects'
       ? promotedProjectItems(store, view)
       : s.key === 'technology_categories'
         ? showcaseGroups(store, view, locale)
         : (filtered[s.storeKey] as unknown[])
-    if (!items.length) continue
+    if (!rawItems.length) continue
     const renderKey = s.key === 'promoted_projects' ? 'projects' : s.key
+    const items = s.key === 'technology_categories'
+      ? rawItems
+      : sortItems(renderKey, rawItems as Array<{ id: string; sort_order: number }>, s.sort, locale)
     const desc = SECTION_CATALOG[renderKey]
     if (!desc || (!desc.full && !desc.summary)) continue
     const resolved = resolveSectionStyle(viewStyle, s.sectionStyle)

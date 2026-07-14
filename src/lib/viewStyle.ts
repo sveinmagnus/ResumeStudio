@@ -15,9 +15,14 @@
  */
 
 import type {
-  ViewStyle, SectionStyle, Density, BodySize, HeadingFont, PageMargin, TagStyle, DividerStyle,
+  ViewStyle, SectionStyle, Density, BodySize, PageMargin, TagStyle, DividerStyle,
   SummaryLayout, FullLayout, DateFormat, LocalizedString,
 } from '../types'
+import {
+  fontById, resolveFontId, CATALOG_DEFAULT_FONTS,
+  DEFAULT_HEADING_FONT, DEFAULT_BODY_FONT,
+  type GlobalFonts, type PdfBaseFont,
+} from './fonts'
 
 // ─── Defaults ───────────────────────────────────────────────────────────────
 
@@ -29,7 +34,11 @@ import type {
 export const DEFAULT_VIEW_STYLE: ViewStyle = {
   density: 'normal',
   body_size: 'normal',
-  heading_font: 'condensed',
+  // Fonts inherit the app-wide default (which defaults to the brand fonts), so
+  // changing the global default in Settings flows through to views that didn't
+  // pick their own. `withResolvedFonts` maps 'inherit' → the concrete id.
+  heading_font: 'inherit',
+  body_font: 'inherit',
   accent_color: '#002E6E',
   page_margin: 'normal',
   tag_style: 'chips',
@@ -81,12 +90,18 @@ export interface StyleTokens {
   h2Pt: number                    // section heading
   h3Pt: number                    // item heading
   lineHeight: number              // 1.35 .. 1.6
+  // Resolved font catalog ids (for further per-element resolution).
+  headingFontId: string
+  bodyFontId: string
   // CSS family strings (HTML path)
   headingFontCss: string
   bodyFontCss: string
   // DOCX font names (the docx package expects bare names)
   headingFontDocx: string
   bodyFontDocx: string
+  // pdfmake base fonts (standard-14, no embedding)
+  headingPdfFont: PdfBaseFont
+  bodyPdfFont: PdfBaseFont
   // Spacing
   /** Vertical gap between top-level items in the section (CSS px, DOCX twips). */
   itemGapPx: number
@@ -116,12 +131,6 @@ const BODY_SCALE: Record<BodySize, { bodyPt: number; h1Pt: number; h2Pt: number;
   large:  { bodyPt: 12, h1Pt: 34, h2Pt: 17, h3Pt: 12 },
 }
 
-const HEADING_FONT_MAP: Record<HeadingFont, { css: string; docx: string }> = {
-  condensed: { css: `'Open Sans Condensed', sans-serif`, docx: 'Open Sans Condensed' },
-  sans:      { css: `'Ubuntu', sans-serif`, docx: 'Ubuntu' },
-  serif:     { css: `Georgia, 'Times New Roman', serif`, docx: 'Georgia' },
-}
-
 const PAGE_MARGIN_MAP: Record<PageMargin, {
   cssPadding: string
   // twips for DOCX (1 inch = 1440 twips)
@@ -132,25 +141,36 @@ const PAGE_MARGIN_MAP: Record<PageMargin, {
   generous: { cssPadding: '48px 72px', marginTwips: { top: 1440, bottom: 1440, left: 1584, right: 1584 } },  // 1", 1.1"
 }
 
-const BODY_FONT_CSS = `Ubuntu, sans-serif`
-const BODY_FONT_DOCX = 'Ubuntu'
-
 /**
- * Resolve a header text-style font choice (a HeadingFont or the body font) to a
- * CSS family string. Used by the configurable view header (name / title).
+ * Resolve a header text-style font choice (a font id or the sentinel `'body'`)
+ * to a CSS family string. `'body'` uses the view's body font. Used by the
+ * configurable view header (name / title).
  */
-export function resolveFontCss(font: HeadingFont | 'body'): string {
-  if (font === 'body') return BODY_FONT_CSS
-  // Fall back to the default heading font for unknown values (e.g. from a
-  // crafted import) — an undefined map entry would otherwise throw, and the
-  // raw value is interpolated into a CSS font-family.
-  return (HEADING_FONT_MAP[font] ?? HEADING_FONT_MAP.condensed).css
+export function resolveFontCss(font: string, bodyFontId: string): string {
+  return fontById(font === 'body' ? bodyFontId : font).cssStack
 }
 
 /** DOCX equivalent of resolveFontCss — returns the bare font name docx expects. */
-export function resolveFontDocx(font: HeadingFont | 'body'): string {
-  if (font === 'body') return BODY_FONT_DOCX
-  return (HEADING_FONT_MAP[font] ?? HEADING_FONT_MAP.condensed).docx
+export function resolveFontDocx(font: string, bodyFontId: string): string {
+  return fontById(font === 'body' ? bodyFontId : font).docxName
+}
+
+/** pdfmake equivalent — the standard-14 base font the choice renders as. */
+export function resolveFontPdf(font: string, bodyFontId: string): PdfBaseFont {
+  return fontById(font === 'body' ? bodyFontId : font).pdfFont
+}
+
+/**
+ * Replace the `'inherit'` sentinel on a view style's fonts with the app-wide
+ * defaults, so the pure renderers only ever see a concrete font id. Called at
+ * the top of each export path with the caller's global-default fonts.
+ */
+export function withResolvedFonts(style: ViewStyle, globals: GlobalFonts = CATALOG_DEFAULT_FONTS): ViewStyle {
+  return {
+    ...style,
+    heading_font: resolveFontId(style.heading_font, globals.heading),
+    body_font: resolveFontId(style.body_font, globals.body),
+  }
 }
 
 /**
@@ -163,7 +183,8 @@ export function deriveTokens(style: ViewStyle): StyleTokens {
   // a property is read. Renderers must never crash on untrusted view config.
   const density = DENSITY_SCALE[style.density] ?? DENSITY_SCALE.normal
   const sizes = BODY_SCALE[style.body_size] ?? BODY_SCALE.normal
-  const headingFont = HEADING_FONT_MAP[style.heading_font] ?? HEADING_FONT_MAP.condensed
+  const headingFont = fontById(style.heading_font, DEFAULT_HEADING_FONT)
+  const bodyFont = fontById(style.body_font, DEFAULT_BODY_FONT)
   const pageMargin = PAGE_MARGIN_MAP[style.page_margin] ?? PAGE_MARGIN_MAP.normal
   const accentHex = sanitizeHexColor(style.accent_color)
   return {
@@ -174,10 +195,14 @@ export function deriveTokens(style: ViewStyle): StyleTokens {
     h2Pt: sizes.h2Pt,
     h3Pt: sizes.h3Pt,
     lineHeight: density.lineHeight,
-    headingFontCss: headingFont.css,
-    bodyFontCss: BODY_FONT_CSS,
-    headingFontDocx: headingFont.docx,
-    bodyFontDocx: BODY_FONT_DOCX,
+    headingFontId: headingFont.id,
+    bodyFontId: bodyFont.id,
+    headingFontCss: headingFont.cssStack,
+    bodyFontCss: bodyFont.cssStack,
+    headingFontDocx: headingFont.docxName,
+    bodyFontDocx: bodyFont.docxName,
+    headingPdfFont: headingFont.pdfFont,
+    bodyPdfFont: bodyFont.pdfFont,
     itemGapPx: density.itemGapPx,
     itemGapTwips: density.itemGapTwips,
     sectionHeadingAfterPx: density.sectionGapPx,
@@ -276,6 +301,7 @@ export function resolveSectionStyle(
     density: section?.density ?? view.density,
     body_size: view.body_size,
     heading_font: view.heading_font,
+    body_font: view.body_font,
     accent_color: view.accent_color,
     page_margin: view.page_margin,
     tag_style: section?.tag_style ?? view.tag_style,

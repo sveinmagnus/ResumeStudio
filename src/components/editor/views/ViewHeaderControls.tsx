@@ -7,6 +7,7 @@ import type {
 } from '../../../types'
 import { ChevronUp, ChevronDown, Loader2, Link2 } from 'lucide-react'
 import { Select } from './Select'
+import { fontOptions } from '../../../lib/fonts'
 import { imageUrlToResizedDataUrl } from '../../../lib/image'
 
 const anyLocale = (v: LocalizedString): boolean => Object.values(v).some((x) => (x ?? '').trim() !== '')
@@ -253,12 +254,10 @@ function HeaderTextStyleControl({
         <select
           className="rv-vs-select"
           value={value.font}
-          onChange={(e) => onChange({ ...value, font: e.target.value as HeaderTextStyle['font'] })}
+          onChange={(e) => onChange({ ...value, font: e.target.value })}
         >
-          <option value="condensed">Condensed</option>
-          <option value="sans">Sans (Ubuntu)</option>
-          <option value="serif">Serif (Georgia)</option>
           <option value="body">Body font</option>
+          {fontOptions().map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
         </select>
         <input
           className="rv-hdr-size"
