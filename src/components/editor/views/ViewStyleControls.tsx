@@ -1,4 +1,4 @@
-import { DEFAULT_VIEW_STYLE } from '../../../lib/viewStyle'
+import { DEFAULT_VIEW_STYLE, DEFAULT_SUMMARY_LAYOUT, normalizeFullLayout } from '../../../lib/viewStyle'
 import type { ViewStyle, Density, BodySize, HeadingFont, PageMargin, TagStyle, DividerStyle, SummaryLayout, FullLayout, DateFormat } from '../../../types'
 import { RotateCcw } from 'lucide-react'
 import { Select } from './Select'
@@ -79,13 +79,13 @@ export function ViewStyleControls({ style, onChange }: { style: ViewStyle; onCha
         />
         <Select<SummaryLayout>
           label="Summary layout"
-          value={style.summary_layout ?? 'title-org-date'}
+          value={style.summary_layout ?? DEFAULT_SUMMARY_LAYOUT}
           options={SUMMARY_LAYOUT_OPTIONS}
           onChange={(summary_layout) => onChange({ summary_layout })}
         />
         <Select<FullLayout>
           label="Full-item layout"
-          value={style.date_position ?? 'default'}
+          value={normalizeFullLayout(style.date_position)}
           options={FULL_LAYOUT_OPTIONS}
           onChange={(date_position) => onChange({ date_position })}
         />

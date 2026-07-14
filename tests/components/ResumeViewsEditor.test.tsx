@@ -64,6 +64,35 @@ describe('<ResumeViewsEditor>', () => {
     expect(screen.getAllByText(/style overrides/i)).toHaveLength(1)
   })
 
+  it('expands and collapses a section by clicking its box (not just the arrow)', async () => {
+    seed()
+    render(<ResumeViewsEditor />)
+    await userEvent.click(screen.getByRole('button', { name: /new view/i }))
+
+    // Collapsed by default — no style-override panels rendered.
+    expect(screen.queryAllByText(/style overrides/i)).toHaveLength(0)
+
+    // Click the section TITLE (outside the off/summary/full toggle) → expands.
+    const expandBtn = screen.getAllByRole('button', { name: /^expand .* settings$/i })[0]
+    const row = expandBtn.closest('.rv-sec-row') as HTMLElement
+    await userEvent.click(row.querySelector('.rv-sec-title') as HTMLElement)
+    expect(within(row).getAllByText(/style overrides/i).length).toBeGreaterThan(0)
+
+    // Click the title again → collapses.
+    await userEvent.click(row.querySelector('.rv-sec-title') as HTMLElement)
+    expect(within(row).queryAllByText(/style overrides/i)).toHaveLength(0)
+  })
+
+  it('clicking the detail toggle does not expand the section', async () => {
+    seed()
+    render(<ResumeViewsEditor />)
+    await userEvent.click(screen.getByRole('button', { name: /new view/i }))
+    // Clicking "summary" changes the detail but must NOT expand the box.
+    const summaryBtns = screen.getAllByRole('radio', { name: /^summary$/i })
+    await userEvent.click(summaryBtns[0])
+    expect(screen.queryAllByText(/style overrides/i)).toHaveLength(0)
+  })
+
   it('switches a section to off via the detail toggle', async () => {
     seed()
     render(<ResumeViewsEditor />)

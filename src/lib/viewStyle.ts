@@ -202,9 +202,9 @@ export interface ResolvedSectionStyle extends ViewStyle {
   divider_style: DividerStyle
   /** Custom heading text (localized), or undefined to use the section label. */
   heading_text?: LocalizedString
-  /** Summary-line slot order (resolved: section → view → 'title-org-date'). */
+  /** Summary-line slot order (resolved: section → view → 'date-title-org'). */
   summary_layout: SummaryLayout
-  /** Full-item date/details placement (resolved: section → view → 'default'). */
+  /** Full-item title/meta layout (resolved + legacy-normalised: section → view → 'title-org-date'). */
   date_position: FullLayout
   /** Lay summary items out in aligned columns (resolved: section → view → false). */
   tabulate: boolean
@@ -215,6 +215,24 @@ export interface ResolvedSectionStyle extends ViewStyle {
   kq_show_tagline?: boolean
   kq_show_short?: boolean
   kq_show_long?: boolean
+}
+
+/** The default full-item layout when nothing is set (title first, org then date). */
+export const DEFAULT_FULL_LAYOUT: FullLayout = 'title-org-date'
+/** The default summary-line slot order when nothing is set. */
+export const DEFAULT_SUMMARY_LAYOUT: SummaryLayout = 'date-title-org'
+
+const FULL_LAYOUTS = new Set<string>(['title-org-date', 'title-date-org', 'lead-org-date', 'lead-date-org'])
+
+/**
+ * Coerce a stored full-item layout to a valid {@link FullLayout}, mapping the
+ * legacy `'default'`/`'leading'` values (and anything unknown) forward. The
+ * render boundary calls this so old saved views keep working.
+ */
+export function normalizeFullLayout(v: string | null | undefined): FullLayout {
+  if (v && FULL_LAYOUTS.has(v)) return v as FullLayout
+  if (v === 'leading') return 'lead-org-date'
+  return DEFAULT_FULL_LAYOUT // 'default' + unknown/undefined
 }
 
 /** Which professional-summary parts to render, with the documented defaults. */
@@ -271,8 +289,8 @@ export function resolveSectionStyle(
     hide_dates: section?.hide_dates ?? false,
     heading_text: section?.heading_text,
     // Item-layout controls resolve section override → view-wide default → base.
-    summary_layout: section?.summary_layout ?? view.summary_layout ?? 'title-org-date',
-    date_position: section?.date_position ?? view.date_position ?? 'default',
+    summary_layout: section?.summary_layout ?? view.summary_layout ?? DEFAULT_SUMMARY_LAYOUT,
+    date_position: normalizeFullLayout(section?.date_position ?? view.date_position),
     tabulate: section?.tabulate ?? view.tabulate ?? false,
     date_format: section?.date_format ?? view.date_format ?? 'month-year',
     kq_show_label: section?.kq_show_label,

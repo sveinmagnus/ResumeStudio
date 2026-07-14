@@ -357,8 +357,11 @@ describe('buildViewHtml()', () => {
     // Grid wraps just the item rows; the heading stays outside it.
     expect(html).toContain('ve-tab-grid')
     expect(html).toContain('ve-tab-title')
-    // Title, role, start and end each land in their own column (4 columns).
-    expect(html).toContain('grid-template-columns:repeat(4, max-content)')
+    // Title, employer, start, (separator,) end each get their own column; the
+    // title column is the flexible one so long titles wrap within the page.
+    expect(html).toContain('minmax(0, max-content)')
+    // A dedicated separator column carries the range mark between the dates.
+    expect(html).toContain('ve-tab-sep')
     expect(html).toContain('BigCo')
     expect(html).toContain('Engineer')
     expect(html).toContain('Jan 2020')
@@ -475,7 +478,41 @@ describe('buildViewHtml()', () => {
     })
     const html = buildViewHtml(store, view, 'en')
     // The meta div (role · dates) appears before the <h3> employer title.
+    // ('leading' is a legacy value normalised to 'lead-org-date'.)
     expect(html.indexOf('ve-meta')).toBeLessThan(html.indexOf('<h3>BigCo</h3>'))
+  })
+
+  it('full-item layout controls date-before-org vs org-before-date in the details line', () => {
+    const store = emptyStore()
+    store.work_experiences.push(makeWork({
+      id: 'w1', employer: { en: 'BigCo' }, role_title: { en: 'Engineer' },
+      start: { year: 2020, month: 1 }, end: null, // → "Jan 2020 – Present"
+    }))
+    const mk = (dp: string) => buildViewHtml(store, makeView({
+      sections: [{ key: 'work_experiences', detail: 'full' as const, sort_order: 0, style: { date_position: dp as never } }],
+    }), 'en')
+
+    // Org (the role in meta) then date.
+    const orgFirst = mk('title-org-date')
+    expect(orgFirst.indexOf('Engineer')).toBeLessThan(orgFirst.indexOf('Jan 2020'))
+    // Date then org.
+    const dateFirst = mk('title-date-org')
+    expect(dateFirst.indexOf('Jan 2020')).toBeLessThan(dateFirst.indexOf('Engineer'))
+  })
+
+  it('non-tabulated summary uses a dash between from/to dates (dots between items)', () => {
+    const store = emptyStore()
+    store.work_experiences.push(makeWork({
+      id: 'w1', employer: { en: 'BigCo' }, role_title: { en: 'Engineer' },
+      start: { year: 2020, month: 1 }, end: { year: 2022, month: 6 },
+    }))
+    const view = makeView({
+      sections: [{ key: 'work_experiences', detail: 'summary' as const, sort_order: 0 }],
+    })
+    const html = buildViewHtml(store, view, 'en')
+    expect(html).toContain('Jan 2020 – Jun 2022')     // dash between the dates
+    expect(html).not.toContain('Jan 2020 · Jun 2022')  // never a dot between dates
+    expect(html).toContain('·')                        // dot still separates the items
   })
 
   // ─── XSS — escape every interpolated user value ────────────────────────────

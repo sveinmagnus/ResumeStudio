@@ -131,6 +131,10 @@ export function Styles() {
       .rv-ord-btn:disabled { opacity: .25; cursor: default; }
 
       .rv-sec-content { flex: 1; min-width: 0; }
+      /* The header + collapsed chips toggle the section open/closed on click
+         (the detail toggle and the expanded panels opt out in the handler). */
+      .rv-sec-clickable > .rv-sec-top,
+      .rv-sec-clickable > .rv-sec-config { cursor: pointer; }
       .rv-sec-top {
         display: flex; align-items: center; justify-content: space-between;
         gap: 12px; flex-wrap: wrap;

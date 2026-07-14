@@ -49,9 +49,10 @@ export interface ItemView {
   layout: 'default' | 'inline' | 'quote'
   /** Plain title. Empty string = the adapter skips the title block. */
   title: string
-  /** Plain date string the DOCX adapter sets faintly after the title. The HTML
-   *  adapter ignores it — HTML descriptors fold dates into `meta` so each
-   *  section keeps its historical meta ordering. */
+  /** Plain date string kept SEPARATE from `meta` so each adapter can place it:
+   *  the DOCX/PDF adapters set it faintly after the title; the HTML adapter
+   *  composes it into the details line at the position the view's full-item
+   *  layout asks for (before or after the organisation meta). */
   date: string
   /** Plain meta segments, joined with ' · ' by the adapters. */
   meta: string[]
@@ -254,7 +255,8 @@ export const SECTION_CATALOG: Record<string, SectionDescriptor> = {
       if (ctx.target === 'html') {
         return view({
           title,
-          meta: [range(it, ctx), industry, roles].filter(Boolean),
+          date: range(it, ctx),
+          meta: [industry, roles].filter(Boolean),
           body: longDesc || shortDesc,
           tags: skillNames(it, locale),
         })
@@ -380,7 +382,7 @@ export const SECTION_CATALOG: Record<string, SectionDescriptor> = {
       const role = ls(it, 'role_title', locale)
       const body = ls(it, 'long_description', locale) || ls(it, 'description', locale)
       if (ctx.target === 'html') {
-        return view({ title: employer, meta: [role, range(it, ctx)].filter(Boolean), body })
+        return view({ title: employer, date: range(it, ctx), meta: [role].filter(Boolean), body })
       }
       return view({
         title: [employer, role].filter(Boolean).join(' — ') || 'Employer',
@@ -414,7 +416,7 @@ export const SECTION_CATALOG: Record<string, SectionDescriptor> = {
       const { locale } = ctx
       const common = { title: ls(it, 'school', locale), body: ls(it, 'description', locale) }
       if (ctx.target === 'html') {
-        return view({ ...common, meta: [ls(it, 'degree', locale), range(it, ctx)].filter(Boolean) })
+        return view({ ...common, date: range(it, ctx), meta: [ls(it, 'degree', locale)].filter(Boolean) })
       }
       return view({
         ...common,
@@ -439,7 +441,7 @@ export const SECTION_CATALOG: Record<string, SectionDescriptor> = {
       const { locale } = ctx
       const common = { title: ls(it, 'name', locale), body: ls(it, 'description', locale) }
       if (ctx.target === 'html') {
-        return view({ ...common, meta: [ls(it, 'program', locale), dateAt(it, 'completed', ctx)].filter(Boolean) })
+        return view({ ...common, date: dateAt(it, 'completed', ctx), meta: [ls(it, 'program', locale)].filter(Boolean) })
       }
       return view({
         ...common,
@@ -464,7 +466,7 @@ export const SECTION_CATALOG: Record<string, SectionDescriptor> = {
       const expires = !ctx.hideDates && it.expires ? ` (expires ${fmtDate(it.expires as YM, ctx.dateFormat)})` : ''
       const common = { title: ls(it, 'name', locale), body: ls(it, 'description', locale) }
       if (ctx.target === 'html') {
-        return view({ ...common, meta: [ls(it, 'organiser', locale), issued].filter(Boolean) })
+        return view({ ...common, date: issued, meta: [ls(it, 'organiser', locale)].filter(Boolean) })
       }
       return view({
         ...common,
@@ -499,7 +501,7 @@ export const SECTION_CATALOG: Record<string, SectionDescriptor> = {
       const type = positionTypeLabel(it.position_type as string | undefined)
       const common = { title: ls(it, 'name', locale), body: ls(it, 'description', locale) }
       if (ctx.target === 'html') {
-        return view({ ...common, meta: [type, ls(it, 'organisation', locale), range(it, ctx)].filter(Boolean) })
+        return view({ ...common, date: range(it, ctx), meta: [type, ls(it, 'organisation', locale)].filter(Boolean) })
       }
       return view({
         ...common,
@@ -553,7 +555,7 @@ export const SECTION_CATALOG: Record<string, SectionDescriptor> = {
       const { locale } = ctx
       const common = { title: ls(it, 'title', locale), body: ls(it, 'description', locale) }
       if (ctx.target === 'html') {
-        return view({ ...common, meta: [ls(it, 'event', locale), dateAt(it, 'date', ctx)].filter(Boolean) })
+        return view({ ...common, date: dateAt(it, 'date', ctx), meta: [ls(it, 'event', locale)].filter(Boolean) })
       }
       return view({
         ...common,
@@ -576,7 +578,7 @@ export const SECTION_CATALOG: Record<string, SectionDescriptor> = {
       const { locale } = ctx
       const common = { title: ls(it, 'name', locale), body: ls(it, 'description', locale) }
       if (ctx.target === 'html') {
-        return view({ ...common, meta: [ls(it, 'issuer', locale), dateAt(it, 'date', ctx)].filter(Boolean) })
+        return view({ ...common, date: dateAt(it, 'date', ctx), meta: [ls(it, 'issuer', locale)].filter(Boolean) })
       }
       return view({
         ...common,
@@ -600,7 +602,7 @@ export const SECTION_CATALOG: Record<string, SectionDescriptor> = {
       const common = { title: ls(it, 'title', locale), body: ls(it, 'abstract', locale) }
       const authors = coAuthorsLine(it)
       if (ctx.target === 'html') {
-        return view({ ...common, meta: [publisherWithType(it, locale), authors, dateAt(it, 'date', ctx)].filter(Boolean) })
+        return view({ ...common, date: dateAt(it, 'date', ctx), meta: [publisherWithType(it, locale), authors].filter(Boolean) })
       }
       return view({
         ...common,

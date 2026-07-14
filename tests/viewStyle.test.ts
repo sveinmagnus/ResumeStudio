@@ -2,8 +2,31 @@ import { describe, it, expect } from 'vitest'
 import {
   DEFAULT_VIEW_STYLE, withDefaults, deriveTokens, sanitizeHexColor,
   resolveFontCss, resolveFontDocx, resolveSectionStyle, sectionHeadingText,
+  normalizeFullLayout,
 } from '../src/lib/viewStyle'
 import type { ViewStyle } from '../src/types'
+
+// ─── normalizeFullLayout ──────────────────────────────────────────────────────
+
+describe('normalizeFullLayout()', () => {
+  it('passes through the four current values', () => {
+    for (const v of ['title-org-date', 'title-date-org', 'lead-org-date', 'lead-date-org'] as const) {
+      expect(normalizeFullLayout(v)).toBe(v)
+    }
+  })
+  it('maps the legacy values forward', () => {
+    expect(normalizeFullLayout('default')).toBe('title-org-date')
+    expect(normalizeFullLayout('leading')).toBe('lead-org-date')
+  })
+  it('falls back to the default for unknown / empty input', () => {
+    expect(normalizeFullLayout(undefined)).toBe('title-org-date')
+    expect(normalizeFullLayout('garbage')).toBe('title-org-date')
+  })
+  it('is applied by resolveSectionStyle (legacy value resolves)', () => {
+    const resolved = resolveSectionStyle(DEFAULT_VIEW_STYLE, { date_position: 'leading' as never })
+    expect(resolved.date_position).toBe('lead-org-date')
+  })
+})
 
 // ─── sanitizeHexColor ─────────────────────────────────────────────────────────
 

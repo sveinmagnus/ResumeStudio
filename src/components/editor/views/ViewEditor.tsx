@@ -12,7 +12,7 @@ import {
   getItemTitle, getItemSubtitle, buildViewHtml, normalizeViewSections,
   defaultViewDetail,
 } from '../../../lib/viewFilter'
-import { DEFAULT_VIEW_STYLE } from '../../../lib/viewStyle'
+import { DEFAULT_VIEW_STYLE, normalizeFullLayout } from '../../../lib/viewStyle'
 import { skillCategoryList } from '../../../lib/skillCategorize'
 import { withHeaderDefaults, withFooterDefaults } from '../../../lib/viewHeader'
 import { VIEW_TEMPLATES, getTemplate, applyTemplate } from '../../../lib/viewTemplates'
@@ -71,7 +71,10 @@ function sectionConfigChips(vs: ViewSection): string[] {
     if (s.tabulate) chips.push('Tabulated')
     if (s.summary_layout) chips.push(LAYOUT_LABEL.get(s.summary_layout) ?? s.summary_layout)
   } else if (vs.detail === 'full') {
-    if (s.date_position === 'leading') chips.push(FULL_LAYOUT_LABEL.get('leading') ?? 'Date first')
+    if (s.date_position) {
+      const fl = normalizeFullLayout(s.date_position)
+      chips.push(FULL_LAYOUT_LABEL.get(fl) ?? fl)
+    }
   }
   if (s.hide_heading) chips.push('No heading')
   else if (s.heading_text && Object.values(s.heading_text).some((v) => (v ?? '').trim())) chips.push('Custom heading')
@@ -643,7 +646,18 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
                   </button>
                 </div>
 
-                <div className="rv-sec-content">
+                <div
+                  className={`rv-sec-content${off ? '' : ' rv-sec-clickable'}`}
+                  onClick={off ? undefined : (e) => {
+                    const t = e.target as HTMLElement
+                    // The detail toggle owns its own clicks; and when expanded, a
+                    // click inside the item list / style-override / KQ-parts panel
+                    // must not collapse the section.
+                    if (t.closest('.rv-detail-toggle')) return
+                    if (isOpen && t.closest('.rv-secstyle, .rv-item-list, .rv-item-empty, .rv-kq-parts')) return
+                    toggleSection(vs.key)
+                  }}
+                >
                   <div className="rv-sec-top">
                     <div className="rv-sec-title-line">
                       <span className="rv-sec-title">{def.label}</span>
@@ -663,7 +677,7 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
                         className="rv-sec-expand"
                         aria-expanded={isOpen}
                         aria-label={`${isOpen ? 'Collapse' : 'Expand'} ${def.label} settings`}
-                        onClick={() => toggleSection(vs.key)}
+                        onClick={(e) => { e.stopPropagation(); toggleSection(vs.key) }}
                       >
                         <ChevronRight size={16} className={isOpen ? 'rv-chev-open' : ''} />
                       </button>

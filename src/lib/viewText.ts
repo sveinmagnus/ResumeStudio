@@ -59,7 +59,9 @@ function summaryLine(title: string, meta: string, sep: '—' | ':', fmt: Format)
 function renderItemLines(v: ItemView, fmt: Format): string[] {
   const md = fmt === 'markdown'
   const lines: string[] = []
-  const metaTxt = v.meta.filter(Boolean).join(' · ')
+  // The catalog now keeps the date separate from `meta` (so the HTML preview can
+  // reorder it); the linear text export just appends it to the details line.
+  const metaTxt = [...v.meta, v.date].filter(Boolean).join(' · ')
 
   if (v.layout === 'inline') {
     lines.push(`${md ? `**${v.title}**` : v.title}${metaTxt ? ` — ${metaTxt}` : ''}`)

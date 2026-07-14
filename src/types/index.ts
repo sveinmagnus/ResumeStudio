@@ -505,11 +505,19 @@ export type SummaryLayout =
   | 'date-title-org' | 'date-org-title'
 
 /**
- * Placement of the date/details block on a `full`-detail item (HTML/PDF):
- *  - 'default' — title first, then the details line (with the date)
- *  - 'leading' — the details line (date first) above the title
+ * Layout of a `full`-detail item's title vs. its details line (HTML preview).
+ * Two orthogonal axes folded into one enum:
+ *  - title position — `title-*` = title first, then the details line;
+ *    `lead-*` = the details line above the title.
+ *  - meta order within the details line — `*-org-date` = organisation then date;
+ *    `*-date-org` = date then organisation.
+ * (The description/body always follows the head block, whichever order.)
+ * Legacy values `'default'`/`'leading'` are normalised via
+ * `viewStyle.normalizeFullLayout` (→ `title-org-date` / `lead-org-date`).
  */
-export type FullLayout = 'default' | 'leading'
+export type FullLayout =
+  | 'title-org-date' | 'title-date-org'
+  | 'lead-org-date'  | 'lead-date-org'
 
 /**
  * How a month-precision date renders in an exported view. The month is either a

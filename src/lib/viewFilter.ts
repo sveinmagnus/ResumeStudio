@@ -267,7 +267,10 @@ function renderSummaryInline(s: SummaryView, layout: SummaryLayout): string {
   const groups = slots
     .map((slot) => ({
       slot,
-      text: s.parts.filter((p) => SLOT_OF[p.key] === slot).map((p) => p.value).filter(Boolean).join(' · '),
+      // Within a slot, distinct parts are joined with a middot — EXCEPT the
+      // date slot, whose from/to dates read as a range and use a short dash.
+      text: s.parts.filter((p) => SLOT_OF[p.key] === slot).map((p) => p.value)
+        .filter(Boolean).join(slot === 'date' ? ' – ' : ' · '),
     }))
     .filter((g) => g.text)
   if (!groups.length) return ''
@@ -311,21 +314,37 @@ function renderTabulatedSummary(sectionKey: string, items: unknown[], ctx: Rende
     .map((it) => desc.summary!(it as AnyItem, cctx))
     .filter((s): s is SummaryView => !!s)
   if (!summaries.length) return ''
-  const cols = summaryColumns(summaries, ctx.style.summary_layout)
-  if (!cols.length) return ''
+  const partCols = summaryColumns(summaries, ctx.style.summary_layout)
+  if (!partCols.length) return ''
+  // Insert a dedicated separator column between adjacent start & end date
+  // columns, so the range markers line up down the grid.
+  const cols: Array<SummaryPartKey | 'sep'> = []
+  for (let i = 0; i < partCols.length; i++) {
+    cols.push(partCols[i])
+    if (partCols[i] === 'start' && partCols[i + 1] === 'end') cols.push('sep')
+  }
+  // Text columns (title/role/org) flex and wrap so no row runs past the page
+  // edge; the short date columns hug their content. Computed from column KINDS
+  // only — never user data — so it's safe to inline.
+  const flexes = (c: SummaryPartKey | 'sep'): boolean => c === 'title' || c === 'role' || c === 'org'
+  const template = cols.map((c) => (flexes(c) ? 'minmax(0, max-content)' : 'max-content')).join(' ')
   const rows = summaries
     .map((s) => {
       const map = new Map(s.parts.map((p) => [p.key, p.value]))
       const cells = cols
-        .map((k) => {
-          const cls = k === 'title' ? 've-tab-title' : 've-tab-cell'
-          return `<span class="${cls}">${escapeHtml(map.get(k) ?? '')}</span>`
+        .map((c) => {
+          if (c === 'sep') {
+            const both = !!(map.get('start') && map.get('end'))
+            return `<span class="ve-tab-sep">${both ? '·' : ''}</span>`
+          }
+          const cls = c === 'title' ? 've-tab-title' : flexes(c) ? 've-tab-text' : 've-tab-date'
+          return `<span class="${cls}">${escapeHtml(map.get(c) ?? '')}</span>`
         })
         .join('')
       return `<div class="ve-tab-row">${cells}</div>`
     })
     .join('')
-  return `<div class="ve-tab-grid" style="grid-template-columns:repeat(${cols.length}, max-content)">${rows}</div>`
+  return `<div class="ve-tab-grid" style="grid-template-columns:${template}">${rows}</div>`
 }
 
 /**
@@ -361,7 +380,13 @@ function renderItem(sectionKey: string, item: unknown, ctx: RenderCtx): string {
       </div>`
   }
 
-  const metaTxt = v.meta.filter(Boolean).join(' · ')
+  // Compose the details line from the organisation meta + the (separate) date,
+  // in the order the full-item layout asks for. `date` is '' when hidden.
+  const layout = ctx.style.date_position
+  const dateFirst = layout === 'title-date-org' || layout === 'lead-date-org'
+  const lead = layout === 'lead-org-date' || layout === 'lead-date-org'
+  const metaParts = v.meta.filter(Boolean)
+  const metaTxt = (dateFirst ? [v.date, ...metaParts] : [...metaParts, v.date]).filter(Boolean).join(' · ')
   const pointsHtml = v.points.length
     ? `<ul class="ve-points">${v.points
         .map((p) => `<li>${p.label ? `<strong>${escapeHtml(p.label)}</strong>: ` : ''}${renderRichHtml(p.body, escapeHtml)}</li>`)
@@ -369,10 +394,8 @@ function renderItem(sectionKey: string, item: unknown, ctx: RenderCtx): string {
     : ''
   const titleHtml = v.title ? `<h3>${escapeHtml(v.title)}</h3>` : ''
   const metaLine = metaTxt ? `<div class="ve-meta">${escapeHtml(metaTxt)}</div>` : ''
-  // 'leading' puts the date/details line above the title.
-  const head = ctx.style.date_position === 'leading'
-    ? `${metaLine}${titleHtml}`
-    : `${titleHtml}${metaLine}`
+  // `lead-*` puts the details line above the title.
+  const head = lead ? `${metaLine}${titleHtml}` : `${titleHtml}${metaLine}`
   return `<div class="ve-item">
         ${head}
         ${v.body ? `<div class="ve-desc">${renderRichHtml(v.body, escapeHtml)}</div>` : ''}
@@ -669,12 +692,20 @@ export function buildViewHtml(store: ResumeStore, view: ResumeView, locale: stri
     .ve-item { margin-bottom: ${tokens.itemGapPx}px; padding-bottom: ${tokens.itemGapPx}px; border-bottom: 1px solid ${tokens.accentCss}1A; }
     /* Tabulated summary: an aligned column grid holding just the item rows (the
        section heading stays outside it). Each part — title, role, org, start,
-       end — lands in its own column, sized to the widest entry. */
-    .ve-tab-grid { display: grid; column-gap: 18px; row-gap: ${Math.max(2, Math.round(tokens.itemGapPx / 2))}px;
-                   align-items: baseline; font-size: ${tokens.smallFontSizePt}pt; margin-top: 2px; }
+       (separator,) end — lands in its own column, sized to the widest entry.
+       The grid is capped at the page width; the title column is the flexible one
+       (minmax 0), so a very long title wraps instead of pushing the row past the
+       page edge. */
+    .ve-tab-grid { display: grid; column-gap: 14px; row-gap: ${Math.max(2, Math.round(tokens.itemGapPx / 2))}px;
+                   align-items: baseline; font-size: ${tokens.smallFontSizePt}pt; margin-top: 2px; max-width: 100%; }
     .ve-tab-row { display: contents; }
-    .ve-tab-title { font-weight: 600; }
-    .ve-tab-cell { color: #4B5563; }
+    /* Text columns wrap (min-width:0) so a long title/employer stays on the
+       page; the short date columns never wrap. */
+    .ve-tab-title { font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+    .ve-tab-text { color: #4B5563; min-width: 0; overflow-wrap: anywhere; }
+    .ve-tab-date { color: #4B5563; white-space: nowrap; }
+    /* Date-range separator gets its own narrow column so the marks line up. */
+    .ve-tab-sep { color: #9CA3AF; text-align: center; white-space: nowrap; }
     .ve-item:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
     .ve-item-line { padding-bottom: 0; border-bottom: none; margin-bottom: 4px; font-size: ${tokens.smallFontSizePt}pt; }
     .ve-meta-inline { color: #6B7280; }

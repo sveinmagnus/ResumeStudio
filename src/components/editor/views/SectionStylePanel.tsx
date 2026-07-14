@@ -4,17 +4,22 @@ import { DualField } from '../../ui/DualField'
 
 // Item-layout option lists, shared with the view-wide controls. "Org" is the
 // item's organisation/role descriptor; "Date" its date or start–end range.
+// Listed alphabetically by slot order, so Date → Title → Org (the default) leads.
 export const SUMMARY_LAYOUT_OPTIONS: Array<[SummaryLayout, string]> = [
-  ['title-org-date', 'Title → Org → Date'],
-  ['title-date-org', 'Title → Date → Org'],
-  ['org-title-date', 'Org → Title → Date'],
-  ['org-date-title', 'Org → Date → Title'],
   ['date-title-org', 'Date → Title → Org'],
   ['date-org-title', 'Date → Org → Title'],
+  ['org-title-date', 'Org → Title → Date'],
+  ['org-date-title', 'Org → Date → Title'],
+  ['title-org-date', 'Title → Org → Date'],
+  ['title-date-org', 'Title → Date → Org'],
 ]
+// Full-item layout: title-first vs. details-line-first, each with the date
+// before or after the organisation. The description always follows the head.
 export const FULL_LAYOUT_OPTIONS: Array<[FullLayout, string]> = [
-  ['default', 'Title first'],
-  ['leading', 'Date & details first'],
+  ['title-org-date', 'Title first (org, date)'],
+  ['title-date-org', 'Title first (date, org)'],
+  ['lead-org-date',  'Date/org first (org, date)'],
+  ['lead-date-org',  'Date/org first (date, org)'],
 ]
 export const DATE_FORMAT_OPTIONS: Array<[DateFormat, string]> = [
   ['month-year',     'Month Year (Mar 2021)'],
