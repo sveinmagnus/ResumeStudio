@@ -704,24 +704,32 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
                           : `${storeItems.filter((it) => !view.excluded_item_ids.includes(it.id)).length}/${storeItems.length}`}
                       </span>
                     </div>
-                    <DetailToggle
-                      value={modeOf(vs)}
-                      modes={sectionModes(vs.key)}
-                      onChange={(m) => setSectionMode(vs.key, m)}
-                    />
-                    {/* The expander is ALWAYS present (even when Off) so the
-                        Off/Summary/Full group never shifts. An Off section still
-                        expands — to preview which items it holds — but shows no
-                        style overrides (there's nothing to style when hidden). */}
-                    <button
-                      type="button"
-                      className="rv-sec-expand"
-                      aria-expanded={isOpen}
-                      aria-label={`${isOpen ? 'Collapse' : 'Expand'} ${def.label}${off ? ' items' : ' settings'}`}
-                      onClick={(e) => { e.stopPropagation(); toggleSection(vs.key) }}
-                    >
-                      <ChevronRight size={16} className={isOpen ? 'rv-chev-open' : ''} />
-                    </button>
+                    {/* Grouped + pushed flush right (margin-left: auto on the
+                        group, not space-between on the row) so the toggle sits
+                        right next to the expand arrow on every row, regardless
+                        of the title's length or whether this section's toggle
+                        has 2 or 4 buttons (key_qualifications / skill_matrix
+                        offer fewer modes than the rest). */}
+                    <div className="rv-sec-mode-group">
+                      <DetailToggle
+                        value={modeOf(vs)}
+                        modes={sectionModes(vs.key)}
+                        onChange={(m) => setSectionMode(vs.key, m)}
+                      />
+                      {/* The expander is ALWAYS present (even when Off) so the
+                          Off/Summary/Full group never shifts. An Off section still
+                          expands — to preview which items it holds — but shows no
+                          style overrides (there's nothing to style when hidden). */}
+                      <button
+                        type="button"
+                        className="rv-sec-expand"
+                        aria-expanded={isOpen}
+                        aria-label={`${isOpen ? 'Collapse' : 'Expand'} ${def.label}${off ? ' items' : ' settings'}`}
+                        onClick={(e) => { e.stopPropagation(); toggleSection(vs.key) }}
+                      >
+                        <ChevronRight size={16} className={isOpen ? 'rv-chev-open' : ''} />
+                      </button>
+                    </div>
                   </div>
 
                   {/* Collapsed: a one-line overview of the chosen options so the

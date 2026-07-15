@@ -138,7 +138,7 @@ export function Styles() {
       .rv-sec-clickable > .rv-sec-top,
       .rv-sec-clickable > .rv-sec-config { cursor: pointer; }
       .rv-sec-top {
-        display: flex; align-items: center; justify-content: space-between;
+        display: flex; align-items: center;
         gap: 12px; flex-wrap: wrap;
       }
       .rv-sec-title-line { display: flex; align-items: center; gap: 8px; padding-top: 4px; }
@@ -147,6 +147,11 @@ export function Styles() {
         font-size: 11px; font-weight: 500; padding: 1px 7px;
         background: var(--paper-sunken); color: var(--ink-faint); border-radius: 10px;
       }
+      /* Toggle + expand arrow as one flush-right unit — margin-left: auto here
+         (not justify-content: space-between on the row) keeps the toggle glued
+         to the arrow on every row regardless of the title's length or how many
+         buttons this section's toggle has (2-way vs 4-way, see sectionModes). */
+      .rv-sec-mode-group { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 
       /* ── Detail segmented control ── */
       .rv-detail-toggle {
@@ -189,7 +194,7 @@ export function Styles() {
 
       /* ── Section expand/collapse chevron + collapsed config overview ── */
       .rv-sec-expand {
-        display: grid; place-items: center; padding: 4px; margin-left: 2px;
+        display: grid; place-items: center; padding: 4px;
         color: var(--ink-faint); border-radius: var(--r-sm); cursor: pointer;
         transition: color .13s, background .13s;
       }
