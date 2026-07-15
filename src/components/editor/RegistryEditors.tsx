@@ -1379,6 +1379,7 @@ export function ReferencesEditor() {
   return (
     <div className="section-pane">
       <p className="registry-note">References are private by default and never appear in exports unless you opt in per reference.</p>
+      <SortBar section="references" count={items.length} />
       <AddButtons label="Add reference" onClick={add} hasItems={items.length > 0}>
       {items.map((ref) => (
         <EditorCard key={ref.id} section="references" id={ref.id}

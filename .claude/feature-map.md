@@ -137,6 +137,25 @@ prescriptive.
   shared registries, wraps strings as `LocalizedString`, links projects to
   jobs by employer name) builds a new resume after a preview. AI-format files
   dropped on the normal import zone are auto-routed too.
+- **Per-section bulk add** (`lib/bulkImport.ts`,
+  `components/ui/BulkImportModal.tsx`) — the narrow sibling of the AI import,
+  for when a pile of material needs to land in ONE section of a resume that
+  already exists. Every content section's `SortBar` carries a **Bulk add**
+  button top-right (not Languages, not the registries); the lightbox generates
+  section-specific instructions (Copy / Download .md) to paste into any LLM
+  with the source material, then takes the returned `resumestudio-bulk/v1`
+  JSON back. **One `BulkSectionSpec` per section** drives the instructions,
+  validation, mapping, preview and duplicate keys — adding a section is adding
+  a spec. The file carries a `section` discriminator checked against where the
+  user stands (a Projects file can't land in Courses). Text fields accept
+  `string | { no: …, en: … }` so an LLM fills both language columns in one
+  pass, and the instructions name the resume's actual locales. The preview
+  lists every item with a checkbox; likely duplicates (name matching in ANY
+  locale + date) are flagged and unticked but overridable. Confirm applies via
+  `replaceData` → one undo step, auto-saved. Skills/roles intern into the
+  existing registries; a deselected item's registry entries never land. The
+  `SortBar` renders for bulk even with zero items — an empty section is when
+  it's most useful.
 - **Translation assist** on every `DualField` secondary input: "Copy from
   primary" (no network) plus an optional "Draft translation" that proxies
   through the server to a self-hosted LibreTranslate instance (drafts are

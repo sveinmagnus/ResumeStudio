@@ -35,7 +35,8 @@ The full catalog with per-feature design detail is in
   header/footer, export templates, BYO-LLM tailoring, anonymization, skill
   matrix; export to PDF / DOCX (lazy) / ATS text+Markdown; live preview pane.
 - **Import** — CVpartner JSON, LinkedIn (.zip), Europass XML, AI-assisted
-  PDF/Word (BYO-LLM), and portable JSON backup.
+  PDF/Word (BYO-LLM), per-section bulk add (BYO-LLM, `lib/bulkImport.ts`), and
+  portable JSON backup.
 - **Persistence & safety** — auth-gated server (cookie/bearer, named tokens),
   offline editing + conflict safety, per-resume snapshot history, freshness
   warnings, storage readout, React error boundary.
@@ -131,7 +132,8 @@ src/
 │   │   skillMatch (exact/token/fuzzy/semantic tiers), skillCategorize (SkillCategory
 │   │   CRUD + auto-categorization; effectiveSkillCategory)
 │   └ — importers: importer (CVpartner), importerLinkedIn (CSV/zip), importerEuropass
-│       (XML+JSON), aiImport (resumestudio-ai/v1), translateClient
+│       (XML+JSON), aiImport (resumestudio-ai/v1), bulkImport (resumestudio-bulk/v1;
+│       ONE spec per section drives instructions+validation+mapping+preview), translateClient
 ├── components/
 │   ├── shell: App (routes + URL⇄store sync), AppHeader, ErrorBoundary, ResumeList (picker),
 │   │   ImportScreen, AIImportModal, AuthGate, SnapshotHistory (restores via replaceData),
@@ -349,6 +351,31 @@ worth knowing without opening the skill: localized values come in two shapes
 the export's `language_codes` is unreliable, so locales are detected by
 recursive content scan. **If modifying the importer:** add cases to
 `tests/importer.test.ts` (table-driven, pins every documented behavior).
+
+### Per-section bulk add (`lib/bulkImport.ts`)
+
+The narrow sibling of `aiImport.ts`: it ADDS ITEMS TO ONE SECTION of the open
+resume instead of building a new one. The user pastes source material into
+their own LLM with the generated instructions and pastes the JSON back
+(`resumestudio-bulk/v1`). Invariants:
+
+- **One `BulkSectionSpec` per section drives everything** — generated
+  instructions, validation, mapping, preview label, duplicate keys. Adding a
+  section = adding a spec, nothing else. Content sections only: **not**
+  Languages, **not** the registries (`isBulkSection`).
+- **`section` is carried in the file** and checked against the section the user
+  is standing in, so a Projects file can't land in Courses.
+- **Text fields take `string | { locale: text }`** — a plain string lands in the
+  primary locale; an object fills several language columns at once (the point:
+  the master CV is multi-language). `bulkInstructions` names the resume's actual
+  locales so the model knows which to fill.
+- **`dupKeys` returns one key per locale** and a match on ANY of them flags a
+  duplicate — an incoming NO+EN item must match an existing NO-only one, which
+  a single representative name silently missed (fixed; regression-tested).
+- Registries intern against what the resume **already** has (all locales of each
+  name), so a bulk add reuses skills/roles rather than duplicating them.
+- Apply through **`replaceData`** (never `loadStore`) so the batch is one undo
+  step and auto-saves — see §7.
 
 ---
 
