@@ -72,7 +72,7 @@ Wishlist: §12.
 - **TypeScript strict mode.** `npm run typecheck` covers client + server.
 - **No `any`** unless interfacing with truly unknown shapes (e.g. raw imported JSON). Use `unknown` then narrow.
 - **No default exports** for components — use named exports. (`main.tsx` and `App.tsx` are the only existing default exports; new components are named.)
-- **Inline styles via `<style>` tag inside the component.** Each component owns its CSS. Tokens come from `src/index.css` (see §6). The only utility classes in `index.css` are widely-shared widgets: `.check-row`, `.skip-link`, `.sr-only`.
+- **Inline styles via `<style>` tag inside the component.** Each component owns its CSS. Tokens come from `src/index.css` (see §6). The only utility classes in `index.css` are widely-shared widgets: `.check-row`, `.skip-link`, `.sr-only`, `.pf-*` (plain-field primitives — wrap/label/input/year-stepper/ongoing). **`.pf-*` must stay in `index.css`, not a component's own `<style>` tag** — a component-scoped style block only exists in the DOM while that component is mounted, so a page using a bare `.pf-input` without ever mounting `TextField`/`DateField`/`TagField` gets an unstyled browser-default textbox (this regressed the registry `CategoryField` once already — see git history).
 - **Accessibility conventions (v0.3.1)** — hold these invariants when touching UI:
   - Every form control gets a programmatic name (`htmlFor`/`useId`, or
     `aria-label`). `DualField`/`RichField` name each column
@@ -245,7 +245,7 @@ CSS custom properties in `src/index.css` are the design system:
 
 **Minimum text size is 11px** (bumped in v0.3.1). Don't add new text below 11px.
 
-**Utility classes** (use instead of redefining inline): `.check-row`, `.skip-link`, `.sr-only`. `index.css` also owns the global `:focus-visible` ring, `forced-colors` outline fallback, and `prefers-reduced-motion` collapse — don't duplicate those per component.
+**Utility classes** (use instead of redefining inline): `.check-row`, `.skip-link`, `.sr-only`, `.pf-*`. `index.css` also owns the global `:focus-visible` ring, `forced-colors` outline fallback, and `prefers-reduced-motion` collapse — don't duplicate those per component.
 
 When adding a component, copy the inline `<style>` pattern from an existing one (e.g. `DualField.tsx`). Use the tokens; don't introduce new colors casually.
 

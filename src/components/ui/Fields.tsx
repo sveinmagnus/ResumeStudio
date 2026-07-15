@@ -13,7 +13,6 @@ export function TextField({ label, value, onChange, placeholder, type = 'text' }
       <label className="pf-label" htmlFor={id}>{label}</label>
       <input id={id} className="pf-input" type={type} value={value} placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)} />
-      <PlainStyles />
     </div>
   )
 }
@@ -81,7 +80,6 @@ export function DateField({ label, value, onChange, allowOngoing }: {
           </button>
         )}
       </div>
-      <PlainStyles />
     </div>
   )
 }
@@ -119,7 +117,6 @@ export function TagField({ label, tags, onChange, suggestions = [] }: {
           {suggestions.map((s) => <option key={s} value={s} />)}
         </datalist>
       </div>
-      <PlainStyles />
       <style>{`
         .tag-box {
           display: flex; flex-wrap: wrap; gap: 6px; padding: 7px 9px;
@@ -143,49 +140,5 @@ export function TagField({ label, tags, onChange, suggestions = [] }: {
         .tag-input { flex: 1; min-width: 80px; border: none; background: none; outline: none; }
       `}</style>
     </div>
-  )
-}
-
-function PlainStyles() {
-  return (
-    <style>{`
-      /* display:block so the variant rendered as a <label> wrapping its control
-         (implicit association — see RegistryEditors/SimpleEditors selects) keeps
-         the same stacked layout as the <div> variant. */
-      .pf-wrap { display: block; margin-bottom: 16px; }
-      .pf-label {
-        display: block; font-size: 11px; font-weight: 600; letter-spacing: .08em;
-        text-transform: uppercase; color: var(--ink-faint); margin-bottom: 7px;
-      }
-      .pf-input {
-        padding: 9px 11px; background: var(--paper-raised);
-        border: 1px solid var(--line); border-radius: var(--r-sm);
-        transition: border-color .15s, box-shadow .15s;
-      }
-      .pf-input:focus {
-        outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-wash); background: #fff;
-      }
-      input.pf-input { width: 100%; }
-      /* Year field + its up/down stepper. */
-      .pf-year { position: relative; display: inline-flex; }
-      .pf-year input.pf-input { width: 80px; padding-right: 20px; }
-      .pf-year-step {
-        position: absolute; right: 1px; top: 1px; bottom: 1px;
-        display: flex; flex-direction: column; width: 18px;
-      }
-      .pf-year-btn {
-        flex: 1; display: grid; place-items: center; color: var(--ink-faint);
-        border-left: 1px solid var(--line); background: var(--paper-sunken);
-        cursor: pointer; transition: color .12s, background .12s;
-      }
-      .pf-year-btn:first-child { border-top-right-radius: var(--r-sm); border-bottom: 1px solid var(--line); }
-      .pf-year-btn:last-child { border-bottom-right-radius: var(--r-sm); }
-      .pf-year-btn:hover { color: var(--accent); background: var(--accent-wash); }
-      .pf-ongoing {
-        padding: 0 14px; background: var(--paper-sunken); border: 1px solid var(--line);
-        border-radius: var(--r-sm); font-size: 13px; font-weight: 500; white-space: nowrap;
-      }
-      .pf-ongoing:hover { border-color: var(--accent); color: var(--accent); }
-    `}</style>
   )
 }
