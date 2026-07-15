@@ -3,7 +3,7 @@ import {
   appendLocalized, buildRoleParagraph, foldRoleDescriptions,
   extractKeyPointsToCompetencies, migrateEmploymentShape, internProjectIndustries,
   internSkillCategories, unifyShowcaseCategories, localizeRecommenderTitles,
-  migrateStore, isNewerShape, CURRENT_SHAPE_VERSION,
+  unpinLegacyHeadingFont, migrateStore, isNewerShape, CURRENT_SHAPE_VERSION,
 } from '../src/lib/migrate'
 import { emptyStore, makeProject, makeWork, makeSkill, makeSkillCategory, makeView, makeRecommendation } from './fixtures'
 import type { ProjectRole, KeyQualification, KeyPoint, WorkExperience, Project, LocalizedString, Skill, ResumeStore } from '../src/types'
@@ -548,5 +548,66 @@ describe('internProjectIndustries()', () => {
     expect(out.shape_version).toBe(CURRENT_SHAPE_VERSION)
     expect(out.industries.some((i) => i.name.en === 'Healthcare')).toBe(true)
     expect(out.projects[0].industries[0].industry_id).toBeTruthy()
+  })
+})
+
+describe('unpinLegacyHeadingFont() — shape v9', () => {
+  /**
+   * A view as saved before fonts were configurable: `heading_font` carries the
+   * old hardcoded default and `body_font` doesn't exist yet.
+   */
+  function preFontView(headingFont: string) {
+    const v = makeView()
+    v.style = { density: 'normal', body_size: 'normal', heading_font: headingFont } as never
+    return v
+  }
+
+  it("rewrites the old baked-in default to 'inherit' so the global font reaches it", () => {
+    const store = emptyStore()
+    store.views.push(preFontView('condensed'))
+    const out = unpinLegacyHeadingFont(store)
+    expect(out.views[0].style?.heading_font).toBe('inherit')
+  })
+
+  it('keeps a heading font the user deliberately chose pre-v9', () => {
+    const store = emptyStore()
+    store.views.push(preFontView('serif'))
+    const out = unpinLegacyHeadingFont(store)
+    expect(out.views[0].style?.heading_font).toBe('serif')
+    expect(out.views[0]).toBe(store.views[0]) // untouched
+  })
+
+  it("leaves a post-v9 view alone — 'condensed' there is an explicit pick", () => {
+    const store = emptyStore()
+    const v = makeView()
+    v.style = { heading_font: 'condensed', body_font: 'inherit' } as never
+    store.views.push(v)
+    const out = unpinLegacyHeadingFont(store)
+    expect(out).toBe(store) // body_font present ⇒ not legacy ⇒ no change at all
+  })
+
+  it('is idempotent (running twice changes nothing further)', () => {
+    const store = emptyStore()
+    store.views.push(preFontView('condensed'))
+    const once = unpinLegacyHeadingFont(store)
+    const twice = unpinLegacyHeadingFont(once)
+    expect(twice).toBe(once) // same reference — second pass is a no-op
+  })
+
+  it('tolerates a view with no style at all', () => {
+    const store = emptyStore()
+    const v = makeView()
+    delete (v as { style?: unknown }).style
+    store.views.push(v)
+    expect(() => unpinLegacyHeadingFont(store)).not.toThrow()
+  })
+
+  it('is reached by migrateStore for v8 data', () => {
+    const store = emptyStore()
+    store.shape_version = 8
+    store.views.push(preFontView('condensed'))
+    const out = migrateStore(store)
+    expect(out.shape_version).toBe(CURRENT_SHAPE_VERSION)
+    expect(out.views[0].style?.heading_font).toBe('inherit')
   })
 })

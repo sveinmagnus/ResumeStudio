@@ -321,7 +321,7 @@ Navigation: `setActiveSection(key)` / `setExpandedItem(id)`. Undo/redo: `useUndo
   `stripSnapshotImages`; restore re-attaches current images). The History modal
   restores via **`replaceData`** so a restore is undoable + re-saved.
 - **Data-shape versioning** (`lib/migrate.ts`): `shape_version` (absent = 1;
-  `CURRENT_SHAPE_VERSION` = 8). `migrateStore()` is the single choke point for
+  `CURRENT_SHAPE_VERSION` = 9). `migrateStore()` is the single choke point for
   data entering from outside (`loadStore` + snapshot restore; `replaceData`
   never migrates). Migrations are **idempotent shape-sniffers**. Newer-build
   data loads best-effort (stamp never downgraded; `NewerDataNotice`). **Bump

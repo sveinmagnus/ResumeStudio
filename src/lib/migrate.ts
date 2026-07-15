@@ -20,7 +20,7 @@
 
 import type {
   ResumeStore, LocalizedString, ProjectRole, ProjectIndustry, KeyCompetency, KeyPoint,
-  WorkExperience, Industry, Project, Skill, SkillCategory,
+  WorkExperience, Industry, Project, Skill, SkillCategory, ViewStyle,
 } from '../types'
 import { v4 as uuidv4 } from 'uuid'
 
@@ -57,6 +57,9 @@ import { v4 as uuidv4 } from 'uuid'
  *                 title/role renders per export language like every other
  *                 translatable field. A legacy string is wrapped as
  *                 `{ en: title }`; null/absent becomes `{}`.
+ *  - 9          — un-pin the heading font on views written before fonts became
+ *                 configurable (`unpinLegacyHeadingFont`), so the app-wide
+ *                 default in Settings actually reaches them.
  *
  * Bump this ONLY for structural changes that need a migration (moving or
  * reshaping data). Additive optional fields are handled by render-boundary
@@ -65,7 +68,7 @@ import { v4 as uuidv4 } from 'uuid'
  * (like `industries`) is NOT a tolerable "optional field" — it must be
  * guaranteed present, hence the bump + migration.
  */
-export const CURRENT_SHAPE_VERSION = 8
+export const CURRENT_SHAPE_VERSION = 9
 
 /**
  * True when `store` was written by a build with a NEWER shape than this one
@@ -93,12 +96,14 @@ export function isNewerShape(store: ResumeStore): boolean {
 export function migrateStore(store: ResumeStore): ResumeStore {
   const stored = store.shape_version ?? 1
   if (stored >= CURRENT_SHAPE_VERSION) return store
-  const migrated = localizeRecommenderTitles(
-    unifyShowcaseCategories(
-      internSkillCategories(
-        internProjectIndustries(
-          migrateEmploymentShape(
-            extractKeyPointsToCompetencies(foldRoleDescriptions(store)),
+  const migrated = unpinLegacyHeadingFont(
+    localizeRecommenderTitles(
+      unifyShowcaseCategories(
+        internSkillCategories(
+          internProjectIndustries(
+            migrateEmploymentShape(
+              extractKeyPointsToCompetencies(foldRoleDescriptions(store)),
+            ),
           ),
         ),
       ),
@@ -529,6 +534,44 @@ export function localizeRecommenderTitles(store: ResumeStore): ResumeStore {
   })
   if (!changed) return store
   return { ...store, recommendations }
+}
+
+// ─── Un-pin the legacy heading font (shape v9) ───────────────────────────────
+//
+// Fonts used to be a per-view choice between three brand faces, and
+// `DEFAULT_VIEW_STYLE.heading_font` was the literal `'condensed'` — so EVERY
+// view created back then persisted that concrete id, whether or not the user
+// ever opened the font picker. Fonts are now an app-wide default (Settings)
+// that a view inherits via `'inherit'`, which means those baked-in ids pin an
+// old view to Open Sans Condensed forever: changing the global default has no
+// visible effect on it. (`body_font` didn't exist pre-v9, so it's simply absent
+// and already inherits — headings were the only pinned half.)
+//
+// The sniff for "the default nobody chose" is exact: a style that carries
+// `heading_font` but NO `body_font` predates configurable fonts, and only the
+// value that equals the OLD default (`'condensed'`) is rewritten to
+// `'inherit'`. A pre-v9 view whose heading was deliberately set to 'serif' or
+// 'sans' keeps that choice. Rendering is unchanged either way — 'inherit'
+// resolves to the brand condensed default — until the user picks a different
+// global font, which is exactly the point.
+//
+// Idempotent: after the rewrite `heading_font` is 'inherit', so the guard no
+// longer matches; a post-v9 style always has `body_font` and is skipped.
+
+const LEGACY_DEFAULT_HEADING_FONT = 'condensed'
+
+export function unpinLegacyHeadingFont(store: ResumeStore): ResumeStore {
+  let changed = false
+  const views = store.views.map((v) => {
+    const style = v.style as Partial<ViewStyle> | undefined
+    if (!style) return v
+    const preFontFeature = 'heading_font' in style && !('body_font' in style)
+    if (!preFontFeature || style.heading_font !== LEGACY_DEFAULT_HEADING_FONT) return v
+    changed = true
+    return { ...v, style: { ...style, heading_font: 'inherit' } as ViewStyle }
+  })
+  if (!changed) return store
+  return { ...store, views }
 }
 
 export function extractKeyPointsToCompetencies(store: ResumeStore): ResumeStore {
