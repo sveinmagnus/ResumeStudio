@@ -11,7 +11,23 @@ import { renderRichHtml } from './richText'
 import { deriveTokens, resolveSectionStyle, sectionHeadingText, kqVisibility, withDefaults, withResolvedFonts, resolveFontCss, type ResolvedSectionStyle, type StyleTokens } from './viewStyle'
 import type { GlobalFonts } from './fonts'
 import { sortItems } from './sectionSort'
+import { SECTION_ICON_INNER } from '../generated/sectionIcons'
 import { withHeaderDefaults, withFooterDefaults, buildHeaderLines, buildCopyrightLine } from './viewHeader'
+
+/**
+ * Build a section's `<h2>` heading, optionally prefixed with the section's
+ * icon (the same lucide glyph as the app sidebar). Icon markup comes from a
+ * generated static map — never user data — so it's safe to inline unescaped.
+ */
+function sectionHeadingHtml(resolved: ResolvedSectionStyle, key: string, iconName: string, locale: string): string {
+  if (resolved.hide_heading) return ''
+  const text = escapeHtml(sectionHeadingText(resolved, localizedSectionHeading(key, locale), locale))
+  const inner = resolved.show_icon ? (SECTION_ICON_INNER[iconName] ?? '') : ''
+  const icon = inner
+    ? `<svg class="ve-sec-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${inner}</svg>`
+    : ''
+  return `<h2>${icon}${text}</h2>`
+}
 
 // ─── Section helpers ──────────────────────────────────────────────────────────
 
@@ -511,7 +527,7 @@ export function buildViewHtml(store: ResumeStore, view: ResumeView, locale: stri
         const resolved = resolveSectionStyle(viewStyle, s.sectionStyle)
         const rows = skillMatrixRows(store, view, locale, { highlightedOnly: s.detail === 'summary' })
         if (!rows.length) return ''
-        const heading = resolved.hide_heading ? '' : `<h2>${escapeHtml(sectionHeadingText(resolved, localizedSectionHeading(s.key, locale), locale))}</h2>`
+        const heading = sectionHeadingHtml(resolved, s.key, s.icon, locale)
         const showDates = !resolved.hide_dates
         // Show the Category column only if at least one row has a category.
         const showCategory = rows.some((row) => row.category)
@@ -561,7 +577,7 @@ export function buildViewHtml(store: ResumeStore, view: ResumeView, locale: stri
       if (!itemsHtml) return ''
       // s.label is a hardcoded constant from SECTIONS; the custom heading is
       // untrusted view config. Both go through escapeHtml here.
-      const heading = resolved.hide_heading ? '' : `<h2>${escapeHtml(sectionHeadingText(resolved, localizedSectionHeading(s.key, locale), locale))}</h2>`
+      const heading = sectionHeadingHtml(resolved, s.key, s.icon, locale)
       return `<section class="ve-section ve-sec-${s.key}">
   ${heading}
   ${itemsHtml}
@@ -678,11 +694,14 @@ export function buildViewHtml(store: ResumeStore, view: ResumeView, locale: stri
     body { font-family: ${tokens.bodyFontCss}; font-size: ${tokens.bodyFontSizePt}pt; color: #111111; line-height: ${tokens.lineHeight};
            padding: ${tokens.pagePadCss}; max-width: 820px; margin: 0 auto; }
     h1  { font-family: ${tokens.headingFontCss}; font-weight: 300; font-size: ${tokens.h1Pt}pt;
-           color: ${tokens.accentCss}; margin-bottom: 4px; }
+           color: ${tokens.headingCss}; margin-bottom: 4px; }
     h2  { font-family: ${tokens.headingFontCss}; font-weight: 300; font-size: ${tokens.h2Pt}pt;
-           color: ${tokens.accentCss}; border-bottom: 1.5px solid ${tokens.accentCss}33; padding-bottom: 5px;
+           color: ${tokens.headingCss}; border-bottom: 1.5px solid ${tokens.accentCss}33; padding-bottom: 5px;
            margin: ${tokens.itemGapPx * 2}px 0 ${tokens.sectionHeadingAfterPx}px; }
-    h3  { font-size: ${tokens.h3Pt}pt; font-weight: 600; color: ${tokens.accentCss}; margin-bottom: 3px; }
+    h3  { font-size: ${tokens.h3Pt}pt; font-weight: 600; color: ${tokens.headingCss}; margin-bottom: 3px; }
+    /* Optional section icon before the heading — sized to the text, coloured
+       with the accent (icons/underline share the accent colour). */
+    .ve-sec-icon { width: 1em; height: 1em; vertical-align: -0.13em; margin-right: 0.42em; color: ${tokens.accentCss}; }
     .ve-header-title  { color: #374151; margin: 3px 0 8px; }
     .ve-header-contact { font-size: ${tokens.metaFontSizePt}pt; color: #6B7280; }
     .ve-hline { margin: 1px 0; }

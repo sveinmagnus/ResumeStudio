@@ -127,7 +127,7 @@ function sectionHeading(label: string, tokens: StyleTokens): Paragraph {
     children: [new TextRun({
       text: label.toUpperCase(),
       bold: true,
-      color: tokens.accentHex,
+      color: tokens.headingHex,
       size: tokens.h2Pt * 2,
       font: tokens.headingFontDocx,
     })],
@@ -199,7 +199,7 @@ function buildIdentityParagraphs(
       bold: true,
       size: (header.name_style.size_pt ?? baseTokens.h1Pt) * 2,
       font: resolveFontDocx(header.name_style.font, baseTokens.bodyFontId),
-      color: baseTokens.accentHex,
+      color: baseTokens.headingHex,
     })],
   }))
   const titleText = L(header.title_override, locale) || L(r.title, locale)

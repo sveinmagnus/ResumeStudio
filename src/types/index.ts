@@ -582,8 +582,15 @@ export interface ViewStyle {
    * reads as the brand body font (Ubuntu). Previously the body font was fixed.
    */
   body_font?: string
-  /** CSS hex color (with leading '#') for accent — defaults to Cartavio navy. */
+  /** CSS hex color (with leading '#') for the ACCENT — section-heading
+   *  underline, icons, dividers, tags. Defaults to Cartavio navy. */
   accent_color: string
+  /**
+   * CSS hex color for HEADING TEXT (name + all section/item headings). Additive/
+   * optional — when absent it falls back to `accent_color`, so existing views
+   * are unchanged. Lets headings use a different colour from the accent.
+   */
+  heading_color?: string
   page_margin: PageMargin
   tag_style: TagStyle
   /** Draw dividers between items view-wide (default true). Additive — consumers default to true. */
@@ -598,6 +605,8 @@ export interface ViewStyle {
   tabulate?: boolean
   /** View-wide default date format (default 'month-year'). */
   date_format?: DateFormat
+  /** Show the section's icon before its heading, view-wide (default false). */
+  section_icons?: boolean
 }
 
 /**
@@ -645,6 +654,8 @@ export interface SectionStyle {
    * (default), or `'inline'` appended to the summary line. Undefined → 'below'.
    */
   short_desc_line?: 'inline' | 'below'
+  /** Show/hide the section icon before its heading (overrides the view default). */
+  show_icon?: boolean
   // ── Professional-summary (key_qualifications) part toggles ──
   // Which parts of each profile block render. Only read by the
   // key_qualifications renderer. Undefined defaults: label/tagline/long shown,

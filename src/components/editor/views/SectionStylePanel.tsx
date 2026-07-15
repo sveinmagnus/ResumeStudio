@@ -122,9 +122,20 @@ export function SectionStylePanel({ sectionKey, detail, style, onChange, onReset
         )}
       </div>
       <div className="rv-secstyle-body">
-        {/* Toggles on the left — checkbox before its label so what's on is clear.
-            The date format lives here too (under Hide dates). */}
+        {/* LEFT — CONTENT selection (what shows, its order, and the text). */}
         <div className="rv-secstyle-toggles">
+          <div className="rv-sel">
+            <span>Sort items</span>
+            <select
+              aria-label="Section item sort"
+              value={sort}
+              onChange={(e) => onSortChange(e.target.value as SortMode)}
+            >
+              {sortModes.map((m) => (
+                <option key={m} value={m}>{SORT_LABELS[m]}</option>
+              ))}
+            </select>
+          </div>
           <label className="rv-toggle">
             <input
               type="checkbox"
@@ -154,23 +165,26 @@ export function SectionStylePanel({ sectionKey, detail, style, onChange, onReset
               ))}
             </select>
           </div>
+          {/* Plain-summary only: where the item's short description sits. */}
+          {isPlainSummary && (
+            <div className="rv-sel">
+              <span>Short description</span>
+              <select
+                aria-label="Section short-description placement"
+                value={s.short_desc_line ?? ''}
+                onChange={(e) => onChange({ short_desc_line: (e.target.value || undefined) as 'inline' | 'below' | undefined })}
+              >
+                <option value="">— view default (below) —</option>
+                <option value="below">On its own line below</option>
+                <option value="inline">Same line as the core info</option>
+              </select>
+            </div>
+          )}
         </div>
-        {/* Dropdowns on the right. Labelled by their visible span (not a wrapping
-            <label>) so they don't collide with the identically-named view-wide
-            controls in automated/AT queries. */}
+        {/* RIGHT — VISUAL adjustments. Labelled by their visible span (not a
+            wrapping <label>) so they don't collide with the identically-named
+            view-wide controls in automated/AT queries. */}
         <div className="rv-secstyle-selects">
-          <div className="rv-sel">
-            <span>Sort items</span>
-            <select
-              aria-label="Section item sort"
-              value={sort}
-              onChange={(e) => onSortChange(e.target.value as SortMode)}
-            >
-              {sortModes.map((m) => (
-                <option key={m} value={m}>{SORT_LABELS[m]}</option>
-              ))}
-            </select>
-          </div>
           <div className="rv-sel">
             <span>Density</span>
             <select
@@ -253,21 +267,21 @@ export function SectionStylePanel({ sectionKey, detail, style, onChange, onReset
               <option value="space">Space only</option>
             </select>
           </div>
-          {/* Plain-summary only: where the item's short description sits. */}
-          {isPlainSummary && (
-            <div className="rv-sel">
-              <span>Short description</span>
-              <select
-                aria-label="Section short-description placement"
-                value={s.short_desc_line ?? ''}
-                onChange={(e) => onChange({ short_desc_line: (e.target.value || undefined) as 'inline' | 'below' | undefined })}
-              >
-                <option value="">— view default (below) —</option>
-                <option value="below">On its own line below</option>
-                <option value="inline">Same line as the core info</option>
-              </select>
-            </div>
-          )}
+          <div className="rv-sel">
+            <span>Section icon</span>
+            <select
+              aria-label="Section icon override"
+              value={s.show_icon === undefined ? '' : (s.show_icon ? 'on' : 'off')}
+              onChange={(e) => {
+                const v = e.target.value
+                onChange({ show_icon: v === '' ? undefined : v === 'on' })
+              }}
+            >
+              <option value="">— view default —</option>
+              <option value="on">Show</option>
+              <option value="off">Hide</option>
+            </select>
+          </div>
         </div>
       </div>
       {!s.hide_heading && (

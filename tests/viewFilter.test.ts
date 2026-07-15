@@ -639,6 +639,29 @@ describe('buildViewHtml()', () => {
     expect(html).toContain('Board Member')             // role name in the meta line
   })
 
+  it('prefixes the heading with the section icon only when enabled', () => {
+    const store = emptyStore()
+    store.resume = makeResume()
+    store.work_experiences.push(makeWork({ id: 'w1', employer: { en: 'BigCo' } }))
+    const on = makeView({ sections: [{ key: 'work_experiences', detail: 'full' as const, sort_order: 0 }], style: { ...DEFAULT_VIEW_STYLE, section_icons: true } })
+    expect(buildViewHtml(store, on, 'en')).toContain('<svg class="ve-sec-icon"')
+    const off = makeView({ sections: [{ key: 'work_experiences', detail: 'full' as const, sort_order: 0 }] })
+    expect(buildViewHtml(store, off, 'en')).not.toContain('<svg class="ve-sec-icon"')
+  })
+
+  it('uses a distinct heading colour, keeping the accent for the underline', () => {
+    const store = emptyStore()
+    store.resume = makeResume()
+    store.work_experiences.push(makeWork({ id: 'w1', employer: { en: 'BigCo' } }))
+    const view = makeView({
+      sections: [{ key: 'work_experiences', detail: 'full' as const, sort_order: 0 }],
+      style: { ...DEFAULT_VIEW_STYLE, accent_color: '#00AA00', heading_color: '#FF0000' },
+    })
+    const html = buildViewHtml(store, view, 'en')
+    expect(html).toContain('color: #FF0000')   // heading text
+    expect(html).toContain('#00AA0033')          // accent underline
+  })
+
   // ─── XSS — escape every interpolated user value ────────────────────────────
 
   describe('HTML escaping (XSS)', () => {

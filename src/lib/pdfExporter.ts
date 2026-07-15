@@ -119,7 +119,7 @@ function sectionHeading(label: string, tokens: StyleTokens): PdfNode {
   return {
     table: {
       widths: ['*'],
-      body: [[{ text: label.toUpperCase(), bold: true, color: accent, fontSize: tokens.h2Pt, font: tokens.headingPdfFont, border: [false, false, false, true] }]],
+      body: [[{ text: label.toUpperCase(), bold: true, color: `#${tokens.headingHex}`, fontSize: tokens.h2Pt, font: tokens.headingPdfFont, border: [false, false, false, true] }]],
     },
     layout: {
       hLineWidth: (i: number) => (i === 1 ? 0.8 : 0),
@@ -269,7 +269,7 @@ function scaleImage(info: ImageInfo, maxW: number, maxH: number): { width: numbe
 function buildIdentity(
   r: Resume, header: ViewHeaderConfig, store: ResumeStore, locale: string, tokens: StyleTokens,
 ): PdfNode[] {
-  const accent = `#${tokens.accentHex}`
+  const accent = `#${tokens.headingHex}`
   const out: PdfNode[] = [{
     text: r.full_name, bold: true, color: accent, font: resolveFontPdf(header.name_style.font, tokens.bodyFontId),
     fontSize: header.name_style.size_pt ?? tokens.h1Pt, margin: [0, 0, 0, 3] as Margin,

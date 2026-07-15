@@ -119,12 +119,43 @@ export function ViewStyleControls({ style, onChange }: { style: ViewStyle; onCha
           options={DATE_FORMAT_OPTIONS}
           onChange={(date_format) => onChange({ date_format })}
         />
+        <Select<string>
+          label="Section icons"
+          value={style.section_icons ? 'on' : 'off'}
+          options={[
+            ['off', 'Hidden'],
+            ['on', 'Show before headings'],
+          ]}
+          onChange={(v) => onChange({ section_icons: v === 'on' })}
+        />
+        <div className="rv-vs-field">
+          <span className="rv-vs-label">Heading colour</span>
+          <div className="rv-vs-color-row">
+            <input
+              type="color"
+              className="rv-vs-color"
+              aria-label="Heading colour"
+              value={style.heading_color ?? style.accent_color}
+              onChange={(e) => onChange({ heading_color: e.target.value })}
+            />
+            <input
+              type="text"
+              className="rv-vs-hex"
+              value={style.heading_color ?? style.accent_color}
+              onChange={(e) => {
+                const v = e.target.value.trim()
+                if (/^#[0-9a-fA-F]{6}$/.test(v)) onChange({ heading_color: v })
+              }}
+            />
+          </div>
+        </div>
         <div className="rv-vs-field">
           <span className="rv-vs-label">Accent colour</span>
           <div className="rv-vs-color-row">
             <input
               type="color"
               className="rv-vs-color"
+              aria-label="Accent colour"
               value={style.accent_color}
               onChange={(e) => onChange({ accent_color: e.target.value })}
             />

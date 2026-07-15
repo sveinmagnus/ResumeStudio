@@ -113,8 +113,10 @@ export interface StyleTokens {
   pagePadCss: string              // e.g. "32px 48px"
   pageMarginTwips: { top: number; bottom: number; left: number; right: number }
   // Colors
-  accentHex: string               // 'RRGGBB' (no '#') — DOCX format
+  accentHex: string               // 'RRGGBB' (no '#') — DOCX format (underline/icons/dividers)
   accentCss: string               // '#RRGGBB' — HTML format
+  headingHex: string              // heading TEXT colour (falls back to accent)
+  headingCss: string
   // Tag rendering
   tagStyle: TagStyle
 }
@@ -187,6 +189,8 @@ export function deriveTokens(style: ViewStyle): StyleTokens {
   const bodyFont = fontById(style.body_font, DEFAULT_BODY_FONT)
   const pageMargin = PAGE_MARGIN_MAP[style.page_margin] ?? PAGE_MARGIN_MAP.normal
   const accentHex = sanitizeHexColor(style.accent_color)
+  // Heading text colour falls back to the accent when unset (back-compat).
+  const headingHex = sanitizeHexColor(style.heading_color ?? style.accent_color, accentHex)
   return {
     bodyFontSizePt: sizes.bodyPt,
     smallFontSizePt: Math.max(7, sizes.bodyPt - 1),
@@ -211,6 +215,8 @@ export function deriveTokens(style: ViewStyle): StyleTokens {
     pageMarginTwips: pageMargin.marginTwips,
     accentHex,
     accentCss: `#${accentHex}`,
+    headingHex,
+    headingCss: `#${headingHex}`,
     tagStyle: style.tag_style,
   }
 }
@@ -237,6 +243,8 @@ export interface ResolvedSectionStyle extends ViewStyle {
   date_format: DateFormat
   /** Plain-summary short-description placement (resolved: section → 'below'). */
   short_desc_line: 'inline' | 'below'
+  /** Show the section icon before its heading (resolved: section → view → false). */
+  show_icon: boolean
   /** Professional-summary part toggles (see SectionStyle.kq_show_*). */
   kq_show_label?: boolean
   kq_show_tagline?: boolean
@@ -305,6 +313,7 @@ export function resolveSectionStyle(
     heading_font: view.heading_font,
     body_font: view.body_font,
     accent_color: view.accent_color,
+    heading_color: view.heading_color,
     page_margin: view.page_margin,
     tag_style: section?.tag_style ?? view.tag_style,
   }
@@ -322,6 +331,7 @@ export function resolveSectionStyle(
     tabulate: section?.tabulate ?? view.tabulate ?? false,
     date_format: section?.date_format ?? view.date_format ?? 'month-year',
     short_desc_line: section?.short_desc_line ?? 'below',
+    show_icon: section?.show_icon ?? view.section_icons ?? false,
     kq_show_label: section?.kq_show_label,
     kq_show_tagline: section?.kq_show_tagline,
     kq_show_short: section?.kq_show_short,
