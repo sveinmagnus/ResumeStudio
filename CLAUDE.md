@@ -27,6 +27,12 @@ The full catalog with per-feature design detail is in
   drag-and-drop reordering, global content search (Ctrl/Cmd+K).
 - **Multi-language** — dual-view editing (§5), translation assist (Copy +
   server-proxied LibreTranslate/DeepL/etc. Draft), locale re-detection.
+- **AI assist (BYO backend)** — server-proxied summarize (Docker-managed local
+  Ollama / OpenAI / any OpenAI-compatible endpoint) drafts a one-line short
+  description from a long one: per-column in `DualField`, or the whole section
+  via "Summarize all empty" in the section bar (`lib/summarizeBatch.ts`).
+  Drafts are always review-required. Hidden entirely when nothing is
+  configured.
 - **Registries** — shared Skill / Role / Industry registries with merge,
   usage counts, and a "By category" view; `SkillCategory` entities drive skill
   grouping + the Skills Showcase; Quadim skill-taxonomy autocomplete,
@@ -131,6 +137,9 @@ src/
 │   │ — skills/taxonomy: skillTaxonomy (Quadim lazy JSON), skillNormalize (imports only),
 │   │   skillMatch (exact/token/fuzzy/semantic tiers), skillCategorize (SkillCategory
 │   │   CRUD + auto-categorization; effectiveSkillCategory)
+│   │ — AI assist: translateClient + summarizeClient (memoized availability probes),
+│   │   summarizeBatch (SUMMARY_FIELDS source→target per section; emptySummaryTargets
+│   │   work list; summarizableSource — the ONE "has a source" rule, shared with DualField)
 │   └ — importers: importer (CVpartner), importerLinkedIn (CSV/zip), importerEuropass
 │       (XML+JSON), aiImport (resumestudio-ai/v1), bulkImport (resumestudio-bulk/v1;
 │       ONE spec per section drives instructions+validation+mapping+preview), translateClient
@@ -153,9 +162,11 @@ server/              ← Express API + SQLite persistence
 ├── backup.ts (whole-store StoreBackupV1 — NOT the client backup) + backupScheduler/-Runtime
 ├── settings.ts (desktop settings.json; applyToEnv; isDesktop gate) · storage.ts (payloadStats)
 ├── translate.ts (pluggable proxy: libretranslate/deepl/google/azure) · translateDocker.ts
+├── summarize.ts (pluggable proxy: ollama/openai/compat; no heuristic fallback) ·
+│   summarizeDocker.ts (app-driven local Ollama, like translateDocker)
 ├── version.ts (APP_VERSION) · desktop/ (launcher, freePort, openBrowser, notify, tray,
 │   trayIcon, updater, updateRuntime — CJS-bundled, see §14)
-└── routes/          ← auth, resume, translate, backup, settings, update
+└── routes/          ← auth, resume, translate, summarize, backup, settings, update
 
 scripts/build-desktop.mjs ← assembles the portable release/ folder (per target OS)
 tests/               ← Vitest (lib/store/components/server) + e2e/smoke.spec.ts. See §10

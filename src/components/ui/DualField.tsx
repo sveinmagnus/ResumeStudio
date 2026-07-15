@@ -4,7 +4,7 @@ import { useStore } from '../../store/useStore'
 import type { LocalizedString } from '../../types'
 import { LOCALE_LABELS, bcp47 } from '../../lib/locales'
 import { api } from '../../lib/api'
-import { richToPlain } from '../../lib/richText'
+import { summarizableSource } from '../../lib/summarizeBatch'
 import { canDraftBetween } from '../../lib/translateClient'
 import { useTranslationAvailable, useSummarizeAvailable } from '../../store/useTranslation'
 
@@ -95,9 +95,13 @@ export function DualField({ label, value, onChange, multiline, rows = 3, placeho
   const [summarizedLocale, setSummarizedLocale] = useState<string | null>(null)
   const [error, setError] = useState<{ locale: string; msg: string } | null>(null)
 
-  /** Plain-text summarize source for a locale (rich markup stripped), or ''. */
+  /**
+   * Plain-text summarize source for a locale (rich markup stripped), or ''.
+   * Shares `summarizableSource` with the section-level "Summarize all empty",
+   * so this button and that button's count always agree on what counts.
+   */
   const summarizeSrc = (locale: string): string =>
-    summarizeFrom ? richToPlain(summarizeFrom[locale] || '').trim() : ''
+    summarizeFrom ? summarizableSource(summarizeFrom[locale]) : ''
 
   const set = (locale: string, text: string) => {
     const next = { ...value }

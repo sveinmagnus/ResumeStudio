@@ -156,6 +156,27 @@ prescriptive.
   existing registries; a deselected item's registry entries never land. The
   `SortBar` renders for bulk even with zero items — an empty section is when
   it's most useful.
+- **AI summarize assist** (`server/summarize.ts`, `server/summarizeDocker.ts`,
+  `lib/summarizeClient.ts`, `lib/summarizeBatch.ts`) — drafts a one-line short
+  description from a long one, mirroring the translate architecture: a
+  pluggable server proxy (`SUMMARIZE_PROVIDER` ∈ `off|ollama|openai|compat`)
+  with an app-driven **local Ollama in Docker** as the first-class option, keys
+  server-side, availability memoized client-side. **No heuristic fallback** —
+  unconfigured means the affordances don't exist. Two surfaces:
+  - **Per column** — a Summarize button on `DualField`'s short-description
+    input, shown when that column has source text. Same-locale: the model
+    writes in the language it reads.
+  - **Whole section** — "Summarize all empty (N)" in the section bar next to
+    Bulk add, shown only when a backend is configured AND N > 0. The work list
+    is every (item, *visible* locale) whose summary is empty and whose long
+    description has text — `SUMMARY_FIELDS` maps source→target per section
+    (Projects/Employment read `long_description`, Publications the `abstract`,
+    Recommendations the `text`). Disabled items are skipped. Requests run
+    sequentially (a local Ollama would drown in twenty at once) with progress
+    and a stop control; results apply in ONE `replaceData` at the end — even
+    when stopped or failed partway, so no completed work is lost, and the whole
+    batch is a single undo step. Both surfaces share `summarizableSource` so
+    the count can never disagree with the buttons. Drafts are review-required.
 - **Translation assist** on every `DualField` secondary input: "Copy from
   primary" (no network) plus an optional "Draft translation" that proxies
   through the server to a self-hosted LibreTranslate instance (drafts are

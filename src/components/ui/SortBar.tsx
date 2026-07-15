@@ -4,6 +4,8 @@ import { useStore } from '../../store/useStore'
 import { availableSortModes, SORT_LABELS, type SortMode } from '../../lib/sectionSort'
 import { bulkSpec } from '../../lib/bulkImport'
 import { BulkImportModal } from './BulkImportModal'
+import { SummarizeAllButton } from './SummarizeAllButton'
+import { summaryFields } from '../../lib/summarizeBatch'
 import type { SectionKey } from '../../types'
 
 type ArraySection = SectionKey
@@ -30,7 +32,7 @@ export function SortBar({ section, count }: { section: ArraySection; count: numb
   const showSort = count >= 2 && modes.length >= 2
   const spec = bulkSpec(section)
 
-  if (!showSort && !spec) return null
+  if (!showSort && !spec && !summaryFields(section)) return null
 
   return (
     <div className="sortbar">
@@ -53,22 +55,29 @@ export function SortBar({ section, count }: { section: ArraySection; count: numb
           )}
         </>
       )}
-      {spec && (
-        <button
-          className="sortbar-bulk"
-          onClick={() => setBulkOpen(true)}
-          title={`Add many ${spec.label.toLowerCase()} at once, with help from your own AI`}
-        >
-          <ListPlus size={13} /> Bulk add
-        </button>
-      )}
+      {/* Right-hand group. Bulk add is anchored last so the summarize button —
+          which comes and goes with the empty count — never shifts it. */}
+      <div className="sortbar-actions">
+        <SummarizeAllButton section={section} />
+        {spec && (
+          <button
+            className="sortbar-bulk"
+            onClick={() => setBulkOpen(true)}
+            title={`Add many ${spec.label.toLowerCase()} at once, with help from your own AI`}
+          >
+            <ListPlus size={13} /> Bulk add
+          </button>
+        )}
+      </div>
       {bulkOpen && spec && <BulkImportModal spec={spec} onClose={() => setBulkOpen(false)} />}
       <style>{`
         .sortbar {
           display: flex; align-items: center; gap: 8px; margin-bottom: 12px;
           padding: 7px 11px; background: var(--paper-raised);
           border: 1px solid var(--line); border-radius: var(--r-md);
+          flex-wrap: wrap; /* a summarize error must not blow the bar out */
         }
+        .sortbar-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
         .sortbar-icon { color: var(--ink-faint); flex-shrink: 0; }
         .sortbar-label {
           font-size: 11px; font-weight: 600; letter-spacing: .06em;
@@ -80,9 +89,8 @@ export function SortBar({ section, count }: { section: ArraySection; count: numb
         }
         .sortbar-select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-wash); }
         .sortbar-hint { font-size: 11.5px; color: var(--ink-faint); font-style: italic; }
-        /* Pinned right whether or not the sort half rendered. */
         .sortbar-bulk {
-          margin-left: auto; display: inline-flex; align-items: center; gap: 5px;
+          display: inline-flex; align-items: center; gap: 5px;
           padding: 5px 10px; border-radius: var(--r-sm);
           border: 1px solid var(--line-strong); background: var(--paper);
           font-size: 12px; font-weight: 600; color: var(--ink-soft);
