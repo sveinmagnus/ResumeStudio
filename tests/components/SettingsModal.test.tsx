@@ -24,9 +24,17 @@ const managedStatus = (over: Partial<SettingsStatus['settings']> = {}): Settings
     azure_region: '',
     backup_dir: '',
     backup_interval_ms: 60000,
+    summarize_provider: 'off',
+    summarize_ollama_url: '',
+    summarize_docker: false,
+    summarize_openai_api_key_set: false,
+    summarize_compat_url: '',
+    summarize_compat_api_key_set: false,
+    summarize_model: '',
     ...over,
   },
   translate: { configured: false },
+  summarize: { configured: false },
 })
 
 describe('<SettingsModal>', () => {

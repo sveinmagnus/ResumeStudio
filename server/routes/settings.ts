@@ -12,9 +12,12 @@ import { Router, type Request, type Response } from 'express'
 import {
   type AppSettings,
   isDesktop, saveSettings, toView, currentSettings, settingsToTranslateConfig,
+  settingsToSummarizeConfig, DOCKER_OLLAMA_URL,
 } from '../settings.js'
 import { isTranslationConfigured, translate, TranslateError } from '../translate.js'
 import { startTranslate, stopTranslate, translateReachable, dockerAvailable, DOCKER_TRANSLATE_URL } from '../translateDocker.js'
+import { isSummarizeConfigured, summarize, SummarizeError } from '../summarize.js'
+import { startSummarize, stopSummarize, ollamaReachable, dockerAvailable as ollamaDockerAvailable } from '../summarizeDocker.js'
 import { reconfigureBackup } from '../backupRuntime.js'
 
 const router = Router()
@@ -24,6 +27,7 @@ function payload() {
     managed: isDesktop(),
     settings: toView(currentSettings()),
     translate: { configured: isTranslationConfigured() },
+    summarize: { configured: isSummarizeConfigured() },
   }
 }
 
@@ -82,6 +86,33 @@ router.put('/', (req: Request, res: Response): void => {
       return
     }
     patch.backup_interval_ms = n
+  }
+  // ── Summarize ──
+  if ('summarize_provider' in body) {
+    if (!['off', 'ollama', 'openai', 'compat'].includes(String(body.summarize_provider))) {
+      res.status(400).json({ error: 'summarize_provider must be one of off/ollama/openai/compat' })
+      return
+    }
+    patch.summarize_provider = body.summarize_provider as AppSettings['summarize_provider']
+  }
+  for (const key of ['summarize_ollama_url', 'summarize_compat_url'] as const) {
+    if (key in body) {
+      const v = body[key]
+      if (typeof v !== 'string') { res.status(400).json({ error: `${key} must be a string` }); return }
+      const trimmed = v.trim()
+      if (trimmed && !/^https?:\/\//i.test(trimmed)) { res.status(400).json({ error: `${key} must start with http:// or https://` }); return }
+      patch[key] = trimmed
+    }
+  }
+  if ('summarize_docker' in body) {
+    if (typeof body.summarize_docker !== 'boolean') { res.status(400).json({ error: 'summarize_docker must be a boolean' }); return }
+    patch.summarize_docker = body.summarize_docker
+  }
+  for (const key of ['summarize_openai_api_key', 'summarize_compat_api_key', 'summarize_model'] as const) {
+    if (key in body) {
+      if (typeof body[key] !== 'string') { res.status(400).json({ error: `${key} must be a string` }); return }
+      patch[key] = body[key] as string
+    }
   }
 
   const updated = saveSettings(patch)
@@ -151,6 +182,66 @@ router.post('/docker', (req: Request, res: Response): void => {
     if (action === 'status') {
       const available = await dockerAvailable()
       const reach = available ? await translateReachable(DOCKER_TRANSLATE_URL) : { reachable: false, message: 'Docker not available.' }
+      res.json({ available, ...reach })
+      return
+    }
+    res.status(400).json({ error: "action must be 'start', 'stop' or 'status'" })
+  })()
+})
+
+/**
+ * POST /api/settings/summarize/test — verify a summarize config works by asking
+ * for one tiny summary. Same SSRF guard as the translate test: pending body
+ * values (esp. URLs) are honoured only on the desktop build.
+ */
+router.post('/summarize/test', (req: Request, res: Response): void => {
+  void (async () => {
+    const body = (req.body ?? {}) as Record<string, unknown>
+    const base = currentSettings()
+    const merged: AppSettings = { ...base }
+    if (isDesktop()) {
+      const str = (k: string) => (typeof body[k] === 'string' ? (body[k] as string) : undefined)
+      if (str('summarize_provider') !== undefined) merged.summarize_provider = body.summarize_provider as AppSettings['summarize_provider']
+      if (str('summarize_ollama_url') !== undefined) merged.summarize_ollama_url = (body.summarize_ollama_url as string).trim()
+      if (typeof body.summarize_docker === 'boolean') merged.summarize_docker = body.summarize_docker
+      if (str('summarize_compat_url') !== undefined) merged.summarize_compat_url = (body.summarize_compat_url as string).trim()
+      if (str('summarize_openai_api_key')) merged.summarize_openai_api_key = body.summarize_openai_api_key as string
+      if (str('summarize_compat_api_key')) merged.summarize_compat_api_key = body.summarize_compat_api_key as string
+      if (str('summarize_model') !== undefined) merged.summarize_model = (body.summarize_model as string).trim()
+    }
+    const cfg = settingsToSummarizeConfig(merged)
+    if (cfg.provider === 'off') { res.json({ reachable: false, message: 'No summarize provider is selected.' }); return }
+    if (!cfg.model) { res.json({ reachable: false, message: 'Set a model name first (e.g. "llama3.2:3b").' }); return }
+    try {
+      const out = await summarize('Led a small team building a customer-facing web app in React and Node.', 'en', cfg)
+      res.json({ reachable: true, message: `Working — e.g. "${out}"` })
+    } catch (err) {
+      res.json({ reachable: false, message: err instanceof SummarizeError ? err.message : 'Summarize test failed.' })
+    }
+  })()
+})
+
+/**
+ * POST /api/settings/summarize/docker — manage the local Docker Ollama (desktop).
+ * Body: { action: 'start' | 'stop' | 'status', model? }.
+ */
+router.post('/summarize/docker', (req: Request, res: Response): void => {
+  if (!isDesktop()) {
+    res.status(403).json({ error: 'Docker management is only available in the desktop build.' })
+    return
+  }
+  void (async () => {
+    const body = (req.body ?? {}) as Record<string, unknown>
+    const action = body.action
+    if (action === 'start') {
+      const model = typeof body.model === 'string' && body.model.trim() ? body.model : currentSettings().summarize_model
+      res.json(await startSummarize(model))
+      return
+    }
+    if (action === 'stop') { res.json(await stopSummarize()); return }
+    if (action === 'status') {
+      const available = await ollamaDockerAvailable()
+      const reach = available ? await ollamaReachable(DOCKER_OLLAMA_URL) : { reachable: false, message: 'Docker not available.' }
       res.json({ available, ...reach })
       return
     }

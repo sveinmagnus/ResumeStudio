@@ -7,6 +7,7 @@ import { isDesktop } from './settings.js'
 import authRouter from './routes/auth.js'
 import resumeRouter from './routes/resume.js'
 import translateRouter from './routes/translate.js'
+import summarizeRouter from './routes/summarize.js'
 import backupRouter from './routes/backup.js'
 import settingsRouter from './routes/settings.js'
 import updateRouter from './routes/update.js'
@@ -209,6 +210,10 @@ export function createApp(): Express {
   // Both limiters: apiLimiter brakes failure-floods (401s), translateLimiter
   // caps successful (billable) calls too.
   app.use('/api/translate', apiLimiter, translateLimiter, authMiddleware, translateRouter)
+
+  // ── Summarize proxy (auth-gated) — one-line short descriptions via an LLM ───
+  // Same limiter shape as translate: these calls hit a billable/heavy backend.
+  app.use('/api/summarize', apiLimiter, translateLimiter, authMiddleware, summarizeRouter)
 
   // ── Store backup / sync (auth-gated) — desktop build's Drive-folder sync ───
   app.use('/api/backup', apiLimiter, authMiddleware, backupRouter)

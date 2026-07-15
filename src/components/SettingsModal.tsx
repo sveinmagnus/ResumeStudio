@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
   X, Loader2, Check, AlertCircle, Languages, FolderSync, Server, Box, Power, Settings,
-  RefreshCw, Download, Type,
+  RefreshCw, Download, Type, Sparkles,
 } from 'lucide-react'
 import { fontOptions, fontInstallInfo, type GlobalFonts } from '../lib/fonts'
 import { getDefaultFonts, setDefaultFonts } from '../lib/appPrefs'
+import { resetSummarizeAvailability } from '../lib/summarizeClient'
 import {
   api, type SettingsStatus, type SettingsUpdate, type UpdateStatus, UnauthorizedError,
 } from '../lib/api'
@@ -16,6 +17,8 @@ import { downloadBackup } from '../lib/backup'
 /** UI-level provider choice. LibreTranslate splits into two entries (the
  *  underlying provider is the same; only translate_docker differs). */
 type UiProvider = 'off' | 'libre_docker' | 'libre_remote' | 'deepl' | 'google' | 'azure'
+/** UI-level summarize choice. Ollama splits into local-Docker vs remote-URL. */
+type SummUiProvider = 'off' | 'ollama_docker' | 'ollama_remote' | 'openai' | 'compat'
 
 interface SettingsModalProps {
   onClose: () => void
@@ -122,6 +125,16 @@ export function SettingsModal({ onClose, onChanged, onUnauthorized }: SettingsMo
   const [test, setTest] = useState<{ busy: boolean; text?: string; ok?: boolean }>({ busy: false })
   const [docker, setDocker] = useState<{ busy: boolean; text?: string; ok?: boolean }>({ busy: false })
 
+  // Summarize (AI) form state
+  const [summProvider, setSummProvider] = useState<SummUiProvider>('off')
+  const [summOllamaUrl, setSummOllamaUrl] = useState('')
+  const [summCompatUrl, setSummCompatUrl] = useState('')
+  const [summModel, setSummModel] = useState('')
+  const [summKeys, setSummKeys] = useState({ openai: '', compat: '' })
+  const [summKeySet, setSummKeySet] = useState({ openai: false, compat: false })
+  const [summTest, setSummTest] = useState<{ busy: boolean; text?: string; ok?: boolean }>({ busy: false })
+  const [summDocker, setSummDocker] = useState<{ busy: boolean; text?: string; ok?: boolean }>({ busy: false })
+
   // ── Updates (desktop build) ───────────────────────────────────────────────
   const [upd, setUpd] = useState<UpdateStatus | null>(null)
   const [updBusy, setUpdBusy] = useState<null | 'check' | 'install'>(null)
@@ -141,6 +154,15 @@ export function SettingsModal({ onClose, onChanged, onUnauthorized }: SettingsMo
       libre: v.libretranslate_api_key_set, deepl: v.deepl_api_key_set,
       google: v.google_api_key_set, azure: v.azure_api_key_set,
     })
+    const summUi: SummUiProvider =
+      v.summarize_provider === 'ollama' ? (v.summarize_docker ? 'ollama_docker' : 'ollama_remote')
+      : v.summarize_provider // 'off' | 'openai' | 'compat'
+    setSummProvider(summUi || 'off')
+    setSummOllamaUrl(v.summarize_ollama_url ?? '')
+    setSummCompatUrl(v.summarize_compat_url ?? '')
+    setSummModel(v.summarize_model ?? '')
+    setSummKeys({ openai: '', compat: '' })
+    setSummKeySet({ openai: !!v.summarize_openai_api_key_set, compat: !!v.summarize_compat_api_key_set })
   }, [])
 
   useEffect(() => {
@@ -197,17 +219,35 @@ export function SettingsModal({ onClose, onChanged, onUnauthorized }: SettingsMo
         if (keys.azure.trim()) u.azure_api_key = keys.azure.trim()
         break
     }
+    u.summarize_model = summModel.trim()
+    switch (summProvider) {
+      case 'off': u.summarize_provider = 'off'; break
+      case 'ollama_docker': u.summarize_provider = 'ollama'; u.summarize_docker = true; break
+      case 'ollama_remote':
+        u.summarize_provider = 'ollama'; u.summarize_docker = false
+        u.summarize_ollama_url = summOllamaUrl.trim()
+        break
+      case 'openai':
+        u.summarize_provider = 'openai'
+        if (summKeys.openai.trim()) u.summarize_openai_api_key = summKeys.openai.trim()
+        break
+      case 'compat':
+        u.summarize_provider = 'compat'; u.summarize_compat_url = summCompatUrl.trim()
+        if (summKeys.compat.trim()) u.summarize_compat_api_key = summKeys.compat.trim()
+        break
+    }
     return u
-  }, [provider, libreUrl, azureRegion, backupDir, keys])
+  }, [provider, libreUrl, azureRegion, backupDir, keys, summProvider, summOllamaUrl, summCompatUrl, summModel, summKeys])
 
   const onSave = useCallback(async () => {
     setSaving(true); setSaveMsg(null)
     try {
       const next = await api.saveSettings(buildUpdate())
       seed(next)
-      // The editor memoizes "is translate configured?" — clear it so the next
-      // editor mount re-probes against the new config.
+      // The editor memoizes "is translate/summarize configured?" — clear both
+      // so the next mount re-probes against the new config.
       resetTranslationAvailability()
+      resetSummarizeAvailability()
       setSaveMsg({ ok: true, text: 'Saved.' })
       onChanged()
     } catch (err) {
@@ -230,6 +270,19 @@ export function SettingsModal({ onClose, onChanged, onUnauthorized }: SettingsMo
     const ok = r.ok ?? r.reachable ?? false
     setDocker({ busy: false, ok, text: r.message })
   }, [])
+
+  const onTestSummarize = useCallback(async () => {
+    setSummTest({ busy: true })
+    const r = await api.testSummarize(buildUpdate())
+    setSummTest({ busy: false, ok: r.reachable, text: r.message })
+  }, [buildUpdate])
+
+  const onSummarizeDocker = useCallback(async (action: 'start' | 'stop' | 'status') => {
+    setSummDocker({ busy: true })
+    const r = await api.summarizeDocker(action, summModel.trim())
+    const ok = r.ok ?? r.reachable ?? false
+    setSummDocker({ busy: false, ok, text: r.message })
+  }, [summModel])
 
   const managed = status?.managed === true
   const keyPlaceholder = (set: boolean) => (set ? '•••••• (saved — leave blank to keep)' : 'API key')
@@ -375,6 +428,101 @@ export function SettingsModal({ onClose, onChanged, onUnauthorized }: SettingsMo
                   {test.text && (
                     <span className={`sm-inline ${test.ok ? 'sm-ok' : 'sm-warn'}`}>
                       {test.ok ? <Check size={13} /> : <AlertCircle size={13} />} {test.text}
+                    </span>
+                  )}
+                </div>
+              )}
+            </section>
+
+            {/* ── Summarize (AI short descriptions) ───────────────────── */}
+            <section className="sm-sec">
+              <div className="sm-sec-head"><Sparkles size={15} /> Summarize (AI short descriptions)</div>
+              <p className="sm-help">
+                Powers the “Summarize” button that drafts a one-line short
+                description from a long one. Needs an LLM — run one locally with
+                Docker (private &amp; free), or point at OpenAI / an
+                OpenAI-compatible endpoint.
+              </p>
+
+              <label className="sm-field-label" htmlFor="sm-sum-provider">Provider</label>
+              <select id="sm-sum-provider" className="sm-input" value={summProvider}
+                onChange={(e) => setSummProvider(e.target.value as SummUiProvider)} aria-label="Summarize provider">
+                <option value="off">Off — no Summarize button</option>
+                <option value="ollama_docker">Local LLM — Ollama (Docker-managed)</option>
+                <option value="ollama_remote">Ollama — remote URL</option>
+                <option value="openai">OpenAI</option>
+                <option value="compat">OpenAI-compatible (OpenRouter, Groq, LM Studio…)</option>
+              </select>
+
+              {summProvider !== 'off' && (
+                <div className="sm-sub">
+                  <label className="sm-field-label" htmlFor="sm-sum-model">Model</label>
+                  <input id="sm-sum-model" className="sm-input" value={summModel}
+                    placeholder={summProvider === 'openai' ? 'e.g. gpt-4o-mini' : 'e.g. llama3.2:3b'}
+                    onChange={(e) => setSummModel(e.target.value)} aria-label="Summarize model" />
+                </div>
+              )}
+
+              {summProvider === 'ollama_docker' && (
+                <div className="sm-sub">
+                  <p className="sm-help">
+                    Runs Ollama in Docker at <code>http://localhost:11434</code>.
+                    Requires Docker Desktop; “Start” pulls the model above (several
+                    GB on first run).
+                  </p>
+                  <div className="sm-btn-row">
+                    <button className="sm-btn" onClick={() => void onSummarizeDocker('start')} disabled={summDocker.busy}>
+                      {summDocker.busy ? <Loader2 size={13} className="sm-spin" /> : <Power size={13} />} Start &amp; pull
+                    </button>
+                    <button className="sm-btn" onClick={() => void onSummarizeDocker('stop')} disabled={summDocker.busy}>
+                      <Box size={13} /> Stop
+                    </button>
+                    <button className="sm-btn" onClick={() => void onSummarizeDocker('status')} disabled={summDocker.busy}>
+                      <Server size={13} /> Check status
+                    </button>
+                  </div>
+                  {summDocker.text && (
+                    <div className={`sm-inline ${summDocker.ok ? 'sm-ok' : 'sm-warn'}`}>
+                      {summDocker.ok ? <Check size={13} /> : <AlertCircle size={13} />} {summDocker.text}
+                    </div>
+                  )}
+                  <p className="sm-help">Click <strong>Save</strong> to enable the Summarize button on every launch.</p>
+                </div>
+              )}
+
+              {summProvider === 'ollama_remote' && (
+                <div className="sm-sub">
+                  <input className="sm-input" placeholder="http://your-ollama-host:11434"
+                    value={summOllamaUrl} onChange={(e) => setSummOllamaUrl(e.target.value)} aria-label="Ollama URL" />
+                </div>
+              )}
+
+              {summProvider === 'openai' && (
+                <div className="sm-sub">
+                  <input className="sm-input" type="password" placeholder={keyPlaceholder(summKeySet.openai)}
+                    value={summKeys.openai} onChange={(e) => setSummKeys((k) => ({ ...k, openai: e.target.value }))}
+                    aria-label="OpenAI API key" />
+                </div>
+              )}
+
+              {summProvider === 'compat' && (
+                <div className="sm-sub">
+                  <input className="sm-input" placeholder="Base URL, e.g. https://openrouter.ai/api/v1"
+                    value={summCompatUrl} onChange={(e) => setSummCompatUrl(e.target.value)} aria-label="OpenAI-compatible base URL" />
+                  <input className="sm-input" type="password" placeholder={keyPlaceholder(summKeySet.compat)}
+                    value={summKeys.compat} onChange={(e) => setSummKeys((k) => ({ ...k, compat: e.target.value }))}
+                    aria-label="OpenAI-compatible API key" />
+                </div>
+              )}
+
+              {summProvider !== 'off' && (
+                <div className="sm-btn-row">
+                  <button className="sm-btn" onClick={() => void onTestSummarize()} disabled={summTest.busy}>
+                    {summTest.busy ? <Loader2 size={13} className="sm-spin" /> : <Server size={13} />} Test connection
+                  </button>
+                  {summTest.text && (
+                    <span className={`sm-inline ${summTest.ok ? 'sm-ok' : 'sm-warn'}`}>
+                      {summTest.ok ? <Check size={13} /> : <AlertCircle size={13} />} {summTest.text}
                     </span>
                   )}
                 </div>

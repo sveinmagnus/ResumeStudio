@@ -143,6 +143,7 @@ export interface RestoreSummary {
 }
 
 export type TranslateProvider = 'off' | 'libretranslate' | 'deepl' | 'google' | 'azure'
+export type SummarizeProvider = 'off' | 'ollama' | 'openai' | 'compat'
 
 /** Editable settings as returned to the client (API keys masked to booleans). */
 export interface SettingsView {
@@ -156,6 +157,13 @@ export interface SettingsView {
   azure_region: string
   backup_dir: string
   backup_interval_ms: number
+  summarize_provider: SummarizeProvider
+  summarize_ollama_url: string
+  summarize_docker: boolean
+  summarize_openai_api_key_set: boolean
+  summarize_compat_url: string
+  summarize_compat_api_key_set: boolean
+  summarize_model: string
 }
 
 /** GET /api/settings response. `managed` is false on env-driven (VPS) builds. */
@@ -163,6 +171,7 @@ export interface SettingsStatus {
   managed: boolean
   settings: SettingsView
   translate: { configured: boolean }
+  summarize: { configured: boolean }
 }
 
 /** Partial settings update (only sent keys change; api keys omitted = unchanged). */
@@ -177,6 +186,13 @@ export interface SettingsUpdate {
   azure_region?: string
   backup_dir?: string
   backup_interval_ms?: number
+  summarize_provider?: SummarizeProvider
+  summarize_ollama_url?: string
+  summarize_docker?: boolean
+  summarize_openai_api_key?: string
+  summarize_compat_url?: string
+  summarize_compat_api_key?: string
+  summarize_model?: string
 }
 
 export interface TranslateTestResult { reachable: boolean; languages?: number; message: string }
@@ -495,6 +511,64 @@ export const api = {
   async translateDocker(action: 'start' | 'stop' | 'status'): Promise<DockerActionResult> {
     try {
       const res = await request('POST', '/api/settings/docker', { action })
+      if (!res.ok) {
+        let message = `Docker ${action} failed (${res.status})`
+        try {
+          const json = await res.json() as { error?: string }
+          if (json.error) message = json.error
+        } catch { /* keep default */ }
+        return { available: false, message }
+      }
+      return await res.json() as DockerActionResult
+    } catch {
+      return { available: false, message: `Docker ${action} request failed.` }
+    }
+  },
+
+  // ── Summarize (AI short descriptions) ─────────────────────────────────────
+
+  /** Is an LLM summarize backend configured? Never throws. */
+  async summarizeStatus(): Promise<boolean> {
+    try {
+      const res = await request('GET', '/api/summarize/status')
+      if (!res.ok) return false
+      const json = await res.json() as { configured?: boolean }
+      return json.configured === true
+    } catch {
+      return false
+    }
+  },
+
+  /** Summarize a long description into one line in `locale`'s language. Throws on failure. */
+  async summarize(text: string, locale: string): Promise<string> {
+    const res = await request('POST', '/api/summarize', { text, locale })
+    if (!res.ok) {
+      let message = `Summarize failed (${res.status})`
+      try {
+        const json = await res.json() as { error?: string }
+        if (json.error) message = json.error
+      } catch { /* keep default */ }
+      throw new ServerError(res.status, message)
+    }
+    const json = await res.json() as { summary: string }
+    return json.summary
+  },
+
+  /** Test a summarize config with one tiny request. Never throws. */
+  async testSummarize(input?: SettingsUpdate): Promise<TranslateTestResult> {
+    try {
+      const res = await request('POST', '/api/settings/summarize/test', input ?? {})
+      if (!res.ok) return { reachable: false, message: `Test failed (${res.status})` }
+      return await res.json() as TranslateTestResult
+    } catch {
+      return { reachable: false, message: 'Test request failed.' }
+    }
+  },
+
+  /** Start/stop/status the managed Docker Ollama. `model` used on start. Never throws. */
+  async summarizeDocker(action: 'start' | 'stop' | 'status', model?: string): Promise<DockerActionResult> {
+    try {
+      const res = await request('POST', '/api/settings/summarize/docker', { action, model })
       if (!res.ok) {
         let message = `Docker ${action} failed (${res.status})`
         try {

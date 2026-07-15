@@ -20,13 +20,17 @@ import fs from 'fs'
 import path from 'path'
 import { resolvePaths } from './config.js'
 import type { TranslateConfig, TranslateProvider } from './translate.js'
+import { DEFAULT_OLLAMA_URL, type SummarizeConfig, type SummarizeProvider } from './summarize.js'
 
 export const SETTINGS_FILENAME = 'settings.json'
 
 /** Fixed URL the app uses when it manages a local Docker LibreTranslate. */
 export const DOCKER_TRANSLATE_URL = 'http://localhost:5000'
+/** Fixed URL the app uses when it manages a local Docker Ollama. */
+export const DOCKER_OLLAMA_URL = DEFAULT_OLLAMA_URL
 
 const PROVIDERS: readonly TranslateProvider[] = ['off', 'libretranslate', 'deepl', 'google', 'azure']
+const SUMMARIZE_PROVIDERS: readonly SummarizeProvider[] = ['off', 'ollama', 'openai', 'compat']
 
 export interface AppSettings {
   /** Which translation backend to use ('off' = no Draft button). */
@@ -48,6 +52,21 @@ export interface AppSettings {
   backup_dir: string
   /** How often (ms) to refresh the backup while running. */
   backup_interval_ms: number
+  // ── Summarize (AI short-description) ──
+  /** Which LLM backend summarizes long descriptions ('off' = no Summarize button). */
+  summarize_provider: SummarizeProvider
+  /** Remote Ollama base URL (ignored when summarize_docker manages a local one). */
+  summarize_ollama_url: string
+  /** When provider=ollama, run/use the local Docker Ollama at DOCKER_OLLAMA_URL. */
+  summarize_docker: boolean
+  /** OpenAI API key (provider=openai). */
+  summarize_openai_api_key: string
+  /** Base URL for a generic OpenAI-compatible endpoint (provider=compat). */
+  summarize_compat_url: string
+  /** Optional API key for the compat endpoint. */
+  summarize_compat_api_key: string
+  /** Chat model name (e.g. 'llama3.2:3b', 'gpt-4o-mini'). */
+  summarize_model: string
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -61,6 +80,13 @@ export const DEFAULT_SETTINGS: AppSettings = {
   azure_region: '',
   backup_dir: '',
   backup_interval_ms: 60_000,
+  summarize_provider: 'off',
+  summarize_ollama_url: '',
+  summarize_docker: false,
+  summarize_openai_api_key: '',
+  summarize_compat_url: '',
+  summarize_compat_api_key: '',
+  summarize_model: '',
 }
 
 /**
@@ -83,6 +109,9 @@ function coerce(raw: unknown): AppSettings {
   const provider = (PROVIDERS as string[]).includes(String(o.translate_provider))
     ? (o.translate_provider as TranslateProvider)
     : DEFAULT_SETTINGS.translate_provider
+  const summarizeProvider = (SUMMARIZE_PROVIDERS as string[]).includes(String(o.summarize_provider))
+    ? (o.summarize_provider as SummarizeProvider)
+    : DEFAULT_SETTINGS.summarize_provider
   return {
     translate_provider: provider,
     libretranslate_url: str(o.libretranslate_url, DEFAULT_SETTINGS.libretranslate_url).trim(),
@@ -94,6 +123,13 @@ function coerce(raw: unknown): AppSettings {
     azure_region: str(o.azure_region, DEFAULT_SETTINGS.azure_region).trim(),
     backup_dir: str(o.backup_dir, DEFAULT_SETTINGS.backup_dir).trim(),
     backup_interval_ms: Math.max(5_000, num(o.backup_interval_ms, DEFAULT_SETTINGS.backup_interval_ms)),
+    summarize_provider: summarizeProvider,
+    summarize_ollama_url: str(o.summarize_ollama_url, DEFAULT_SETTINGS.summarize_ollama_url).trim(),
+    summarize_docker: o.summarize_docker === true,
+    summarize_openai_api_key: str(o.summarize_openai_api_key, DEFAULT_SETTINGS.summarize_openai_api_key).trim(),
+    summarize_compat_url: str(o.summarize_compat_url, DEFAULT_SETTINGS.summarize_compat_url).trim(),
+    summarize_compat_api_key: str(o.summarize_compat_api_key, DEFAULT_SETTINGS.summarize_compat_api_key).trim(),
+    summarize_model: str(o.summarize_model, DEFAULT_SETTINGS.summarize_model).trim(),
   }
 }
 
@@ -136,6 +172,26 @@ export function applyToEnv(s: AppSettings): void {
   setOrClear('AZURE_TRANSLATOR_REGION', s.azure_region)
   setOrClear('RESUME_BACKUP_DIR', s.backup_dir)
   process.env.RESUME_BACKUP_INTERVAL_MS = String(s.backup_interval_ms)
+  // Summarize — the effective Ollama URL is the Docker URL when managed.
+  process.env.SUMMARIZE_PROVIDER = s.summarize_provider
+  const ollamaUrl = (s.summarize_provider === 'ollama' && s.summarize_docker) ? DOCKER_OLLAMA_URL : s.summarize_ollama_url
+  setOrClear('SUMMARIZE_OLLAMA_URL', ollamaUrl)
+  setOrClear('SUMMARIZE_OPENAI_API_KEY', s.summarize_openai_api_key)
+  setOrClear('SUMMARIZE_COMPAT_URL', s.summarize_compat_url)
+  setOrClear('SUMMARIZE_COMPAT_API_KEY', s.summarize_compat_api_key)
+  setOrClear('SUMMARIZE_MODEL', s.summarize_model)
+}
+
+/** Map persisted settings to a SummarizeConfig (mirrors settingsToTranslateConfig). */
+export function settingsToSummarizeConfig(s: AppSettings): SummarizeConfig {
+  const ollamaUrl = (s.summarize_provider === 'ollama' && s.summarize_docker) ? DOCKER_OLLAMA_URL : s.summarize_ollama_url
+  return {
+    provider: s.summarize_provider,
+    ollama: { url: (ollamaUrl || DOCKER_OLLAMA_URL).replace(/\/+$/, '') },
+    openai: { apiKey: s.summarize_openai_api_key },
+    compat: { url: s.summarize_compat_url.replace(/\/+$/, ''), apiKey: s.summarize_compat_api_key },
+    model: s.summarize_model,
+  }
 }
 
 /** Map persisted settings to a TranslateConfig — used to test pending config
@@ -183,6 +239,7 @@ export function loadOrInitSettings(): AppSettings {
     azure_region: process.env.AZURE_TRANSLATOR_REGION ?? '',
     backup_dir: process.env.RESUME_BACKUP_DIR ?? '',
     backup_interval_ms: Number(process.env.RESUME_BACKUP_INTERVAL_MS) || DEFAULT_SETTINGS.backup_interval_ms,
+    ...summarizeFromEnv(),
   })
   writeSettings(seeded)
   applyToEnv(seeded)
@@ -217,7 +274,20 @@ export function currentSettings(): AppSettings {
     azure_region: process.env.AZURE_TRANSLATOR_REGION ?? '',
     backup_dir: process.env.RESUME_BACKUP_DIR ?? '',
     backup_interval_ms: Number(process.env.RESUME_BACKUP_INTERVAL_MS) || DEFAULT_SETTINGS.backup_interval_ms,
+    ...summarizeFromEnv(),
   })
+}
+
+/** Summarize settings synthesised from env (VPS snapshot + first-run seed). */
+function summarizeFromEnv(): Partial<AppSettings> {
+  return {
+    summarize_provider: process.env.SUMMARIZE_PROVIDER?.trim() as SummarizeProvider | undefined,
+    summarize_ollama_url: process.env.SUMMARIZE_OLLAMA_URL ?? '',
+    summarize_openai_api_key: process.env.SUMMARIZE_OPENAI_API_KEY ?? '',
+    summarize_compat_url: process.env.SUMMARIZE_COMPAT_URL ?? '',
+    summarize_compat_api_key: process.env.SUMMARIZE_COMPAT_API_KEY ?? '',
+    summarize_model: process.env.SUMMARIZE_MODEL ?? '',
+  }
 }
 
 /**
@@ -235,6 +305,13 @@ export interface SettingsView {
   azure_region: string
   backup_dir: string
   backup_interval_ms: number
+  summarize_provider: SummarizeProvider
+  summarize_ollama_url: string
+  summarize_docker: boolean
+  summarize_openai_api_key_set: boolean
+  summarize_compat_url: string
+  summarize_compat_api_key_set: boolean
+  summarize_model: string
 }
 
 export function toView(s: AppSettings): SettingsView {
@@ -249,5 +326,12 @@ export function toView(s: AppSettings): SettingsView {
     azure_region: s.azure_region,
     backup_dir: s.backup_dir,
     backup_interval_ms: s.backup_interval_ms,
+    summarize_provider: s.summarize_provider,
+    summarize_ollama_url: s.summarize_ollama_url,
+    summarize_docker: s.summarize_docker,
+    summarize_openai_api_key_set: s.summarize_openai_api_key.trim().length > 0,
+    summarize_compat_url: s.summarize_compat_url,
+    summarize_compat_api_key_set: s.summarize_compat_api_key.trim().length > 0,
+    summarize_model: s.summarize_model,
   }
 }

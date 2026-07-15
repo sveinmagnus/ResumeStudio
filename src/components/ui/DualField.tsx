@@ -1,11 +1,12 @@
 import { useId, useState, useLayoutEffect, useRef } from 'react'
-import { Copy, Languages, Loader2 } from 'lucide-react'
+import { Copy, Languages, Loader2, Sparkles } from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import type { LocalizedString } from '../../types'
 import { LOCALE_LABELS, bcp47 } from '../../lib/locales'
 import { api } from '../../lib/api'
+import { richToPlain } from '../../lib/richText'
 import { canDraftBetween } from '../../lib/translateClient'
-import { useTranslationAvailable } from '../../store/useTranslation'
+import { useTranslationAvailable, useSummarizeAvailable } from '../../store/useTranslation'
 
 /**
  * Resize a textarea to fit its content. Called on mount (so editing an
@@ -59,6 +60,13 @@ interface DualFieldProps {
   multiline?: boolean
   rows?: number
   placeholder?: string
+  /**
+   * Source text (per locale) for an AI "Summarize" affordance — typically the
+   * item's long description. When set and a summarize backend is configured, an
+   * empty column whose source has text shows a Summarize button that drafts a
+   * one-line summary into it. Rich-text source is stripped to plain first.
+   */
+  summarizeFrom?: LocalizedString
 }
 
 /**
@@ -73,17 +81,23 @@ interface DualFieldProps {
  *     review-required draft. Only shown when the server reports a translation
  *     backend is configured (see useTranslationAvailable).
  */
-export function DualField({ label, value, onChange, multiline, rows = 3, placeholder }: DualFieldProps) {
+export function DualField({ label, value, onChange, multiline, rows = 3, placeholder, summarizeFrom }: DualFieldProps) {
   const primary = useStore((s) => s.primaryLocale)
   const secondary = useStore((s) => s.secondaryLocale)
   const translationAvailable = useTranslationAvailable()
+  const summarizeAvailable = useSummarizeAvailable()
   const fieldId = useId()
 
   // State keys off the TARGET locale so the assist can run in either direction
   // (primary→secondary or secondary→primary) without cross-talk.
   const [busyLocale, setBusyLocale] = useState<string | null>(null)
   const [draftedLocale, setDraftedLocale] = useState<string | null>(null)
+  const [summarizedLocale, setSummarizedLocale] = useState<string | null>(null)
   const [error, setError] = useState<{ locale: string; msg: string } | null>(null)
+
+  /** Plain-text summarize source for a locale (rich markup stripped), or ''. */
+  const summarizeSrc = (locale: string): string =>
+    summarizeFrom ? richToPlain(summarizeFrom[locale] || '').trim() : ''
 
   const set = (locale: string, text: string) => {
     const next = { ...value }
@@ -99,7 +113,24 @@ export function DualField({ label, value, onChange, multiline, rows = 3, placeho
     if (!incoming.trim()) return
     set(to, incoming)
     if (draftedLocale === to) setDraftedLocale(null)
+    if (summarizedLocale === to) setSummarizedLocale(null)
     if (error?.locale === to) setError(null)
+  }
+
+  const summarizeInto = async (locale: string) => {
+    const src = summarizeSrc(locale)
+    if (!src || busyLocale) return
+    setBusyLocale(locale)
+    setError(null)
+    try {
+      const short = await api.summarize(src, locale)
+      set(locale, short)
+      setSummarizedLocale(locale)
+    } catch (e) {
+      setError({ locale, msg: (e as Error).message || 'Summarize failed' })
+    } finally {
+      setBusyLocale(null)
+    }
   }
 
   const draftBetween = async (from: string, to: string) => {
@@ -119,9 +150,10 @@ export function DualField({ label, value, onChange, multiline, rows = 3, placeho
 
   const handleChange = (locale: string, text: string) => {
     set(locale, text)
-    // Editing a column clears its own draft/error annotation — the user has
-    // taken ownership of the text.
+    // Editing a column clears its own draft/summary/error annotation — the user
+    // has taken ownership of the text.
     if (draftedLocale === locale) setDraftedLocale(null)
+    if (summarizedLocale === locale) setSummarizedLocale(null)
     if (error?.locale === locale) setError(null)
   }
 
@@ -163,35 +195,52 @@ export function DualField({ label, value, onChange, multiline, rows = 3, placeho
     )
   }
 
-  // Assist (Copy + Draft) lives on whichever column is EMPTY, sourcing from the
-  // other column — so content imported into either language can seed the
-  // missing one, in either direction. Nothing shows when both columns are
-  // filled (nothing is missing) or when the source column is empty.
-  const renderAssist = (target: string, source: string) => {
-    if (!textOf(source) || textOf(target)) return null
-    const sourceName = LOCALE_LABELS[source]?.name || source
-    const canDraft = translationAvailable && canDraftBetween(source, target)
+  // Assist lives on whichever column is EMPTY. Copy + Draft source from the
+  // OTHER language column (translate direction); Summarize drafts a one-line
+  // summary from this column's own long-description source. Nothing shows when
+  // the column is already filled.
+  const renderAssist = (target: string, source: string | null) => {
+    if (textOf(target)) return null
+    const canCopyDraft = source != null && !!textOf(source)
+    const sourceName = source ? (LOCALE_LABELS[source]?.name || source) : ''
+    const canDraft = canCopyDraft && translationAvailable && canDraftBetween(source!, target)
+    const canSummarize = summarizeAvailable && !!summarizeSrc(target)
+    if (!canCopyDraft && !canSummarize) return null
     const busy = busyLocale === target
     return (
       <div className="df-actions">
-        <button
-          type="button"
-          className="df-assist-btn"
-          onClick={() => copyBetween(source, target)}
-          title={`Copy the ${sourceName} text here as a starting point`}
-        >
-          <Copy size={12} /> Copy
-        </button>
+        {canCopyDraft && (
+          <button
+            type="button"
+            className="df-assist-btn"
+            onClick={() => copyBetween(source!, target)}
+            title={`Copy the ${sourceName} text here as a starting point`}
+          >
+            <Copy size={12} /> Copy
+          </button>
+        )}
         {canDraft && (
           <button
             type="button"
             className="df-assist-btn df-draft-btn"
-            onClick={() => void draftBetween(source, target)}
+            onClick={() => void draftBetween(source!, target)}
             disabled={busy}
             title={`Draft a translation from ${sourceName} (review required)`}
           >
             {busy ? <Loader2 size={12} className="df-spin" /> : <Languages size={12} />}
             {busy ? 'Drafting…' : 'Draft'}
+          </button>
+        )}
+        {canSummarize && (
+          <button
+            type="button"
+            className="df-assist-btn df-summ-btn"
+            onClick={() => void summarizeInto(target)}
+            disabled={busy}
+            title="Draft a one-line summary from the description (review required)"
+          >
+            {busy ? <Loader2 size={12} className="df-spin" /> : <Sparkles size={12} />}
+            {busy ? 'Summarizing…' : 'Summarize'}
           </button>
         )}
       </div>
@@ -202,6 +251,9 @@ export function DualField({ label, value, onChange, multiline, rows = 3, placeho
     <>
       {draftedLocale === locale && error?.locale !== locale && (
         <span className="df-note df-note-draft" role="status">Machine draft — please review</span>
+      )}
+      {summarizedLocale === locale && error?.locale !== locale && (
+        <span className="df-note df-note-draft" role="status">AI summary — please review</span>
       )}
       {error?.locale === locale && <span className="df-note df-note-error" role="alert">{error.msg}</span>}
     </>
@@ -214,10 +266,10 @@ export function DualField({ label, value, onChange, multiline, rows = 3, placeho
         <div className="df-col">
           <div className="df-col-head">
             <span className="df-locale-tag df-tag-primary">{LOCALE_LABELS[primary]?.flag} {LOCALE_LABELS[primary]?.name || primary}</span>
-            {secondary && renderAssist(primary, secondary)}
+            {renderAssist(primary, secondary ?? null)}
           </div>
           {renderInput(primary, 'primary')}
-          {secondary && renderNotes(primary)}
+          {renderNotes(primary)}
         </div>
         {secondary && (
           <div className="df-col">
@@ -269,6 +321,7 @@ export function DualField({ label, value, onChange, multiline, rows = 3, placeho
         .df-assist-btn:hover:not(:disabled) { border-color: var(--secondary-ink); color: var(--secondary-ink-text); }
         .df-assist-btn:disabled { opacity: .4; cursor: default; }
         .df-draft-btn:hover:not(:disabled) { background: var(--secondary-tint); }
+        .df-summ-btn:hover:not(:disabled) { background: var(--accent-wash); border-color: var(--accent); color: var(--accent); }
         .df-spin { animation: df-spin 1s linear infinite; }
         @keyframes df-spin { to { transform: rotate(360deg); } }
         .df-input {

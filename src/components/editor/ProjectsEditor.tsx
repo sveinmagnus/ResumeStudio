@@ -57,7 +57,7 @@ export function ProjectsEditor() {
           <DualField label="Description (short)" value={p.description} onChange={(v) => updateItem('projects', p.id, { description: v })} />
           <ProjectIndustriesEditor project={p} />
           <RichField label="Description" value={p.long_description} onChange={(v) => updateItem('projects', p.id, { long_description: v })} />
-          <DualField label="Short description (summary mode)" value={p.short_description ?? {}} onChange={(v) => updateItem('projects', p.id, { short_description: v })} placeholder="One concise line shown in summary mode" />
+          <DualField label="Short description (summary mode)" value={p.short_description ?? {}} onChange={(v) => updateItem('projects', p.id, { short_description: v })} summarizeFrom={p.long_description} placeholder="One concise line shown in summary mode" />
 
           <FieldRow>
             <DateField label="Start" value={p.start} onChange={(v) => updateItem('projects', p.id, { start: v })} />
