@@ -51,14 +51,34 @@ export type DateFormat =
   | 'month-year-num' | 'year-month-num'
   | 'year-only'
 
+// Localized month abbreviations + "Present" for exported views. Unknown locales
+// fall back to English. App codes: en / no / se / dk (+ de/fr/es).
+const MONTH_ABBR: Record<string, string[]> = {
+  en: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
+  no: ['jan.', 'feb.', 'mar.', 'apr.', 'mai', 'jun.', 'jul.', 'aug.', 'sep.', 'okt.', 'nov.', 'des.'],
+  se: ['jan.', 'feb.', 'mars', 'apr.', 'maj', 'juni', 'juli', 'aug.', 'sep.', 'okt.', 'nov.', 'dec.'],
+  dk: ['jan.', 'feb.', 'mar.', 'apr.', 'maj', 'jun.', 'jul.', 'aug.', 'sep.', 'okt.', 'nov.', 'dec.'],
+  de: ['Jan.', 'Feb.', 'März', 'Apr.', 'Mai', 'Juni', 'Juli', 'Aug.', 'Sep.', 'Okt.', 'Nov.', 'Dez.'],
+  fr: ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'],
+  es: ['ene.', 'feb.', 'mar.', 'abr.', 'may.', 'jun.', 'jul.', 'ago.', 'sep.', 'oct.', 'nov.', 'dic.'],
+}
+const PRESENT: Record<string, string> = {
+  en: 'Present', no: 'Nå', se: 'Nu', dk: 'Nu', de: 'Heute', fr: 'Présent', es: 'Presente',
+}
+const monthAbbr = (locale: string): string[] => MONTH_ABBR[locale] ?? MONTH_ABBR.en
+/** The localized word for an ongoing end date ("Present"). */
+export const presentLabel = (locale = 'en'): string => PRESENT[locale] ?? PRESENT.en
+
 /**
  * Format a YearMonth per the chosen format — e.g. "Mar 2021" / "2021 Mar" /
  * "03/2021" / "2021/03" / "2021". A month-less date always renders as the bare
- * year regardless of format.
+ * year regardless of format. `locale` localizes the month abbreviation
+ * (defaults to English for callers that don't care, e.g. the editor chrome).
  */
 export function fmtDate(
   ym: { year: number; month: number | null } | null,
   format: DateFormat = 'month-year',
+  locale = 'en',
 ): string {
   if (!ym) return ''
   if (format === 'year-only' || !ym.month) return `${ym.year}`
@@ -66,22 +86,23 @@ export function fmtDate(
     case 'month-year-num': return `${String(ym.month).padStart(2, '0')}/${ym.year}`
     case 'year-month-num': return `${ym.year}/${String(ym.month).padStart(2, '0')}`
     default: {
-      const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
-      const mon = months[ym.month - 1]
+      const mon = monthAbbr(locale)[ym.month - 1]
       return format === 'year-month' ? `${ym.year} ${mon}` : `${mon} ${ym.year}`
     }
   }
 }
 
-/** Format a date range. */
+/** Format a date range. An open end renders as the localized "Present". */
 export function fmtRange(
   start: { year: number; month: number | null } | null,
   end: { year: number; month: number | null } | null,
   format: DateFormat = 'month-year',
+  locale = 'en',
 ): string {
-  const s = fmtDate(start, format)
-  const e = end ? fmtDate(end, format) : 'Present'
-  if (!s) return e === 'Present' ? '' : e
+  const s = fmtDate(start, format, locale)
+  const present = presentLabel(locale)
+  const e = end ? fmtDate(end, format, locale) : present
+  if (!s) return e === present ? '' : e
   return `${s} – ${e}`
 }
 

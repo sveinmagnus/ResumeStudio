@@ -735,7 +735,7 @@ export function buildViewHtml(store: ResumeStore, view: ResumeView, locale: stri
        The grid is capped at the page width; the title column is the flexible one
        (minmax 0), so a very long title wraps instead of pushing the row past the
        page edge. */
-    .ve-tab-grid { display: grid; column-gap: 14px; row-gap: ${Math.max(2, Math.round(tokens.itemGapPx / 2))}px;
+    .ve-tab-grid { display: grid; column-gap: 12px; row-gap: ${Math.max(2, Math.round(tokens.itemGapPx / 2))}px;
                    font-size: ${tokens.smallFontSizePt}pt; margin-top: 2px; max-width: 100%; }
     /* Each row is a subgrid box spanning all columns, so it stays column-aligned
        AND can carry a per-section divider + density padding (unlike display:contents). */
@@ -745,8 +745,10 @@ export function buildViewHtml(store: ResumeStore, view: ResumeView, locale: stri
     .ve-tab-title { font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
     .ve-tab-text { color: #4B5563; min-width: 0; overflow-wrap: anywhere; }
     .ve-tab-date { color: #4B5563; white-space: nowrap; }
-    /* Date-range separator gets its own narrow column so the marks line up. */
-    .ve-tab-sep { color: #9CA3AF; text-align: center; white-space: nowrap; }
+    /* Date-range separator gets its own narrow column so the marks line up.
+       Negative side margins pull the from/to dates tight around the dot (like
+       the summary view), independent of the density's column gap. */
+    .ve-tab-sep { color: #9CA3AF; text-align: center; white-space: nowrap; margin: 0 -8px; }
     .ve-item:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
     .ve-item-line { padding-bottom: 0; border-bottom: none; margin-bottom: 4px; font-size: ${tokens.smallFontSizePt}pt; }
     .ve-summary-short { color: #6B7280; }

@@ -24,6 +24,13 @@ import { X } from 'lucide-react'
 
 // ── Employment ────────────────────────────────────────────────────────────────
 
+const EMPLOYMENT_TYPE_LABELS: Record<string, string> = {
+  permanent: 'Permanent', contract: 'Contract', freelance: 'Freelance',
+  part_time: 'Part-time', internship: 'Internship',
+}
+const employmentTypeLabel = (t: string | null | undefined): string =>
+  t ? EMPLOYMENT_TYPE_LABELS[t] ?? '' : ''
+
 export function WorkEditor() {
   const { data, primaryLocale, addItem, updateItem } = useStore()
   const items = useSortedItems('work_experiences')
@@ -45,7 +52,8 @@ export function WorkEditor() {
       <SortableList section="work_experiences" ids={items.map((x) => x.id)} addLabel="Add employment" onAdd={add}>
       {items.map((w) => (
         <EditorCard key={w.id} section="work_experiences" id={w.id}
-          title={resolve(w.employer, primaryLocale)} subtitle={resolve(w.role_title, primaryLocale)}
+          title={resolve(w.employer, primaryLocale)}
+          subtitle={[resolve(w.role_title, primaryLocale), employmentTypeLabel(w.employment_type)].filter(Boolean).join(' · ')}
           meta={fmtRange(w.start, w.end)} preview={richToPlain(resolve(w.long_description, primaryLocale))}
           starred={w.starred} disabled={w.disabled}>
           <DualField label="Employer" value={w.employer} onChange={(v) => updateItem('work_experiences', w.id, { employer: v })} />
@@ -333,8 +341,8 @@ export function PositionsEditor() {
       <SortableList section="positions" ids={items.map((x) => x.id)} addLabel="Add role" onAdd={add}>
       {items.map((p) => (
         <EditorCard key={p.id} section="positions" id={p.id}
-          title={resolve(p.name, primaryLocale)}
-          subtitle={[positionTypeLabel(p.position_type), resolve(p.organisation, primaryLocale)].filter(Boolean).join(' · ')}
+          title={resolve(p.organisation, primaryLocale) || resolve(p.name, primaryLocale)}
+          subtitle={[resolve(p.name, primaryLocale), positionTypeLabel(p.position_type)].filter(Boolean).join(' · ')}
           meta={fmtRange(p.start, p.end)} preview={richToPlain(resolve(p.description, primaryLocale))}
           starred={p.starred} disabled={p.disabled}>
           <DualField label="Position / role" value={p.name} onChange={(v) => updateItem('positions', p.id, { name: v })} />

@@ -20,7 +20,7 @@
 import type { LocalizedString } from '../types'
 import { publicationTypeLabel } from './publicationTypes'
 import { positionTypeLabel } from './positionTypes'
-import { resolve, fmtRange, fmtDate, type DateFormat } from './locales'
+import { resolve, fmtRange, fmtDate, presentLabel, type DateFormat } from './locales'
 
 export type AnyItem = Record<string, unknown>
 type YM = { year: number; month: number | null } | null
@@ -138,16 +138,16 @@ const ls = (it: AnyItem, field: string, locale: string): string =>
   resolve(it[field] as LocalizedString | undefined, locale)
 
 const range = (it: AnyItem, ctx: CatalogCtx): string =>
-  ctx.hideDates ? '' : fmtRange(it.start as YM, it.end as YM, ctx.dateFormat)
+  ctx.hideDates ? '' : fmtRange(it.start as YM, it.end as YM, ctx.dateFormat, ctx.locale)
 
 const dateAt = (it: AnyItem, field: string, ctx: CatalogCtx): string =>
-  ctx.hideDates ? '' : fmtDate(it[field] as YM, ctx.dateFormat)
+  ctx.hideDates ? '' : fmtDate(it[field] as YM, ctx.dateFormat, ctx.locale)
 
 /** Split a start/end range into separately-formatted parts (for tabulation). */
 const rangeParts = (it: AnyItem, ctx: CatalogCtx): { start: string; end: string } => {
   if (ctx.hideDates) return { start: '', end: '' }
-  const start = fmtDate(it.start as YM, ctx.dateFormat)
-  const end = it.end ? fmtDate(it.end as YM, ctx.dateFormat) : (start ? 'Present' : '')
+  const start = fmtDate(it.start as YM, ctx.dateFormat, ctx.locale)
+  const end = it.end ? fmtDate(it.end as YM, ctx.dateFormat, ctx.locale) : (start ? presentLabel(ctx.locale) : '')
   return { start, end }
 }
 
@@ -478,18 +478,19 @@ export const SECTION_CATALOG: Record<string, SectionDescriptor> = {
   },
 
   positions: {
-    title: (it, locale) => ls(it, 'name', locale) || 'Untitled',
+    // Match Projects/Employment/Education: the ORGANISATION is the heading, with
+    // the role name + type on the line below.
+    title: (it, locale) => ls(it, 'organisation', locale) || ls(it, 'name', locale) || 'Untitled',
     subtitle: (it, locale) => {
       const r = rawRange(it)
-      const org = [positionTypeLabel(it.position_type as string | undefined), ls(it, 'organisation', locale)].filter(Boolean).join(' · ')
-      return `${org}${r ? ' · ' + r : ''}`
+      const role = [ls(it, 'name', locale), positionTypeLabel(it.position_type as string | undefined)].filter(Boolean).join(' · ')
+      return `${role}${r ? ' · ' + r : ''}`
     },
     summary: (it, ctx) => {
       const { start, end } = rangeParts(it, ctx)
-      // The position_type ("Board member", "Volunteer", …) is a categorisation,
-      // not one of the item-layout slots (Title / Organisation / Date), so it is
-      // deliberately left OUT of the summary — otherwise tabulation gave it its
-      // own surprise column. It still shows in the full-detail render below.
+      // Slots follow the other sections: the role NAME is the Title anchor, the
+      // organisation is the Org slot. position_type is left out (it would get a
+      // surprise tabulation column); it shows in the full render.
       return summaryOf({
         title: ls(it, 'name', ctx.locale) || 'Role',
         org: ls(it, 'organisation', ctx.locale),
@@ -499,14 +500,20 @@ export const SECTION_CATALOG: Record<string, SectionDescriptor> = {
     full(it, ctx) {
       const { locale } = ctx
       const type = positionTypeLabel(it.position_type as string | undefined)
-      const common = { title: ls(it, 'name', locale), body: ls(it, 'description', locale) }
+      const org = ls(it, 'organisation', locale)
+      const name = ls(it, 'name', locale)
+      // Organisation as the heading; role name + type below. Drop the name from
+      // meta when it's already the heading (no organisation).
+      const title = org || name
+      const meta = (org ? [name, type] : [type]).filter(Boolean)
+      const common = { title, body: ls(it, 'description', locale) }
       if (ctx.target === 'html') {
-        return view({ ...common, date: range(it, ctx), meta: [type, ls(it, 'organisation', locale)].filter(Boolean) })
+        return view({ ...common, date: range(it, ctx), meta })
       }
       return view({
         ...common,
         date: range(it, ctx),
-        meta: [type, ls(it, 'organisation', locale)].filter(Boolean),
+        meta,
       })
     },
   },

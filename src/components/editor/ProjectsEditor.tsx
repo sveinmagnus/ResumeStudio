@@ -48,14 +48,18 @@ export function ProjectsEditor() {
       {projects.map((p) => (
         <EditorCard key={p.id} section="projects" id={p.id}
           title={resolve(p.customer, primaryLocale) || resolve(p.description, primaryLocale)}
-          subtitle={resolve(p.description, primaryLocale)}
+          subtitle={[
+            resolve(p.description, primaryLocale),
+            p.roles.filter((r) => !r.disabled).map((r) => resolve(r.name, primaryLocale)).filter(Boolean).join(', '),
+          ].filter(Boolean).join(' · ')}
           meta={fmtRange(p.start, p.end)}
           preview={richToPlain(resolve(p.long_description, primaryLocale))}
           starred={p.starred} disabled={p.disabled}>
 
           <DualField label="Customer" value={p.customer} onChange={(v) => updateItem('projects', p.id, { customer: v })} />
-          <DualField label="Description (short)" value={p.description} onChange={(v) => updateItem('projects', p.id, { description: v })} />
+          <DualField label="Project name" value={p.description} onChange={(v) => updateItem('projects', p.id, { description: v })} />
           <ProjectIndustriesEditor project={p} />
+          <ProjectRolesEditor project={p} />
           <RichField label="Description" value={p.long_description} onChange={(v) => updateItem('projects', p.id, { long_description: v })} />
           <DualField label="Short description (summary mode)" value={p.short_description ?? {}} onChange={(v) => updateItem('projects', p.id, { short_description: v })} summarizeFrom={p.long_description} placeholder="One concise line shown in summary mode" />
 
@@ -69,7 +73,6 @@ export function ProjectsEditor() {
           </FieldRow>
 
           <HighlightsEditor project={p} />
-          <ProjectRolesEditor project={p} />
           <ProjectSkillsEditor project={p} />
 
           <TextField label="External case-study URL" value={p.external_url || ''} onChange={(v) => updateItem('projects', p.id, { external_url: v })} />

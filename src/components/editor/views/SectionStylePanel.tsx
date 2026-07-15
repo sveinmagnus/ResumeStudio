@@ -49,10 +49,22 @@ const MODE_OPTIONS: Array<[SectionMode, string]> = [
   ['off', 'Off'], ['tabulated', 'Tabulated'], ['summary', 'Summary'], ['full', 'Full'],
 ]
 
-export function DetailToggle({ value, onChange }: { value: SectionMode; onChange: (m: SectionMode) => void }) {
+/**
+ * Which render modes a section offers. The professional summary is a single
+ * prose block (Off / Full only); the Skill Matrix is always a table (Off /
+ * Tabulated only). Everything else offers all four.
+ */
+export function sectionModes(key: string): SectionMode[] {
+  if (key === 'key_qualifications') return ['off', 'full']
+  if (key === 'skill_matrix') return ['off', 'tabulated']
+  return ['off', 'tabulated', 'summary', 'full']
+}
+
+export function DetailToggle({ value, onChange, modes }: { value: SectionMode; onChange: (m: SectionMode) => void; modes?: SectionMode[] }) {
+  const shown = modes ? MODE_OPTIONS.filter(([m]) => modes.includes(m)) : MODE_OPTIONS
   return (
     <div className="rv-detail-toggle" role="radiogroup" aria-label="Section detail level">
-      {MODE_OPTIONS.map(([mode, label]) => (
+      {shown.map(([mode, label]) => (
         <button
           key={mode}
           type="button"

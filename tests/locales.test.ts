@@ -82,6 +82,18 @@ describe('fmtDate()', () => {
     expect(fmtDate({ year: 2021, month: null })).toBe('2021')
   })
 
+  it('localizes the month abbreviation (defaults to English)', () => {
+    expect(fmtDate({ year: 2021, month: 3 }, 'month-year', 'no')).toBe('mar. 2021')
+    expect(fmtDate({ year: 2021, month: 5 }, 'month-year', 'se')).toBe('maj 2021')
+    expect(fmtDate({ year: 2021, month: 12 }, 'month-year', 'dk')).toBe('dec. 2021')
+    expect(fmtDate({ year: 2021, month: 3 }, 'month-year')).toBe('Mar 2021') // en default
+  })
+
+  it('localizes the "Present" end of an open range', () => {
+    expect(fmtRange({ year: 2020, month: 1 }, null, 'month-year', 'no')).toBe('jan. 2020 – Nå')
+    expect(fmtRange({ year: 2020, month: 1 }, null, 'month-year')).toBe('Jan 2020 – Present')
+  })
+
   it('returns empty string for null', () => {
     expect(fmtDate(null)).toBe('')
   })

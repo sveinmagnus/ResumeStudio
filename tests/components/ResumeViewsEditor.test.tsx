@@ -88,24 +88,35 @@ describe('<ResumeViewsEditor>', () => {
     render(<ResumeViewsEditor />)
     await userEvent.click(screen.getByRole('button', { name: /new view/i }))
 
-    await userEvent.click(screen.getAllByRole('radio', { name: /^tabulated$/i })[0])
-    const sec = useStore.getState().data.views[0].sections[0]
-    expect(sec.detail).toBe('summary')
-    expect(sec.style?.tabulate).toBe(true)
+    // Projects supports all four modes (unlike the professional summary).
+    const row = screen.getByText('Projects').closest('.rv-sec-row') as HTMLElement
+    const secOf = () => useStore.getState().data.views[0].sections.find((s) => s.key === 'projects')!
 
-    await userEvent.click(screen.getAllByRole('radio', { name: /^summary$/i })[0])
-    const sec2 = useStore.getState().data.views[0].sections[0]
-    expect(sec2.detail).toBe('summary')
-    expect(sec2.style?.tabulate).toBeFalsy()
+    await userEvent.click(within(row).getByRole('radio', { name: /^tabulated$/i }))
+    expect(secOf().detail).toBe('summary')
+    expect(secOf().style?.tabulate).toBe(true)
+
+    await userEvent.click(within(row).getByRole('radio', { name: /^summary$/i }))
+    expect(secOf().detail).toBe('summary')
+    expect(secOf().style?.tabulate).toBeFalsy()
+  })
+
+  it('the professional summary offers only Off and Full modes', async () => {
+    seed()
+    render(<ResumeViewsEditor />)
+    await userEvent.click(screen.getByRole('button', { name: /new view/i }))
+    const row = screen.getByText('Professional summary').closest('.rv-sec-row') as HTMLElement
+    const names = within(row).getAllByRole('radio').map((r) => r.textContent)
+    expect(names).toEqual(['Off', 'Full'])
   })
 
   it('shows the short-description placement control in plain summary mode only', async () => {
     seed()
     render(<ResumeViewsEditor />)
     await userEvent.click(screen.getByRole('button', { name: /new view/i }))
-    const expandBtn = screen.getAllByRole('button', { name: /^expand .* settings$/i })[0]
-    const row = expandBtn.closest('.rv-sec-row') as HTMLElement
-    await userEvent.click(expandBtn)
+    // Projects supports summary + tabulated.
+    const row = screen.getByText('Projects').closest('.rv-sec-row') as HTMLElement
+    await userEvent.click(within(row).getByRole('button', { name: /^expand .* settings$/i }))
     await userEvent.click(within(row).getByRole('radio', { name: /^summary$/i }))
     expect(within(row).getByLabelText(/short-description placement/i)).toBeInTheDocument()
     // Tabulated is a distinct mode — the short-description line doesn't apply.

@@ -29,7 +29,7 @@ import {
   PanelRight, PanelRightClose, ExternalLink,
 } from 'lucide-react'
 import {
-  DetailToggle, SectionStylePanel, type SectionMode,
+  DetailToggle, SectionStylePanel, sectionModes, type SectionMode,
   SUMMARY_LAYOUT_OPTIONS, FULL_LAYOUT_OPTIONS,
 } from './SectionStylePanel'
 import { Select } from './Select'
@@ -315,16 +315,22 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
 
   // The 4-way mode (Off / Tabulated / Summary / Full) maps onto the stored
   // detail + style.tabulate pair.
-  const modeOf = (vs: ViewSection): SectionMode =>
-    vs.detail === 'off' ? 'off'
-      : vs.detail === 'full' ? 'full'
-        : (vs.style?.tabulate ? 'tabulated' : 'summary')
+  const modeOf = (vs: ViewSection): SectionMode => {
+    if (vs.detail === 'off') return 'off'
+    // The Skill Matrix is always a table; the professional summary always full.
+    if (vs.key === 'skill_matrix') return 'tabulated'
+    if (vs.key === 'key_qualifications') return 'full'
+    if (vs.detail === 'full') return 'full'
+    return vs.style?.tabulate ? 'tabulated' : 'summary'
+  }
 
   const setSectionMode = (key: string, mode: SectionMode) => {
     onUpdate({
       sections: sections.map((s) => {
         if (s.key !== key) return s
         if (mode === 'off') return { ...s, detail: 'off' as const }
+        // The Skill Matrix renders its full table for any non-off mode.
+        if (key === 'skill_matrix') return { ...s, detail: 'full' as const }
         if (mode === 'full') return { ...s, detail: 'full' as const }
         // Summary variants: 'tabulated' turns tabulate on, 'summary' off.
         const nextStyle = { ...(s.style ?? {}) }
@@ -700,6 +706,7 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
                     </div>
                     <DetailToggle
                       value={modeOf(vs)}
+                      modes={sectionModes(vs.key)}
                       onChange={(m) => setSectionMode(vs.key, m)}
                     />
                     {/* The expander is ALWAYS present (even when Off) so the

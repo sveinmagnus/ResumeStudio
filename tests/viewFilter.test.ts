@@ -11,7 +11,7 @@ import {
   emptyStore, makeProject, makeWork, makeEducation, makeKQ,
   makeView, makeReference, makeSpokenLanguage, makeResume,
   makeKeyCompetency, makeRecommendation, makeSkill, makeSkillCategory,
-  makeCourse,
+  makeCourse, makePosition,
 } from './fixtures'
 
 // A 1x1 transparent PNG data URL (valid for the isDataImage guard + img embedding).
@@ -609,6 +609,34 @@ describe('buildViewHtml()', () => {
     const html = buildViewHtml(store, view, 'en')
     expect(html).toContain('The full story')
     expect(html).not.toContain('SHORT-ONLY-TEXT')
+  })
+
+  it('exports dates with localized month abbreviations', () => {
+    const store = emptyStore()
+    store.resume = makeResume()
+    store.work_experiences.push(makeWork({
+      id: 'w1', employer: { en: 'BigCo' },
+      start: { year: 2020, month: 1 }, end: { year: 2021, month: 5 },
+    }))
+    const view = makeView({ sections: [{ key: 'work_experiences', detail: 'full' as const, sort_order: 0 }] })
+    const html = buildViewHtml(store, view, 'no')
+    expect(html).toContain('jan. 2020')
+    expect(html).toContain('mai 2021')
+    expect(html).not.toContain('Jan 2020')
+  })
+
+  it('renders Other roles with the organisation as the heading', () => {
+    const store = emptyStore()
+    store.resume = makeResume()
+    store.positions.push(makePosition({
+      id: 'pos1', name: { en: 'Board Member' }, organisation: { en: 'Acme Foundation' },
+      position_type: 'board_member', description: { en: 'Governance' },
+      start: { year: 2020, month: 1 }, end: null,
+    }))
+    const view = makeView({ sections: [{ key: 'positions', detail: 'full' as const, sort_order: 0 }] })
+    const html = buildViewHtml(store, view, 'en')
+    expect(html).toContain('<h3>Acme Foundation</h3>') // org is the heading
+    expect(html).toContain('Board Member')             // role name in the meta line
   })
 
   // ─── XSS — escape every interpolated user value ────────────────────────────
