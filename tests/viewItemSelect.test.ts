@@ -1,11 +1,23 @@
 import { describe, it, expect } from 'vitest'
 import {
-  groupState, includeIds, excludeIds, toggleIds, typeGroups, hasTypeFacet,
-  type SelectableItem,
+  groupState, includeIds, excludeIds, toggleIds, selectOnly, isSingleSelectSection,
+  typeGroups, hasTypeFacet,
+  type SelectableItem, type FacetGroupSet,
 } from '../src/lib/viewItemSelect'
+import type { Role } from '../src/types'
 
 const pos = (id: string, position_type?: string | null): SelectableItem => ({ id, position_type })
 const pub = (id: string, publication_type: string): SelectableItem => ({ id, publication_type })
+const work = (id: string, employment_type: string | null, role_ids: string[] = []): SelectableItem =>
+  ({ id, employment_type, role_ids })
+const proj = (id: string, roleIds: string[]): SelectableItem =>
+  ({ id, roles: roleIds.map((role_id) => ({ role_id })) })
+
+const role = (id: string, name: string): Role =>
+  ({ id, resume_id: 'r', name: { en: name }, sort_order: 0 } as Role)
+
+/** Find one facet's groups by heading. */
+const facet = (sets: FacetGroupSet[], name: string) => sets.find((s) => s.name === name)
 
 describe('groupState()', () => {
   it('reports all / none / some', () => {
@@ -19,7 +31,6 @@ describe('groupState()', () => {
   })
 
   it('treats an empty group as none rather than vacuously all', () => {
-    // Guards the control: an 'all' here would render "All" permanently disabled.
     expect(groupState([], [])).toBe('none')
   })
 })
@@ -34,7 +45,6 @@ describe('includeIds() / excludeIds()', () => {
   })
 
   it('leaves other sections exclusions alone', () => {
-    // The contract that makes a flat excluded_item_ids safe to bulk-edit.
     expect(includeIds(['other', 'a'], ['a'])).toEqual(['other'])
     expect(excludeIds(['other'], ['a']).sort()).toEqual(['a', 'other'])
   })
@@ -57,63 +67,125 @@ describe('toggleIds()', () => {
   })
 
   it('completes a partial group rather than clearing it', () => {
-    // A click must always do something visible; from 'some', filling up is the
-    // less destructive of the two directions.
     expect(toggleIds(['a'], ['a', 'b'])).toEqual([])
   })
 })
 
-describe('typeGroups()', () => {
-  it('has no facet for sections without a type field', () => {
-    expect(hasTypeFacet('projects')).toBe(false)
-    expect(typeGroups('projects', [{ id: 'a' }], 'en')).toEqual([])
+describe('selectOnly() / isSingleSelectSection()', () => {
+  it('keeps exactly one id and excludes the rest of the section', () => {
+    expect(selectOnly([], ['a', 'b', 'c'], 'b').sort()).toEqual(['a', 'c'])
+  })
+
+  it('re-includes the kept id if it was excluded', () => {
+    expect(selectOnly(['a', 'b'], ['a', 'b', 'c'], 'a').sort()).toEqual(['b', 'c'])
+  })
+
+  it('leaves other sections untouched', () => {
+    expect(selectOnly(['other'], ['a', 'b'], 'a').sort()).toEqual(['b', 'other'])
+  })
+
+  it('marks only the profile section single-select', () => {
+    expect(isSingleSelectSection('key_qualifications')).toBe(true)
+    expect(isSingleSelectSection('projects')).toBe(false)
+  })
+})
+
+describe('typeGroups() — enum facets', () => {
+  it('has no facet for sections without one', () => {
+    expect(hasTypeFacet('educations')).toBe(false)
+    expect(typeGroups('educations', [{ id: 'a' }], 'en')).toEqual([])
   })
 
   it('groups positions by position_type in the editor order', () => {
     expect(hasTypeFacet('positions')).toBe(true)
-    const groups = typeGroups('positions', [
+    const sets = typeGroups('positions', [
       pos('a', 'volunteer'), pos('b', 'board_member'), pos('c', 'board_member'),
     ], 'en')
-    // board_member precedes volunteer in POSITION_TYPES — not insertion order.
-    expect(groups.map((g) => g.value)).toEqual(['board_member', 'volunteer'])
-    expect(groups[0]).toMatchObject({ label: 'Board member', ids: ['b', 'c'] })
+    const g = facet(sets, 'Type')!.groups
+    expect(g.map((x) => x.value)).toEqual(['board_member', 'volunteer'])
+    expect(g[0]).toMatchObject({ label: 'Board member', ids: ['b', 'c'] })
   })
 
-  it('omits types the resume has no items for', () => {
-    const groups = typeGroups('positions', [pos('a', 'mentor')], 'en')
-    expect(groups).toHaveLength(1)
-    expect(groups[0].value).toBe('mentor')
+  it('labels enum groups in the editing locale', () => {
+    const sets = typeGroups('positions', [pos('a', 'board_member')], 'de')
+    expect(facet(sets, 'Type')!.groups[0].label).toBe('Vorstandsmitglied')
   })
 
-  it('labels groups in the editing locale', () => {
-    expect(typeGroups('positions', [pos('a', 'board_member')], 'de')[0].label)
-      .toBe('Vorstandsmitglied')
-  })
-
-  it('collects untyped items into a trailing group', () => {
-    const groups = typeGroups('positions', [
-      pos('a', 'advisor'), pos('b', null), pos('c'),
-    ], 'en')
-    expect(groups.map((g) => g.value)).toEqual(['advisor', ''])
-    expect(groups[1]).toMatchObject({ label: 'No type', ids: ['b', 'c'] })
-  })
-
-  it('puts an unrecognised type in the untyped group, not a nameless chip', () => {
-    // Imported data can carry a type this build doesn't know; it has no label,
-    // so it must not render as an empty chip.
-    const groups = typeGroups('positions', [pos('a', 'wat')], 'en')
-    expect(groups).toEqual([{ value: '', label: 'No type', ids: ['a'] }])
+  it('collects untyped / unknown items into a trailing group', () => {
+    const sets = typeGroups('positions', [pos('a', 'advisor'), pos('b', null), pos('c', 'wat')], 'en')
+    const g = facet(sets, 'Type')!.groups
+    expect(g.map((x) => x.value)).toEqual(['advisor', ''])
+    expect(g[1]).toMatchObject({ label: 'No type', ids: ['b', 'c'] })
   })
 
   it('groups publications by publication_type', () => {
-    const groups = typeGroups('publications', [
-      pub('a', 'book'), pub('b', 'article'), pub('c', 'article'),
-    ], 'en')
-    expect(groups.map((g) => g.value)).toEqual(['article', 'book'])
-    expect(groups[0].ids).toEqual(['b', 'c'])
+    const sets = typeGroups('publications', [pub('a', 'book'), pub('b', 'article'), pub('c', 'article')], 'en')
+    const g = facet(sets, 'Type')!.groups
+    expect(g.map((x) => x.value)).toEqual(['article', 'book'])
+    expect(g[0].ids).toEqual(['b', 'c'])
+  })
+})
+
+describe('typeGroups() — employment (two facets)', () => {
+  const roles = [role('r1', 'Project Manager'), role('r2', 'Architect')]
+  const items = [
+    work('w1', 'permanent', ['r1']),
+    work('w2', 'contract', ['r1', 'r2']),
+    work('w3', null, []),
+  ]
+
+  it('offers both an Employment type and a Role facet', () => {
+    const sets = typeGroups('work_experiences', items, 'en', { roles })
+    expect(sets.map((s) => s.name)).toEqual(['Employment type', 'Role'])
   })
 
-  it('returns no groups for no items', () => {
-    expect(typeGroups('positions', [], 'en')).toEqual([])
+  it('keeps employment type English-only', () => {
+    const sets = typeGroups('work_experiences', items, 'de', { roles })
+    const g = facet(sets, 'Employment type')!.groups
+    expect(g.map((x) => x.label)).toContain('Permanent')
+  })
+
+  it('groups the multi-valued Role facet, sharing items across roles', () => {
+    const sets = typeGroups('work_experiences', items, 'en', { roles })
+    const g = facet(sets, 'Role')!.groups
+    // w2 carries BOTH roles, so it appears under each.
+    expect(g.find((x) => x.label === 'Project Manager')!.ids.sort()).toEqual(['w1', 'w2'])
+    expect(g.find((x) => x.label === 'Architect')!.ids).toEqual(['w2'])
+    // w3 has no role → No type.
+    expect(g.find((x) => x.value === '')!.ids).toEqual(['w3'])
+  })
+})
+
+describe('typeGroups() — project roles', () => {
+  const roles = [role('pm', 'PM'), role('dev', 'Developer')]
+
+  it('groups by the roles[].role_id links', () => {
+    const sets = typeGroups('projects', [
+      proj('p1', ['pm']), proj('p2', ['pm', 'dev']), proj('p3', []),
+    ], 'en', { roles })
+    const g = facet(sets, 'Role')!.groups
+    expect(g.find((x) => x.label === 'PM')!.ids.sort()).toEqual(['p1', 'p2'])
+    expect(g.find((x) => x.label === 'Developer')!.ids).toEqual(['p2'])
+    expect(g.find((x) => x.value === '')!.ids).toEqual(['p3'])
+  })
+
+  it('confirms the overlap semantics: excluding one role flips a shared item', () => {
+    const items = [proj('p1', ['pm']), proj('p2', ['pm', 'dev'])]
+    const sets = typeGroups('projects', items, 'en', { roles })
+    const pmIds = facet(sets, 'Role')!.groups.find((x) => x.label === 'PM')!.ids
+    // Untick PM → both PM-carrying items excluded, including the PM+Dev one.
+    const excluded = toggleIds([], pmIds)
+    expect(excluded.sort()).toEqual(['p1', 'p2'])
+    // Developer group then reads as partial (p2 is excluded, but it was its
+    // only member) → 'none' here; with another pure-dev item it'd be 'some'.
+    const devIds = facet(sets, 'Role')!.groups.find((x) => x.label === 'Developer')!.ids
+    expect(groupState(excluded, devIds)).toBe('none')
+  })
+
+  it('drops a whole facet the resume has nothing for', () => {
+    // No roles referenced anywhere → the Role facet has only "No type", which
+    // is a single group and still returned, but a section with zero items yields
+    // no facets at all.
+    expect(typeGroups('projects', [], 'en', { roles })).toEqual([])
   })
 })

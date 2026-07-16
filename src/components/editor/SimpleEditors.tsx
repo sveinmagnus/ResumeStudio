@@ -15,6 +15,7 @@ import { richToPlain } from '../../lib/richText'
 import { RELATIONSHIP_OPTIONS, matchRelationshipKey, relationshipLabels } from '../../lib/recommendationRelationships'
 import { PUBLICATION_TYPES } from '../../lib/publicationTypes'
 import { POSITION_TYPES, positionTypeLabel } from '../../lib/positionTypes'
+import { EMPLOYMENT_TYPES, employmentTypeLabel } from '../../lib/employmentTypes'
 import { CEFR_CATEGORIES, CEFR_LEVELS, CEFR_LEVEL_DESC, cefrSummary } from '../../lib/cefr'
 import type {
   WorkExperience, Education, Course, Certification, Position,
@@ -24,13 +25,6 @@ import type {
 import { X } from 'lucide-react'
 
 // ── Employment ────────────────────────────────────────────────────────────────
-
-const EMPLOYMENT_TYPE_LABELS: Record<string, string> = {
-  permanent: 'Permanent', contract: 'Contract', freelance: 'Freelance',
-  part_time: 'Part-time', internship: 'Internship',
-}
-const employmentTypeLabel = (t: string | null | undefined): string =>
-  t ? EMPLOYMENT_TYPE_LABELS[t] ?? '' : ''
 
 export function WorkEditor() {
   const { data, primaryLocale, addItem, updateItem } = useStore()
@@ -73,11 +67,9 @@ export function WorkEditor() {
               <select className="pf-input" value={w.employment_type || ''}
                 onChange={(e) => updateItem('work_experiences', w.id, { employment_type: (e.target.value || null) as WorkExperience['employment_type'] })}>
                 <option value="">—</option>
-                <option value="permanent">Permanent</option>
-                <option value="contract">Contract</option>
-                <option value="freelance">Freelance</option>
-                <option value="part_time">Part-time</option>
-                <option value="internship">Internship</option>
+                {EMPLOYMENT_TYPES.map((t) => (
+                  <option key={t.value} value={t.value}>{t.label}</option>
+                ))}
               </select>
             </label>
             <TextField label="Company URL" value={w.company_url || ''} onChange={(v) => updateItem('work_experiences', w.id, { company_url: v })} />

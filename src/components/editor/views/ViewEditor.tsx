@@ -17,6 +17,7 @@ import { getDefaultFonts, onDefaultFontsChanged } from '../../../lib/appPrefs'
 import { skillCategoryList } from '../../../lib/skillCategorize'
 import { withHeaderDefaults, withFooterDefaults } from '../../../lib/viewHeader'
 import { ItemSelectTools } from './ItemSelectTools'
+import { selectOnly, isSingleSelectSection } from '../../../lib/viewItemSelect'
 import { VIEW_TEMPLATES, getTemplate, applyTemplate } from '../../../lib/viewTemplates'
 import { buildViewText, buildViewMarkdown } from '../../../lib/viewText'
 import { exportFilename } from '../../../lib/exportFilename'
@@ -387,6 +388,11 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
     const ex = view.excluded_item_ids
     const next = ex.includes(itemId) ? ex.filter((id) => id !== itemId) : [...ex, itemId]
     onUpdate({ excluded_item_ids: next })
+  }
+
+  // Radio single-select (Profile): keep exactly `keepId` of this section's ids.
+  const selectOnlyItem = (sectionIds: string[], keepId: string) => {
+    onUpdate({ excluded_item_ids: selectOnly(view.excluded_item_ids, sectionIds, keepId) })
   }
 
   const viewStyle: ViewStyle = view.style ?? DEFAULT_VIEW_STYLE
@@ -783,20 +789,32 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
                           items={storeItems}
                           excludedIds={view.excluded_item_ids}
                           locale={primaryLocale}
+                          roles={data.roles}
                           sectionLabel={def.label}
                           onChange={(excluded_item_ids) => onUpdate({ excluded_item_ids })}
                         />
                         <div className="rv-item-list">
-                          {storeItems.map((item) => {
+                          {(() => {
+                            // Profile is single-select: exactly one block shows,
+                            // so its rows are radios. If a saved view excludes
+                            // ALL of them (or none is marked), default the visible
+                            // radio to the first item so the control never reads
+                            // as "nothing chosen" for a section that must show one.
+                            const single = isSingleSelectSection(vs.key)
+                            const includedIds = storeItems.filter((it) => !view.excluded_item_ids.includes(it.id)).map((it) => it.id)
+                            const radioSelected = single ? (includedIds[0] ?? storeItems[0]?.id) : null
+                            return storeItems.map((item) => {
                             const excluded = view.excluded_item_ids.includes(item.id)
                             const title = getItemTitle(vs.key, item, primaryLocale)
                             const subtitle = getItemSubtitle(vs.key, item, primaryLocale)
+                            const checked = single ? item.id === radioSelected : !excluded
                             return (
-                              <label key={item.id} className={`rv-item-row ${excluded ? 'rv-item-hidden' : ''}`}>
+                              <label key={item.id} className={`rv-item-row ${checked ? '' : 'rv-item-hidden'}`}>
                                 <input
-                                  type="checkbox"
-                                  checked={!excluded}
-                                  onChange={() => toggleItem(item.id)}
+                                  type={single ? 'radio' : 'checkbox'}
+                                  name={single ? `rv-profile-${view.id}` : undefined}
+                                  checked={checked}
+                                  onChange={() => single ? selectOnlyItem(storeItems.map((i) => i.id), item.id) : toggleItem(item.id)}
                                   className="rv-item-check"
                                 />
                                 <span className="rv-item-info">
@@ -806,7 +824,8 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
                                 </span>
                               </label>
                             )
-                          })}
+                            })
+                          })()}
                         </div>
                         </>
                       ) : (

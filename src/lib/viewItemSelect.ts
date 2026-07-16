@@ -1,7 +1,8 @@
 /**
  * PURE: the view editor's bulk item-selection maths — "select all / none" for
- * one section, and the TYPE FACETS that let a section with a classification
- * field toggle a whole type at once ("show every board seat, drop the rest").
+ * one section, radio single-select for the profile section, and the FACETS that
+ * let a section select whole groups of items at once ("show every project where
+ * I was PM", "drop every board seat").
  *
  * Why this isn't inline in ViewEditor: a view stores `excluded_item_ids`, one
  * FLAT list for the whole view rather than a list per section. So every bulk
@@ -20,8 +21,11 @@
  * selection inherits it rather than inventing a second, contradictory rule.
  */
 
+import type { Role } from '../types'
+import { resolve } from './locales'
 import { POSITION_TYPES, positionTypeLabel } from './positionTypes'
 import { PUBLICATION_TYPES, publicationTypeLabel } from './publicationTypes'
+import { EMPLOYMENT_TYPES, employmentTypeLabel } from './employmentTypes'
 
 /** The shape bulk selection needs: an id, plus whatever facet field applies. */
 export type SelectableItem = { id: string } & Record<string, unknown>
@@ -61,86 +65,185 @@ export function toggleIds(excluded: readonly string[], ids: readonly string[]): 
   return groupState(excluded, ids) === 'all' ? excludeIds(excluded, ids) : includeIds(excluded, ids)
 }
 
-// ─── Type facets ─────────────────────────────────────────────────────────────
-
 /**
- * One facet per section that classifies its items with a type field. Adding a
- * section to this map is the whole job — the control reads it generically.
- *
- * Only sections with a real enumerated type qualify. Registry LINKS (a
- * project's roles, an employment's role_id) are deliberately not facets: they
- * are many-per-item, so "select all with role X" would have to define what
- * happens to an item carrying X *and* Y. That needs a product decision, not a
- * guess.
+ * Single-select: include exactly `keepId` out of `ids`, excluding the rest.
+ * Drives the profile section's radio list — only one profile block shows at a
+ * time. Ids outside this section (already in `excluded`) are left alone; ids in
+ * this section that were previously excluded are re-included iff they are the
+ * kept one.
  */
-interface TypeFacet {
-  /** Item field holding the type value. */
-  field: string
-  /** Known values, in the order the section's editor offers them. */
-  values: readonly string[]
-  /** Editor-facing label for a value, in the editing locale. */
-  label: (value: string, locale: string) => string
+export function selectOnly(excluded: readonly string[], ids: readonly string[], keepId: string): string[] {
+  const others = ids.filter((id) => id !== keepId)
+  return excludeIds(includeIds(excluded, [keepId]), others)
 }
 
-const TYPE_FACETS: Record<string, TypeFacet> = {
-  positions: {
-    field: 'position_type',
-    values: POSITION_TYPES.map((t) => t.value),
-    label: positionTypeLabel,
-  },
-  publications: {
-    field: 'publication_type',
-    values: PUBLICATION_TYPES.map((t) => t.value as string),
-    label: publicationTypeLabel,
-  },
+/** Sections whose item list is a radio (one item shows at a time), not checkboxes. */
+export function isSingleSelectSection(sectionKey: string): boolean {
+  return sectionKey === 'key_qualifications'
+}
+
+// ─── Facets ──────────────────────────────────────────────────────────────────
+
+/**
+ * Context a facet may need beyond the items themselves — currently the role
+ * registry, so a role facet can show the registry name for a role id.
+ */
+export interface FacetCtx {
+  roles: readonly Role[]
+}
+
+/**
+ * One facet a section offers: a way to select its items by a shared property.
+ * A facet is EITHER an enum (a fixed field like `position_type`) OR a registry
+ * link (roles a project/employment carries). Both reduce to the same thing —
+ * "which values does this item have, and what is each value called" — so one
+ * shape covers both.
+ *
+ * `extract` returns 0..n values per item: single-valued enums return `[value]`
+ * (or `[]` when unset), multi-valued role links return every linked id. An item
+ * therefore belongs to every group its values name, which is exactly why
+ * toggling one role can affect an item that also carries another — the confirmed
+ * "toggle affects all items with that role" behaviour, and the set-math above
+ * already handles it (an id simply appears in more than one group).
+ */
+interface FacetSpec {
+  /** Facet id — also the dropdown group heading (e.g. 'Employment type', 'Role'). */
+  name: string
+  /** Values on one item: [] none, [v] single-valued, [a,b,…] multi-valued. */
+  extract: (item: SelectableItem) => string[]
+  /**
+   * Values in display order + a label. Enum facets return a fixed list; the
+   * role facet returns whatever roles the resume's items actually reference,
+   * ordered by the registry. Values NOT in this list fall into "No type".
+   */
+  ordered: (ctx: FacetCtx) => Array<{ value: string; label: string }>
+}
+
+/** Read a string field off an item, or '' when absent/blank. */
+const strField = (field: string) => (item: SelectableItem): string[] => {
+  const raw = item[field]
+  return typeof raw === 'string' && raw ? [raw] : []
+}
+
+/** Enum facet: a fixed field with a static ordered value/label list. */
+function enumFacet(
+  name: string, field: string,
+  values: readonly string[], label: (v: string) => string,
+): FacetSpec {
+  return {
+    name,
+    extract: strField(field),
+    ordered: () => values.map((value) => ({ value, label: label(value) })),
+  }
+}
+
+/**
+ * Role facet: an item's registry role links. `getIds` differs by section
+ * (projects carry `roles[].role_id`, employments carry `role_ids[]`), so it's a
+ * parameter. Values are ordered by the registry's own order and labelled from
+ * it — a role no longer in the registry (stale link) has no label and lands in
+ * "No type".
+ */
+function roleFacet(getIds: (item: SelectableItem) => string[], locale: string): FacetSpec {
+  return {
+    name: 'Role',
+    extract: getIds,
+    ordered: (ctx) => ctx.roles.map((r) => ({ value: r.id, label: resolve(r.name, locale) })),
+  }
+}
+
+/**
+ * The facets each section offers, in dropdown order. `locale` localizes the
+ * enum labels (position/publication) and the role names; employment type is
+ * English-only (editor metadata, not exported — see lib/employmentTypes.ts).
+ *
+ * Adding a facet is adding one entry here — `ItemSelectTools` renders them all
+ * generically.
+ */
+function sectionFacets(sectionKey: string, locale: string): FacetSpec[] {
+  switch (sectionKey) {
+    case 'positions':
+      return [enumFacet('Type', 'position_type',
+        POSITION_TYPES.map((t) => t.value), (v) => positionTypeLabel(v, locale))]
+    case 'publications':
+      return [enumFacet('Type', 'publication_type',
+        PUBLICATION_TYPES.map((t) => t.value as string), (v) => publicationTypeLabel(v, locale))]
+    case 'work_experiences':
+      return [
+        enumFacet('Employment type', 'employment_type',
+          EMPLOYMENT_TYPES.map((t) => t.value), employmentTypeLabel),
+        roleFacet((it) => (it.role_ids as string[] | undefined) ?? [], locale),
+      ]
+    case 'projects':
+      return [roleFacet(
+        (it) => ((it.roles as Array<{ role_id?: string }> | undefined) ?? [])
+          .map((r) => r.role_id).filter((id): id is string => !!id),
+        locale,
+      )]
+    default:
+      return []
+  }
 }
 
 export interface TypeGroup {
-  /** The type value, or '' for the untyped group. */
+  /** The facet value, or '' for the "No type" group. */
   value: string
   label: string
   ids: string[]
 }
 
-/** True when this section classifies its items by a type field. */
+/** One facet's worth of groups, with the facet's dropdown heading. */
+export interface FacetGroupSet {
+  name: string
+  groups: TypeGroup[]
+}
+
+/** True when this section offers at least one facet. */
 export function hasTypeFacet(sectionKey: string): boolean {
-  return sectionKey in TYPE_FACETS
+  return sectionFacets(sectionKey, 'en').length > 0
 }
 
 /**
- * Group a section's items by their type, in the section's own type order, with
- * an untyped group last. Groups with no items are omitted — a facet only offers
- * what the resume actually contains.
- *
- * `position_type` is optional and imported data can carry a value we don't know
- * (an unrecognised type has no label to show), so BOTH cases fall into the
- * untyped group rather than rendering a nameless chip.
+ * Group a section's items for each facet it offers. Every facet returns its
+ * value groups (in the facet's order) plus a trailing "No type" group for items
+ * carrying none of the known values — an unset field OR, for roles, an item
+ * with no role links or only stale ones. Groups with no items are omitted: a
+ * facet only offers what the resume actually contains, and a whole facet with
+ * nothing to show is dropped entirely.
  */
 export function typeGroups(
   sectionKey: string,
   items: readonly SelectableItem[],
   locale: string,
-): TypeGroup[] {
-  const facet = TYPE_FACETS[sectionKey]
-  if (!facet) return []
+  ctx: FacetCtx = { roles: [] },
+): FacetGroupSet[] {
+  const facets = sectionFacets(sectionKey, locale)
+  if (!facets.length) return []
 
-  const known = new Set(facet.values)
-  const byValue = new Map<string, string[]>()
-  const untyped: string[] = []
-  for (const item of items) {
-    const raw = item[facet.field]
-    const value = typeof raw === 'string' ? raw : ''
-    if (!known.has(value)) { untyped.push(item.id); continue }
-    const bucket = byValue.get(value)
-    if (bucket) bucket.push(item.id)
-    else byValue.set(value, [item.id])
-  }
+  const sets: FacetGroupSet[] = []
+  for (const facet of facets) {
+    const values = facet.ordered(ctx)
+    const known = new Set(values.map((v) => v.value))
+    const byValue = new Map<string, string[]>()
+    const untyped: string[] = []
 
-  const groups: TypeGroup[] = []
-  for (const value of facet.values) {
-    const ids = byValue.get(value)
-    if (ids?.length) groups.push({ value, label: facet.label(value, locale), ids })
+    for (const item of items) {
+      const vals = facet.extract(item).filter((v) => known.has(v))
+      if (!vals.length) { untyped.push(item.id); continue }
+      for (const v of vals) {
+        const bucket = byValue.get(v)
+        if (bucket) bucket.push(item.id)
+        else byValue.set(v, [item.id])
+      }
+    }
+
+    const groups: TypeGroup[] = []
+    for (const { value, label } of values) {
+      const ids = byValue.get(value)
+      if (ids?.length) groups.push({ value, label, ids })
+    }
+    if (untyped.length) groups.push({ value: '', label: 'No type', ids: untyped })
+    if (groups.length) sets.push({ name: facet.name, groups })
   }
-  if (untyped.length) groups.push({ value: '', label: 'No type', ids: untyped })
-  return groups
+  return sets
 }

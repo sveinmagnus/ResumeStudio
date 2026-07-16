@@ -374,18 +374,38 @@ export function Styles() {
       }
       /* Disabled = "already all / already none", i.e. feedback, not an error. */
       .rv-item-tool-btn:disabled { opacity: .4; cursor: default; }
-      /* Separated from the All/None pair by a rule so the row reads as
-         "bulk actions | filter by type" rather than one long strip of chips. */
-      .rv-item-facets {
-        display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px;
-        padding-left: 10px; border-left: 1px solid var(--line);
+      /* "By type" facet dropdown — a popover so a role facet with many values
+         doesn't sprawl across the tools row. */
+      .rv-item-facet-wrap { position: relative; display: inline-flex; }
+      .rv-item-facet-trigger { display: inline-flex; align-items: center; gap: 5px; }
+      .rv-item-facet-trigger.is-filtered { border-color: var(--accent); color: var(--accent); }
+      .rv-item-facet-badge {
+        display: inline-flex; align-items: center; justify-content: center;
+        min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px;
+        background: var(--accent); color: #fff; font-size: 10px; font-weight: 700;
+        font-variant-numeric: tabular-nums;
+      }
+      .rv-item-facet-trigger .rv-chev-open { transform: rotate(180deg); }
+      .rv-item-facet-pop {
+        position: absolute; top: calc(100% + 6px); left: 0; z-index: 20;
+        min-width: 210px; max-height: 320px; overflow-y: auto;
+        padding: 8px; display: flex; flex-direction: column; gap: 10px;
+        background: var(--paper-raised); border: 1px solid var(--line-strong);
+        border-radius: var(--r-md); box-shadow: var(--shadow-lg);
+      }
+      .rv-item-facet-group { display: flex; flex-direction: column; gap: 3px; }
+      .rv-item-facet-group-head {
+        font-size: 10px; font-weight: 700; letter-spacing: .07em;
+        text-transform: uppercase; color: var(--ink-faint); margin-bottom: 2px;
       }
       .rv-item-facet {
-        display: inline-flex; align-items: center; gap: 5px;
-        font-size: 12px; color: var(--ink-soft); cursor: pointer;
+        display: flex; align-items: center; gap: 7px;
+        font-size: 12.5px; color: var(--ink-soft); cursor: pointer;
+        padding: 2px 4px; border-radius: var(--r-sm);
       }
+      .rv-item-facet:hover { background: var(--paper-sunken); }
       .rv-item-facet input { accent-color: var(--accent); width: 14px; height: 14px; flex-shrink: 0; }
-      .rv-item-facet-name { white-space: nowrap; }
+      .rv-item-facet-name { flex: 1; white-space: nowrap; }
       .rv-item-facet-count { font-size: 11px; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
 
       /* ── Item list ── */
