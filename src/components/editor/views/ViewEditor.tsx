@@ -46,11 +46,11 @@ const CONTENT_SECTIONS = SECTIONS.filter(isExportableSection)
 // The show/hide parts of the professional-summary box (key_qualifications) —
 // core per-view configuration, surfaced directly on the section (not in the
 // collapsible style-override panel).
-const KQ_PARTS: Array<{ key: 'kq_show_label' | 'kq_show_tagline' | 'kq_show_short' | 'kq_show_long'; label: string; def: boolean }> = [
+// Short-vs-long is now the section MODE (Summary → short, Full → the long
+// "Full profile"), so only the always-optional header parts remain as toggles.
+const KQ_PARTS: Array<{ key: 'kq_show_label' | 'kq_show_tagline'; label: string; def: boolean }> = [
   { key: 'kq_show_label', label: 'About heading', def: true },
   { key: 'kq_show_tagline', label: 'Tag line', def: true },
-  { key: 'kq_show_short', label: 'Short summary', def: false },
-  { key: 'kq_show_long', label: 'Long summary', def: true },
 ]
 
 // Compact labels for the collapsed-section overview chips.

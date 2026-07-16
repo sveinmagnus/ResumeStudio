@@ -55,7 +55,7 @@ const MODE_OPTIONS: Array<[SectionMode, string]> = [
  * Tabulated only). Everything else offers all four.
  */
 export function sectionModes(key: string): SectionMode[] {
-  if (key === 'key_qualifications') return ['off', 'full']
+  if (key === 'key_qualifications') return ['off', 'summary', 'full']
   if (key === 'skill_matrix') return ['off', 'tabulated']
   return ['off', 'tabulated', 'summary', 'full']
 }

@@ -460,7 +460,7 @@ export async function exportDocx(store: ResumeStore, view: ResumeView, locale: s
 function renderSection(key: string, label: string, items: unknown[], ctx: ExportCtx): Paragraph[] {
   const desc = SECTION_CATALOG[key]
   if (!desc || (!desc.full && !desc.summary)) return []
-  const cctx: CatalogCtx = { locale: ctx.locale, hideDates: !!ctx.resolved.hide_dates, dateFormat: ctx.resolved.date_format, target: 'docx', kq: kqVisibility(ctx.resolved) }
+  const cctx: CatalogCtx = { locale: ctx.locale, hideDates: !!ctx.resolved.hide_dates, dateFormat: ctx.resolved.date_format, target: 'docx', kq: kqVisibility(ctx.resolved, ctx.detail === 'summary' ? 'summary' : 'full') }
   // Items arrive already ordered by the caller (the view's per-section sort).
   const list = items as CatalogItem[]
   const out: Paragraph[] = []

@@ -101,13 +101,15 @@ describe('<ResumeViewsEditor>', () => {
     expect(secOf().style?.tabulate).toBeFalsy()
   })
 
-  it('the professional summary offers only Off and Full modes', async () => {
+  it('the professional summary offers Off, Summary and Full modes (no Tabulated)', async () => {
+    // Summary mode (short summary) vs Full mode (the long "Full profile") — the
+    // prose block has no tabulated column layout, so that mode is excluded.
     seed()
     render(<ResumeViewsEditor />)
     await userEvent.click(screen.getByRole('button', { name: /new view/i }))
     const row = screen.getByText('Professional summary').closest('.rv-sec-row') as HTMLElement
     const names = within(row).getAllByRole('radio').map((r) => r.textContent)
-    expect(names).toEqual(['Off', 'Full'])
+    expect(names).toEqual(['Off', 'Summary', 'Full'])
   })
 
   it('shows the short-description placement control in plain summary mode only', async () => {

@@ -185,6 +185,34 @@ describe('key_qualifications — disabled points filtered (both paths)', () => {
   })
 })
 
+describe('key_qualifications — Summary vs Full mode', () => {
+  // alwaysFull, so both modes route through full(); the mode arrives as kq.
+  const kq = makeKQ({
+    summary: { en: 'The long profile.' }, summary_short: { en: 'The short summary.' },
+    key_points: [{ id: 'p', name: { en: 'A point' }, long_description: { en: 'detail' }, sort_order: 0 }],
+  }) as unknown as Record<string, unknown>
+  const summaryMode: CatalogCtx = { ...html, kq: { label: true, tagline: true, short: true, long: false } }
+  const fullMode: CatalogCtx = { ...html, kq: { label: true, tagline: true, short: false, long: true } }
+
+  it('is alwaysFull so Summary mode still routes through full()', () => {
+    expect(SECTION_CATALOG.key_qualifications.alwaysFull).toBe(true)
+  })
+
+  it('Summary mode shows the short summary and no key points', () => {
+    const v = SECTION_CATALOG.key_qualifications.full!(kq, summaryMode)!
+    expect(v.body).toContain('The short summary.')
+    expect(v.body).not.toContain('The long profile.')
+    expect(v.points).toEqual([])
+  })
+
+  it('Full mode shows the long profile and its key points', () => {
+    const v = SECTION_CATALOG.key_qualifications.full!(kq, fullMode)!
+    expect(v.body).toContain('The long profile.')
+    expect(v.body).not.toContain('The short summary.')
+    expect(v.points.map((p) => p.label)).toEqual(['A point'])
+  })
+})
+
 describe('hideDates blanks all date output', () => {
   it('range and date fields go empty when hideDates is set', () => {
     const noDates: CatalogCtx = { ...html, hideDates: true }

@@ -304,22 +304,27 @@ export const SECTION_CATALOG: Record<string, SectionDescriptor> = {
   },
 
   key_qualifications: {
+    // Profile blocks are prose, not a one-line summary, so BOTH modes render
+    // through `full()` (alwaysFull). The Summary/Full mode selects which prose
+    // field: Summary → the short summary, Full → the long "Full profile". The
+    // mode reaches here as kq.short/kq.long (see kqVisibility); there is no
+    // separate `summary()` to reach.
+    alwaysFull: true,
     title: (it, locale) => ls(it, 'label', locale) || 'Untitled profile',
-    summary: (it, ctx) => {
-      const kq = ctx.kq ?? { label: true, tagline: true, short: false, long: true }
-      return summaryOf({
-        title: (kq.label && ls(it, 'label', ctx.locale)) || 'Profile',
-        org: kq.tagline ? ls(it, 'tag_line', ctx.locale) : '',
-      })
-    },
     full(it, ctx) {
       const { locale } = ctx
       const kq = ctx.kq ?? { label: true, tagline: true, short: false, long: true }
-      const points = ((it.key_points as Array<AnyItem & { disabled?: boolean }> | undefined) ?? [])
-        .filter((kp) => !kp.disabled)
-        .map((kp) => ({ label: ls(kp, 'name', locale), body: ls(kp, 'long_description', locale) }))
-        .filter((p) => p.label || p.body)
-      // Body = the enabled summary variant(s); short precedes long when both show.
+      // Key points are the profile's detail bullets — they belong to the Full
+      // profile (long), not the compact Summary. `kq.long` is the Full-mode
+      // signal (see kqVisibility), so summary mode omits them.
+      const points = kq.long
+        ? ((it.key_points as Array<AnyItem & { disabled?: boolean }> | undefined) ?? [])
+            .filter((kp) => !kp.disabled)
+            .map((kp) => ({ label: ls(kp, 'name', locale), body: ls(kp, 'long_description', locale) }))
+            .filter((p) => p.label || p.body)
+        : []
+      // Body = the mode's summary variant: Summary→short, Full→long. Exactly one
+      // of short/long is set by the section mode, so this is one field.
       const body = [
         kq.short ? ls(it, 'summary_short', locale) : '',
         kq.long ? ls(it, 'summary', locale) : '',

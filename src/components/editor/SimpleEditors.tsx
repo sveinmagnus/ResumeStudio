@@ -727,8 +727,8 @@ export function ProfileEditor() {
           starred={kq.starred} disabled={kq.disabled}>
           <DualField label="Section label" value={kq.label} onChange={(v) => updateItem('key_qualifications', kq.id, { label: v })} />
           <DualField label="Tag line" value={kq.tag_line} onChange={(v) => updateItem('key_qualifications', kq.id, { tag_line: v })} />
-          <RichField label="Short summary" value={kq.summary_short ?? {}} onChange={(v) => updateItem('key_qualifications', kq.id, { summary_short: v })} />
-          <RichField label="Long summary" value={kq.summary} onChange={(v) => updateItem('key_qualifications', kq.id, { summary: v })} />
+          <RichField label="Short summary (summary mode)" value={kq.summary_short ?? {}} onChange={(v) => updateItem('key_qualifications', kq.id, { summary_short: v })} />
+          <RichField label="Full profile (full mode)" value={kq.summary} onChange={(v) => updateItem('key_qualifications', kq.id, { summary: v })} />
         </EditorCard>
       ))}
       </SortableList>

@@ -355,7 +355,7 @@ function summaryColumns(summaries: SummaryView[], layout: SummaryLayout): Summar
 function renderTabulatedSummary(sectionKey: string, items: unknown[], ctx: RenderCtx): string {
   const desc = SECTION_CATALOG[sectionKey]
   if (!desc?.summary) return ''
-  const cctx: CatalogCtx = { locale: ctx.locale, hideDates: !!ctx.style.hide_dates, dateFormat: ctx.style.date_format, target: 'html', detail: 'tabulated', kq: kqVisibility(ctx.style) }
+  const cctx: CatalogCtx = { locale: ctx.locale, hideDates: !!ctx.style.hide_dates, dateFormat: ctx.style.date_format, target: 'html', detail: 'tabulated', kq: kqVisibility(ctx.style, 'summary') }
   const summaries = items
     .map((it) => desc.summary!(it as AnyItem, cctx))
     .filter((s): s is SummaryView => !!s)
@@ -406,7 +406,7 @@ function renderTabulatedSummary(sectionKey: string, items: unknown[], ctx: Rende
 function renderItem(sectionKey: string, item: unknown, ctx: RenderCtx): string {
   const desc = SECTION_CATALOG[sectionKey]
   if (!desc) return ''
-  const cctx: CatalogCtx = { locale: ctx.locale, hideDates: !!ctx.style.hide_dates, dateFormat: ctx.style.date_format, target: 'html', kq: kqVisibility(ctx.style) }
+  const cctx: CatalogCtx = { locale: ctx.locale, hideDates: !!ctx.style.hide_dates, dateFormat: ctx.style.date_format, target: 'html', kq: kqVisibility(ctx.style, ctx.detail === 'summary' ? 'summary' : 'full') }
 
   if (ctx.detail === 'summary' && !desc.alwaysFull) {
     const s = desc.summary?.(item as AnyItem, cctx)

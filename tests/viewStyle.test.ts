@@ -2,9 +2,44 @@ import { describe, it, expect } from 'vitest'
 import {
   DEFAULT_VIEW_STYLE, withDefaults, deriveTokens, sanitizeHexColor,
   resolveFontCss, resolveFontDocx, resolveSectionStyle, sectionHeadingText,
-  normalizeFullLayout,
+  normalizeFullLayout, kqVisibility,
 } from '../src/lib/viewStyle'
 import type { ViewStyle } from '../src/types'
+
+// ─── kqVisibility (profile Summary/Full mode) ─────────────────────────────────
+
+describe('kqVisibility()', () => {
+  const style = resolveSectionStyle(DEFAULT_VIEW_STYLE, null)
+
+  it('Summary mode shows the short summary, not the long one', () => {
+    const v = kqVisibility(style, 'summary')
+    expect(v.short).toBe(true)
+    expect(v.long).toBe(false)
+  })
+
+  it('Full mode shows the long "Full profile", not the short one', () => {
+    const v = kqVisibility(style, 'full')
+    expect(v.short).toBe(false)
+    expect(v.long).toBe(true)
+  })
+
+  it('defaults to Full when no mode is passed (legacy behaviour)', () => {
+    expect(kqVisibility(style)).toMatchObject({ short: false, long: true })
+  })
+
+  it('keeps label/tagline as independent toggles regardless of mode', () => {
+    const s = resolveSectionStyle(DEFAULT_VIEW_STYLE, { kq_show_label: false, kq_show_tagline: false })
+    expect(kqVisibility(s, 'full')).toMatchObject({ label: false, tagline: false })
+    expect(kqVisibility(s, 'summary')).toMatchObject({ label: false, tagline: false })
+  })
+
+  it('ignores the deprecated kq_show_short/kq_show_long fields (mode owns it)', () => {
+    const s = resolveSectionStyle(DEFAULT_VIEW_STYLE, { kq_show_short: true, kq_show_long: true })
+    // Even with both legacy flags set, the mode alone decides.
+    expect(kqVisibility(s, 'summary')).toMatchObject({ short: true, long: false })
+    expect(kqVisibility(s, 'full')).toMatchObject({ short: false, long: true })
+  })
+})
 
 // ─── normalizeFullLayout ──────────────────────────────────────────────────────
 

@@ -195,7 +195,7 @@ function renderSection(key: string, label: string, items: unknown[], ctx: Export
   if (!desc || (!desc.full && !desc.summary)) return []
   const cctx: CatalogCtx = {
     locale: ctx.locale, hideDates: !!ctx.resolved.hide_dates, dateFormat: ctx.resolved.date_format,
-    target: 'docx', kq: kqVisibility(ctx.resolved),
+    target: 'docx', kq: kqVisibility(ctx.resolved, ctx.detail === 'summary' ? 'summary' : 'full'),
   }
   // Items arrive already ordered by the caller (the view's per-section sort).
   const list = items as CatalogItem[]

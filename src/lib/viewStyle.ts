@@ -271,12 +271,28 @@ export function normalizeFullLayout(v: string | null | undefined): FullLayout {
 }
 
 /** Which professional-summary parts to render, with the documented defaults. */
-export function kqVisibility(r: ResolvedSectionStyle): { label: boolean; tagline: boolean; short: boolean; long: boolean } {
+/**
+ * Which parts of a profile block render. `short`/`long` are now driven by the
+ * section MODE, not by style toggles: Summary mode shows the short summary,
+ * Full mode ("Full profile") shows the long one. `label`/`tagline` remain
+ * independent toggles.
+ *
+ * The old `kq_show_short`/`kq_show_long` style fields are deprecated and no
+ * longer read — mode owns that choice (a section could otherwise be in Summary
+ * mode yet configured to show the long text, which never made sense). The
+ * fields stay on the type so pre-existing serialized views still parse; they're
+ * simply ignored. Default mode is 'full' so any caller that doesn't pass one
+ * (and every legacy path) behaves exactly as "Full" did before.
+ */
+export function kqVisibility(
+  r: ResolvedSectionStyle,
+  mode: 'summary' | 'full' = 'full',
+): { label: boolean; tagline: boolean; short: boolean; long: boolean } {
   return {
     label: r.kq_show_label ?? true,
     tagline: r.kq_show_tagline ?? true,
-    short: r.kq_show_short ?? false,
-    long: r.kq_show_long ?? true,
+    short: mode === 'summary',
+    long: mode === 'full',
   }
 }
 

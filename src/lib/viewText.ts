@@ -179,7 +179,7 @@ function buildViewDoc(store: ResumeStore, view: ResumeView, locale: string, fmt:
     const desc = SECTION_CATALOG[renderKey]
     if (!desc || (!desc.full && !desc.summary)) continue
     const resolved = resolveSectionStyle(viewStyle, s.sectionStyle)
-    const cctx: CatalogCtx = { locale, hideDates: !!resolved.hide_dates, dateFormat: resolved.date_format, target: 'html', kq: kqVisibility(resolved) }
+    const cctx: CatalogCtx = { locale, hideDates: !!resolved.hide_dates, dateFormat: resolved.date_format, target: 'html', kq: kqVisibility(resolved, s.detail === 'summary' ? 'summary' : 'full') }
 
     const body: string[] = []
     for (const item of items as Array<Record<string, unknown>>) {
