@@ -2,10 +2,11 @@ import type {
   ResumeStore, ResumeView, ViewSection, LocalizedString, SectionDetail,
 } from '../types'
 import { SECTIONS, localizedSectionHeading } from './sections'
-import { resolve } from './locales'
+import { resolve, bcp47 } from './locales'
 import { SECTION_CATALOG, type AnyItem, type CatalogCtx, type SummaryView, type SummaryPartKey } from './sectionCatalog'
 import type { SummaryLayout } from '../types'
 import { skillMatrixRows, fmtLastUsed, fmtProficiency } from './skillMatrix'
+import { xs, fmtYears } from './exportStrings'
 import { showcaseGroups } from './showcase'
 import { renderRichHtml } from './richText'
 import { deriveTokens, resolveSectionStyle, sectionHeadingText, kqVisibility, withDefaults, withResolvedFonts, resolveFontCss, type ResolvedSectionStyle, type StyleTokens } from './viewStyle'
@@ -554,9 +555,9 @@ export function buildViewHtml(store: ResumeStore, view: ResumeView, locale: stri
         const showDates = !resolved.hide_dates
         // Show the Category column only if at least one row has a category.
         const showCategory = rows.some((row) => row.category)
-        const head = `<tr><th>Skill</th>${showCategory ? '<th>Category</th>' : ''}<th>Experience</th><th>Proficiency</th>${showDates ? '<th>Last used</th>' : ''}</tr>`
+        const head = `<tr><th>${escapeHtml(xs('matrix_skill', locale))}</th>${showCategory ? `<th>${escapeHtml(xs('matrix_category', locale))}</th>` : ''}<th>${escapeHtml(xs('matrix_experience', locale))}</th><th>${escapeHtml(xs('matrix_proficiency', locale))}</th>${showDates ? `<th>${escapeHtml(xs('matrix_last_used', locale))}</th>` : ''}</tr>`
         const body = rows.map((row) =>
-          `<tr><td>${escapeHtml(row.name)}</td>${showCategory ? `<td>${escapeHtml(row.category)}</td>` : ''}<td>${row.years > 0 ? escapeHtml(`${row.years} yrs`) : ''}</td><td>${escapeHtml(fmtProficiency(row.proficiency))}</td>${showDates ? `<td>${escapeHtml(fmtLastUsed(row))}</td>` : ''}</tr>`,
+          `<tr><td>${escapeHtml(row.name)}</td>${showCategory ? `<td>${escapeHtml(row.category)}</td>` : ''}<td>${escapeHtml(fmtYears(row.years, locale))}</td><td>${escapeHtml(fmtProficiency(row.proficiency))}</td>${showDates ? `<td>${escapeHtml(fmtLastUsed(row, locale, resolved.date_format))}</td>` : ''}</tr>`,
         ).join('\n')
         return `<section class="ve-section ve-sec-skill_matrix">
   ${heading}
@@ -694,7 +695,7 @@ export function buildViewHtml(store: ResumeStore, view: ResumeView, locale: stri
   ].join('; ')
 
   return `<!DOCTYPE html>
-<html lang="${escapeHtml(locale)}">
+<html lang="${escapeHtml(bcp47(locale))}">
 <head>
   <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy" content="${csp}">

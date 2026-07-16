@@ -18,6 +18,7 @@ import {
 } from './viewFilter'
 import { SECTION_CATALOG, summaryTitleMeta, type CatalogCtx, type ItemView } from './sectionCatalog'
 import { skillMatrixRows, fmtLastUsed, fmtProficiency } from './skillMatrix'
+import { xs, fmtYears } from './exportStrings'
 import { showcaseGroups } from './showcase'
 import { sortItems } from './sectionSort'
 import { resolveSectionStyle, sectionHeadingText, kqVisibility, withDefaults } from './viewStyle'
@@ -142,17 +143,23 @@ function buildViewDoc(store: ResumeStore, view: ResumeView, locale: string, fmt:
       const heading = resolved.hide_heading ? '' : sectionHeadingText(resolved, localizedSectionHeading(s.key, locale), locale)
       if (md) {
         if (heading) out.push(`## ${heading}`)
-        const cols = ['Skill', ...(showCategory ? ['Category'] : []), 'Experience', 'Proficiency', ...(showDates ? ['Last used'] : [])]
+        const cols = [
+          xs('matrix_skill', locale),
+          ...(showCategory ? [xs('matrix_category', locale)] : []),
+          xs('matrix_experience', locale),
+          xs('matrix_proficiency', locale),
+          ...(showDates ? [xs('matrix_last_used', locale)] : []),
+        ]
         out.push(`| ${cols.join(' | ')} |`)
         out.push(`| ${cols.map(() => '---').join(' | ')} |`)
         for (const r of rows) {
-          const cells = [r.name, ...(showCategory ? [r.category] : []), r.years > 0 ? `${r.years} yrs` : '', fmtProficiency(r.proficiency), ...(showDates ? [fmtLastUsed(r)] : [])]
+          const cells = [r.name, ...(showCategory ? [r.category] : []), fmtYears(r.years, locale), fmtProficiency(r.proficiency), ...(showDates ? [fmtLastUsed(r, locale, resolved.date_format)] : [])]
           out.push(`| ${cells.join(' | ')} |`)
         }
       } else {
         if (heading) { out.push(heading.toUpperCase()); out.push('-'.repeat(Math.max(4, heading.length))) }
         for (const r of rows) {
-          out.push(['- ' + r.name, showCategory ? r.category : '', r.years > 0 ? `${r.years} yrs` : '', fmtProficiency(r.proficiency), showDates ? fmtLastUsed(r) : '']
+          out.push(['- ' + r.name, showCategory ? r.category : '', fmtYears(r.years, locale), fmtProficiency(r.proficiency), showDates ? fmtLastUsed(r, locale, resolved.date_format) : '']
             .filter(Boolean).join(' — '))
         }
       }

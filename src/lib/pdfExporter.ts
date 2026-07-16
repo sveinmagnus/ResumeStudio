@@ -26,7 +26,8 @@ import type {
   ViewHeaderConfig, FooterSeparator,
 } from '../types'
 import { SECTIONS, localizedSectionHeading } from './sections'
-import { resolve } from './locales'
+import { resolve, type DateFormat } from './locales'
+import { xs, fmtYears } from './exportStrings'
 import { SECTION_CATALOG, summaryTitleMeta, type AnyItem as CatalogItem, type CatalogCtx, type ItemView } from './sectionCatalog'
 import { skillMatrixRows, fmtLastUsed, fmtProficiency, type SkillMatrixRow } from './skillMatrix'
 import { applyView, isExportableSection, defaultViewDetail, promotedProjectItems } from './viewFilter'
@@ -222,23 +223,26 @@ function renderSection(key: string, label: string, items: unknown[], ctx: Export
 
 // ─── Skill matrix table (mirrors skillMatrixTable) ──────────────────────────
 
-function skillMatrixTable(rows: SkillMatrixRow[], showDates: boolean, tokens: StyleTokens): PdfNode {
+function skillMatrixTable(
+  rows: SkillMatrixRow[], showDates: boolean, tokens: StyleTokens,
+  locale: string, dateFormat: DateFormat,
+): PdfNode {
   const showCategory = rows.some((r) => r.category)
   const cols: Array<{ key: 'skill' | 'category' | 'exp' | 'prof' | 'date'; label: string }> = [
-    { key: 'skill', label: 'Skill' },
-    ...(showCategory ? [{ key: 'category' as const, label: 'Category' }] : []),
-    { key: 'exp', label: 'Experience' },
-    { key: 'prof', label: 'Proficiency' },
-    ...(showDates ? [{ key: 'date' as const, label: 'Last used' }] : []),
+    { key: 'skill', label: xs('matrix_skill', locale) },
+    ...(showCategory ? [{ key: 'category' as const, label: xs('matrix_category', locale) }] : []),
+    { key: 'exp', label: xs('matrix_experience', locale) },
+    { key: 'prof', label: xs('matrix_proficiency', locale) },
+    ...(showDates ? [{ key: 'date' as const, label: xs('matrix_last_used', locale) }] : []),
   ]
   const accent = `#${tokens.accentHex}`
   const cellText = (key: typeof cols[number]['key'], r: SkillMatrixRow): string => {
     switch (key) {
       case 'skill':    return r.name
       case 'category': return r.category
-      case 'exp':      return r.years > 0 ? `${r.years} yrs` : ''
+      case 'exp':      return fmtYears(r.years, locale)
       case 'prof':     return fmtProficiency(r.proficiency)
-      case 'date':     return fmtLastUsed(r)
+      case 'date':     return fmtLastUsed(r, locale, dateFormat)
     }
   }
   const headerRow: PdfNode[] = cols.map((c) => ({ text: c.label, bold: true, color: accent, fontSize: tokens.smallFontSizePt }))
@@ -392,7 +396,7 @@ export async function buildPdfDocDefinition(
       if (!rows.length) continue
       const tokens = deriveTokens(resolved)
       if (!resolved.hide_heading) content.push(sectionHeading(sectionHeadingText(resolved, localizedSectionHeading(def.key, locale), locale), tokens))
-      content.push(skillMatrixTable(rows, !resolved.hide_dates, tokens))
+      content.push(skillMatrixTable(rows, !resolved.hide_dates, tokens, locale, resolved.date_format))
       continue
     }
     const rawItems = def.key === 'promoted_projects'

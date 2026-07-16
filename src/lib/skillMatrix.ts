@@ -14,7 +14,8 @@
  */
 
 import type { ResumeStore, ResumeView, YearMonth } from '../types'
-import { resolve, fmtDate } from './locales'
+import { resolve, fmtDate, type DateFormat } from './locales'
+import { xs } from './exportStrings'
 import { skillExperience } from './experience'
 
 export interface SkillMatrixRow {
@@ -103,10 +104,15 @@ export function skillMatrixRows(
       || a.name.localeCompare(b.name))
 }
 
-/** Display string for the last-used column: 'Ongoing', a formatted date, or ''. */
-export function fmtLastUsed(row: SkillMatrixRow): string {
-  if (row.ongoing) return 'Ongoing'
-  return row.lastUsed ? fmtDate(row.lastUsed) : ''
+/**
+ * Display string for the last-used column: a localized 'Ongoing', a formatted
+ * date, or ''. Takes the section's resolved `format` so this column matches
+ * every other date in the export — it silently rendered 'month-year' before,
+ * ignoring the view's choice.
+ */
+export function fmtLastUsed(row: SkillMatrixRow, locale = 'en', format: DateFormat = 'month-year'): string {
+  if (row.ongoing) return xs('ongoing', locale)
+  return row.lastUsed ? fmtDate(row.lastUsed, format, locale) : ''
 }
 
 /** Display string for proficiency: '4/5' or '' when unknown. */

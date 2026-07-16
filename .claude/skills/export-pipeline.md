@@ -36,6 +36,24 @@ adapters own escaping/layout. See CLAUDE.md §7 step 7.
 there's a deliberate, commented reason it doesn't — e.g. the `skills`/`roles`
 *registries* are intentionally never exported as their own sections).
 
+**Rule: no English literal in a render path.** Anything the *app* supplies
+around the user's content is chrome, and chrome is localized — it lands in a
+file a client reads. Take the word from `lib/exportStrings.ts` (`xs` / `xt` /
+`fmtYears`) or from the vocabulary's own home: months + "Present"
+(`lib/locales.ts`), section headings (`lib/sections.ts`), CEFR words
+(`lib/cefr.ts`), header field labels (`lib/viewHeader.ts`), and the
+publication / position / relationship label sets. Never hardcode `'Skills: '`
+or `` `${n} yrs` `` inline — that class of literal is exactly what left the app
+offering 19 languages while translating 4, and it fails silently because
+`resolve()` falls back to English rather than throwing. `tests/localeCoverage.
+test.ts` pins every surface against every offered locale; a new locale fails the
+suite until it is translated everywhere. Note the plural trap: a count needs
+`fmtYears`-style `Intl.PluralRules` handling, not `${n} + unit` (Polish/Russian
+inflect the noun by count).
+
+The **editor** is the other side of that boundary and stays English — see
+CLAUDE.md §12. Don't import `exportStrings.ts` from `components/`.
+
 ## 2. DOCX specifics (`exporter.ts`)
 
 - **It is lazy-loaded.** `ResumeViewsEditor` does

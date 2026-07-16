@@ -34,8 +34,17 @@ describe('sections', () => {
       expect(localizedSectionHeading('key_qualifications', 'dk')).toBe('Resumé')
     })
     it('falls back to English, then the section label', () => {
-      expect(localizedSectionHeading('work_experiences', 'de')).toBe('Employment') // unknown locale → en
+      // 'ja' is deliberately not an offerable locale (see LOCALE_LABELS) and so
+      // has no headings — any code outside the offered set behaves this way.
+      expect(localizedSectionHeading('work_experiences', 'ja')).toBe('Employment') // unknown locale → en
       expect(localizedSectionHeading('nonexistent', 'no')).toBe('nonexistent')     // no map → label/key
+    })
+    it('translates the sections it offers rather than falling back', () => {
+      // Guards the fallback test above from silently becoming vacuous: these
+      // are offered locales, so they must NOT resolve to the English label.
+      expect(localizedSectionHeading('work_experiences', 'de')).toBe('Berufserfahrung')
+      expect(localizedSectionHeading('educations', 'fi')).toBe('Koulutus')
+      expect(localizedSectionHeading('projects', 'uk')).toBe('Проєкти')
     })
     it("en matches the section label so English output doesn't change", () => {
       for (const [key, ls] of Object.entries(SECTION_HEADINGS)) {

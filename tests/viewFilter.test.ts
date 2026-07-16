@@ -322,6 +322,27 @@ describe('buildViewHtml()', () => {
     expect(html).toContain('</html>')
   })
 
+  describe('the document language', () => {
+    // Regression: the export emitted the raw app locale code, so a Norwegian
+    // CV was tagged `lang="no"` correctly but a Swedish one claimed `lang="se"`
+    // (Northern Sami) and a Danish one `lang="dk"` (unassigned). Screen readers
+    // and PDF metadata read this tag, so it has to be real BCP-47.
+    const langOf = (locale: string): string =>
+      buildViewHtml(emptyStore(), makeView({ sections: buildViewSections() }), locale)
+        .match(/<html lang="([^"]*)"/)?.[1] ?? ''
+
+    it('maps the CVpartner-flavoured codes onto real BCP-47 tags', () => {
+      expect(langOf('se')).toBe('sv')
+      expect(langOf('dk')).toBe('da')
+    })
+
+    it('passes through codes that are already valid', () => {
+      expect(langOf('en')).toBe('en')
+      expect(langOf('no')).toBe('no')
+      expect(langOf('de')).toBe('de')
+    })
+  })
+
   it('includes a project that is enabled and not excluded', () => {
     const store = emptyStore()
     store.projects.push(makeProject({

@@ -1,5 +1,21 @@
 import type { LocalizedString, ResumeStore } from '../types'
 
+/**
+ * The offerable locales. Deliberately limited to Latin/Cyrillic-script European
+ * languages: every one of these shares the structural assumptions the render
+ * path makes — left-to-right, space-separated words, and a month/"Present"
+ * vocabulary that fits a CV date range. CJK, Arabic and Indic languages were
+ * offered until v0.7.4 but never had the chrome translations, the RTL support
+ * (Arabic), or the typographic handling to back them up, so they were removed
+ * rather than left as English-only stubs.
+ *
+ * EVERY code here must have a full set of chrome translations — months and
+ * `PRESENT` below, `SECTION_HEADINGS` (lib/sections.ts), the export dictionary
+ * (lib/exportStrings.ts), and the label sets in lib/positionTypes.ts,
+ * lib/publicationTypes.ts and lib/recommendationRelationships.ts. Tests pin
+ * that completeness, so adding a locale here fails the suite until it is
+ * translated everywhere. That is the intended workflow — don't relax the tests.
+ */
 export const LOCALE_LABELS: Record<string, { name: string; flag: string }> = {
   en: { name: 'English', flag: '🇬🇧' },
   no: { name: 'Norsk', flag: '🇳🇴' },
@@ -16,11 +32,10 @@ export const LOCALE_LABELS: Record<string, { name: string; flag: string }> = {
   is: { name: 'Íslenska', flag: '🇮🇸' },
   ru: { name: 'Русский', flag: '🇷🇺' },
   uk: { name: 'Українська', flag: '🇺🇦' },
-  zh: { name: '中文', flag: '🇨🇳' },
-  ja: { name: '日本語', flag: '🇯🇵' },
-  ar: { name: 'العربية', flag: '🇸🇦' },
-  hi: { name: 'हिन्दी', flag: '🇮🇳' },
 }
+
+/** Every offerable locale code, in display order. */
+export const LOCALE_CODES: string[] = Object.keys(LOCALE_LABELS)
 
 /**
  * App locale code → BCP-47 language tag for HTML `lang` attributes.
@@ -51,9 +66,17 @@ export type DateFormat =
   | 'month-year-num' | 'year-month-num'
   | 'year-only'
 
-// Localized month abbreviations + "Present" for exported views. Unknown locales
-// fall back to English. App codes: en / no / se / dk (+ de/fr/es).
-const MONTH_ABBR: Record<string, string[]> = {
+// Localized month abbreviations for exported views — one entry per
+// LOCALE_LABELS code (pinned by tests). Each follows its own language's CLDR
+// abbreviated form, which is why capitalisation and the trailing period vary:
+// English and German capitalise, the Nordics and Romance languages don't, and
+// Swedish/Finnish spell short month names out rather than abbreviate them.
+// Unknown locales fall back to English.
+//
+// Exported for the locale-coverage test only: a missing locale here degrades to
+// English rather than throwing, so completeness is invisible through `fmtDate`
+// and has to be asserted against the table itself. Render code calls `fmtDate`.
+export const MONTH_ABBR: Record<string, string[]> = {
   en: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
   no: ['jan.', 'feb.', 'mar.', 'apr.', 'mai', 'jun.', 'jul.', 'aug.', 'sep.', 'okt.', 'nov.', 'des.'],
   se: ['jan.', 'feb.', 'mars', 'apr.', 'maj', 'juni', 'juli', 'aug.', 'sep.', 'okt.', 'nov.', 'dec.'],
@@ -61,9 +84,24 @@ const MONTH_ABBR: Record<string, string[]> = {
   de: ['Jan.', 'Feb.', 'März', 'Apr.', 'Mai', 'Juni', 'Juli', 'Aug.', 'Sep.', 'Okt.', 'Nov.', 'Dez.'],
   fr: ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'],
   es: ['ene.', 'feb.', 'mar.', 'abr.', 'may.', 'jun.', 'jul.', 'ago.', 'sep.', 'oct.', 'nov.', 'dic.'],
+  it: ['gen.', 'feb.', 'mar.', 'apr.', 'mag.', 'giu.', 'lug.', 'ago.', 'set.', 'ott.', 'nov.', 'dic.'],
+  nl: ['jan.', 'feb.', 'mrt.', 'apr.', 'mei', 'jun.', 'jul.', 'aug.', 'sep.', 'okt.', 'nov.', 'dec.'],
+  pt: ['jan.', 'fev.', 'mar.', 'abr.', 'mai.', 'jun.', 'jul.', 'ago.', 'set.', 'out.', 'nov.', 'dez.'],
+  pl: ['sty.', 'lut.', 'mar.', 'kwi.', 'maj', 'cze.', 'lip.', 'sie.', 'wrz.', 'paź.', 'lis.', 'gru.'],
+  fi: ['tammik.', 'helmik.', 'maalisk.', 'huhtik.', 'toukok.', 'kesäk.', 'heinäk.', 'elok.', 'syysk.', 'lokak.', 'marrask.', 'jouluk.'],
+  is: ['jan.', 'feb.', 'mar.', 'apr.', 'maí', 'jún.', 'júl.', 'ágú.', 'sep.', 'okt.', 'nóv.', 'des.'],
+  ru: ['янв.', 'февр.', 'март', 'апр.', 'май', 'июнь', 'июль', 'авг.', 'сент.', 'окт.', 'нояб.', 'дек.'],
+  uk: ['січ.', 'лют.', 'бер.', 'квіт.', 'трав.', 'черв.', 'лип.', 'серп.', 'вер.', 'жовт.', 'лист.', 'груд.'],
 }
-const PRESENT: Record<string, string> = {
+
+// The word for an ongoing end date, as it reads in a CV date range
+// ("2021 – Present"). One entry per LOCALE_LABELS code. Exported for the
+// coverage test for the same reason as MONTH_ABBR; render code calls
+// `presentLabel`.
+export const PRESENT: Record<string, string> = {
   en: 'Present', no: 'Nå', se: 'Nu', dk: 'Nu', de: 'Heute', fr: 'Présent', es: 'Presente',
+  it: 'Presente', nl: 'Heden', pt: 'Presente', pl: 'Obecnie', fi: 'Nykyinen', is: 'Í dag',
+  ru: 'Настоящее время', uk: 'Дотепер',
 }
 const monthAbbr = (locale: string): string[] => MONTH_ABBR[locale] ?? MONTH_ABBR.en
 /** The localized word for an ongoing end date ("Present"). */

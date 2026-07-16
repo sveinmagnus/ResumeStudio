@@ -27,6 +27,11 @@ The full catalog with per-feature design detail is in
   drag-and-drop reordering, global content search (Ctrl/Cmd+K).
 - **Multi-language** — dual-view editing (§5), translation assist (Copy +
   server-proxied LibreTranslate/DeepL/etc. Draft), locale re-detection.
+  **15 offered locales** (`LOCALE_LABELS`), all Latin/Cyrillic-script European:
+  every one is fully translated in every export surface, and tests fail if a
+  new code lands without its translations. Don't add a locale you can't
+  translate everywhere — that's what the 19-language/4-translated state this
+  replaced looked like from the user's side.
 - **AI assist (BYO backend)** — server-proxied summarize (Docker-managed local
   Ollama / OpenAI / any OpenAI-compatible endpoint) drafts a one-line short
   description from a long one: per-column in `DualField`, or the whole section
@@ -128,7 +133,8 @@ src/
 │   │ — persistence/sync: api, localCache (per-id fallback+queue), connectivity,
 │   │   syncEngine (PURE boot/drain decisions), diffResume, storage (weight thresholds),
 │   │   backup (per-resume JSON), snapshotDiff, snapshotImages
-│   │ — render/export: sectionCatalog (one descriptor feeds ALL render adapters),
+│   │ — render/export: exportStrings (localized EXPORT chrome + xs/xt/fmtYears;
+│   │   export-only by design — see §12), sectionCatalog (one descriptor feeds ALL render adapters),
 │   │   viewFilter (applyView + buildViewHtml; escapeHtml; SECURITY-CRITICAL),
 │   │   exporter (LAZY-LOADED docx; SECURITY: TextRun escapes), viewText (ATS text/MD),
 │   │   viewStyle + viewHeader (render-boundary sanitisers), richText (allowlist;
@@ -473,7 +479,7 @@ timeline, global search, and the v0.3.1 UX/accessibility wave.
 
 ### Watchlist (deferred until forced)
 - **Cross-tab coordination** — two tabs editing one resume share a localStorage pending slot. The server `version` check makes it *safe* (second flush 409s into the conflict modal), just not tidy; a `BroadcastChannel` lock would stop the local thrash. Low priority.
-- **UI-chrome localization** — app labels are English-only. A dictionary-based `t()` is plausible for the Norwegian market but taxes every component forever — decide once, record here.
+- **UI-chrome localization** — *EDITOR* labels are English-only. A dictionary-based `t()` is plausible for the Norwegian market but taxes every component forever — decide once, record here. **Export chrome is already done and is NOT this item** (v0.7.4): everything a client reads — section headings, months/"Present", header field labels, skill-matrix columns, CEFR words, publication/position/relationship picks — is localized for all 15 offered locales. The boundary is deliberate and load-bearing: a string is localized if it lands in an exported `.pdf`/`.docx`/`.txt`, and stays a hardcoded English literal if it only ever shows in the editor. Keep `lib/exportStrings.ts` out of `components/` or this decision quietly reopens itself.
 - **Image asset table (A4 Phase 2)** — auto-save PUTs and pending records still carry embedded base64 images. If measurements show quota risk, move to a content-addressed `assets` table (`hash → bytes` + `asset_id`), touching exporter/viewFilter/backup/localCache.
 - **Offline-load (PWA / service worker)** — offline *editing* shipped; *loading* the app cold with no network still fails (no SW caching the shell). Multi-day; only if "open and edit with zero connectivity" becomes a real need. See `plans/offline-editing.md` (Tier 3).
 

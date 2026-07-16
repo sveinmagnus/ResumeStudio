@@ -21,6 +21,7 @@ import type { LocalizedString } from '../types'
 import { publicationTypeLabel } from './publicationTypes'
 import { positionTypeLabel } from './positionTypes'
 import { resolve, fmtRange, fmtDate, presentLabel, type DateFormat } from './locales'
+import { xs, xt } from './exportStrings'
 import { cefrLines, type CefrMap } from './cefr'
 
 export type AnyItem = Record<string, unknown>
@@ -202,7 +203,7 @@ const summaryOf = (opts: {
 /** Publication publisher with its type in parentheses, e.g. "IEEE (Research Publication)". */
 const publisherWithType = (it: AnyItem, locale: string): string => {
   const pub = ls(it, 'publisher', locale)
-  const type = publicationTypeLabel(it.publication_type as string | undefined)
+  const type = publicationTypeLabel(it.publication_type as string | undefined, locale)
   if (pub && type) return `${pub} (${type})`
   return pub || (type ? `(${type})` : '')
 }
@@ -290,14 +291,14 @@ export const SECTION_CATALOG: Record<string, SectionDescriptor> = {
         date: range(it, ctx),
         meta: [
           roles, industry,
-          it.team_size ? `Team of ${it.team_size as number}` : '',
-          it.percent_allocated ? `${it.percent_allocated as number}% allocation` : '',
+          it.team_size ? xt('team_of', locale, { n: it.team_size as number }) : '',
+          it.percent_allocated ? xt('allocation', locale, { n: it.percent_allocated as number }) : '',
         ].filter(Boolean),
         plainBody: shortDesc && shortDesc !== title ? shortDesc : '',
         body: longDesc,
         points: highlights.map((h) => ({ label: '', body: h })),
         tags: skillNames(it, locale),
-        tagsLabel: 'Skills: ',
+        tagsLabel: `${xs('skills', locale)}: `,
       })
     },
   },
@@ -440,7 +441,7 @@ export const SECTION_CATALOG: Record<string, SectionDescriptor> = {
         spacingBefore: 140,
         date: range(it, ctx),
         meta: [ls(it, 'degree', locale)].filter(Boolean),
-        extraLines: it.grade ? [`Grade: ${it.grade as string}`] : [],
+        extraLines: it.grade ? [`${xs('grade', locale)}: ${it.grade as string}`] : [],
       })
     },
   },
@@ -500,7 +501,7 @@ export const SECTION_CATALOG: Record<string, SectionDescriptor> = {
     title: (it, locale) => ls(it, 'organisation', locale) || ls(it, 'name', locale) || 'Untitled',
     subtitle: (it, locale) => {
       const r = rawRange(it)
-      const role = [ls(it, 'name', locale), positionTypeLabel(it.position_type as string | undefined)].filter(Boolean).join(' · ')
+      const role = [ls(it, 'name', locale), positionTypeLabel(it.position_type as string | undefined, locale)].filter(Boolean).join(' · ')
       return `${role}${r ? ' · ' + r : ''}`
     },
     summary: (it, ctx) => {
@@ -516,7 +517,7 @@ export const SECTION_CATALOG: Record<string, SectionDescriptor> = {
     },
     full(it, ctx) {
       const { locale } = ctx
-      const type = positionTypeLabel(it.position_type as string | undefined)
+      const type = positionTypeLabel(it.position_type as string | undefined, locale)
       const org = ls(it, 'organisation', locale)
       const name = ls(it, 'name', locale)
       // Organisation as the heading; role name + type below. Drop the name from
@@ -556,11 +557,11 @@ export const SECTION_CATALOG: Record<string, SectionDescriptor> = {
       // Only the grid gets the passport, and it owns a column of its own.
       // '\n' marks a line break inside the cell — see SummaryPart.
       org: ctx.detail === 'tabulated'
-        ? cefrLines((it as AnyItem).cefr as CefrMap | undefined).join('\n')
+        ? cefrLines((it as AnyItem).cefr as CefrMap | undefined, ctx.locale).join('\n')
         : '',
     }),
     full(it, ctx) {
-      const lines = cefrLines((it as AnyItem).cefr as CefrMap | undefined)
+      const lines = cefrLines((it as AnyItem).cefr as CefrMap | undefined, ctx.locale)
       const level = ls(it, 'level', ctx.locale)
       // One value stays on the line; a split passport drops below it.
       const inlineCefr = lines.length === 1 ? lines[0] : ''

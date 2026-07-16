@@ -65,19 +65,105 @@ function safeNotePlacement(v: unknown): FooterNotePlacement {
 // ─── Defaults ───────────────────────────────────────────────────────────────
 
 /**
- * Default descriptor labels per field, seeded in English + Norwegian (the
- * Cartavio working languages). Users can edit these per view, per locale.
+ * Default descriptor labels per field — one per LOCALE_LABELS code (pinned by
+ * tests). These render at the TOP of every export, so an untranslated one is
+ * the most visible chrome on the page. Users can still edit them per view, per
+ * locale; `headerFieldLabel` explains how an edit interacts with these.
+ *
+ * The trailing space is part of the value: a label is concatenated straight
+ * onto its value ("Phone: " + "+47…"). A blank label renders the value alone.
  */
 const DEFAULT_FIELD_LABELS: Record<HeaderFieldKey, LocalizedString> = {
-  phone:         { en: 'Phone: ',       no: 'Telefon: ' },
-  email:         { en: 'Email: ',       no: 'Epost: ' },
-  location:      { en: 'Location: ',    no: 'Lokasjon: ' },
-  nationality:   { en: 'Nationality: ', no: 'Nasjonalitet: ' },
-  date_of_birth: { en: 'Born: ',        no: 'Født: ' },
-  linkedin:      { en: 'LinkedIn: ',    no: 'LinkedIn: ' },
-  website:       { en: 'Web: ',         no: 'Web: ' },
-  twitter:       { en: 'Twitter: ',     no: 'Twitter: ' },
-  languages:     { en: 'Languages: ',   no: 'Språk: ' },
+  phone: {
+    en: 'Phone: ', no: 'Telefon: ', se: 'Telefon: ', dk: 'Telefon: ',
+    de: 'Telefon: ', fr: 'Téléphone : ', es: 'Teléfono: ', it: 'Telefono: ',
+    nl: 'Telefoon: ', pt: 'Telefone: ', pl: 'Telefon: ',
+    fi: 'Puhelin: ', is: 'Sími: ', ru: 'Телефон: ', uk: 'Телефон: ',
+  },
+  email: {
+    en: 'Email: ', no: 'Epost: ', se: 'E-post: ', dk: 'E-mail: ',
+    de: 'E-Mail: ', fr: 'E-mail : ', es: 'Correo: ', it: 'E-mail: ',
+    nl: 'E-mail: ', pt: 'E-mail: ', pl: 'E-mail: ',
+    fi: 'Sähköposti: ', is: 'Netfang: ', ru: 'Эл. почта: ', uk: 'Ел. пошта: ',
+  },
+  location: {
+    en: 'Location: ', no: 'Lokasjon: ', se: 'Ort: ', dk: 'Lokation: ',
+    de: 'Standort: ', fr: 'Lieu : ', es: 'Ubicación: ', it: 'Località: ',
+    nl: 'Locatie: ', pt: 'Localização: ', pl: 'Lokalizacja: ',
+    fi: 'Sijainti: ', is: 'Staðsetning: ', ru: 'Местоположение: ', uk: 'Місцезнаходження: ',
+  },
+  nationality: {
+    en: 'Nationality: ', no: 'Nasjonalitet: ', se: 'Nationalitet: ', dk: 'Nationalitet: ',
+    de: 'Staatsangehörigkeit: ', fr: 'Nationalité : ', es: 'Nacionalidad: ', it: 'Nazionalità: ',
+    nl: 'Nationaliteit: ', pt: 'Nacionalidade: ', pl: 'Narodowość: ',
+    fi: 'Kansalaisuus: ', is: 'Þjóðerni: ', ru: 'Гражданство: ', uk: 'Громадянство: ',
+  },
+  // Languages that would inflect this by gender take the neutral noun phrase
+  // ("Date of birth") rather than a participle — the resume has no gender field.
+  date_of_birth: {
+    en: 'Born: ', no: 'Født: ', se: 'Född: ', dk: 'Født: ',
+    de: 'Geboren: ', fr: 'Date de naissance : ', es: 'Fecha de nacimiento: ', it: 'Data di nascita: ',
+    nl: 'Geboren: ', pt: 'Data de nascimento: ', pl: 'Data urodzenia: ',
+    fi: 'Syntynyt: ', is: 'Fæðingardagur: ', ru: 'Дата рождения: ', uk: 'Дата народження: ',
+  },
+  // Brand names — identical everywhere, but spelled out per locale so the
+  // coverage test stays honest rather than special-casing them.
+  linkedin: {
+    en: 'LinkedIn: ', no: 'LinkedIn: ', se: 'LinkedIn: ', dk: 'LinkedIn: ',
+    de: 'LinkedIn: ', fr: 'LinkedIn: ', es: 'LinkedIn: ', it: 'LinkedIn: ',
+    nl: 'LinkedIn: ', pt: 'LinkedIn: ', pl: 'LinkedIn: ',
+    fi: 'LinkedIn: ', is: 'LinkedIn: ', ru: 'LinkedIn: ', uk: 'LinkedIn: ',
+  },
+  website: {
+    en: 'Web: ', no: 'Web: ', se: 'Webb: ', dk: 'Web: ',
+    de: 'Web: ', fr: 'Site web : ', es: 'Web: ', it: 'Sito web: ',
+    nl: 'Website: ', pt: 'Site: ', pl: 'Strona: ',
+    fi: 'Verkkosivu: ', is: 'Vefur: ', ru: 'Сайт: ', uk: 'Сайт: ',
+  },
+  twitter: {
+    en: 'Twitter: ', no: 'Twitter: ', se: 'Twitter: ', dk: 'Twitter: ',
+    de: 'Twitter: ', fr: 'Twitter: ', es: 'Twitter: ', it: 'Twitter: ',
+    nl: 'Twitter: ', pt: 'Twitter: ', pl: 'Twitter: ',
+    fi: 'Twitter: ', is: 'Twitter: ', ru: 'Twitter: ', uk: 'Twitter: ',
+  },
+  languages: {
+    en: 'Languages: ', no: 'Språk: ', se: 'Språk: ', dk: 'Sprog: ',
+    de: 'Sprachen: ', fr: 'Langues : ', es: 'Idiomas: ', it: 'Lingue: ',
+    nl: 'Talen: ', pt: 'Idiomas: ', pl: 'Języki: ',
+    fi: 'Kielet: ', is: 'Tungumál: ', ru: 'Языки: ', uk: 'Мови: ',
+  },
+}
+
+/** The default label set for a field key ({} for an unrecognised key). */
+export function defaultFieldLabels(key: HeaderFieldKey): LocalizedString {
+  return { ...(DEFAULT_FIELD_LABELS[key] ?? {}) }
+}
+
+/**
+ * The label a header field renders in `locale`, layering the user's stored
+ * labels over the defaults.
+ *
+ * The layering matters for views SAVED BEFORE the defaults covered every
+ * locale: their `label` holds only en/no, so resolving it alone would fall back
+ * to English on a German export forever — a stale copy of the defaults frozen
+ * into every existing view. Merging means a stored label wins for the locales
+ * it actually fills, and the rest come from the current defaults.
+ *
+ * Consequence worth knowing: customising the English label no longer bleeds
+ * into other languages (it used to arrive there via English fallback). That is
+ * the app's per-locale model — set the label in each language you export.
+ *
+ * A PRESENT key is an opinion and is returned verbatim, including an empty one
+ * — blanking a label ("just print the number") is a real thing users do, and it
+ * must not fall through to a default. Only an ABSENT key takes the default.
+ * This is why the merge can't simply be `resolve({...defaults, ...label})`:
+ * `resolve` treats '' as missing and would answer with some other language's
+ * label, which is how a blanked English label used to render as Norwegian.
+ */
+export function headerFieldLabel(field: HeaderField, locale: string): string {
+  const stored: LocalizedString = field.label ?? {}
+  if (locale in stored) return stored[locale]
+  return resolve({ ...defaultFieldLabels(field.key), ...stored }, locale)
 }
 
 /** Field display order + default visibility / line-grouping. */
@@ -97,7 +183,7 @@ export function defaultHeaderFields(): HeaderField[] {
   return DEFAULT_FIELD_SPEC.map((spec, i) => ({
     key: spec.key,
     show: spec.show,
-    label: { ...DEFAULT_FIELD_LABELS[spec.key] },
+    label: defaultFieldLabels(spec.key),
     same_line: spec.same_line,
     sort_order: i,
   }))
@@ -253,7 +339,7 @@ export function buildHeaderLines(
     if (!field.show) continue
     const value = resolveHeaderFieldValue(field.key, resume, store, locale)
     if (!value) continue
-    const segment: HeaderSegment = { label: resolve(field.label, locale), value }
+    const segment: HeaderSegment = { label: headerFieldLabel(field, locale), value }
     if (field.same_line && lines.length > 0) {
       lines[lines.length - 1].push(segment)
     } else {

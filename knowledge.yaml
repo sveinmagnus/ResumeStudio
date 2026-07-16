@@ -17,7 +17,7 @@ units:
     intent: "How must an agent work in this codebase? Architecture map, data model, store patterns, conventions (incl. the v0.3.1 accessibility invariants + the version source-of-truth rule), and what not to change. Holds invariants only — the exhaustive feature catalog is in feature-map."
     scope: global
     audience: [agent, developer]
-    validated: "2026-07-15"
+    validated: "2026-07-16"
     update_frequency: weekly
     triggers: [conventions, architecture, data-model, store, persistence, sections, accessibility, routing]
     content_structure:
@@ -123,12 +123,12 @@ units:
 
   - id: skill-export-pipeline
     path: .claude/skills/export-pipeline.md
-    intent: "How do the HTML/PDF and DOCX export paths stay in sync, and what is the docx lazy-load discipline?"
+    intent: "How do the HTML/PDF and DOCX export paths stay in sync, what is the docx lazy-load discipline, and why does no render path hold an English literal?"
     scope: module
     audience: [agent]
-    validated: "2026-07-09"
+    validated: "2026-07-16"
     depends_on: [claude-instructions, data-model]
-    triggers: [export, docx, pdf, viewFilter, exporter, buildViewHtml, preview]
+    triggers: [export, docx, pdf, viewFilter, exporter, buildViewHtml, preview, localization, locale, translation, chrome, exportStrings]
     hints:
       token_estimate: 1500
 

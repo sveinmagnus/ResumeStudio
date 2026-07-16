@@ -27,9 +27,10 @@ import type {
   ViewHeaderConfig, FooterSeparator,
 } from '../types'
 import { SECTIONS, localizedSectionHeading } from './sections'
-import { resolve } from './locales'
+import { resolve, type DateFormat } from './locales'
 import { SECTION_CATALOG, summaryTitleMeta, type AnyItem as CatalogItem, type CatalogCtx, type ItemView } from './sectionCatalog'
 import { skillMatrixRows, fmtLastUsed, fmtProficiency, type SkillMatrixRow } from './skillMatrix'
+import { xs, fmtYears } from './exportStrings'
 import { applyView, isExportableSection, defaultViewDetail, promotedProjectItems } from './viewFilter'
 import { sortItems } from './sectionSort'
 import { showcaseGroups } from './showcase'
@@ -364,7 +365,7 @@ export async function exportDocx(store: ResumeStore, view: ResumeView, locale: s
       if (!rows.length) continue
       const tokens = deriveTokens(resolved)
       if (!resolved.hide_heading) children.push(sectionHeading(sectionHeadingText(resolved, localizedSectionHeading(def.key, locale), locale), tokens))
-      children.push(skillMatrixTable(rows, !resolved.hide_dates, tokens))
+      children.push(skillMatrixTable(rows, !resolved.hide_dates, tokens, locale, resolved.date_format))
       continue
     }
     // Virtual promoted_projects derives from the starred projects; virtual
@@ -581,24 +582,27 @@ function matrixCell(text: string, tokens: StyleTokens, opts: { bold?: boolean; w
 }
 
 /** The competency-matrix table: skill × [category] × experience × proficiency × last used. */
-function skillMatrixTable(rows: SkillMatrixRow[], showDates: boolean, tokens: StyleTokens): Table {
+function skillMatrixTable(
+  rows: SkillMatrixRow[], showDates: boolean, tokens: StyleTokens,
+  locale: string, dateFormat: DateFormat,
+): Table {
   const showCategory = rows.some((r) => r.category)
   // Column widths, dropping the columns that aren't shown and re-normalising.
   const cols: Array<{ key: 'skill' | 'category' | 'exp' | 'prof' | 'date'; label: string }> = [
-    { key: 'skill', label: 'Skill' },
-    ...(showCategory ? [{ key: 'category' as const, label: 'Category' }] : []),
-    { key: 'exp', label: 'Experience' },
-    { key: 'prof', label: 'Proficiency' },
-    ...(showDates ? [{ key: 'date' as const, label: 'Last used' }] : []),
+    { key: 'skill', label: xs('matrix_skill', locale) },
+    ...(showCategory ? [{ key: 'category' as const, label: xs('matrix_category', locale) }] : []),
+    { key: 'exp', label: xs('matrix_experience', locale) },
+    { key: 'prof', label: xs('matrix_proficiency', locale) },
+    ...(showDates ? [{ key: 'date' as const, label: xs('matrix_last_used', locale) }] : []),
   ]
   const width = Math.round(100 / cols.length)
   const cell = (key: typeof cols[number]['key'], r: SkillMatrixRow): string => {
     switch (key) {
       case 'skill':    return r.name
       case 'category': return r.category
-      case 'exp':      return r.years > 0 ? `${r.years} yrs` : ''
+      case 'exp':      return fmtYears(r.years, locale)
       case 'prof':     return fmtProficiency(r.proficiency)
-      case 'date':     return fmtLastUsed(r)
+      case 'date':     return fmtLastUsed(r, locale, dateFormat)
     }
   }
   const header = new TableRow({
