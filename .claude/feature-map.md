@@ -110,6 +110,27 @@ prescriptive.
   structure). Full-item layouts only — summary lines, the skill-matrix table and
   the quote/inline layouts are excluded. Helps heading-only sections (Key
   Competencies) read as a list rather than a flat wall.
+- **LLM assists (BYO-or-run)** — every AI affordance renders ONE control,
+  `components/ui/AssistRun.tsx`, over `POST /api/llm/complete` → `chatComplete()`.
+  It owns the two promises: a provenance line saying where content goes
+  (`providerBlurb`; "does not leave this computer" only when the server reports
+  a LOCAL endpoint — derived from the HOST, so LM Studio on localhost counts and
+  a remote Ollama doesn't, failing closed), and a once-per-session confirm before
+  a remote *whole-CV* send. `sizeHint()` warns when a prompt looks too big for
+  the model but never blocks. **BYO copy-paste is first-class**: the only path
+  with no model configured, and a deliberate choice for big content.
+  `extractJson()` unwraps the ```json fences and preambles models emit regardless
+  of instructions — which also fixed pasting a fenced ChatGPT reply.
+  Assists: **tailor / AI import / bulk add** (the existing
+  buildX→validateX→applyX libs, unchanged — only the modals gained Run);
+  **skill extraction** from a project's prose, interned against the registry via
+  `skillKey` so React.js resolves to React and never duplicates it (no fuzzy
+  matching: Spring Boot ≠ Spring); **anonymisation leak check** (pass 1 is free
+  and needs no model — the store knows every real customer, so a literal scan of
+  the rendered view catches "Led the Acme migration"; pass 2 is an opt-in model
+  residual for names never recorded); **project highlights** drafted from the
+  description (reshaping, never invention); **page-limit fitting** (proposes whole
+  items to cut through `excluded_item_ids` — never rewrites prose to fit).
 - **Bulk item selection** in a section's expanded item list
   (`ItemSelectTools` over pure `lib/viewItemSelect.ts`): **All / None** for
   long sections, plus **tri-state type chips** for sections whose items carry a

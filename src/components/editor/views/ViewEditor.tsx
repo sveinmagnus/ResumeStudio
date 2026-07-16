@@ -18,6 +18,7 @@ import { skillCategoryList } from '../../../lib/skillCategorize'
 import { withHeaderDefaults, withFooterDefaults } from '../../../lib/viewHeader'
 import { ItemSelectTools } from './ItemSelectTools'
 import { AnonCheckPanel } from './AnonCheckPanel'
+import { PageFitPanel } from './PageFitPanel'
 import { selectOnly, isSingleSelectSection } from '../../../lib/viewItemSelect'
 import { VIEW_TEMPLATES, getTemplate, applyTemplate } from '../../../lib/viewTemplates'
 import { buildViewText, buildViewMarkdown } from '../../../lib/viewText'
@@ -887,6 +888,18 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
         {/* Only meaningful once the view claims to be anonymised — and then it
             matters a lot, because the alias only covers structured fields. */}
         {view.force_anonymized && <AnonCheckPanel view={view} locale={primaryLocale} />}
+
+        {/* Hangs off the page-count the preview already measures — there's
+            nothing to fit until the view is actually over its limit. */}
+        {overLimit && pageCount != null && view.page_limit != null && (
+          <PageFitPanel
+            view={view}
+            locale={primaryLocale}
+            pages={pageCount}
+            limit={view.page_limit}
+            onUpdate={onUpdate}
+          />
+        )}
       </div>
 
       {/* ── Footer ── */}
