@@ -17,6 +17,7 @@ import { getDefaultFonts, onDefaultFontsChanged } from '../../../lib/appPrefs'
 import { skillCategoryList } from '../../../lib/skillCategorize'
 import { withHeaderDefaults, withFooterDefaults } from '../../../lib/viewHeader'
 import { ItemSelectTools } from './ItemSelectTools'
+import { AnonCheckPanel } from './AnonCheckPanel'
 import { selectOnly, isSingleSelectSection } from '../../../lib/viewItemSelect'
 import { VIEW_TEMPLATES, getTemplate, applyTemplate } from '../../../lib/viewTemplates'
 import { buildViewText, buildViewMarkdown } from '../../../lib/viewText'
@@ -882,6 +883,10 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
             />
           </label>
         </div>
+
+        {/* Only meaningful once the view claims to be anonymised — and then it
+            matters a lot, because the alias only covers structured fields. */}
+        {view.force_anonymized && <AnonCheckPanel view={view} locale={primaryLocale} />}
       </div>
 
       {/* ── Footer ── */}
