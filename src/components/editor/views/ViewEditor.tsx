@@ -16,6 +16,7 @@ import { DEFAULT_VIEW_STYLE, normalizeFullLayout } from '../../../lib/viewStyle'
 import { getDefaultFonts, onDefaultFontsChanged } from '../../../lib/appPrefs'
 import { skillCategoryList } from '../../../lib/skillCategorize'
 import { withHeaderDefaults, withFooterDefaults } from '../../../lib/viewHeader'
+import { ItemSelectTools } from './ItemSelectTools'
 import { VIEW_TEMPLATES, getTemplate, applyTemplate } from '../../../lib/viewTemplates'
 import { buildViewText, buildViewMarkdown } from '../../../lib/viewText'
 import { exportFilename } from '../../../lib/exportFilename'
@@ -691,7 +692,7 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
                     // click inside the item list / style-override / KQ-parts panel
                     // must not collapse the section.
                     if (t.closest('.rv-detail-toggle')) return
-                    if (isOpen && t.closest('.rv-secstyle, .rv-item-list, .rv-item-empty, .rv-kq-parts')) return
+                    if (isOpen && t.closest('.rv-secstyle, .rv-item-list, .rv-item-tools, .rv-item-empty, .rv-kq-parts')) return
                     toggleSection(vs.key)
                   }}
                 >
@@ -776,6 +777,15 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
                       )}
 
                       {storeItems.length > 0 ? (
+                        <>
+                        <ItemSelectTools
+                          sectionKey={vs.key}
+                          items={storeItems}
+                          excludedIds={view.excluded_item_ids}
+                          locale={primaryLocale}
+                          sectionLabel={def.label}
+                          onChange={(excluded_item_ids) => onUpdate({ excluded_item_ids })}
+                        />
                         <div className="rv-item-list">
                           {storeItems.map((item) => {
                             const excluded = view.excluded_item_ids.includes(item.id)
@@ -798,6 +808,7 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
                             )
                           })}
                         </div>
+                        </>
                       ) : (
                         <div className="rv-item-empty">No items in master CV</div>
                       )}

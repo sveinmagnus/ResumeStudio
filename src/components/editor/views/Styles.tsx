@@ -352,6 +352,42 @@ export function Styles() {
       .rv-spin { animation: rv-spin 1s linear infinite; }
       @keyframes rv-spin { to { transform: rotate(360deg); } }
 
+      /* ── Item list: bulk selection tools ── */
+      .rv-item-tools {
+        display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px;
+        margin: 10px 0 0; padding: 7px 10px;
+        background: var(--paper-sunken); border: 1px solid var(--line);
+        border-radius: var(--r-sm);
+      }
+      .rv-item-tools-label {
+        font-size: 10px; font-weight: 700; letter-spacing: .07em;
+        text-transform: uppercase; color: var(--ink-faint);
+      }
+      .rv-item-tool-btn {
+        padding: 3px 10px; font-size: 12px; font-weight: 500;
+        border: 1px solid var(--line-strong); border-radius: var(--r-sm);
+        background: var(--paper-raised); color: var(--ink-soft); cursor: pointer;
+        transition: background .1s, color .1s, border-color .1s;
+      }
+      .rv-item-tool-btn:hover:not(:disabled) {
+        background: var(--accent-wash); border-color: var(--accent); color: var(--accent);
+      }
+      /* Disabled = "already all / already none", i.e. feedback, not an error. */
+      .rv-item-tool-btn:disabled { opacity: .4; cursor: default; }
+      /* Separated from the All/None pair by a rule so the row reads as
+         "bulk actions | filter by type" rather than one long strip of chips. */
+      .rv-item-facets {
+        display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px;
+        padding-left: 10px; border-left: 1px solid var(--line);
+      }
+      .rv-item-facet {
+        display: inline-flex; align-items: center; gap: 5px;
+        font-size: 12px; color: var(--ink-soft); cursor: pointer;
+      }
+      .rv-item-facet input { accent-color: var(--accent); width: 14px; height: 14px; flex-shrink: 0; }
+      .rv-item-facet-name { white-space: nowrap; }
+      .rv-item-facet-count { font-size: 11px; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+
       /* ── Item list ── */
       .rv-item-list { display: flex; flex-direction: column; gap: 1px; margin-top: 10px; }
       .rv-item-row {

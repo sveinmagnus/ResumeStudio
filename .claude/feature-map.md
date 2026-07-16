@@ -100,6 +100,15 @@ prescriptive.
   (`lib/viewText.ts`). A **live preview pane** in the view editor re-renders
   the document as you tune it (iframe + page-count estimate). All render
   paths share the **section-descriptor catalog** (`lib/sectionCatalog.ts`).
+- **Bulk item selection** in a section's expanded item list
+  (`ItemSelectTools` over pure `lib/viewItemSelect.ts`): **All / None** for
+  long sections, plus **tri-state type chips** for sections whose items carry a
+  classification field (Other roles → `position_type`, Publications →
+  `publication_type`) — "include every board seat, drop the rest" in one click.
+  Facets are data-driven (one entry in `TYPE_FACETS`); registry links (a
+  project's roles) are deliberately excluded — many-per-item makes "select all
+  with role X" ambiguous. Operations are set-math over the view's flat
+  `excluded_item_ids`, so they never touch another section's exclusions.
 - **View power features** — named **export templates** seeding
   style/header/footer (`lib/viewTemplates.ts`), **BYO-LLM tailoring** from a
   pasted job posting (`lib/viewTailor.ts`, no API key), a per-view
