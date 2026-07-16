@@ -3,6 +3,7 @@ import {
   toServiceLocale,
   isTranslationConfigured,
   translate,
+  ltLoadOnly,
   TranslateError,
 } from '../../server/translate'
 
@@ -279,5 +280,58 @@ describe("translate() — 'llm' provider", () => {
     configureLlm()
     mockFetch(chat('   '))
     await expect(translate('a', 'en', 'no')).rejects.toThrow(TranslateError)
+  })
+})
+
+// ─── ltLoadOnly (which Argos models the Docker instance installs) ─────────────
+
+describe('ltLoadOnly()', () => {
+  it('maps app codes to the service codes LibreTranslate expects', () => {
+    expect(ltLoadOnly(['en', 'no', 'se', 'dk'])).toBe('da,en,nb,sv')
+  })
+
+  it('always includes English (Argos pivots through it)', () => {
+    expect(ltLoadOnly(['de']).split(',')).toContain('en')
+    expect(ltLoadOnly([])).toBe('en')
+  })
+
+  it('passes through the locales that are already ISO 639-1', () => {
+    expect(ltLoadOnly(['fi', 'uk', 'pl'])).toBe('en,fi,pl,uk')
+  })
+
+  it('dedupes and sorts so the value is stable across orderings', () => {
+    // The caller compares this string to decide whether to recreate the
+    // container — an unstable order would churn it on every save.
+    expect(ltLoadOnly(['no', 'en', 'no'])).toBe(ltLoadOnly(['en', 'no']))
+    expect(ltLoadOnly(['se', 'de'])).toBe(ltLoadOnly(['de', 'se']))
+  })
+})
+
+// ─── DeepL code casing (regression: the 8 locales added in the i18n work) ────
+
+describe('DeepL locale codes', () => {
+  function deeplBody(source: string, target: string) {
+    vi.stubEnv('TRANSLATE_PROVIDER', 'deepl')
+    vi.stubEnv('DEEPL_API_KEY', 'k')
+    const fn = mockFetch({ ok: true, json: async () => ({ translations: [{ text: 'x' }] }) })
+    return { fn, run: () => translate('a', source, target) }
+  }
+
+  it('upper-cases a locale that has no explicit entry', async () => {
+    // DeepL rejects a lower-case code. Before this fix the fallback lower-cased,
+    // so every locale added beyond the original seven silently failed.
+    const { fn, run } = deeplBody('en', 'fi')
+    await run()
+    const body = JSON.parse((fn.mock.calls[0][1] as RequestInit).body as string)
+    expect(body.target_lang).toBe('FI')
+    expect(body.source_lang).toBe('EN')
+  })
+
+  it('keeps the explicit mappings (NB for Norwegian, EN-GB as a target)', async () => {
+    const { fn, run } = deeplBody('no', 'en')
+    await run()
+    const body = JSON.parse((fn.mock.calls[0][1] as RequestInit).body as string)
+    expect(body.source_lang).toBe('NB')
+    expect(body.target_lang).toBe('EN-GB')
   })
 })

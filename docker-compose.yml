@@ -15,9 +15,16 @@ services:
     ports:
       - "5000:5000"
     environment:
-      # Restrict to the locales the app actually uses (en + Norwegian Bokmål,
-      # Swedish, Danish). Add codes here to support more language pairs.
-      LT_LOAD_ONLY: "en,nb,sv,da"
+      # Which Argos language packages to install. Each is a few hundred MB, so
+      # this is deliberately a subset rather than every locale the app offers.
+      #
+      # The desktop app SETS this env var from Settings → Translation languages
+      # (server/settings.ts → applyToEnv), so the container it starts installs
+      # exactly what the user picked. The default below is the historic set
+      # (en + Norwegian Bokmål, Swedish, Danish) and applies when you run
+      # `docker compose up` by hand. `en` is always included by the app: Argos
+      # pivots most pairs through English.
+      LT_LOAD_ONLY: "${LT_LOAD_ONLY:-en,nb,sv,da}"
       # No public-facing web UI is needed — the app talks to the API directly.
       LT_DISABLE_WEB_UI: "true"
     # Persist downloaded Argos models so they aren't re-fetched on every restart.

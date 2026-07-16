@@ -157,6 +157,8 @@ export interface SettingsView {
   google_api_key_set: boolean
   azure_api_key_set: boolean
   azure_region: string
+  /** App locale codes installed in the Docker LibreTranslate (LT_LOAD_ONLY). */
+  translate_languages: string[]
   backup_dir: string
   backup_interval_ms: number
   summarize_provider: SummarizeProvider
@@ -186,6 +188,7 @@ export interface SettingsUpdate {
   google_api_key?: string
   azure_api_key?: string
   azure_region?: string
+  translate_languages?: string[]
   backup_dir?: string
   backup_interval_ms?: number
   summarize_provider?: SummarizeProvider

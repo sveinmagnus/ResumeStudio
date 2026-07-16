@@ -19,7 +19,7 @@
 import fs from 'fs'
 import path from 'path'
 import { resolvePaths } from './config.js'
-import type { TranslateConfig, TranslateProvider } from './translate.js'
+import { ltLoadOnly, type TranslateConfig, type TranslateProvider } from './translate.js'
 import { DEFAULT_OLLAMA_URL, type SummarizeConfig, type SummarizeProvider } from './summarize.js'
 
 export const SETTINGS_FILENAME = 'settings.json'
@@ -48,6 +48,14 @@ export interface AppSettings {
   /** Microsoft Azure Translator key + its resource region (e.g. 'westeurope'). */
   azure_api_key: string
   azure_region: string
+  /**
+   * App locale codes whose models the Docker LibreTranslate installs
+   * (`LT_LOAD_ONLY`). Each language is a few-hundred-MB Argos package, so this
+   * is a choice rather than "install all 15". English is always added at the
+   * render boundary (`ltLoadOnly`) — Argos pivots through it. Only meaningful
+   * for the Docker-managed instance; a remote/cloud provider ignores it.
+   */
+  translate_languages: string[]
   /** Cloud-synced folder for the whole-store JSON backup (empty = sync off). */
   backup_dir: string
   /** How often (ms) to refresh the backup while running. */
@@ -78,6 +86,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   google_api_key: '',
   azure_api_key: '',
   azure_region: '',
+  // Matches what docker-compose.yml shipped with, so an existing install's
+  // container isn't recreated just because the setting appeared.
+  translate_languages: ['en', 'no', 'se', 'dk'],
   backup_dir: '',
   backup_interval_ms: 60_000,
   summarize_provider: 'off',
@@ -106,6 +117,21 @@ function coerce(raw: unknown): AppSettings {
   const o = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
   const str = (v: unknown, d: string) => (typeof v === 'string' ? v : d)
   const num = (v: unknown, d: number) => (typeof v === 'number' && Number.isFinite(v) ? v : d)
+  /**
+   * Locale codes for the Docker translate install. Untrusted-file surface: this
+   * value reaches `docker compose` as an env var, so it's constrained to short
+   * a-z/dash codes rather than passed through. A non-array (or one with nothing
+   * usable left) falls back to the default rather than installing nothing.
+   */
+  const langs = (v: unknown): string[] => {
+    if (!Array.isArray(v)) return [...DEFAULT_SETTINGS.translate_languages]
+    const out = [...new Set(
+      v.filter((x): x is string => typeof x === 'string')
+        .map((x) => x.trim().toLowerCase())
+        .filter((x) => /^[a-z]{2,8}(-[a-z]{2,8})?$/.test(x)),
+    )]
+    return out.length ? out : [...DEFAULT_SETTINGS.translate_languages]
+  }
   const provider = (PROVIDERS as string[]).includes(String(o.translate_provider))
     ? (o.translate_provider as TranslateProvider)
     : DEFAULT_SETTINGS.translate_provider
@@ -121,6 +147,7 @@ function coerce(raw: unknown): AppSettings {
     google_api_key: str(o.google_api_key, DEFAULT_SETTINGS.google_api_key).trim(),
     azure_api_key: str(o.azure_api_key, DEFAULT_SETTINGS.azure_api_key).trim(),
     azure_region: str(o.azure_region, DEFAULT_SETTINGS.azure_region).trim(),
+    translate_languages: langs(o.translate_languages),
     backup_dir: str(o.backup_dir, DEFAULT_SETTINGS.backup_dir).trim(),
     backup_interval_ms: Math.max(5_000, num(o.backup_interval_ms, DEFAULT_SETTINGS.backup_interval_ms)),
     summarize_provider: summarizeProvider,
@@ -170,6 +197,9 @@ export function applyToEnv(s: AppSettings): void {
   setOrClear('GOOGLE_TRANSLATE_API_KEY', s.google_api_key)
   setOrClear('AZURE_TRANSLATOR_KEY', s.azure_api_key)
   setOrClear('AZURE_TRANSLATOR_REGION', s.azure_region)
+  // Which Argos models the Docker LibreTranslate installs. docker-compose.yml
+  // reads LT_LOAD_ONLY, so this must be on the env before the container starts.
+  process.env.LT_LOAD_ONLY = ltLoadOnly(s.translate_languages)
   setOrClear('RESUME_BACKUP_DIR', s.backup_dir)
   process.env.RESUME_BACKUP_INTERVAL_MS = String(s.backup_interval_ms)
   // Summarize — the effective Ollama URL is the Docker URL when managed.
@@ -303,6 +333,7 @@ export interface SettingsView {
   google_api_key_set: boolean
   azure_api_key_set: boolean
   azure_region: string
+  translate_languages: string[]
   backup_dir: string
   backup_interval_ms: number
   summarize_provider: SummarizeProvider
@@ -324,6 +355,7 @@ export function toView(s: AppSettings): SettingsView {
     google_api_key_set: s.google_api_key.trim().length > 0,
     azure_api_key_set: s.azure_api_key.trim().length > 0,
     azure_region: s.azure_region,
+    translate_languages: s.translate_languages,
     backup_dir: s.backup_dir,
     backup_interval_ms: s.backup_interval_ms,
     summarize_provider: s.summarize_provider,

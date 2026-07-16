@@ -92,19 +92,60 @@ export function isTranslationConfigured(config?: TranslateConfig): boolean {
 // slightly different ISO variants. Unknown codes pass through lower-cased so a
 // deployer can use any language a provider supports.
 
-/** LibreTranslate / Argos codes. Also the public `toServiceLocale` (kept for compat). */
+/**
+ * LibreTranslate / Argos codes. Also the public `toServiceLocale` (kept for
+ * compat). Only the three CVpartner-flavoured codes actually differ from
+ * ISO 639-1; the rest pass through unchanged, which is why the fallback is
+ * correct for every other offered locale.
+ */
 const LIBRE_MAP: Record<string, string> = { en: 'en', no: 'nb', se: 'sv', dk: 'da', de: 'de', fr: 'fr', es: 'es' }
 export function toServiceLocale(appCode: string): string {
   return LIBRE_MAP[appCode] ?? appCode.toLowerCase()
 }
 
-const DEEPL_SOURCE: Record<string, string> = { en: 'EN', no: 'NB', se: 'SV', dk: 'DA', de: 'DE', fr: 'FR', es: 'ES' }
+/**
+ * The `LT_LOAD_ONLY` value for a set of app locale codes — which Argos model
+ * packages the Docker LibreTranslate installs. Each language is a few hundred
+ * MB, which is why it's a choice and not "install everything".
+ *
+ * English is always included: Argos pivots most pairs through it, so an install
+ * without `en` can fail to resolve even a fully-selected pair. Deduped (two app
+ * codes can map to one service code) and ordered so the value is stable — the
+ * caller compares it to decide whether the container needs recreating.
+ */
+export function ltLoadOnly(appCodes: readonly string[]): string {
+  const codes = new Set<string>(['en'])
+  for (const c of appCodes) {
+    const s = toServiceLocale(c.trim())
+    if (s) codes.add(s)
+  }
+  return [...codes].sort().join(',')
+}
+
+/**
+ * DeepL wants UPPERCASE codes, so its fallback must upper-case rather than
+ * lower-case — a bare `fi` is rejected where `FI` works. Every offered locale is
+ * listed explicitly except Icelandic, which DeepL simply does not support (the
+ * request will fail upstream with DeepL's own message, which is the honest
+ * outcome — we don't silently substitute another language).
+ */
+const DEEPL_SOURCE: Record<string, string> = {
+  en: 'EN', no: 'NB', se: 'SV', dk: 'DA', de: 'DE', fr: 'FR', es: 'ES',
+  it: 'IT', nl: 'NL', pt: 'PT', pl: 'PL', fi: 'FI', ru: 'RU', uk: 'UK',
+}
 // DeepL requires a regional variant for an English *target* (bare EN is rejected).
 const DEEPL_TARGET: Record<string, string> = { ...DEEPL_SOURCE, en: 'EN-GB' }
+/**
+ * Google + Azure take plain ISO 639-1, which every offered locale already is
+ * apart from the three CVpartner-flavoured codes below — so the lower-cased
+ * fallback is right for the rest.
+ */
 const GOOGLE_MAP: Record<string, string> = { en: 'en', no: 'no', se: 'sv', dk: 'da', de: 'de', fr: 'fr', es: 'es' }
 const AZURE_MAP: Record<string, string> = { en: 'en', no: 'nb', se: 'sv', dk: 'da', de: 'de', fr: 'fr', es: 'es' }
 
 const mapWith = (m: Record<string, string>, code: string): string => m[code] ?? code.toLowerCase()
+/** DeepL's variant of {@link mapWith} — unknown codes upper-case, not lower. */
+const mapDeepL = (m: Record<string, string>, code: string): string => m[code] ?? code.toUpperCase()
 
 /** Raised for any upstream/translation failure; carries a safe HTTP status. */
 export class TranslateError extends Error {
@@ -160,8 +201,8 @@ async function translateDeepL(text: string, source: string, target: string, c: T
     headers: { 'Authorization': `DeepL-Auth-Key ${key}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       text: [text],
-      source_lang: mapWith(DEEPL_SOURCE, source),
-      target_lang: mapWith(DEEPL_TARGET, target),
+      source_lang: mapDeepL(DEEPL_SOURCE, source),
+      target_lang: mapDeepL(DEEPL_TARGET, target),
     }),
   })
   if (!res.ok) {

@@ -7,6 +7,8 @@ import { fontOptions, fontInstallInfo, type GlobalFonts } from '../lib/fonts'
 import { getDefaultFonts, setDefaultFonts } from '../lib/appPrefs'
 import { resetSummarizeAvailability } from '../lib/summarizeClient'
 import { modelOptions, type InstalledModel } from '../lib/ollamaCatalog'
+import { LOCALE_CODES, LOCALE_LABELS } from '../lib/locales'
+import { forcedLanguages, resolveTranslateLanguages, DEFAULT_TRANSLATE_LANGUAGES } from '../lib/translateLanguages'
 import {
   api, type SettingsStatus, type SettingsUpdate, type UpdateStatus, UnauthorizedError,
 } from '../lib/api'
@@ -125,6 +127,15 @@ export function SettingsModal({ onClose, onChanged, onUnauthorized }: SettingsMo
   const [saveMsg, setSaveMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const [test, setTest] = useState<{ busy: boolean; text?: string; ok?: boolean }>({ busy: false })
   const [docker, setDocker] = useState<{ busy: boolean; text?: string; ok?: boolean }>({ busy: false })
+  // Which languages the Docker LibreTranslate installs. The locales the user is
+  // editing in can't be deselected — see lib/translateLanguages.ts.
+  const [transLangs, setTransLangs] = useState<string[]>(DEFAULT_TRANSLATE_LANGUAGES)
+  const primaryLocale = useStore((s) => s.primaryLocale)
+  const secondaryLocale = useStore((s) => s.secondaryLocale)
+  const forcedLangs = useMemo(
+    () => forcedLanguages(primaryLocale, secondaryLocale),
+    [primaryLocale, secondaryLocale],
+  )
 
   // Summarize (AI) form state
   const [summProvider, setSummProvider] = useState<SummUiProvider>('off')
@@ -153,6 +164,7 @@ export function SettingsModal({ onClose, onChanged, onUnauthorized }: SettingsMo
     setProvider(ui)
     setLibreUrl(v.libretranslate_url)
     setAzureRegion(v.azure_region)
+    setTransLangs(v.translate_languages?.length ? v.translate_languages : DEFAULT_TRANSLATE_LANGUAGES)
     setBackupDir(v.backup_dir)
     setKeys({ libre: '', deepl: '', google: '', azure: '' })
     setKeySet({
@@ -213,7 +225,12 @@ export function SettingsModal({ onClose, onChanged, onUnauthorized }: SettingsMo
       case 'off': u.translate_provider = 'off'; break
       // Carries no config of its own — it borrows the summarize settings below.
       case 'llm': u.translate_provider = 'llm'; break
-      case 'libre_docker': u.translate_provider = 'libretranslate'; u.translate_docker = true; break
+      case 'libre_docker':
+        u.translate_provider = 'libretranslate'; u.translate_docker = true
+        // Resolve here (not on change) so the forced locales are always saved,
+        // even if the user never touched the list.
+        u.translate_languages = resolveTranslateLanguages(transLangs, primaryLocale, secondaryLocale)
+        break
       case 'libre_remote':
         u.translate_provider = 'libretranslate'; u.translate_docker = false
         u.libretranslate_url = libreUrl.trim()
@@ -244,7 +261,8 @@ export function SettingsModal({ onClose, onChanged, onUnauthorized }: SettingsMo
         break
     }
     return u
-  }, [provider, libreUrl, azureRegion, backupDir, keys, summProvider, summOllamaUrl, summCompatUrl, summModel, summKeys])
+  }, [provider, libreUrl, azureRegion, backupDir, keys, summProvider, summOllamaUrl, summCompatUrl, summModel, summKeys,
+      transLangs, primaryLocale, secondaryLocale])
 
   const onSave = useCallback(async () => {
     setSaving(true); setSaveMsg(null)
@@ -408,6 +426,37 @@ export function SettingsModal({ onClose, onChanged, onUnauthorized }: SettingsMo
                       {docker.ok ? <Check size={13} /> : <AlertCircle size={13} />} {docker.text}
                     </div>
                   )}
+
+                  <label className="sm-field-label" id="sm-langs-label">Languages to install</label>
+                  <p className="sm-help">
+                    Each language is a separate download (a few hundred MB), so only
+                    the ones you pick are installed. Your current editing languages
+                    are always included. Changing this needs a <strong>Stop</strong> →{' '}
+                    <strong>Start</strong> to take effect.
+                  </p>
+                  <div className="sm-lang-grid" role="group" aria-labelledby="sm-langs-label">
+                    {LOCALE_CODES.map((code) => {
+                      const forced = forcedLangs.includes(code)
+                      const name = LOCALE_LABELS[code]?.name ?? code
+                      return (
+                        <label key={code} className={`sm-lang ${forced ? 'is-forced' : ''}`}>
+                          <input
+                            type="checkbox"
+                            checked={forced || transLangs.includes(code)}
+                            disabled={forced}
+                            onChange={(e) => setTransLangs((prev) => (
+                              e.target.checked ? [...prev, code] : prev.filter((c) => c !== code)
+                            ))}
+                            aria-label={forced
+                              ? `${name} — always installed (in use / pivot language)`
+                              : name}
+                          />
+                          <span>{LOCALE_LABELS[code]?.flag} {name}</span>
+                        </label>
+                      )
+                    })}
+                  </div>
+
                   <p className="sm-help">Click <strong>Save</strong> to enable Docker translation on every launch.</p>
                 </div>
               )}
@@ -719,6 +768,19 @@ export function SettingsModal({ onClose, onChanged, onUnauthorized }: SettingsMo
         .sm-field-row { display: flex; align-items: center; gap: 6px; }
         .sm-field-row .sm-input { flex: 1 1 auto; min-width: 0; }
         .sm-btn-icon { flex: 0 0 auto; padding: 8px 10px; margin-top: 0; }
+        /* Translate-install language picker: a compact multi-column checklist
+           (15 locales would be a very long single column). */
+        .sm-lang-grid {
+          display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+          gap: 2px 10px; margin: 6px 0 4px;
+          padding: 8px 10px; background: var(--paper-sunken);
+          border: 1px solid var(--line); border-radius: var(--r-sm);
+        }
+        .sm-lang { display: flex; align-items: center; gap: 7px; font-size: 13px; cursor: pointer; }
+        .sm-lang input { accent-color: var(--accent); width: 14px; height: 14px; flex-shrink: 0; }
+        /* Forced (editing / pivot) languages read as fixed, not broken. */
+        .sm-lang.is-forced { color: var(--ink-faint); cursor: default; }
+        .sm-lang.is-forced input { cursor: default; }
         .sm-btn {
           display: inline-flex; align-items: center; gap: 6px;
           padding: 7px 12px; border-radius: var(--r-sm);

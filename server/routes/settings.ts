@@ -75,6 +75,21 @@ router.put('/', (req: Request, res: Response): void => {
       patch[key] = body[key] as string
     }
   }
+  if ('translate_languages' in body) {
+    const v = body.translate_languages
+    if (!Array.isArray(v) || v.some((x) => typeof x !== 'string')) {
+      res.status(400).json({ error: 'translate_languages must be an array of strings' })
+      return
+    }
+    // The values land in LT_LOAD_ONLY, which reaches `docker compose` as an env
+    // var — constrain them to locale-shaped tokens rather than trusting input.
+    const codes = (v as string[]).map((x) => x.trim().toLowerCase())
+    if (codes.some((x) => !/^[a-z]{2,8}(-[a-z]{2,8})?$/.test(x))) {
+      res.status(400).json({ error: 'translate_languages must contain locale codes' })
+      return
+    }
+    patch.translate_languages = [...new Set(codes)]
+  }
   if ('backup_dir' in body) {
     if (typeof body.backup_dir !== 'string') { res.status(400).json({ error: 'backup_dir must be a string' }); return }
     patch.backup_dir = body.backup_dir.trim()
