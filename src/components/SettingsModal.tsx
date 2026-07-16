@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { X, Loader2, Check, Settings } from 'lucide-react'
 import { resetSummarizeAvailability } from '../lib/summarizeClient'
+import { resetAssistConsent } from './ui/AssistRun'
 import { modelOptions, type InstalledModel } from '../lib/ollamaCatalog'
 import { forcedLanguages, resolveTranslateLanguages, DEFAULT_TRANSLATE_LANGUAGES } from '../lib/translateLanguages'
 import {
@@ -222,6 +223,9 @@ export function SettingsModal({ onClose, onChanged, onUnauthorized }: SettingsMo
       // so the next mount re-probes against the new config.
       resetTranslationAvailability()
       resetSummarizeAvailability()
+      // Consent to send content to one provider is not consent to send it to
+      // the next one — re-ask after any settings change.
+      resetAssistConsent()
       onChanged()
       return null
     } catch (err) {

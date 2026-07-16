@@ -145,6 +145,19 @@ export interface RestoreSummary {
 
 /** `llm` reuses the model configured for Summarize — see server/translate.ts. */
 export type TranslateProvider = 'off' | 'libretranslate' | 'deepl' | 'google' | 'azure' | 'llm'
+
+/**
+ * Whether an LLM is configured and where it runs. `local` is what the UI's
+ * privacy line is built on, so it is only ever true when the server said so.
+ */
+export interface AssistStatus {
+  configured: boolean
+  provider: string
+  model: string
+  local: boolean
+}
+
+export const ASSIST_OFF: AssistStatus = { configured: false, provider: '', model: '', local: false }
 export type SummarizeProvider = 'off' | 'ollama' | 'openai' | 'compat'
 
 /** Editable settings as returned to the client (API keys masked to booleans). */
@@ -533,15 +546,45 @@ export const api = {
   // ── Summarize (AI short descriptions) ─────────────────────────────────────
 
   /** Is an LLM summarize backend configured? Never throws. */
-  async summarizeStatus(): Promise<boolean> {
+  /**
+   * Whether an LLM backend is configured and WHERE it runs. Never throws — an
+   * unreachable server reads as "not configured", which hides the AI affordances
+   * rather than showing broken ones.
+   */
+  async summarizeStatus(): Promise<AssistStatus> {
     try {
       const res = await request('GET', '/api/summarize/status')
-      if (!res.ok) return false
-      const json = await res.json() as { configured?: boolean }
-      return json.configured === true
+      if (!res.ok) return ASSIST_OFF
+      const json = await res.json() as Partial<AssistStatus>
+      if (json.configured !== true) return ASSIST_OFF
+      return {
+        configured: true,
+        provider: json.provider ?? '',
+        model: json.model ?? '',
+        // Fail CLOSED: if the server didn't say it's local, assume it isn't.
+        // Getting this wrong the other way would promise privacy we don't have.
+        local: json.local === true,
+      }
     } catch {
-      return false
+      return ASSIST_OFF
     }
+  },
+
+  /** Run one assist prompt against the configured model. Throws on failure. */
+  async llmComplete(prompt: string, maxTokens?: number): Promise<string> {
+    const res = await request('POST', '/api/llm/complete', { prompt, max_tokens: maxTokens })
+    if (!res.ok) {
+      if (res.status === 401) throw new UnauthorizedError()
+      let message = `The AI model could not complete that request (${res.status})`
+      try {
+        const json = await res.json() as { error?: string }
+        if (json.error) message = json.error
+      } catch { /* keep default */ }
+      throw new Error(message)
+    }
+    const json = await res.json() as { text?: string }
+    if (typeof json.text !== 'string' || !json.text.trim()) throw new Error('The AI model returned no text')
+    return json.text
   },
 
   /** Summarize a long description into one line in `locale`'s language. Throws on failure. */

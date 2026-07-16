@@ -26,7 +26,11 @@ function seed(courses: ResumeStore['courses'], secondary: string | null = null) 
 /** Pretend the server has a summarize backend (or not). */
 function backend(configured: boolean) {
   resetSummarizeAvailability()
-  vi.spyOn(api, 'summarizeStatus').mockResolvedValue(configured)
+  vi.spyOn(api, 'summarizeStatus').mockResolvedValue(
+    configured
+      ? { configured: true, provider: 'ollama', model: 'llama3.2:3b', local: true }
+      : { configured: false, provider: '', model: '', local: false },
+  )
 }
 
 beforeEach(() => {

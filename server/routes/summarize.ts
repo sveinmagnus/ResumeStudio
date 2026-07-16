@@ -1,12 +1,17 @@
 import { Router, type Request, type Response } from 'express'
-import { summarize, isSummarizeConfigured, resolveConfig, SummarizeError, MAX_SUMMARIZE_CHARS } from '../summarize.js'
+import { summarize, summarizeInfo, resolveConfig, SummarizeError, MAX_SUMMARIZE_CHARS } from '../summarize.js'
 import { listOllamaModels } from '../summarizeDocker.js'
 
 const router = Router()
 
-/** GET /api/summarize/status — is an LLM summarize backend configured? */
+/**
+ * GET /api/summarize/status — is an LLM backend configured, and WHERE does it
+ * run? The `local`/`provider`/`model` fields let the UI state honestly whether
+ * content leaves the machine before the user clicks Run. No secrets here — the
+ * key itself is never returned (see settings.ts `toView`).
+ */
 router.get('/status', (_req: Request, res: Response): void => {
-  res.json({ configured: isSummarizeConfigured() })
+  res.json(summarizeInfo())
 })
 
 /**

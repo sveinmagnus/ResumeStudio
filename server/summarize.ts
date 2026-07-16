@@ -73,6 +73,51 @@ export function isSummarizeConfigured(config?: SummarizeConfig): boolean {
   return !!ep && ep.model.length > 0
 }
 
+/** Hosts that mean "this machine" — nothing sent there leaves the computer. */
+const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '0.0.0.0', 'host.docker.internal'])
+
+/**
+ * True when the resolved endpoint runs on this machine.
+ *
+ * Derived from the endpoint HOST rather than the provider name on purpose: an
+ * `openai-compatible` endpoint pointed at LM Studio on localhost is every bit as
+ * private as Ollama, and a remote Ollama is not private at all. The UI states
+ * "nothing leaves this computer" based on this, so it has to describe where the
+ * bytes actually go — and it must fail CLOSED: anything unparseable is treated
+ * as remote.
+ */
+export function isLocalEndpoint(config?: SummarizeConfig): boolean {
+  const c = config ?? resolveConfig()
+  const ep = endpointFor(c)
+  if (!ep) return false
+  try {
+    return LOCAL_HOSTS.has(new URL(ep.baseUrl).hostname)
+  } catch {
+    return false
+  }
+}
+
+/** What the client needs to describe the backend honestly (provenance line). */
+export interface SummarizeInfo {
+  configured: boolean
+  /** '' when nothing is configured. */
+  provider: SummarizeProvider | ''
+  model: string
+  /** True only when the endpoint is on this machine — see isLocalEndpoint. */
+  local: boolean
+}
+
+export function summarizeInfo(config?: SummarizeConfig): SummarizeInfo {
+  const c = config ?? resolveConfig()
+  const configured = isSummarizeConfigured(c)
+  return {
+    configured,
+    provider: configured ? c.provider : '',
+    model: configured ? (endpointFor(c)?.model ?? '') : '',
+    local: configured && isLocalEndpoint(c),
+  }
+}
+
 /**
  * App locale code → the English language name we put in the prompt. One entry
  * per offered locale (LOCALE_LABELS in src/lib/locales.ts) — an unlisted code
