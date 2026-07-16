@@ -13,6 +13,12 @@ import { Autocomplete } from '../ui/Autocomplete'
 import { SkillTranslationPopover } from './RegistryEditors'
 import { TranslationPopover } from '../ui/TranslationPopover'
 import { effectiveSkillCategory, categoryNameIndex } from '../../lib/skillCategorize'
+import { AssistRun } from '../ui/AssistRun'
+import { extractJson } from '../../lib/llmAssist'
+import {
+  buildSkillExtractPrompt, validateSkillExtract, resolveSuggestions, registryVocabulary,
+  type ExtractionResult, type SkillSuggestion,
+} from '../../lib/skillExtract'
 import { resolve, fmtRange } from '../../lib/locales'
 import { richToPlain } from '../../lib/richText'
 import type { Project, ProjectRole, ProjectIndustry, ProjectSkill, Skill, Industry, Role, LocalizedString } from '../../types'
@@ -369,6 +375,7 @@ function ProjectSkillsEditor({ project }: { project: Project }) {
           <ProjectSkillChip key={s.id} ps={s} onRemove={() => remove(s.id)} />
         ))}
       </div>
+      <SkillSuggestPanel project={project} onLink={linkExisting} onCreate={createAndLink} />
       <Autocomplete
         options={data.skills
           .filter((reg) => !project.skills.some((ps) => ps.skill_id === reg.id))
@@ -385,6 +392,121 @@ function ProjectSkillsEditor({ project }: { project: Project }) {
           useStore.getState().data.skills.map((s) => resolve(s.name, primaryLocale)),
         )}
       />
+    </div>
+  )
+}
+
+/**
+ * "Suggest skills from the description" — reads the project's prose and offers
+ * the skills it evidences, resolved against the registry (lib/skillExtract.ts).
+ *
+ * Nothing is written until the user confirms, and the two groups are ticked
+ * differently on purpose: linking an EXISTING registry skill is cheap and
+ * reversible, so it's pre-ticked; creating a NEW registry entry grows a shared
+ * resource every other project sees, so it isn't.
+ */
+function SkillSuggestPanel({ project, onLink, onCreate }: {
+  project: Project
+  onLink: (skillId: string) => void
+  onCreate: (name: string) => void
+}) {
+  const { data, primaryLocale } = useStore()
+  const [result, setResult] = useState<ExtractionResult | null>(null)
+  const [picked, setPicked] = useState<Set<string>>(new Set())
+  const [error, setError] = useState<string | null>(null)
+
+  const hasProse = !!resolve(project.long_description, primaryLocale).trim()
+    || !!resolve(project.description, primaryLocale).trim()
+
+  const onResult = (text: string) => {
+    setError(null); setResult(null)
+    try {
+      const parsed = validateSkillExtract(JSON.parse(extractJson(text)))
+      const res = resolveSuggestions(parsed.skills, project, data.skills, primaryLocale)
+      setResult(res)
+      // Existing registry hits start ticked; novel ones don't.
+      setPicked(new Set(res.existing.map((s) => s.label)))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'The reply could not be read.')
+    }
+  }
+
+  const apply = () => {
+    if (!result) return
+    for (const s of result.existing) if (picked.has(s.label) && s.skillId) onLink(s.skillId)
+    for (const s of result.novel) if (picked.has(s.label)) onCreate(s.label)
+    setResult(null); setPicked(new Set())
+  }
+
+  const toggle = (label: string) => setPicked((p) => {
+    const next = new Set(p)
+    if (next.has(label)) next.delete(label); else next.add(label)
+    return next
+  })
+
+  const row = (s: SkillSuggestion, isNew: boolean) => (
+    <label key={s.label} className="ss-row">
+      <input type="checkbox" checked={picked.has(s.label)} onChange={() => toggle(s.label)} />
+      <span className="ss-name">{s.label}</span>
+      <span className={`ss-tag ${isNew ? 'ss-new' : ''}`}>{isNew ? 'new registry skill' : 'in registry'}</span>
+    </label>
+  )
+
+  return (
+    <div className="ss-wrap">
+      <AssistRun
+        buildPrompt={() => buildSkillExtractPrompt(project, primaryLocale, registryVocabulary(data.skills, primaryLocale))}
+        onResult={onResult}
+        disabled={!hasProse}
+        label="Suggest skills from the description"
+        maxTokens={400}
+      />
+      {!hasProse && <p className="ss-hint">Add a description first — there's nothing to read yet.</p>}
+      {error && <p className="ss-hint ss-err" role="alert">{error}</p>}
+
+      {result && (
+        <div className="ss-result">
+          {result.existing.length === 0 && result.novel.length === 0 && (
+            <p className="ss-hint">Nothing new found — every skill it spotted is already linked.</p>
+          )}
+          {result.existing.map((s) => row(s, false))}
+          {result.novel.map((s) => row(s, true))}
+          {result.alreadyLinked.length > 0 && (
+            <p className="ss-hint">Already linked: {result.alreadyLinked.map((s) => s.label).join(', ')}</p>
+          )}
+          {(result.existing.length > 0 || result.novel.length > 0) && (
+            <div className="ss-actions">
+              <button className="ss-btn" onClick={() => setResult(null)}>Discard</button>
+              <button className="ss-btn ss-primary" onClick={apply} disabled={picked.size === 0}>
+                Add {picked.size} skill{picked.size === 1 ? '' : 's'}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      <style>{`
+        .ss-wrap { display: flex; flex-direction: column; gap: 8px; margin: 10px 0; }
+        .ss-hint { font-size: 12px; color: var(--ink-faint); margin: 0; }
+        .ss-err { color: var(--err-ink); }
+        .ss-result {
+          display: flex; flex-direction: column; gap: 4px;
+          padding: 10px; border: 1px solid var(--line); border-radius: var(--r-sm);
+          background: var(--paper-sunken);
+        }
+        .ss-row { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; padding: 2px 0; }
+        .ss-row input { accent-color: var(--accent); width: 14px; height: 14px; }
+        .ss-name { flex: 1; }
+        .ss-tag { font-size: 10.5px; color: var(--ink-faint); text-transform: uppercase; letter-spacing: .04em; }
+        .ss-new { color: var(--warn-ink); }
+        .ss-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 6px; }
+        .ss-btn {
+          padding: 5px 11px; font-size: 12.5px; border: 1px solid var(--line-strong);
+          border-radius: var(--r-sm); background: var(--paper-raised); cursor: pointer;
+        }
+        .ss-primary { background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 600; }
+        .ss-primary:disabled { opacity: .5; cursor: default; }
+      `}</style>
     </div>
   )
 }
