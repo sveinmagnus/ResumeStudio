@@ -21,8 +21,52 @@ permissions:
   contents: write   # required by softprops/action-gh-release to attach assets
 
 jobs:
+  # Create the release EXACTLY once, before any build job runs.
+  #
+  # This job exists because the alternative raced. The build matrix used to let
+  # each job "auto-create the release on first asset upload", which is a
+  # check-then-act: all three OS jobs start together, all see no release for the
+  # tag, and all create one. On v0.8.0 that produced TWO releases for v0.8.0 —
+  # a published one with linux+windows and a stray draft holding the macOS
+  # artifacts — so the public release shipped with no macOS download.
+  #
+  # With the release already present, every matrix job takes the "update
+  # existing" path instead, which is idempotent.
+  create-release:
+    name: Create release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+
+      # Verify BEFORE creating anything: a version mismatch must fail with no
+      # release published, not leave an empty one behind. Mirrors the per-build
+      # check below (which still runs, since each build bakes in the version).
+      - name: Verify version matches the tag
+        shell: bash
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          echo "tag=v$TAG_VERSION  package.json=$PKG_VERSION"
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+            echo "::error::Tag v$TAG_VERSION does not match package.json ($PKG_VERSION). Bump package.json AND package-lock.json to $TAG_VERSION, commit, then re-tag."
+            exit 1
+          fi
+
+      - name: Create the release (no assets yet)
+        uses: softprops/action-gh-release@v3
+        with:
+          draft: false
+          prerelease: false
+
   build:
     name: Build (${{ matrix.os }})
+    needs: create-release
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -127,8 +171,10 @@ jobs:
           files: |
             ${{ matrix.asset }}
             release-dist/*.tar.gz
-          # Auto-creates the release on first asset upload for this tag, and
-          # appends artifacts from each matrix job to the same release.
+          # The `create-release` job has already made the release for this tag,
+          # so every matrix job appends to the SAME one. Do not remove that job
+          # and rely on auto-create here: three jobs creating concurrently is
+          # what split v0.8.0 across two releases.
           fail_on_unmatched_files: true
           draft: false
           prerelease: false
