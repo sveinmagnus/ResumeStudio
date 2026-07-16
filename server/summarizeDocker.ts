@@ -115,6 +115,37 @@ export interface ReachResult {
   message: string
 }
 
+/** One model the instance has pulled. */
+export interface OllamaTag { name: string; size?: number }
+
+/**
+ * The models an Ollama instance has already pulled, for the settings model
+ * picker. Never throws — an unreachable/absent instance is simply "none known",
+ * which the UI shows alongside the curated catalog.
+ *
+ * `url` is the SERVER's configured Ollama URL, never a client-supplied one:
+ * this reaches out over the network, so letting a request name the host would
+ * be an SSRF hole.
+ */
+export async function listOllamaModels(url: string, timeoutMs = 5_000): Promise<OllamaTag[]> {
+  const base = url.trim().replace(/\/+$/, '')
+  if (!/^https?:\/\//i.test(base)) return []
+  try {
+    const res = await fetch(`${base}/api/tags`, { signal: AbortSignal.timeout(timeoutMs) })
+    if (!res.ok) return []
+    const data = await res.json().catch(() => null) as { models?: Array<Record<string, unknown>> } | null
+    if (!Array.isArray(data?.models)) return []
+    return data.models
+      .map((m) => ({
+        name: typeof m.name === 'string' ? m.name : '',
+        size: typeof m.size === 'number' ? m.size : undefined,
+      }))
+      .filter((m) => m.name.length > 0)
+  } catch {
+    return []
+  }
+}
+
 /** Probe an Ollama instance's /api/tags endpoint. Short timeout; never throws. */
 export async function ollamaReachable(url: string, timeoutMs = 4_000): Promise<ReachResult> {
   const base = url.trim().replace(/\/+$/, '')

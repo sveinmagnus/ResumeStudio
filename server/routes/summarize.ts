@@ -1,11 +1,30 @@
 import { Router, type Request, type Response } from 'express'
-import { summarize, isSummarizeConfigured, SummarizeError, MAX_SUMMARIZE_CHARS } from '../summarize.js'
+import { summarize, isSummarizeConfigured, resolveConfig, SummarizeError, MAX_SUMMARIZE_CHARS } from '../summarize.js'
+import { listOllamaModels } from '../summarizeDocker.js'
 
 const router = Router()
 
 /** GET /api/summarize/status — is an LLM summarize backend configured? */
 router.get('/status', (_req: Request, res: Response): void => {
   res.json({ configured: isSummarizeConfigured() })
+})
+
+/**
+ * GET /api/summarize/models — the models the configured Ollama has pulled, so
+ * the settings model field can offer real options next to the curated catalog.
+ *
+ * The URL comes from the SERVER's config, never the request: this makes an
+ * outbound fetch, so accepting a client-supplied host would be SSRF. Only
+ * meaningful for the ollama provider — everything else reports an empty list
+ * (OpenAI/compat endpoints have no equivalent we can enumerate cheaply), and a
+ * missing/stopped instance is an empty list too, never an error.
+ */
+router.get('/models', (_req: Request, res: Response): void => {
+  void (async () => {
+    const c = resolveConfig()
+    if (c.provider !== 'ollama') { res.json({ models: [] }); return }
+    res.json({ models: await listOllamaModels(c.ollama.url) })
+  })()
 })
 
 /**

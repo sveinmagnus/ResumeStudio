@@ -1,5 +1,6 @@
 import type { ResumeStore } from '../types'
 import type { StorageStats } from './storage'
+import type { InstalledModel } from './ollamaCatalog'
 
 // ─── Auth ──────────────────────────────────────────────────────────────────────
 //
@@ -580,6 +581,22 @@ export const api = {
       return await res.json() as DockerActionResult
     } catch {
       return { available: false, message: `Docker ${action} request failed.` }
+    }
+  },
+
+  /**
+   * Models the configured Ollama has pulled, for the settings model picker.
+   * Never throws — an empty list just means "nothing to merge with the curated
+   * catalog" (instance down, or a provider we can't enumerate).
+   */
+  async summarizeModels(): Promise<InstalledModel[]> {
+    try {
+      const res = await request('GET', '/api/summarize/models')
+      if (!res.ok) return []
+      const json = await res.json() as { models?: InstalledModel[] }
+      return Array.isArray(json.models) ? json.models : []
+    } catch {
+      return []
     }
   },
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   X, Loader2, Check, AlertCircle, Languages, FolderSync, Server, Box, Power, Settings,
   RefreshCw, Download, Type, Sparkles,
@@ -6,6 +6,7 @@ import {
 import { fontOptions, fontInstallInfo, type GlobalFonts } from '../lib/fonts'
 import { getDefaultFonts, setDefaultFonts } from '../lib/appPrefs'
 import { resetSummarizeAvailability } from '../lib/summarizeClient'
+import { modelOptions, type InstalledModel } from '../lib/ollamaCatalog'
 import {
   api, type SettingsStatus, type SettingsUpdate, type UpdateStatus, UnauthorizedError,
 } from '../lib/api'
@@ -134,6 +135,10 @@ export function SettingsModal({ onClose, onChanged, onUnauthorized }: SettingsMo
   const [summKeySet, setSummKeySet] = useState({ openai: false, compat: false })
   const [summTest, setSummTest] = useState<{ busy: boolean; text?: string; ok?: boolean }>({ busy: false })
   const [summDocker, setSummDocker] = useState<{ busy: boolean; text?: string; ok?: boolean }>({ busy: false })
+  // Models the running Ollama has pulled, merged with the curated catalog to
+  // populate the model datalist. Empty until asked for (or if nothing is up).
+  const [installed, setInstalled] = useState<InstalledModel[]>([])
+  const [modelsBusy, setModelsBusy] = useState(false)
 
   // ── Updates (desktop build) ───────────────────────────────────────────────
   const [upd, setUpd] = useState<UpdateStatus | null>(null)
@@ -283,6 +288,24 @@ export function SettingsModal({ onClose, onChanged, onUnauthorized }: SettingsMo
     const ok = r.ok ?? r.reachable ?? false
     setSummDocker({ busy: false, ok, text: r.message })
   }, [summModel])
+
+  // The model picker only makes sense for Ollama — OpenAI/compat endpoints have
+  // no list we can enumerate, so they keep the plain free-text field.
+  const isOllama = summProvider === 'ollama_docker' || summProvider === 'ollama_remote'
+  const modelOpts = useMemo(() => modelOptions(installed), [installed])
+  const installedCount = installed.length
+
+  const refreshModels = useCallback(async () => {
+    setModelsBusy(true)
+    setInstalled(await api.summarizeModels())
+    setModelsBusy(false)
+  }, [])
+
+  // Populate once when the Ollama provider is showing, so the list is there
+  // before the user opens it. Cheap, and silently empty if nothing is running.
+  useEffect(() => {
+    if (isOllama) void refreshModels()
+  }, [isOllama, refreshModels])
 
   const managed = status?.managed === true
   const keyPlaceholder = (set: boolean) => (set ? '•••••• (saved — leave blank to keep)' : 'API key')
@@ -457,9 +480,35 @@ export function SettingsModal({ onClose, onChanged, onUnauthorized }: SettingsMo
               {summProvider !== 'off' && (
                 <div className="sm-sub">
                   <label className="sm-field-label" htmlFor="sm-sum-model">Model</label>
-                  <input id="sm-sum-model" className="sm-input" value={summModel}
-                    placeholder={summProvider === 'openai' ? 'e.g. gpt-4o-mini' : 'e.g. llama3.2:3b'}
-                    onChange={(e) => setSummModel(e.target.value)} aria-label="Summarize model" />
+                  {/* A datalist rather than a <select>: Ollama has thousands of
+                      valid tags, so the list is a shortlist to pick from, not a
+                      constraint — any tag you type still works. Refresh re-asks
+                      the running instance what it has pulled. */}
+                  <div className="sm-field-row">
+                    <input id="sm-sum-model" className="sm-input" value={summModel}
+                      list={isOllama ? 'sm-model-list' : undefined}
+                      placeholder={summProvider === 'openai' ? 'e.g. gpt-4o-mini' : 'e.g. llama3.2:3b'}
+                      onChange={(e) => setSummModel(e.target.value)} aria-label="Summarize model" />
+                    {isOllama && (
+                      <button className="sm-btn sm-btn-icon" onClick={() => void refreshModels()}
+                        disabled={modelsBusy} title="Refresh the list from the running Ollama"
+                        aria-label="Refresh model list">
+                        {modelsBusy ? <Loader2 size={13} className="sm-spin" /> : <RefreshCw size={13} />}
+                      </button>
+                    )}
+                  </div>
+                  {isOllama && (
+                    <datalist id="sm-model-list">
+                      {modelOpts.map((m) => <option key={m.name} value={m.name} label={m.label} />)}
+                    </datalist>
+                  )}
+                  {isOllama && (
+                    <p className="sm-help">
+                      {installedCount > 0
+                        ? `${installedCount} model(s) already pulled. Others download on first use.`
+                        : 'Pick a model — smaller is faster and downloads less. Any Ollama tag works.'}
+                    </p>
+                  )}
                 </div>
               )}
 
@@ -645,6 +694,11 @@ export function SettingsModal({ onClose, onChanged, onUnauthorized }: SettingsMo
         }
         .sm-input:focus { outline: none; border-color: var(--accent); }
         .sm-btn-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+        /* An input with a trailing icon action (the model field's refresh).
+           Distinct from .sm-row, which is a space-between label/value line. */
+        .sm-field-row { display: flex; align-items: center; gap: 6px; }
+        .sm-field-row .sm-input { flex: 1 1 auto; min-width: 0; }
+        .sm-btn-icon { flex: 0 0 auto; padding: 8px 10px; margin-top: 0; }
         .sm-btn {
           display: inline-flex; align-items: center; gap: 6px;
           padding: 7px 12px; border-radius: var(--r-sm);
