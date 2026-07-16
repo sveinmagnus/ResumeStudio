@@ -37,7 +37,12 @@ The full catalog with per-feature design detail is in
   description from a long one: per-column in `DualField`, or the whole section
   via "Summarize all empty" in the section bar (`lib/summarizeBatch.ts`).
   Drafts are always review-required. Hidden entirely when nothing is
-  configured.
+  configured. The Ollama model field is a datalist over
+  `lib/ollamaCatalog.ts` (curated open-weight shortlist + sizes) merged with
+  what the instance has pulled (`GET /api/summarize/models`), with a Refresh
+  button; it stays free-text, so any tag works. The same model can also power
+  **translation** (`translate_provider: 'llm'`) instead of a separate engine —
+  `summarize.ts → chatComplete()` is the one shared chat round-trip.
 - **Registries** — shared Skill / Role / Industry registries with merge,
   usage counts, and a "By category" view; `SkillCategory` entities drive skill
   grouping + the Skills Showcase; Quadim skill-taxonomy autocomplete,
@@ -145,7 +150,9 @@ src/
 │   │   CRUD + auto-categorization; effectiveSkillCategory)
 │   │ — AI assist: translateClient + summarizeClient (memoized availability probes),
 │   │   summarizeBatch (SUMMARY_FIELDS source→target per section; emptySummaryTargets
-│   │   work list; summarizableSource — the ONE "has a source" rule, shared with DualField)
+│   │   work list; summarizableSource — the ONE "has a source" rule, shared with DualField),
+│   │   ollamaCatalog (curated open-weight models + sizes; merged with installed),
+│   │   translateLanguages (which Argos langs to install; forced pivot + editing pair)
 │   └ — importers: importer (CVpartner), importerLinkedIn (CSV/zip), importerEuropass
 │       (XML+JSON), aiImport (resumestudio-ai/v1), bulkImport (resumestudio-bulk/v1;
 │       ONE spec per section drives instructions+validation+mapping+preview), translateClient
@@ -348,11 +355,23 @@ Navigation: `setActiveSection(key)` / `setExpandedItem(id)`. Undo/redo: `useUndo
   `with*Defaults` render tolerance.
 - **Translation assist**: the client never calls a translation backend directly
   — `POST /api/translate` proxies to the configured provider
-  (`TRANSLATE_PROVIDER` ∈ `off|libretranslate|deepl|google|azure`; unset +
+  (`TRANSLATE_PROVIDER` ∈ `off|libretranslate|deepl|google|azure|llm`; unset +
   `LIBRETRANSLATE_URL` → libretranslate for back-compat). Keys/URLs stay
   server-side; per-provider locale maps differ; errors never echo upstream
   detail. The client memoizes `GET /api/translate/status` once; drafts are
   always review-required.
+  - **`llm`** carries no config: it borrows the Summarize model via
+    `chatComplete()`. A locale it can't NAME (`languageNameOf`) is rejected up
+    front rather than sent as a bare code for the model to guess at.
+  - **Per-provider locale maps must track the 15 offered locales.** DeepL wants
+    UPPERCASE (its fallback upper-cases; the others lower-case). This is the
+    surface that silently breaks when a locale is added — a wrong code doesn't
+    throw, it returns the wrong language or a 400.
+  - **Docker LibreTranslate installs only the picked languages**
+    (`translate_languages` → `ltLoadOnly()` → `LT_LOAD_ONLY`, read by
+    docker-compose.yml). Each language is a few-hundred-MB Argos package.
+    `en` is always installed (Argos pivots through it) and the current
+    primary/secondary are force-selected — see `lib/translateLanguages.ts`.
 
 ---
 
