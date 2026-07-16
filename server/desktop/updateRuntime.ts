@@ -24,6 +24,7 @@ import { resolvePaths } from '../config.js'
 import {
   checkForUpdate, stageUpdate, nodeBinaryName, type UpdateInfo, type StagedUpdate,
 } from './updater.js'
+import { APP_VERSION } from '../version.js'
 
 export type UpdateState =
   | 'idle' | 'checking' | 'available' | 'uptodate' | 'downloading' | 'staged' | 'applying' | 'error'
@@ -157,7 +158,15 @@ export function getUpdateStatus(): UpdateStatusView {
   return {
     supported: isUpdateSupported(),
     state,
-    currentVersion: cfg?.appVersion ?? process.env.RESUME_APP_VERSION ?? '0.0.0',
+    // APP_VERSION is the app's own answer to "what am I running?" (env →
+    // package.json → 0.0.0). Falling back to a literal '0.0.0' here meant any
+    // build that doesn't configure the updater — dev, `npm run desktop`, VPS —
+    // reported 0.0.0 despite knowing its real version. Invisible while this
+    // only showed inside the update panel; the Version tab shows it always.
+    //
+    // `||`, not `??`: a set-but-EMPTY RESUME_APP_VERSION is "unset" as far as
+    // we're concerned, and `??` would happily report an empty version string.
+    currentVersion: cfg?.appVersion?.trim() || process.env.RESUME_APP_VERSION?.trim() || APP_VERSION,
     latestVersion: info?.latestVersion ?? null,
     updateAvailable: info?.updateAvailable ?? false,
     downloadable: !!info?.assetUrl,

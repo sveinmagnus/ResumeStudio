@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach, vi } from 'vitest'
 import {
-  buildSwapScript, initUpdateRuntime, runCheck, __resetUpdateRuntimeForTests,
+  buildSwapScript, initUpdateRuntime, runCheck, getUpdateStatus, __resetUpdateRuntimeForTests,
 } from '../../server/desktop/updateRuntime'
 import { assetNameFor } from '../../server/desktop/updater'
 
@@ -147,5 +147,26 @@ describe('runCheck → Install/Cancel offer when an update is found', () => {
     expect(confirm).toHaveBeenCalledTimes(1)
     await runCheck(true)  // manual → always offers
     expect(confirm).toHaveBeenCalledTimes(2)
+  })
+})
+
+// ─── Reported version ────────────────────────────────────────────────────────
+
+describe('getUpdateStatus() — currentVersion', () => {
+  afterEach(() => { __resetUpdateRuntimeForTests?.(); vi.unstubAllEnvs() })
+
+  it('reports the app version even when the updater is unconfigured', () => {
+    // Regression: this used to fall back to a literal '0.0.0' whenever the
+    // updater runtime was not initialised (dev, `npm run desktop`, VPS), so the
+    // Settings → Version tab claimed v0.0.0 while the app knew its real
+    // version. It must fall back to APP_VERSION instead.
+    vi.stubEnv('RESUME_APP_VERSION', '')
+    expect(getUpdateStatus().currentVersion).not.toBe('0.0.0')
+    expect(getUpdateStatus().currentVersion).toMatch(/^\d+\.\d+\.\d+/)
+  })
+
+  it('prefers an explicit RESUME_APP_VERSION (the published build stamps it)', () => {
+    vi.stubEnv('RESUME_APP_VERSION', '9.9.9')
+    expect(getUpdateStatus().currentVersion).toBe('9.9.9')
   })
 })

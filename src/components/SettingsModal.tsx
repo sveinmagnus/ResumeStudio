@@ -1,13 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import {
-  X, Loader2, Check, AlertCircle, Languages, FolderSync, Server, Box, Power, Settings,
-  RefreshCw, Download, Type, Sparkles,
-} from 'lucide-react'
-import { fontOptions, fontInstallInfo, type GlobalFonts } from '../lib/fonts'
-import { getDefaultFonts, setDefaultFonts } from '../lib/appPrefs'
+import { X, Loader2, Check, Settings } from 'lucide-react'
 import { resetSummarizeAvailability } from '../lib/summarizeClient'
 import { modelOptions, type InstalledModel } from '../lib/ollamaCatalog'
-import { LOCALE_CODES, LOCALE_LABELS } from '../lib/locales'
 import { forcedLanguages, resolveTranslateLanguages, DEFAULT_TRANSLATE_LANGUAGES } from '../lib/translateLanguages'
 import {
   api, type SettingsStatus, type SettingsUpdate, type UpdateStatus, UnauthorizedError,
@@ -15,91 +9,41 @@ import {
 import { resetTranslationAvailability } from '../lib/translateClient'
 import { useDialog } from './ui/useDialog'
 import { useStore } from '../store/useStore'
-import { downloadBackup } from '../lib/backup'
+import {
+  SettingsFormProvider, type SettingsForm, type UiProvider, type SummUiProvider,
+} from './settings/context'
+import { SettingsTabs, type TabDef } from './settings/SettingsTabs'
+import { VersionTab } from './settings/VersionTab'
+import { TranslationTab } from './settings/TranslationTab'
+import { AiAssistTab } from './settings/AiAssistTab'
+import { SyncTab } from './settings/SyncTab'
+import { DefaultFontsSection } from './settings/sections'
 
-/** UI-level provider choice. LibreTranslate splits into two entries (the
- *  underlying provider is the same; only translate_docker differs). */
-type UiProvider = 'off' | 'libre_docker' | 'libre_remote' | 'deepl' | 'google' | 'azure' | 'llm'
-/** UI-level summarize choice. Ollama splits into local-Docker vs remote-URL. */
-type SummUiProvider = 'off' | 'ollama_docker' | 'ollama_remote' | 'openai' | 'compat'
+/**
+ * Version first, and the default: it's what people most often open Settings to
+ * check, and it's the only tab that's read-only (nothing on it is part of the
+ * Save form), so landing here can't leave half-typed config behind.
+ */
+const TABS: TabDef[] = [
+  { id: 'version', label: 'Version' },
+  { id: 'translation', label: 'Translation' },
+  { id: 'ai', label: 'AI assist' },
+  { id: 'sync', label: 'Sync & backup' },
+  { id: 'appearance', label: 'Appearance' },
+]
+
+/**
+ * Tabs whose fields are part of the server-side Save form. Version is read-only
+ * and Appearance is a client preference that persists as you change it, so a
+ * Save button on either would be a no-op that implies unsaved work.
+ */
+const SAVEABLE_TABS = new Set(['translation', 'ai', 'sync'])
 
 interface SettingsModalProps {
   onClose: () => void
   /** Called after a successful save so the picker can refresh sync status etc. */
   onChanged: () => void
   onUnauthorized: () => void
-}
-
-/**
- * Download a portable JSON backup of the CURRENT resume. Moved here from the
- * top bar (it's an occasional action, not something done every session).
- * Distinct from the auto-sync backup FOLDER: this is a manual, one-off copy of
- * the open resume that can be re-imported from the picker as a new resume.
- */
-function SaveToFileSection() {
-  const resume = useStore((s) => s.data.resume)
-  return (
-    <section className="sm-sec">
-      <div className="sm-sec-head"><Download size={15} /> Save this resume to a file</div>
-      <p className="sm-help">
-        Download a portable JSON copy of the resume you're editing. Load it later
-        from the resume picker — it creates a new resume. This is a manual, one-off
-        copy, separate from the auto-synced backup folder.
-      </p>
-      <div className="sm-btn-row">
-        <button
-          className="sm-btn"
-          onClick={() => downloadBackup(useStore.getState().data)}
-          disabled={!resume}
-        >
-          <Download size={13} /> Save to file
-        </button>
-      </div>
-    </section>
-  )
-}
-
-/**
- * App-wide default fonts new views inherit (client preference, localStorage —
- * see lib/appPrefs). A view can still override in its own styling. Shown on
- * every build since it isn't a server/env setting.
- */
-function DefaultFontsSection() {
-  const [fonts, setFonts] = useState<GlobalFonts>(getDefaultFonts)
-  const opts = fontOptions()
-  const update = (patch: Partial<GlobalFonts>) => {
-    const next = { ...fonts, ...patch }
-    setFonts(next)
-    setDefaultFonts(next) // persists + notifies open previews
-  }
-  const seen = new Set<string>()
-  const installs = [fontInstallInfo(fonts.heading), fontInstallInfo(fonts.body)]
-    .filter((x): x is { label: string; url: string } => !!x && !seen.has(x.url) && (seen.add(x.url), true))
-  return (
-    <section className="sm-sec">
-      <div className="sm-sec-head"><Type size={15} /> Default fonts</div>
-      <p className="sm-help">
-        The heading and body fonts new resume views inherit. Any view can override
-        these in its own styling. Fonts render on-screen and in PDF; Word matches
-        only if the reader has the font — install links appear when needed.
-      </p>
-      <label className="sm-field-label" htmlFor="sm-heading-font">Heading font</label>
-      <select id="sm-heading-font" className="sm-input" value={fonts.heading}
-        onChange={(e) => update({ heading: e.target.value })} aria-label="Default heading font">
-        {opts.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
-      </select>
-      <label className="sm-field-label" htmlFor="sm-body-font" style={{ marginTop: 8 }}>Body font</label>
-      <select id="sm-body-font" className="sm-input" value={fonts.body}
-        onChange={(e) => update({ body: e.target.value })} aria-label="Default body font">
-        {opts.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
-      </select>
-      {installs.map((f) => (
-        <a key={f.url} className="sm-inline sm-fontlink" href={f.url} target="_blank" rel="noopener noreferrer">
-          <Download size={13} /> Install “{f.label}” so Word/PDF match
-        </a>
-      ))}
-    </section>
-  )
 }
 
 /**
@@ -112,6 +56,7 @@ export function SettingsModal({ onClose, onChanged, onUnauthorized }: SettingsMo
   const dialogRef = useDialog(onClose)
   const [status, setStatus] = useState<SettingsStatus | null>(null)
   const [loadErr, setLoadErr] = useState<string | null>(null)
+  const [tab, setTab] = useState<string>('version')
 
   // Form state
   const [provider, setProvider] = useState<UiProvider>('off')
@@ -264,8 +209,12 @@ export function SettingsModal({ onClose, onChanged, onUnauthorized }: SettingsMo
   }, [provider, libreUrl, azureRegion, backupDir, keys, summProvider, summOllamaUrl, summCompatUrl, summModel, summKeys,
       transLangs, primaryLocale, secondaryLocale])
 
-  const onSave = useCallback(async () => {
-    setSaving(true); setSaveMsg(null)
+  /**
+   * Persist the form. Returns an error string, or null on success — shared by
+   * Save and by the "Save and test" buttons, which must not test a config the
+   * server isn't actually running.
+   */
+  const doSave = useCallback(async (): Promise<string | null> => {
     try {
       const next = await api.saveSettings(buildUpdate())
       seed(next)
@@ -273,21 +222,37 @@ export function SettingsModal({ onClose, onChanged, onUnauthorized }: SettingsMo
       // so the next mount re-probes against the new config.
       resetTranslationAvailability()
       resetSummarizeAvailability()
-      setSaveMsg({ ok: true, text: 'Saved.' })
       onChanged()
+      return null
     } catch (err) {
-      if (err instanceof UnauthorizedError) { onUnauthorized(); return }
-      setSaveMsg({ ok: false, text: (err as Error).message })
-    } finally {
-      setSaving(false)
+      if (err instanceof UnauthorizedError) { onUnauthorized(); return 'Unauthorized' }
+      return (err as Error).message
     }
   }, [buildUpdate, seed, onChanged, onUnauthorized])
 
+  const onSave = useCallback(async () => {
+    setSaving(true); setSaveMsg(null)
+    const err = await doSave()
+    setSaveMsg(err ? { ok: false, text: err } : { ok: true, text: 'Saved.' })
+    setSaving(false)
+  }, [doSave])
+
+  /**
+   * Save, THEN test — hence the "Save and test" label.
+   *
+   * Testing the pending form alone was misleading: the probe posts the unsaved
+   * values, but some providers ignore them and read the server's live config
+   * (the `llm` translator borrows the SAVED summarize settings), so a green
+   * "Working" could describe a config that isn't in effect. Saving first makes
+   * the result true by construction.
+   */
   const onTest = useCallback(async () => {
     setTest({ busy: true })
+    const err = await doSave()
+    if (err) { setTest({ busy: false, ok: false, text: `Could not save: ${err}` }); return }
     const r = await api.testTranslate(buildUpdate())
     setTest({ busy: false, ok: r.reachable, text: r.message })
-  }, [buildUpdate])
+  }, [doSave, buildUpdate])
 
   const onDocker = useCallback(async (action: 'start' | 'stop' | 'status') => {
     setDocker({ busy: true })
@@ -296,11 +261,14 @@ export function SettingsModal({ onClose, onChanged, onUnauthorized }: SettingsMo
     setDocker({ busy: false, ok, text: r.message })
   }, [])
 
+  /** Save, then test — see onTest. */
   const onTestSummarize = useCallback(async () => {
     setSummTest({ busy: true })
+    const err = await doSave()
+    if (err) { setSummTest({ busy: false, ok: false, text: `Could not save: ${err}` }); return }
     const r = await api.testSummarize(buildUpdate())
     setSummTest({ busy: false, ok: r.reachable, text: r.message })
-  }, [buildUpdate])
+  }, [doSave, buildUpdate])
 
   const onSummarizeDocker = useCallback(async (action: 'start' | 'stop' | 'status') => {
     setSummDocker({ busy: true })
@@ -330,6 +298,19 @@ export function SettingsModal({ onClose, onChanged, onUnauthorized }: SettingsMo
   const managed = status?.managed === true
   const keyPlaceholder = (set: boolean) => (set ? '•••••• (saved — leave blank to keep)' : 'API key')
 
+  const form: SettingsForm = {
+    status, managed, keyPlaceholder,
+    provider, setProvider, libreUrl, setLibreUrl, azureRegion, setAzureRegion,
+    keys, setKeys, keySet, docker, onDocker, test, onTest,
+    transLangs, setTransLangs, forcedLangs,
+    summProvider, setSummProvider, summOllamaUrl, setSummOllamaUrl,
+    summCompatUrl, setSummCompatUrl, summModel, setSummModel,
+    summKeys, setSummKeys, summKeySet, summTest, onTestSummarize,
+    summDocker, onSummarizeDocker, isOllama, modelOpts, installed, modelsBusy, refreshModels,
+    backupDir, setBackupDir,
+    upd, updBusy, onCheckUpdate, onInstallUpdate,
+  }
+
   return (
     <div className="sm-backdrop" onClick={onClose}>
       <div className="sm-card" ref={dialogRef} onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Settings">
@@ -344,379 +325,43 @@ export function SettingsModal({ onClose, onChanged, onUnauthorized }: SettingsMo
         )}
         {loadErr && <div className="sm-msg sm-err" role="alert">{loadErr}</div>}
 
-        {status && !managed && (
-          <div className="sm-body">
-            <DefaultFontsSection />
-            <div className="sm-note">
-              On this deployment, settings are controlled by the server's environment
-              variables, not from the app.
-            </div>
-            <div className="sm-row">
-              <span>Translation</span>
-              <span className={status.translate.configured ? 'sm-pill sm-pill-ok' : 'sm-pill'}>
-                {status.translate.configured ? 'Configured' : 'Off'}
-              </span>
-            </div>
-            <SaveToFileSection />
-          </div>
-        )}
+        {status && (
+          <>
+            <SettingsTabs tabs={TABS} active={tab} onChange={setTab} />
+            <div
+              className="sm-body"
+              role="tabpanel"
+              id={`sm-panel-${tab}`}
+              aria-labelledby={`sm-tab-${tab}`}
+              tabIndex={0}
+            >
+              <SettingsFormProvider value={form}>
+                {tab === 'version' && <VersionTab />}
+                {tab === 'translation' && <TranslationTab />}
+                {tab === 'ai' && <AiAssistTab />}
+                {tab === 'sync' && <SyncTab />}
+                {tab === 'appearance' && <DefaultFontsSection />}
+              </SettingsFormProvider>
 
-        {status && managed && (
-          <div className="sm-body">
-            <DefaultFontsSection />
-            {/* ── Translation ─────────────────────────────────────────── */}
-            <section className="sm-sec">
-              <div className="sm-sec-head"><Languages size={15} /> Translation (Draft button)</div>
-              <p className="sm-help">
-                The “Draft translation” button needs a translation service.
-                “Copy from primary” always works without one.
-              </p>
-
-              <label className="sm-field-label" htmlFor="sm-provider">Provider</label>
-              <select
-                id="sm-provider" className="sm-input" value={provider}
-                onChange={(e) => setProvider(e.target.value as UiProvider)} aria-label="Translation provider"
-              >
-                <option value="off">Off — no machine translation</option>
-                <option value="llm">Use the AI model from Summarize (below)</option>
-                <option value="libre_docker">LibreTranslate — local (Docker-managed)</option>
-                <option value="libre_remote">LibreTranslate — remote URL</option>
-                <option value="deepl">DeepL</option>
-                <option value="google">Google Cloud Translation</option>
-                <option value="azure">Microsoft Azure Translator</option>
-              </select>
-
-              {provider === 'llm' && (
-                <div className="sm-sub">
-                  <p className="sm-help">
-                    Translates with whatever model the <strong>AI assist</strong> section
-                    below is set to — no second engine to install or key to manage.
-                    {summProvider === 'off'
-                      ? ' Set a Summarize provider below first, or this stays off.'
-                      : ' Quality depends on the model: a small local one is rougher than DeepL, so review every draft.'}
-                  </p>
-                  {summProvider === 'off' && (
-                    <div className="sm-inline sm-warn">
-                      <AlertCircle size={13} /> No AI model configured — pick one under “AI assist”.
-                    </div>
-                  )}
+              {saveMsg && (
+                <div className={`sm-msg ${saveMsg.ok ? 'sm-ok-box' : 'sm-err'}`} role={saveMsg.ok ? 'status' : 'alert'}>
+                  {saveMsg.text}
                 </div>
               )}
 
-              {provider === 'libre_docker' && (
-                <div className="sm-sub">
-                  <p className="sm-help">
-                    Runs LibreTranslate in Docker at <code>http://localhost:5000</code>.
-                    Requires Docker Desktop; the first start downloads language
-                    models (several minutes).
-                  </p>
-                  <div className="sm-btn-row">
-                    <button className="sm-btn" onClick={() => void onDocker('start')} disabled={docker.busy}>
-                      {docker.busy ? <Loader2 size={13} className="sm-spin" /> : <Power size={13} />} Start
-                    </button>
-                    <button className="sm-btn" onClick={() => void onDocker('stop')} disabled={docker.busy}>
-                      <Box size={13} /> Stop
-                    </button>
-                    <button className="sm-btn" onClick={() => void onDocker('status')} disabled={docker.busy}>
-                      <Server size={13} /> Check status
-                    </button>
-                  </div>
-                  {docker.text && (
-                    <div className={`sm-inline ${docker.ok ? 'sm-ok' : 'sm-warn'}`}>
-                      {docker.ok ? <Check size={13} /> : <AlertCircle size={13} />} {docker.text}
-                    </div>
-                  )}
-
-                  <label className="sm-field-label" id="sm-langs-label">Languages to install</label>
-                  <p className="sm-help">
-                    Each language is a separate download (a few hundred MB), so only
-                    the ones you pick are installed. Your current editing languages
-                    are always included. Changing this needs a <strong>Stop</strong> →{' '}
-                    <strong>Start</strong> to take effect.
-                  </p>
-                  <div className="sm-lang-grid" role="group" aria-labelledby="sm-langs-label">
-                    {LOCALE_CODES.map((code) => {
-                      const forced = forcedLangs.includes(code)
-                      const name = LOCALE_LABELS[code]?.name ?? code
-                      return (
-                        <label key={code} className={`sm-lang ${forced ? 'is-forced' : ''}`}>
-                          <input
-                            type="checkbox"
-                            checked={forced || transLangs.includes(code)}
-                            disabled={forced}
-                            onChange={(e) => setTransLangs((prev) => (
-                              e.target.checked ? [...prev, code] : prev.filter((c) => c !== code)
-                            ))}
-                            aria-label={forced
-                              ? `${name} — always installed (in use / pivot language)`
-                              : name}
-                          />
-                          <span>{LOCALE_LABELS[code]?.flag} {name}</span>
-                        </label>
-                      )
-                    })}
-                  </div>
-
-                  <p className="sm-help">Click <strong>Save</strong> to enable Docker translation on every launch.</p>
-                </div>
-              )}
-
-              {provider === 'libre_remote' && (
-                <div className="sm-sub">
-                  <input
-                    className="sm-input" placeholder="https://libretranslate.example.com"
-                    value={libreUrl} onChange={(e) => setLibreUrl(e.target.value)} aria-label="LibreTranslate URL"
-                  />
-                  <input
-                    className="sm-input" type="password" placeholder={keyPlaceholder(keySet.libre)}
-                    value={keys.libre} onChange={(e) => setKeys((k) => ({ ...k, libre: e.target.value }))}
-                    aria-label="LibreTranslate API key"
-                  />
-                </div>
-              )}
-
-              {provider === 'deepl' && (
-                <div className="sm-sub">
-                  <p className="sm-help">A DeepL API key. Free and Pro keys are both supported (auto-detected).</p>
-                  <input
-                    className="sm-input" type="password" placeholder={keyPlaceholder(keySet.deepl)}
-                    value={keys.deepl} onChange={(e) => setKeys((k) => ({ ...k, deepl: e.target.value }))}
-                    aria-label="DeepL API key"
-                  />
-                </div>
-              )}
-
-              {provider === 'google' && (
-                <div className="sm-sub">
-                  <p className="sm-help">A Google Cloud Translation API key (Cloud Translation API enabled).</p>
-                  <input
-                    className="sm-input" type="password" placeholder={keyPlaceholder(keySet.google)}
-                    value={keys.google} onChange={(e) => setKeys((k) => ({ ...k, google: e.target.value }))}
-                    aria-label="Google API key"
-                  />
-                </div>
-              )}
-
-              {provider === 'azure' && (
-                <div className="sm-sub">
-                  <p className="sm-help">An Azure Translator key and its resource region (e.g. <code>westeurope</code>).</p>
-                  <input
-                    className="sm-input" type="password" placeholder={keyPlaceholder(keySet.azure)}
-                    value={keys.azure} onChange={(e) => setKeys((k) => ({ ...k, azure: e.target.value }))}
-                    aria-label="Azure API key"
-                  />
-                  <input
-                    className="sm-input" placeholder="Region, e.g. westeurope"
-                    value={azureRegion} onChange={(e) => setAzureRegion(e.target.value)} aria-label="Azure region"
-                  />
-                </div>
-              )}
-
-              {provider !== 'off' && provider !== 'libre_docker' && (
-                <div className="sm-btn-row">
-                  <button className="sm-btn" onClick={() => void onTest()} disabled={test.busy}>
-                    {test.busy ? <Loader2 size={13} className="sm-spin" /> : <Server size={13} />} Test connection
+              <div className="sm-foot">
+                <button className="sm-btn sm-ghost" onClick={onClose}>Close</button>
+                {/* Save only where there IS something to save: Version is
+                    read-only and Appearance is a client preference that
+                    persists as you change it. */}
+                {managed && SAVEABLE_TABS.has(tab) && (
+                  <button className="sm-btn sm-primary" onClick={() => void onSave()} disabled={saving}>
+                    {saving ? <Loader2 size={14} className="sm-spin" /> : <Check size={14} />} Save
                   </button>
-                  {test.text && (
-                    <span className={`sm-inline ${test.ok ? 'sm-ok' : 'sm-warn'}`}>
-                      {test.ok ? <Check size={13} /> : <AlertCircle size={13} />} {test.text}
-                    </span>
-                  )}
-                </div>
-              )}
-            </section>
-
-            {/* ── Summarize (AI short descriptions) ───────────────────── */}
-            <section className="sm-sec">
-              <div className="sm-sec-head"><Sparkles size={15} /> Summarize (AI short descriptions)</div>
-              <p className="sm-help">
-                Powers the “Summarize” button that drafts a one-line short
-                description from a long one. Needs an LLM — run one locally with
-                Docker (private &amp; free), or point at OpenAI / an
-                OpenAI-compatible endpoint.
-              </p>
-
-              <label className="sm-field-label" htmlFor="sm-sum-provider">Provider</label>
-              <select id="sm-sum-provider" className="sm-input" value={summProvider}
-                onChange={(e) => setSummProvider(e.target.value as SummUiProvider)} aria-label="Summarize provider">
-                <option value="off">Off — no Summarize button</option>
-                <option value="ollama_docker">Local LLM — Ollama (Docker-managed)</option>
-                <option value="ollama_remote">Ollama — remote URL</option>
-                <option value="openai">OpenAI</option>
-                <option value="compat">OpenAI-compatible (OpenRouter, Groq, LM Studio…)</option>
-              </select>
-
-              {summProvider !== 'off' && (
-                <div className="sm-sub">
-                  <label className="sm-field-label" htmlFor="sm-sum-model">Model</label>
-                  {/* A datalist rather than a <select>: Ollama has thousands of
-                      valid tags, so the list is a shortlist to pick from, not a
-                      constraint — any tag you type still works. Refresh re-asks
-                      the running instance what it has pulled. */}
-                  <div className="sm-field-row">
-                    <input id="sm-sum-model" className="sm-input" value={summModel}
-                      list={isOllama ? 'sm-model-list' : undefined}
-                      placeholder={summProvider === 'openai' ? 'e.g. gpt-4o-mini' : 'e.g. llama3.2:3b'}
-                      onChange={(e) => setSummModel(e.target.value)} aria-label="Summarize model" />
-                    {isOllama && (
-                      <button className="sm-btn sm-btn-icon" onClick={() => void refreshModels()}
-                        disabled={modelsBusy} title="Refresh the list from the running Ollama"
-                        aria-label="Refresh model list">
-                        {modelsBusy ? <Loader2 size={13} className="sm-spin" /> : <RefreshCw size={13} />}
-                      </button>
-                    )}
-                  </div>
-                  {isOllama && (
-                    <datalist id="sm-model-list">
-                      {modelOpts.map((m) => <option key={m.name} value={m.name} label={m.label} />)}
-                    </datalist>
-                  )}
-                  {isOllama && (
-                    <p className="sm-help">
-                      {installedCount > 0
-                        ? `${installedCount} model(s) already pulled. Others download on first use.`
-                        : 'Pick a model — smaller is faster and downloads less. Any Ollama tag works.'}
-                    </p>
-                  )}
-                </div>
-              )}
-
-              {summProvider === 'ollama_docker' && (
-                <div className="sm-sub">
-                  <p className="sm-help">
-                    Runs Ollama in Docker at <code>http://localhost:11434</code>.
-                    Requires Docker Desktop; “Start” pulls the model above (several
-                    GB on first run).
-                  </p>
-                  <div className="sm-btn-row">
-                    <button className="sm-btn" onClick={() => void onSummarizeDocker('start')} disabled={summDocker.busy}>
-                      {summDocker.busy ? <Loader2 size={13} className="sm-spin" /> : <Power size={13} />} Start &amp; pull
-                    </button>
-                    <button className="sm-btn" onClick={() => void onSummarizeDocker('stop')} disabled={summDocker.busy}>
-                      <Box size={13} /> Stop
-                    </button>
-                    <button className="sm-btn" onClick={() => void onSummarizeDocker('status')} disabled={summDocker.busy}>
-                      <Server size={13} /> Check status
-                    </button>
-                  </div>
-                  {summDocker.text && (
-                    <div className={`sm-inline ${summDocker.ok ? 'sm-ok' : 'sm-warn'}`}>
-                      {summDocker.ok ? <Check size={13} /> : <AlertCircle size={13} />} {summDocker.text}
-                    </div>
-                  )}
-                  <p className="sm-help">Click <strong>Save</strong> to enable the Summarize button on every launch.</p>
-                </div>
-              )}
-
-              {summProvider === 'ollama_remote' && (
-                <div className="sm-sub">
-                  <input className="sm-input" placeholder="http://your-ollama-host:11434"
-                    value={summOllamaUrl} onChange={(e) => setSummOllamaUrl(e.target.value)} aria-label="Ollama URL" />
-                </div>
-              )}
-
-              {summProvider === 'openai' && (
-                <div className="sm-sub">
-                  <input className="sm-input" type="password" placeholder={keyPlaceholder(summKeySet.openai)}
-                    value={summKeys.openai} onChange={(e) => setSummKeys((k) => ({ ...k, openai: e.target.value }))}
-                    aria-label="OpenAI API key" />
-                </div>
-              )}
-
-              {summProvider === 'compat' && (
-                <div className="sm-sub">
-                  <input className="sm-input" placeholder="Base URL, e.g. https://openrouter.ai/api/v1"
-                    value={summCompatUrl} onChange={(e) => setSummCompatUrl(e.target.value)} aria-label="OpenAI-compatible base URL" />
-                  <input className="sm-input" type="password" placeholder={keyPlaceholder(summKeySet.compat)}
-                    value={summKeys.compat} onChange={(e) => setSummKeys((k) => ({ ...k, compat: e.target.value }))}
-                    aria-label="OpenAI-compatible API key" />
-                </div>
-              )}
-
-              {summProvider !== 'off' && (
-                <div className="sm-btn-row">
-                  <button className="sm-btn" onClick={() => void onTestSummarize()} disabled={summTest.busy}>
-                    {summTest.busy ? <Loader2 size={13} className="sm-spin" /> : <Server size={13} />} Test connection
-                  </button>
-                  {summTest.text && (
-                    <span className={`sm-inline ${summTest.ok ? 'sm-ok' : 'sm-warn'}`}>
-                      {summTest.ok ? <Check size={13} /> : <AlertCircle size={13} />} {summTest.text}
-                    </span>
-                  )}
-                </div>
-              )}
-            </section>
-
-            {/* ── Sync & backup folder ────────────────────────────────── */}
-            <section className="sm-sec">
-              <div className="sm-sec-head"><FolderSync size={15} /> Backup &amp; sync folder</div>
-              <p className="sm-help">
-                Paste the path to a cloud-synced folder (Google Drive / Dropbox /
-                OneDrive). Resume Studio keeps one backup file there and merges
-                newer content from it on launch — point a second computer at the
-                same folder to share your CVs. Leave blank to turn sync off.
-              </p>
-              <input
-                className="sm-input" placeholder="e.g. C:\Users\you\Google Drive\ResumeStudio"
-                value={backupDir} onChange={(e) => setBackupDir(e.target.value)} aria-label="Backup folder"
-              />
-            </section>
-
-            {/* ── Save this resume to a file ──────────────────────────── */}
-            <SaveToFileSection />
-
-            {/* ── Updates ─────────────────────────────────────────────── */}
-            {upd?.supported && (
-              <section className="sm-sec">
-                <div className="sm-sec-head"><Download size={15} /> Updates</div>
-                <div className="sm-row">
-                  <span>Current version</span>
-                  <span className="sm-pill">v{upd.currentVersion}</span>
-                </div>
-                <div className="sm-btn-row">
-                  <button className="sm-btn" onClick={() => void onCheckUpdate()} disabled={updBusy !== null}>
-                    {updBusy === 'check' ? <Loader2 size={13} className="sm-spin" /> : <RefreshCw size={13} />}
-                    Check for updates
-                  </button>
-                  {upd.updateAvailable && upd.downloadable && (
-                    <button className="sm-btn sm-primary" onClick={() => void onInstallUpdate()} disabled={updBusy !== null}>
-                      {updBusy === 'install' ? <Loader2 size={13} className="sm-spin" /> : <Download size={13} />}
-                      Install v{upd.latestVersion}
-                    </button>
-                  )}
-                  {upd.updateAvailable && !upd.downloadable && upd.htmlUrl && (
-                    <a className="sm-btn" href={upd.htmlUrl} target="_blank" rel="noopener noreferrer">
-                      <Download size={13} /> Download from GitHub
-                    </a>
-                  )}
-                </div>
-                {upd.state === 'uptodate' && (
-                  <div className="sm-inline sm-ok"><Check size={13} /> You're on the latest version.</div>
                 )}
-                {upd.updateAvailable && !['downloading', 'applying'].includes(upd.state) && (
-                  <div className="sm-inline sm-warn">
-                    <AlertCircle size={13} /> Version v{upd.latestVersion} is available
-                    {upd.downloadable ? '.' : ' (manual download for this platform).'}
-                  </div>
-                )}
-                {(upd.state === 'downloading' || upd.state === 'applying') && (
-                  <div className="sm-inline"><Loader2 size={13} className="sm-spin" /> {upd.state === 'downloading' ? `Downloading… ${Math.round(upd.progress * 100)}%` : 'Installing — the app will restart.'}</div>
-                )}
-                {upd.state === 'error' && upd.error && (
-                  <div className="sm-inline sm-warn"><AlertCircle size={13} /> {upd.error}</div>
-                )}
-              </section>
-            )}
-
-            {saveMsg && <div className={`sm-msg ${saveMsg.ok ? 'sm-ok-box' : 'sm-err'}`} role={saveMsg.ok ? 'status' : 'alert'}>{saveMsg.text}</div>}
-
-            <div className="sm-foot">
-              <button className="sm-btn sm-ghost" onClick={onClose}>Close</button>
-              <button className="sm-btn sm-primary" onClick={() => void onSave()} disabled={saving}>
-                {saving ? <Loader2 size={14} className="sm-spin" /> : <Check size={14} />} Save
-              </button>
+              </div>
             </div>
-          </div>
+          </>
         )}
       </div>
 
@@ -738,6 +383,22 @@ export function SettingsModal({ onClose, onChanged, onUnauthorized }: SettingsMo
           color: var(--accent);
         }
         .sm-title { font-size: 17px; font-weight: 600; flex: 1; }
+        /* Tab bar. Scrolls sideways rather than wrapping — a wrapped bar
+           reflows the panel below it as tabs change width. */
+        .sm-tabs {
+          display: flex; gap: 2px; padding: 0 10px;
+          border-bottom: 1px solid var(--line); background: var(--paper-sunken);
+          overflow-x: auto; scrollbar-width: thin;
+        }
+        .sm-tab {
+          flex: 0 0 auto; padding: 10px 12px; border: none; background: none;
+          font-size: 13px; font-weight: 500; color: var(--ink-soft); cursor: pointer;
+          border-bottom: 2px solid transparent; margin-bottom: -1px;
+          transition: color .12s, border-color .12s;
+          white-space: nowrap;
+        }
+        .sm-tab:hover { color: var(--accent); }
+        .sm-tab.is-active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
         .sm-x { color: var(--ink-faint); display: grid; place-items: center; }
         .sm-x:hover { color: var(--ink); }
         .sm-loading { padding: 28px; display: flex; align-items: center; gap: 8px; color: var(--ink-faint); justify-content: center; }
