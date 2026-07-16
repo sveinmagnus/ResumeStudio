@@ -105,3 +105,33 @@ export function isRemote(status: AssistStatus): boolean {
 export const MANUAL_BLURB =
   'You copy the prompt and paste it into whatever AI you choose — nothing is sent from this app. ' +
   'Whatever you paste it into sees the content.'
+
+/**
+ * Pull the JSON payload out of a model's reply.
+ *
+ * Models wrap JSON in ```json fences and prepend "Here's the JSON:" no matter
+ * how firmly the prompt says not to — small local ones especially. Rather than
+ * fail on output that is *obviously* correct bar its packaging, find the JSON.
+ *
+ * This helps BOTH paths: a reply pasted from ChatGPT arrives fenced today and
+ * fails `JSON.parse`, so running it through here fixes an existing papercut.
+ * Returns the input unchanged when there's nothing to strip — the caller's
+ * parse error stays the one the user sees.
+ */
+export function extractJson(reply: string): string {
+  let s = reply.trim()
+
+  // ```json … ``` (or a bare ``` fence).
+  const fence = /```(?:json)?\s*\r?\n?([\s\S]*?)```/i.exec(s)
+  if (fence) s = fence[1].trim()
+
+  // Otherwise take the outermost object/array, dropping any prose either side.
+  if (!(s.startsWith('{') || s.startsWith('['))) {
+    const first = s.search(/[{[]/)
+    const lastObj = s.lastIndexOf('}')
+    const lastArr = s.lastIndexOf(']')
+    const last = Math.max(lastObj, lastArr)
+    if (first !== -1 && last > first) s = s.slice(first, last + 1).trim()
+  }
+  return s
+}

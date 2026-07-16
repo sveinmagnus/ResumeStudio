@@ -9,6 +9,8 @@ import {
 } from '../../lib/bulkImport'
 import { useStore } from '../../store/useStore'
 import { useDialog } from './useDialog'
+import { AssistRun } from './AssistRun'
+import { extractJson } from '../../lib/llmAssist'
 
 interface BulkImportModalProps {
   spec: BulkSectionSpec
@@ -40,6 +42,9 @@ export function BulkImportModal({ spec, onClose }: BulkImportModalProps) {
   const replaceData = useStore((s) => s.replaceData)
 
   const [jsonText, setJsonText] = useState('')
+  // Source material for the in-app run. The manual path doesn't use it — the
+  // user pastes their source straight into their own AI.
+  const [source, setSource] = useState('')
   const [issues, setIssues] = useState<BulkImportIssue[]>([])
   const [parseError, setParseError] = useState<string | null>(null)
   const [staged, setStaged] = useState<Staged | null>(null)
@@ -79,7 +84,9 @@ export function BulkImportModal({ spec, onClose }: BulkImportModalProps) {
   // ── Step 2: validate + stage the pasted JSON ──────────────────────────────
   const validate = useCallback((text: string) => {
     reset()
-    const trimmed = text.trim()
+    // Tolerate ```json fences / a chatty preamble — models add them whatever the
+    // instructions say, and a pasted reply usually carries them too.
+    const trimmed = extractJson(text)
     if (!trimmed) { setParseError('Paste the JSON your LLM produced, or choose a .json file.'); return }
 
     let json: unknown
@@ -229,10 +236,32 @@ export function BulkImportModal({ spec, onClose }: BulkImportModalProps) {
           <div className="bim-body">
             <p className="bim-lede">
               Add many {spec.label.toLowerCase()} at once. Give the instructions below to your
-              own AI (Claude, ChatGPT, Gemini, a local model…) along with your source material —
-              a CV, a project list, an export from another system — and paste back what it returns.
-              Nothing is sent to any server here.
+              own AI along with your source material — a CV, a project list, an export from
+              another system — or, if you've configured a model in Settings, let the app run it
+              for you.
             </p>
+
+            {/* The app has no source material of its own, so Run needs it pasted
+                here. Empty → no Run (nothing to send); the manual steps below
+                never depend on it. */}
+            <div className="bim-source">
+              <div className="bim-step-title">Your source material</div>
+              <textarea
+                className="bim-textarea"
+                placeholder="Paste the CV text / project list / export to read items from…"
+                value={source}
+                aria-label="Source material"
+                onChange={(e) => setSource(e.target.value)}
+              />
+              <AssistRun
+                buildPrompt={() => `${instructions}\n\n---\n\nSOURCE MATERIAL:\n\n${source}`}
+                onResult={validate}
+                wholeCv
+                disabled={!source.trim()}
+                label={`Extract ${spec.label.toLowerCase()}`}
+                maxTokens={4096}
+              />
+            </div>
 
             <ol className="bim-steps">
               <li>
@@ -332,6 +361,13 @@ export function BulkImportModal({ spec, onClose }: BulkImportModalProps) {
         .bim-body { overflow-y: auto; margin-top: 8px; }
         .bim-lede { font-size: 13px; color: var(--ink-soft); line-height: 1.55; margin-bottom: 16px; }
 
+        /* In-app run: paste the source material and let the configured model do it. */
+        .bim-source {
+          display: flex; flex-direction: column; gap: 8px;
+          padding: 12px; margin-bottom: 14px;
+          background: var(--paper-sunken); border: 1px solid var(--line);
+          border-radius: var(--r-md);
+        }
         .bim-steps { list-style: none; counter-reset: step; display: flex; flex-direction: column; gap: 16px; }
         .bim-steps > li { counter-increment: step; position: relative; padding-left: 34px; }
         .bim-steps > li::before {

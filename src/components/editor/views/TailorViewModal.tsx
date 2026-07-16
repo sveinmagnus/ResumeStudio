@@ -6,6 +6,8 @@ import {
   InvalidTailorResponseError, type TailorIssue, type TailorResult,
 } from '../../../lib/viewTailor'
 import { useDialog } from '../../ui/useDialog'
+import { AssistRun } from '../../ui/AssistRun'
+import { extractJson } from '../../../lib/llmAssist'
 
 interface TailorViewModalProps {
   /** Add the tailored view to the store and open it. */
@@ -47,7 +49,9 @@ export function TailorViewModal({ onApply, onClose }: TailorViewModalProps) {
 
   const validate = useCallback((text: string) => {
     setIssues([]); setParseError(null); setResult(null)
-    const trimmed = text.trim()
+    // Tolerate ```json fences / "Here's the JSON:" preamble — models add them
+    // whatever the prompt says, and a pasted ChatGPT reply usually has them too.
+    const trimmed = extractJson(text)
     if (!trimmed) { setParseError('Paste the JSON your LLM produced.'); return }
     let json: unknown
     try {
@@ -139,26 +143,39 @@ export function TailorViewModal({ onApply, onClose }: TailorViewModalProps) {
                 value={posting}
                 onChange={(e) => setPosting(e.target.value)}
               />
-              <button className="tv-btn tv-btn-ghost" onClick={() => void copyPrompt()} disabled={!posting.trim()}>
-                {copied ? <Check size={14} /> : <Copy size={14} />} {copied ? 'Copied' : 'Copy prompt for your LLM'}
-              </button>
               <p className="tv-hint">
                 The prompt bundles the posting with a compact catalog of this CV
-                (titles only) and the response format. Run it in any LLM you trust.
+                (titles only) and the response format.
               </p>
             </div>
+
+            {/* Step 2 is either "let the configured model do it" or the manual
+                copy/paste it always was — AssistRun owns that choice and the
+                privacy line that goes with it. */}
             <div className="tv-step">
-              <div className="tv-step-label">2 · Paste the JSON the LLM returned</div>
-              <textarea
-                className="tv-textarea"
-                rows={6}
-                placeholder='{"$schema": "resumestudio-tailor/v1", …}'
-                value={responseText}
-                onChange={(e) => setResponseText(e.target.value)}
-              />
-              <button className="tv-btn tv-btn-primary" onClick={() => validate(responseText)} disabled={!responseText.trim()}>
-                Review proposal
-              </button>
+              <div className="tv-step-label">2 · Get the proposal</div>
+              <AssistRun
+                buildPrompt={() => buildTailorPrompt(data, posting, primaryLocale)}
+                onResult={validate}
+                wholeCv
+                disabled={!posting.trim()}
+                label="Tailor this view"
+              >
+                <button className="tv-btn tv-btn-ghost" onClick={() => void copyPrompt()} disabled={!posting.trim()}>
+                  {copied ? <Check size={14} /> : <Copy size={14} />} {copied ? 'Copied' : 'Copy prompt for your LLM'}
+                </button>
+                <textarea
+                  className="tv-textarea"
+                  rows={6}
+                  placeholder='{"$schema": "resumestudio-tailor/v1", …}'
+                  value={responseText}
+                  onChange={(e) => setResponseText(e.target.value)}
+                  aria-label="JSON returned by your LLM"
+                />
+                <button className="tv-btn tv-btn-primary" onClick={() => validate(responseText)} disabled={!responseText.trim()}>
+                  Review proposal
+                </button>
+              </AssistRun>
               {parseError && <div className="tv-error" role="alert">{parseError}</div>}
               {issues.length > 0 && (
                 <div className="tv-error" role="alert">

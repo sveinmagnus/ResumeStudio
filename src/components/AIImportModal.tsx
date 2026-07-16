@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { Sparkles, X, Download, Copy, Check, Upload, AlertTriangle, FileCheck2 } from 'lucide-react'
 import {
   validateAIImport, importFromAIDraft, summarizeImportedStore,
@@ -6,6 +6,8 @@ import {
 } from '../lib/aiImport'
 import type { ResumeStore } from '../types'
 import { useDialog } from './ui/useDialog'
+import { AssistRun } from './ui/AssistRun'
+import { extractJson } from '../lib/llmAssist'
 
 /** Public path the app serves the bundled template from (Vite copies public/ → dist/). */
 const TEMPLATE_PATH = '/ai-import-template.md'
@@ -43,6 +45,19 @@ export function AIImportModal({ onImported, onClose }: AIImportModalProps) {
   const [copied, setCopied] = useState(false)
   const [creating, setCreating] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
+  // CV text for the in-app run, and the template that instructs the model. The
+  // template is the same bundled file the manual path downloads — one source.
+  const [source, setSource] = useState('')
+  const [template, setTemplate] = useState('')
+
+  useEffect(() => {
+    let alive = true
+    void fetch(TEMPLATE_PATH)
+      .then((r) => (r.ok ? r.text() : ''))
+      .then((t) => { if (alive) setTemplate(t) })
+      .catch(() => { /* Run stays disabled; the manual path is unaffected. */ })
+    return () => { alive = false }
+  }, [])
 
   const reset = () => { setIssues([]); setParseError(null); setParsed(null) }
 
@@ -67,7 +82,9 @@ export function AIImportModal({ onImported, onClose }: AIImportModalProps) {
   // ── Step 3: validate the pasted/dropped JSON ───────────────────────────────
   const validate = useCallback((text: string) => {
     reset()
-    const trimmed = text.trim()
+    // Tolerate ```json fences / a chatty preamble — models add them whatever the
+    // template says, and a pasted reply usually carries them too.
+    const trimmed = extractJson(text)
     if (!trimmed) { setParseError('Paste the JSON your LLM produced, or choose a .json file.'); return }
 
     let json: unknown
@@ -157,9 +174,36 @@ export function AIImportModal({ onImported, onClose }: AIImportModalProps) {
           // ── Input phase ────────────────────────────────────────────────
           <div className="aim-body">
             <p className="aim-lede">
-              Use your own AI (Claude, ChatGPT, Gemini, a local model…) to turn an existing
-              PDF or Word CV into a Resume Studio draft. Nothing is sent to any server here.
+              Turn an existing CV into a Resume Studio draft. Paste its text below to let a
+              configured model do it, or attach the original PDF/Word file to your own AI
+              using the template — whichever you prefer.
             </p>
+
+            {/* Run needs text: the app can't read a PDF, so the attach-the-file
+                route below stays a manual, bring-your-own-AI path by nature. */}
+            <div className="aim-source">
+              <div className="aim-step-title">Paste your CV text</div>
+              <textarea
+                className="aim-textarea"
+                placeholder="Paste the text of your existing CV here…"
+                value={source}
+                aria-label="CV text"
+                onChange={(e) => setSource(e.target.value)}
+              />
+              <AssistRun
+                buildPrompt={() => `${template}\n\n---\n\nCV TEXT:\n\n${source}`}
+                onResult={(text) => { setJsonText(text); validate(text) }}
+                wholeCv
+                disabled={!source.trim() || !template}
+                label="Build the draft"
+                maxTokens={4096}
+              />
+              {!template && (
+                <p className="aim-step-note">Loading the template…</p>
+              )}
+            </div>
+
+            <div className="aim-or">or attach the original file to your own AI:</div>
 
             <ol className="aim-steps">
               <li>
@@ -254,6 +298,17 @@ export function AIImportModal({ onImported, onClose }: AIImportModalProps) {
         .aim-body { overflow-y: auto; margin-top: 8px; }
         .aim-lede { font-size: 13px; color: var(--ink-soft); line-height: 1.55; margin-bottom: 16px; }
 
+        /* In-app run: paste the CV text and let the configured model do it. */
+        .aim-source {
+          display: flex; flex-direction: column; gap: 8px;
+          padding: 12px; margin-bottom: 14px;
+          background: var(--paper-sunken); border: 1px solid var(--line);
+          border-radius: var(--r-md);
+        }
+        .aim-or {
+          font-size: 12px; color: var(--ink-faint); text-transform: uppercase;
+          letter-spacing: .06em; font-weight: 600; margin-bottom: 12px;
+        }
         .aim-steps { list-style: none; counter-reset: step; display: flex; flex-direction: column; gap: 16px; }
         .aim-steps > li { counter-increment: step; position: relative; padding-left: 34px; }
         .aim-steps > li::before {

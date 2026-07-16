@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  paramsOf, inputBudget, estimateTokens, sizeHint, providerBlurb, isRemote,
+  paramsOf, inputBudget, estimateTokens, sizeHint, providerBlurb, isRemote, extractJson,
 } from '../src/lib/llmAssist'
 import type { AssistStatus } from '../src/lib/api'
 
@@ -91,5 +91,46 @@ describe('estimateTokens()', () => {
   it('scales with length', () => {
     expect(estimateTokens(3500)).toBe(1000)
     expect(estimateTokens(0)).toBe(0)
+  })
+})
+
+describe('extractJson()', () => {
+  const obj = '{"$schema":"resumestudio-tailor/v1","sections":[]}'
+
+  it('passes clean JSON straight through', () => {
+    expect(extractJson(obj)).toBe(obj)
+    expect(extractJson(`  ${obj}  `)).toBe(obj)
+  })
+
+  it('unwraps a ```json fence', () => {
+    expect(extractJson('```json\n' + obj + '\n```')).toBe(obj)
+  })
+
+  it('unwraps a bare ``` fence', () => {
+    expect(extractJson('```\n' + obj + '\n```')).toBe(obj)
+  })
+
+  it('drops a chatty preamble and sign-off', () => {
+    // What a small local model actually does, however firmly you ask it not to.
+    expect(extractJson(`Sure! Here's the JSON:\n${obj}\nLet me know if you need changes.`)).toBe(obj)
+  })
+
+  it('handles a fenced reply WITH a preamble', () => {
+    expect(extractJson('Here you go:\n```json\n' + obj + '\n```\nHope that helps!')).toBe(obj)
+  })
+
+  it('handles a top-level array', () => {
+    expect(extractJson('```json\n[1,2]\n```')).toBe('[1,2]')
+  })
+
+  it('leaves junk alone so the caller reports its own parse error', () => {
+    // No JSON to find → don't invent one; the user should see "not valid JSON".
+    expect(extractJson('I cannot help with that.')).toBe('I cannot help with that.')
+    expect(extractJson('')).toBe('')
+  })
+
+  it('keeps nested braces intact (outermost object wins)', () => {
+    const nested = '{"a":{"b":[{"c":1}]}}'
+    expect(extractJson(`text ${nested} more`)).toBe(nested)
   })
 })
