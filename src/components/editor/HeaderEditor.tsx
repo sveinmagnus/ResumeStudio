@@ -4,10 +4,10 @@ import { TextField } from '../ui/Fields'
 import { ImageField } from '../ui/ImageField'
 
 /**
- * Personal Details â€” the resume root's identity fields only
+ * Personal Details — the resume root's identity fields only
  * (name/contact/title/links/photo/company). The profile prose and key
- * competencies moved to their own sidebar page ("Profile & Competencies",
- * see ProfileCompetenciesEditor) â€” the old sub-tabs were a navigation
+ * competencies are their own sidebar sections ("Profile" and "Key
+ * competencies") — the old Personal Details sub-tabs were a navigation
  * pattern nothing else in the app used.
  */
 export function HeaderEditor() {

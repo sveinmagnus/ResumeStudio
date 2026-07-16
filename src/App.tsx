@@ -9,12 +9,11 @@ import { Sidebar } from './components/layout/Sidebar'
 import { SECTIONS, canonicalSectionKey } from './lib/sections'
 import { Overview } from './components/editor/Overview'
 import { HeaderEditor } from './components/editor/HeaderEditor'
-import { ProfileCompetenciesEditor } from './components/editor/ProfileCompetenciesEditor'
 import { ProjectsEditor } from './components/editor/ProjectsEditor'
 import {
   WorkEditor, EducationEditor, CoursesEditor, CertificationsEditor,
   PositionsEditor, PresentationsEditor, PublicationsEditor, AwardsEditor,
-  SpokenLanguagesEditor, RecommendationsEditor,
+  SpokenLanguagesEditor, RecommendationsEditor, ProfileEditor, KeyCompetenciesEditor,
 } from './components/editor/SimpleEditors'
 import { SkillsEditor, RolesEditor, IndustriesEditor, ReferencesEditor } from './components/editor/RegistryEditors'
 import { ResumeViewsEditor } from './components/editor/ResumeViewsEditor'
@@ -97,7 +96,11 @@ function EditorRoute({ resumeId, routeSection, routeViewId, onUnauthorized }: {
   useEffect(() => {
     if (!hasData) return // reconcile once the resume is in memory
     const st = useStore.getState()
-    const section = routeSection ?? 'overview'
+    // Canonicalize first so legacy/alias keys (e.g. the old combined
+    // 'profile_competencies') resolve to a real section instead of bouncing to
+    // the default. The store→URL effect then rewrites the URL to the canonical
+    // key, so the address bar self-heals.
+    const section = canonicalSectionKey(routeSection ?? 'overview')
     if (!SECTIONS.some((s) => s.key === section)) {
       navigate({ name: 'editor', id: resumeId }, { replace: true })
       return
@@ -182,10 +185,9 @@ function EditorRoute({ resumeId, routeSection, routeViewId, onUnauthorized }: {
   }
 
   // ── Main editor shell ────────────────────────────────────────────────────
-  // 'key_qualifications' and 'key_competencies' are edited on the combined
-  // "Profile & Competencies" page, so the breadcrumb/title shows that page
-  // while the section key may be a content key (Overview's missing-field
-  // deep link uses 'key_qualifications').
+  // Profile and Key competencies are now separate sidebar sections; the legacy
+  // combined 'profile_competencies' key still resolves (to Profile) via
+  // canonicalSectionKey so old deep links / snapshots don't 404.
   const section = SECTIONS.find((s) => s.key === canonicalSectionKey(activeSection))
 
   return (
@@ -223,9 +225,8 @@ function EditorRoute({ resumeId, routeSection, routeViewId, onUnauthorized }: {
           <ErrorBoundary resetKey={activeSection}>
             {activeSection === 'overview'              && <Overview />}
             {activeSection === 'header'                && <HeaderEditor />}
-            {(activeSection === 'profile_competencies' ||
-              activeSection === 'key_qualifications' ||
-              activeSection === 'key_competencies')    && <ProfileCompetenciesEditor />}
+            {activeSection === 'key_qualifications'    && <ProfileEditor />}
+            {activeSection === 'key_competencies'      && <KeyCompetenciesEditor />}
             {activeSection === 'projects'              && <ProjectsEditor />}
             {activeSection === 'work_experiences'      && <WorkEditor />}
             {activeSection === 'positions'             && <PositionsEditor />}

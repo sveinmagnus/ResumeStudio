@@ -156,8 +156,8 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps = {}) {
                   )
                 }
 
-                // Alias-aware: the legacy profile content keys highlight the
-                // combined Profile & Competencies item.
+                // Alias-aware: the legacy 'profile_competencies' key highlights
+                // the Profile item (see canonicalSectionKey).
                 const active = canonicalSectionKey(activeSection) === s.key
                 return (
                   <button

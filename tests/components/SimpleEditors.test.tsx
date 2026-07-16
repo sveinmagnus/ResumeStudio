@@ -8,7 +8,7 @@ import type { ComponentType } from 'react'
 import {
   WorkEditor, EducationEditor, CertificationsEditor, PositionsEditor,
   PresentationsEditor, PublicationsEditor, AwardsEditor, SpokenLanguagesEditor,
-  ProfileEditor, RecommendationsEditor,
+  ProfileEditor, KeyCompetenciesEditor, RecommendationsEditor,
 } from '../../src/components/editor/SimpleEditors'
 import { useStore } from '../../src/store/useStore'
 import { resetStore } from '../helpers/store-reset'
@@ -39,6 +39,7 @@ const ADD_CASES: { name: string; Comp: ComponentType; section: SectionKey; addLa
   { name: 'AwardsEditor', Comp: AwardsEditor, section: 'honor_awards', addLabel: /add award/i },
   { name: 'SpokenLanguagesEditor', Comp: SpokenLanguagesEditor, section: 'spoken_languages', addLabel: /add language/i },
   { name: 'ProfileEditor', Comp: ProfileEditor, section: 'key_qualifications', addLabel: /add profile block/i },
+  { name: 'KeyCompetenciesEditor', Comp: KeyCompetenciesEditor, section: 'key_competencies', addLabel: /add competency/i },
 ]
 
 describe('SimpleEditors — add behaviour', () => {

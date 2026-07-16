@@ -216,7 +216,7 @@ describe('<ItemSelectTools>', () => {
     })
 
     it('renders radios and shows no bulk tools', async () => {
-      const row = await openSection(/^expand professional summary settings$/i)
+      const row = await openSection(/^expand profile settings$/i)
       expect(row.querySelector('input[type="radio"]')).toBeInTheDocument()
       expect(row.querySelector('input[type="checkbox"].rv-item-check')).toBeNull()
       // No All/None for a single-select section.
@@ -224,7 +224,7 @@ describe('<ItemSelectTools>', () => {
     })
 
     it('picking one block excludes every other', async () => {
-      const row = await openSection(/^expand professional summary settings$/i)
+      const row = await openSection(/^expand profile settings$/i)
       const radios = row.querySelectorAll('input[type="radio"]')
       await userEvent.click(radios[1] as HTMLElement)
       // k2 kept, k1 excluded.

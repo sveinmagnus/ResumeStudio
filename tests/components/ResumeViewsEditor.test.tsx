@@ -107,7 +107,7 @@ describe('<ResumeViewsEditor>', () => {
     seed()
     render(<ResumeViewsEditor />)
     await userEvent.click(screen.getByRole('button', { name: /new view/i }))
-    const row = screen.getByText('Professional summary').closest('.rv-sec-row') as HTMLElement
+    const row = screen.getByText('Profile').closest('.rv-sec-row') as HTMLElement
     const names = within(row).getAllByRole('radio').map((r) => r.textContent)
     expect(names).toEqual(['Off', 'Summary', 'Full'])
   })

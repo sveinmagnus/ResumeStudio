@@ -8,9 +8,9 @@ export interface SectionDef {
   group: 'profile' | 'experience' | 'credentials' | 'extras' | 'registry' | 'export'
   /**
    * Hide from the sidebar nav but keep in SECTIONS so other consumers
-   * (view export, completeness coverage, importer) still see it.
-   * Used by `key_qualifications` which now lives inside the Personal
-   * Details Profile sub-tab.
+   * (view export, completeness coverage, importer) still see it. Used by the
+   * synthetic/virtual sections (promoted_projects, technology_categories,
+   * skill_matrix) that are export-only, not editable pages.
    */
   hidden?: boolean
   /**
@@ -25,14 +25,13 @@ export interface SectionDef {
 export const SECTIONS: SectionDef[] = [
   { key: 'overview', label: 'Overview', icon: 'LayoutDashboard', group: 'profile' },
   { key: 'header', label: 'Personal Details', icon: 'User', group: 'profile' },
-  // The combined editor page for the two profile content sections below.
-  // No storeKey — it owns no array itself, so it can never leak into view
-  // configs (isExportableSection requires a storeKey).
-  { key: 'profile_competencies', label: 'Profile & Competencies', icon: 'FileText', group: 'profile' },
-  // Kept (hidden) so views/exports/coverage still discover the content
-  // sections; both are EDITED on the Profile & Competencies page.
-  { key: 'key_qualifications', label: 'Professional summary', storeKey: 'key_qualifications', icon: 'FileText', group: 'profile', hidden: true },
-  { key: 'key_competencies', label: 'Key competencies', storeKey: 'key_competencies', icon: 'ListChecks', group: 'profile', hidden: true },
+  // Profile and Key competencies are two separate sidebar sections (each owns
+  // its own store array, its own editor page, and its own per-view config).
+  // The sidebar label for the profile section is "Profile"; its EXPORT heading
+  // stays "Professional summary" (SECTION_HEADINGS) so client-facing documents
+  // are unchanged — the two intentionally differ here.
+  { key: 'key_qualifications', label: 'Profile', storeKey: 'key_qualifications', icon: 'FileText', group: 'profile' },
+  { key: 'key_competencies', label: 'Key competencies', storeKey: 'key_competencies', icon: 'ListChecks', group: 'profile' },
 
   { key: 'projects', label: 'Projects', storeKey: 'projects', icon: 'Briefcase', group: 'experience' },
   // View-only: renders the starred subset of `projects` as a "Promoted Projects" section.
@@ -85,11 +84,11 @@ export const GROUP_ORDER: Array<SectionDef['group']> = [
 ]
 
 /**
- * Some section keys are *aliases* of a visible page: the two profile content
- * sections are edited on the combined "Profile & Competencies" page, but
- * deep links (Overview's missing-field drill-down, completeness coverage,
- * old bookmarked URLs) still target the content keys. Chrome (breadcrumb,
- * title) and the sidebar's active highlight normalise through this.
+ * A couple of section keys are *aliases* of a visible page. The only remaining
+ * one is the legacy combined 'profile_competencies' key (the profile + key
+ * competencies sections used to share one page); old deep links and snapshots
+ * still target it, so chrome and the sidebar's active highlight normalise it to
+ * the Profile section through this.
  */
 /**
  * The canonical display title for a section key — the SINGLE source used by the
@@ -239,7 +238,10 @@ export function localizedSectionHeading(key: string, locale: string): string {
 }
 
 export function canonicalSectionKey(key: string): string {
-  if (key === 'key_qualifications' || key === 'key_competencies') return 'profile_competencies'
+  // Back-compat: the profile + competencies sections used to share a combined
+  // 'profile_competencies' page. That key no longer exists as a section, so old
+  // deep links / snapshots that reference it land on the Profile section.
+  if (key === 'profile_competencies') return 'key_qualifications'
   // The Skills Showcase is now edited on the Skill Registry page (a category +
   // highlight is all it takes to appear there) — old deep links and the
   // Overview stat pill land there.
