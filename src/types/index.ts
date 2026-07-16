@@ -577,6 +577,17 @@ export type DateFormat =
  */
 export type DividerStyle = 'line' | 'thick' | 'dashed' | 'dotted' | 'double' | 'short' | 'space'
 
+/**
+ * The glyph drawn before each item heading when item bullets are on. Purely
+ * cosmetic; the concrete character each maps to lives in lib/viewStyle.ts
+ * (`bulletGlyph`) so every render path uses the same one.
+ *  - disc   — • (default)
+ *  - dash   — –
+ *  - arrow  — ›
+ *  - square — ▪
+ */
+export type BulletStyle = 'disc' | 'dash' | 'arrow' | 'square'
+
 /** View-wide styling defaults — applied unless a section overrides. */
 export interface ViewStyle {
   density: Density
@@ -618,6 +629,14 @@ export interface ViewStyle {
   date_format?: DateFormat
   /** Show the section's icon before its heading, view-wide (default false). */
   section_icons?: boolean
+  /**
+   * Draw a bullet glyph before each item heading, view-wide, with the item's
+   * content hang-indented to line up under the heading (default false).
+   * Additive — absent reads as off, so existing exports are unchanged.
+   */
+  item_bullets?: boolean
+  /** View-wide bullet glyph (default 'disc'). Additive. */
+  bullet_style?: BulletStyle
 }
 
 /**
@@ -654,6 +673,10 @@ export interface SectionStyle {
   item_divider?: boolean
   /** Override the divider style for this section. Undefined = inherit the view default. */
   divider_style?: DividerStyle
+  /** Override item bullets for this section. Undefined = inherit the view default. */
+  item_bullets?: boolean
+  /** Override the bullet glyph for this section. Undefined = inherit the view default. */
+  bullet_style?: BulletStyle
   /** Order of a summary line's slots for this section (overrides the view default). */
   summary_layout?: SummaryLayout
   /**

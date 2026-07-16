@@ -1,4 +1,4 @@
-import type { SectionStyle, SectionDetail, Density, TagStyle, DividerStyle, SummaryLayout, FullLayout, DateFormat, LocalizedString, SortMode } from '../../../types'
+import type { SectionStyle, SectionDetail, Density, TagStyle, DividerStyle, SummaryLayout, FullLayout, DateFormat, BulletStyle, LocalizedString, SortMode } from '../../../types'
 import { Sliders, RotateCcw } from 'lucide-react'
 import { availableSortModes, SORT_LABELS } from '../../../lib/sectionSort'
 import { DualField } from '../../ui/DualField'
@@ -28,6 +28,14 @@ export const DATE_FORMAT_OPTIONS: Array<[DateFormat, string]> = [
   ['month-year-num', 'Month/Year numeric (03/2021)'],
   ['year-month-num', 'Year/Month numeric (2021/03)'],
   ['year-only',      'Year only (2021)'],
+]
+// Bullet glyph options — the label shows the actual glyph so the picker is a
+// visual preview. Shared with the view-wide controls.
+export const BULLET_STYLE_OPTIONS: Array<[BulletStyle, string]> = [
+  ['disc',   '• Dot'],
+  ['dash',   '– Dash'],
+  ['arrow',  '› Arrow'],
+  ['square', '▪ Square'],
 ]
 
 // Sections whose items actually render skill tags — the only place a per-section
@@ -282,6 +290,25 @@ export function SectionStylePanel({ sectionKey, detail, style, onChange, onReset
               <option value="dotted">Dotted</option>
               <option value="double">Double</option>
               <option value="space">Space only</option>
+            </select>
+          </div>
+          <div className="rv-sel">
+            <span>Item bullets</span>
+            <select
+              aria-label="Section item-bullet override"
+              value={s.item_bullets === undefined ? '' : (s.item_bullets ? (s.bullet_style ?? 'disc') : 'off')}
+              onChange={(e) => {
+                const v = e.target.value
+                if (v === '') onChange({ item_bullets: undefined, bullet_style: undefined })
+                else if (v === 'off') onChange({ item_bullets: false, bullet_style: undefined })
+                else onChange({ item_bullets: true, bullet_style: v as BulletStyle })
+              }}
+            >
+              <option value="">— view default —</option>
+              <option value="off">None</option>
+              {BULLET_STYLE_OPTIONS.map(([v, label]) => (
+                <option key={v} value={v}>{label}</option>
+              ))}
             </select>
           </div>
           <div className="rv-sel">

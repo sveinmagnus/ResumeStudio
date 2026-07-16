@@ -100,6 +100,16 @@ prescriptive.
   (`lib/viewText.ts`). A **live preview pane** in the view editor re-renders
   the document as you tune it (iframe + page-count estimate). All render
   paths share the **section-descriptor catalog** (`lib/sectionCatalog.ts`).
+- **Item bullets** (opt-in, `viewStyle.item_bullets` + `bullet_style`): a glyph
+  (• – › ▪) before each item heading with the item's content **hang-indented**
+  to line up under the heading, not the bullet. View-wide default + per-section
+  override (inherit / off / glyph), resolved like `item_divider`. Off by default
+  so existing exports are byte-identical. Implemented in all four adapters —
+  HTML (2-column flex), PDF (columns node), DOCX (hanging indent + glyph/tab),
+  ATS text (glyph prefix + 2-space indent; Markdown keeps its own `###`
+  structure). Full-item layouts only — summary lines, the skill-matrix table and
+  the quote/inline layouts are excluded. Helps heading-only sections (Key
+  Competencies) read as a list rather than a flat wall.
 - **Bulk item selection** in a section's expanded item list
   (`ItemSelectTools` over pure `lib/viewItemSelect.ts`): **All / None** for
   long sections, plus **tri-state type chips** for sections whose items carry a

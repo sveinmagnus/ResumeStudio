@@ -14,6 +14,7 @@ import {
   makeKeyCompetency, makeRecommendation, makeSkill, makeSkillCategory,
 } from './fixtures'
 import { withHeaderDefaults, withFooterDefaults } from '../src/lib/viewHeader'
+import { DEFAULT_VIEW_STYLE } from '../src/lib/viewStyle'
 
 // A real 1x1 PNG (valid bytes so the exporter's image parser embeds it).
 const PNG_1x1 =
@@ -74,6 +75,22 @@ describe('exportDocx()', () => {
     // Central directory carries filenames in plaintext — easy to grep for.
     expect(await blobContains(lastBlob!, 'word/document.xml')).toBe(true)
     expect(await blobContains(lastBlob!, '[Content_Types].xml')).toBe(true)
+  })
+
+  it('exports a valid docx with item bullets enabled (smoke)', async () => {
+    // The glyph/indent detail is pinned in the HTML + text tests; here we only
+    // guard that the DOCX adapter's bullet path builds a real document rather
+    // than throwing (the payload is deflated, so byte-grepping the glyph is
+    // unreliable).
+    const store = emptyStore()
+    store.projects.push(makeProject({ customer: { en: 'Acme' }, long_description: { en: '<p>Work</p>' } }))
+    const view = makeView({
+      sections: [{ key: 'projects', detail: 'full', sort_order: 0 }],
+      style: { ...DEFAULT_VIEW_STYLE, item_bullets: true, bullet_style: 'square' },
+    })
+    await exportDocx(store, view, 'en')
+    expect(await isZip(lastBlob!)).toBe(true)
+    expect(lastBlob!.size).toBeGreaterThan(0)
   })
 
   it('produces a larger document when there is more content', async () => {

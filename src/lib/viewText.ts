@@ -21,7 +21,7 @@ import { skillMatrixRows, fmtLastUsed, fmtProficiency } from './skillMatrix'
 import { xs, fmtYears } from './exportStrings'
 import { showcaseGroups } from './showcase'
 import { sortItems } from './sectionSort'
-import { resolveSectionStyle, sectionHeadingText, kqVisibility, withDefaults } from './viewStyle'
+import { resolveSectionStyle, sectionHeadingText, kqVisibility, bulletGlyph, withDefaults } from './viewStyle'
 import { withHeaderDefaults, withFooterDefaults, buildHeaderLines, buildCopyrightLine } from './viewHeader'
 import { parseRichBlocks, type RichRun } from './richText'
 import { resolve } from './locales'
@@ -58,7 +58,7 @@ function summaryLine(title: string, meta: string, sep: '—' | ':', fmt: Format)
   return sep === ':' ? `- ${t}: ${meta}` : `- ${t} — ${meta}`
 }
 
-function renderItemLines(v: ItemView, fmt: Format): string[] {
+function renderItemLines(v: ItemView, fmt: Format, bullet: string | null = null): string[] {
   const md = fmt === 'markdown'
   const lines: string[] = []
   // The catalog now keeps the date separate from `meta` (so the HTML preview can
@@ -86,6 +86,13 @@ function renderItemLines(v: ItemView, fmt: Format): string[] {
     lines.push(`- ${label}${body}`)
   }
   if (v.tags.length) lines.push(`${v.tagsLabel || ''}${v.tags.join(', ')}`)
+
+  // Plain-text bullets: prefix the first line with the glyph and hang-indent the
+  // rest so they line up under the heading. Markdown keeps its own structure
+  // (a glyph before `### Title` would break the heading), so it's text-only.
+  if (bullet && fmt === 'text' && lines.length) {
+    return [`${bullet} ${lines[0]}`, ...lines.slice(1).map((l) => `  ${l}`)]
+  }
   return lines
 }
 
@@ -197,7 +204,7 @@ function buildViewDoc(store: ResumeStore, view: ResumeView, locale: string, fmt:
       }
       const v = desc.full?.(item, cctx)
       if (!v) continue
-      const lines = renderItemLines(v, fmt)
+      const lines = renderItemLines(v, fmt, resolved.item_bullets ? bulletGlyph(resolved) : null)
       if (lines.length) { body.push(...lines); body.push('') }
     }
     while (body.length && body[body.length - 1] === '') body.pop()

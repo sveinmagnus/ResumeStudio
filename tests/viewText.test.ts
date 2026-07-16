@@ -5,6 +5,7 @@
 import { describe, it, expect } from 'vitest'
 import { buildViewText, buildViewMarkdown } from '../src/lib/viewText'
 import { buildViewSections } from '../src/lib/viewFilter'
+import { DEFAULT_VIEW_STYLE } from '../src/lib/viewStyle'
 import {
   emptyStore, makeProject, makeWork, makeReference, makeRecommendation,
   makeSpokenLanguage, makeView, makeKQ, makeSkill, makeSkillCategory,
@@ -50,6 +51,34 @@ describe('buildViewText', () => {
   it('contains no HTML tags at all', () => {
     const txt = buildViewText(sampleStore(), makeView({ sections: buildViewSections() }), 'en')
     expect(txt).not.toMatch(/<[a-z][^>]*>/i)
+  })
+
+  describe('item bullets', () => {
+    const projectsFull = () => buildViewSections().map((s) =>
+      s.key === 'projects' ? { ...s, detail: 'full' as const } : s)
+
+    it('prefixes the item heading with the glyph and hang-indents the rest', () => {
+      const view = makeView({ sections: projectsFull(), style: { ...DEFAULT_VIEW_STYLE, item_bullets: true, bullet_style: 'disc' } })
+      const txt = buildViewText(sampleStore(), view, 'en')
+      // Heading gains the glyph…
+      expect(txt).toContain('• AcmeCo')
+      // …and a following content line is indented two spaces to line up.
+      expect(txt).toMatch(/\n {2}Built the platform/)
+    })
+
+    it('is absent by default', () => {
+      const view = makeView({ sections: projectsFull() })
+      const txt = buildViewText(sampleStore(), view, 'en')
+      expect(txt).not.toContain('• AcmeCo')
+      expect(txt).toContain('AcmeCo')
+    })
+
+    it('markdown keeps its own structure (no glyph before ###)', () => {
+      const view = makeView({ sections: projectsFull(), style: { ...DEFAULT_VIEW_STYLE, item_bullets: true } })
+      const md = buildViewMarkdown(sampleStore(), view, 'en')
+      expect(md).toContain('### AcmeCo')
+      expect(md).not.toContain('• ### AcmeCo')
+    })
   })
 
   it('renders summary sections as one-line dashes', () => {

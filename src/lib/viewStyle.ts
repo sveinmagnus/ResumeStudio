@@ -16,7 +16,7 @@
 
 import type {
   ViewStyle, SectionStyle, Density, BodySize, PageMargin, TagStyle, DividerStyle,
-  SummaryLayout, FullLayout, DateFormat, LocalizedString,
+  SummaryLayout, FullLayout, DateFormat, LocalizedString, BulletStyle,
 } from '../types'
 import {
   fontById, resolveFontId, CATALOG_DEFAULT_FONTS,
@@ -44,6 +44,8 @@ export const DEFAULT_VIEW_STYLE: ViewStyle = {
   tag_style: 'chips',
   item_divider: true,
   divider_style: 'line',
+  item_bullets: false,
+  bullet_style: 'disc',
 }
 
 /**
@@ -231,6 +233,10 @@ export interface ResolvedSectionStyle extends ViewStyle {
   hide_dates: boolean
   item_divider: boolean
   divider_style: DividerStyle
+  /** Draw a bullet before each item heading (resolved: section → view → false). */
+  item_bullets: boolean
+  /** The bullet glyph (resolved: section → view → 'disc'). */
+  bullet_style: BulletStyle
   /** Custom heading text (localized), or undefined to use the section label. */
   heading_text?: LocalizedString
   /** Summary-line slot order (resolved: section → view → 'date-title-org'). */
@@ -297,6 +303,23 @@ export function kqVisibility(
 }
 
 /**
+ * The concrete character for each bullet style. One source so HTML, PDF, DOCX
+ * and ATS-text all draw the same glyph. All four are single BMP characters that
+ * exist in the standard PDF/DOCX fonts, so no font embedding is needed.
+ */
+const BULLET_GLYPHS: Record<BulletStyle, string> = {
+  disc: '•',   // •
+  dash: '–',   // –
+  arrow: '›',  // ›
+  square: '▪', // ▪
+}
+
+/** The glyph a resolved section style draws before each item heading. */
+export function bulletGlyph(r: { item_bullets: boolean; bullet_style: BulletStyle }): string {
+  return BULLET_GLYPHS[r.bullet_style] ?? BULLET_GLYPHS.disc
+}
+
+/**
  * The heading text a section should render: the custom localized override when
  * set, else the canonical section label. All render paths (HTML/PDF, DOCX,
  * text) go through this so a view's custom heading is applied consistently.
@@ -338,6 +361,9 @@ export function resolveSectionStyle(
     // Divider: section override → view-wide default → on/'line'.
     item_divider: section?.item_divider ?? view.item_divider ?? true,
     divider_style: section?.divider_style ?? view.divider_style ?? 'line',
+    // Bullets: section override → view-wide default → off/'disc'.
+    item_bullets: section?.item_bullets ?? view.item_bullets ?? false,
+    bullet_style: section?.bullet_style ?? view.bullet_style ?? 'disc',
     hide_heading: section?.hide_heading ?? false,
     hide_dates: section?.hide_dates ?? false,
     heading_text: section?.heading_text,

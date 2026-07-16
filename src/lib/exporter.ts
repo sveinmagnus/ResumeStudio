@@ -35,7 +35,7 @@ import { applyView, isExportableSection, defaultViewDetail, promotedProjectItems
 import { sortItems } from './sectionSort'
 import { showcaseGroups } from './showcase'
 import { parseRichBlocks, type RichRun } from './richText'
-import { deriveTokens, resolveSectionStyle, sectionHeadingText, kqVisibility, withDefaults, withResolvedFonts, resolveFontDocx, type ResolvedSectionStyle, type StyleTokens } from './viewStyle'
+import { deriveTokens, resolveSectionStyle, sectionHeadingText, kqVisibility, bulletGlyph, withDefaults, withResolvedFonts, resolveFontDocx, type ResolvedSectionStyle, type StyleTokens } from './viewStyle'
 import type { GlobalFonts } from './fonts'
 import { withHeaderDefaults, withFooterDefaults, buildHeaderLines, buildCopyrightLine, footerLines } from './viewHeader'
 import { imageInfoFromDataUrl, applyShapeMaskToDataUrl, type ImageInfo } from './image'
@@ -61,11 +61,16 @@ function L(ls: LocalizedString | undefined, locale: string): string {
   return resolve(ls, locale)
 }
 
-interface PStyle { italic?: boolean; bold?: boolean; color?: string; after?: number; before?: number }
+interface PStyle {
+  italic?: boolean; bold?: boolean; color?: string; after?: number; before?: number
+  /** Paragraph left / hanging indent in twips (used by the item-bullet layout). */
+  indent?: { left?: number; hanging?: number }
+}
 
 function para(text: string, ctx: ExportCtx, opts: PStyle = {}): Paragraph {
   return new Paragraph({
     spacing: { before: opts.before, after: opts.after ?? 60 },
+    indent: opts.indent,
     children: [new TextRun({
       text,
       italics: opts.italic,
@@ -92,6 +97,7 @@ function richParagraphs(html: string, ctx: ExportCtx, opts: PStyle = {}): Paragr
     if (block.kind === 'paragraph') {
       out.push(new Paragraph({
         spacing: { before: opts.before, after: opts.after ?? 60 },
+        indent: opts.indent,
         children: runs,
       }))
       continue
@@ -99,7 +105,7 @@ function richParagraphs(html: string, ctx: ExportCtx, opts: PStyle = {}): Paragr
     const marker = block.ordered ? `${block.index}. ` : '• '
     out.push(new Paragraph({
       spacing: { after: 30 },
-      indent: { left: 360 + block.level * 360 },
+      indent: { left: (opts.indent?.left ?? 0) + 360 + block.level * 360 },
       children: [
         new TextRun({ text: marker, font: ctx.tokens.bodyFontDocx, color: opts.color, size: fontSize }),
         ...runs,
@@ -479,13 +485,13 @@ function renderSection(key: string, label: string, items: unknown[], ctx: Export
       continue
     }
     const v = desc.full?.(it, cctx)
-    if (v) out.push(...renderItemDocx(v, ctx))
+    if (v) out.push(...renderItemDocx(v, ctx, ctx.resolved.item_bullets ? bulletGlyph(ctx.resolved) : null))
   }
   return wrap(label, out, ctx)
 }
 
 /** Lay out one catalog ItemView as DOCX paragraphs. All text rides in TextRun (XML-escaped by docx). */
-function renderItemDocx(v: ItemView, ctx: ExportCtx): Paragraph[] {
+function renderItemDocx(v: ItemView, ctx: ExportCtx, bullet: string | null = null): Paragraph[] {
   const sz = ctx.tokens.bodyFontSizePt * 2
   const font = ctx.tokens.bodyFontDocx
   const out: Paragraph[] = []
@@ -513,11 +519,21 @@ function renderItemDocx(v: ItemView, ctx: ExportCtx): Paragraph[] {
     return out
   }
 
+  // Item bullets (opt-in): a hanging indent puts the glyph in the margin and
+  // indents every content paragraph so it lines up under the heading. `IND` is
+  // ~0.18". The glyph rides the title line via a leading run + tab; with no
+  // title (rare — only a heading-less profile block) the content is still
+  // indented, just without a glyph.
+  const IND = bullet ? 260 : 0
+  const bodyIndent = IND ? { left: IND } : undefined
+
   if (v.title) {
     const titleSize = v.titleStyle === 'large' ? (ctx.tokens.h3Pt + 1) * 2 : sz
     out.push(new Paragraph({
       spacing: { before: v.spacingBefore || undefined, after: 40 },
+      indent: IND ? { left: IND, hanging: IND } : undefined,
       children: [
+        ...(bullet ? [new TextRun({ text: `${bullet}\t`, bold: true, size: titleSize, font })] : []),
         new TextRun({ text: v.title, bold: true, size: titleSize, font }),
         ...(v.date ? [new TextRun({
           text: `   ${v.date}`, size: ctx.tokens.smallFontSizePt * 2, color: FAINT_HEX, font,
@@ -526,14 +542,15 @@ function renderItemDocx(v: ItemView, ctx: ExportCtx): Paragraph[] {
     }))
   }
   const metaTxt = v.meta.filter(Boolean).join(' · ')
-  if (metaTxt) out.push(para(metaTxt, ctx, { italic: true, color: SUBTLE_HEX, after: 80 }))
-  if (v.plainBody) out.push(para(v.plainBody, ctx, { after: 80 }))
-  if (v.body) out.push(...richParagraphs(v.body, ctx, { after: 100 }))
+  if (metaTxt) out.push(para(metaTxt, ctx, { italic: true, color: SUBTLE_HEX, after: 80, indent: bodyIndent }))
+  if (v.plainBody) out.push(para(v.plainBody, ctx, { after: 80, indent: bodyIndent }))
+  if (v.body) out.push(...richParagraphs(v.body, ctx, { after: 100, indent: bodyIndent }))
   for (const p of v.points) {
     const blocks = parseRichBlocks(p.body)
     const runs = blocks.length ? renderRuns(blocks[0].runs, ctx, {}, sz) : []
     out.push(new Paragraph({
       spacing: { after: 60 },
+      indent: bodyIndent,
       children: [
         new TextRun({ text: p.label ? `• ${p.label}` : '• ', bold: !!p.label, font, size: sz }),
         ...(p.label && runs.length ? [new TextRun({ text: ' — ', font, size: sz })] : []),
@@ -545,6 +562,7 @@ function renderItemDocx(v: ItemView, ctx: ExportCtx): Paragraph[] {
     const szm = ctx.tokens.metaFontSizePt * 2
     out.push(new Paragraph({
       spacing: { before: 60, after: 100 },
+      indent: bodyIndent,
       children: [
         ...(v.tagsLabel ? [new TextRun({ text: v.tagsLabel, italics: true, color: SUBTLE_HEX, font, size: szm })] : []),
         new TextRun({ text: v.tags.join(', '), color: SUBTLE_HEX, font, size: szm }),
@@ -552,7 +570,7 @@ function renderItemDocx(v: ItemView, ctx: ExportCtx): Paragraph[] {
     }))
   }
   for (const line of v.extraLines) {
-    out.push(para(line, ctx, { color: SUBTLE_HEX, after: 40 }))
+    out.push(para(line, ctx, { color: SUBTLE_HEX, after: 40, indent: bodyIndent }))
   }
   return out
 }

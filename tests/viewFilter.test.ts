@@ -1057,6 +1057,49 @@ describe('buildViewHtml()', () => {
       expect(html.toLowerCase()).toContain('#ff00aa')
     })
 
+    describe('item bullets', () => {
+      const projStore = () => {
+        const s = emptyStore()
+        s.projects = [makeProject({ id: 'p1', customer: { en: 'Acme' }, long_description: { en: 'Did things.' } })]
+        return s
+      }
+      const bulletView = (style?: Record<string, unknown>) => makeView({
+        sections: [{ key: 'projects', detail: 'full' as const, sort_order: 0 }],
+        style: { ...DEFAULT_VIEW_STYLE, ...style },
+      })
+
+      // The bullet CSS rules live in the static stylesheet whether or not any
+      // item uses them (like every other feature's rules), so these assertions
+      // target the MARKUP — the class on an item and the glyph span — not the
+      // raw string, which would match the <style> block.
+      it('adds no bullet markup by default', () => {
+        const html = buildViewHtml(projStore(), bulletView(), 'en')
+        expect(html).toContain('class="ve-item"')
+        expect(html).not.toContain('class="ve-item ve-bulleted"')
+        expect(html).not.toContain('<span class="ve-bullet"')
+      })
+
+      it('wraps each item with a glyph column when bullets are on', () => {
+        const html = buildViewHtml(projStore(), bulletView({ item_bullets: true, bullet_style: 'arrow' }), 'en')
+        expect(html).toContain('ve-item ve-bulleted')
+        expect(html).toContain('<span class="ve-bullet" aria-hidden="true">›</span>')
+        expect(html).toContain('class="ve-item-main"')
+        // The content (heading + body) lives inside the aligned column.
+        expect(html).toMatch(/ve-item-main">[\s\S]*Acme[\s\S]*Did things\./)
+      })
+
+      it('a section override turns bullets off under a bulleted view', () => {
+        const view = makeView({
+          sections: [{ key: 'projects', detail: 'full' as const, sort_order: 0, style: { item_bullets: false } }],
+          style: { ...DEFAULT_VIEW_STYLE, item_bullets: true },
+        })
+        const html = buildViewHtml(projStore(), view, 'en')
+        expect(html).not.toContain('class="ve-item ve-bulleted"')
+        expect(html).not.toContain('<span class="ve-bullet"')
+        expect(html).toContain('class="ve-item"')
+      })
+    })
+
     it('changes the body font size based on body_size', () => {
       const store = emptyStore()
       const view = makeView({

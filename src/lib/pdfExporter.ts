@@ -35,7 +35,7 @@ import { showcaseGroups } from './showcase'
 import { parseRichBlocks } from './richText'
 import { sortItems } from './sectionSort'
 import {
-  deriveTokens, resolveSectionStyle, sectionHeadingText, kqVisibility, withDefaults,
+  deriveTokens, resolveSectionStyle, sectionHeadingText, kqVisibility, bulletGlyph, withDefaults,
   withResolvedFonts, resolveFontPdf,
   type ResolvedSectionStyle, type StyleTokens,
 } from './viewStyle'
@@ -140,7 +140,7 @@ function summaryLine(title: string, meta: string, tokens: StyleTokens): PdfNode 
 
 // ─── Item rendering (mirrors renderItemDocx) ────────────────────────────────
 
-function renderItemPdf(v: ItemView, tokens: StyleTokens): PdfNode[] {
+function renderItemPdf(v: ItemView, tokens: StyleTokens, bullet: string | null = null): PdfNode[] {
   const fs = tokens.bodyFontSizePt
   const out: PdfNode[] = []
 
@@ -185,6 +185,20 @@ function renderItemPdf(v: ItemView, tokens: StyleTokens): PdfNode[] {
     out.push({ text: runs, color: SUBTLE, fontSize: tokens.metaFontSizePt, margin: [0, 3, 0, 6] as Margin })
   }
   for (const line of v.extraLines) out.push(para(line, tokens, { color: SUBTLE, bottom: 3 }))
+
+  // Item bullets (opt-in): a two-column row places the glyph in a fixed left
+  // column and stacks the content in the flexible right column, so every line
+  // aligns under the heading (a hanging indent). Default layout only — the
+  // inline/quote layouts returned earlier.
+  if (bullet) {
+    return [{
+      columns: [
+        { width: fs * 0.9, text: bullet, bold: true, fontSize: tokens.h3Pt, color: `#${tokens.headingHex}` },
+        { width: '*', stack: out },
+      ],
+      columnGap: 4,
+    }]
+  }
   return out
 }
 
@@ -215,7 +229,7 @@ function renderSection(key: string, label: string, items: unknown[], ctx: Export
       continue
     }
     const v = desc.full?.(it, cctx)
-    if (v) body.push(...renderItemPdf(v, ctx.tokens))
+    if (v) body.push(...renderItemPdf(v, ctx.tokens, ctx.resolved.item_bullets ? bulletGlyph(ctx.resolved) : null))
   }
   if (!body.length) return []
   return ctx.resolved.hide_heading ? body : [sectionHeading(label, ctx.tokens), ...body]

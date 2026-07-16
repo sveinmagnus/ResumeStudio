@@ -9,7 +9,7 @@ import { skillMatrixRows, fmtLastUsed, fmtProficiency } from './skillMatrix'
 import { xs, fmtYears } from './exportStrings'
 import { showcaseGroups } from './showcase'
 import { renderRichHtml } from './richText'
-import { deriveTokens, resolveSectionStyle, sectionHeadingText, kqVisibility, withDefaults, withResolvedFonts, resolveFontCss, type ResolvedSectionStyle, type StyleTokens } from './viewStyle'
+import { deriveTokens, resolveSectionStyle, sectionHeadingText, kqVisibility, bulletGlyph, withDefaults, withResolvedFonts, resolveFontCss, type ResolvedSectionStyle, type StyleTokens } from './viewStyle'
 import type { GlobalFonts } from './fonts'
 import { sortItems } from './sectionSort'
 import { SECTION_ICON_INNER } from '../generated/sectionIcons'
@@ -452,11 +452,21 @@ function renderItem(sectionKey: string, item: unknown, ctx: RenderCtx): string {
   const metaLine = metaTxt ? `<div class="ve-meta">${escapeHtml(metaTxt)}</div>` : ''
   // `lead-*` puts the details line above the title.
   const head = lead ? `${metaLine}${titleHtml}` : `${titleHtml}${metaLine}`
-  return `<div class="ve-item">
-        ${head}
+  const inner = `${head}
         ${v.body ? `<div class="ve-desc">${renderRichHtml(v.body, escapeHtml)}</div>` : ''}
         ${pointsHtml}
-        ${renderTagsHtml(v.tags, ctx.style)}
+        ${renderTagsHtml(v.tags, ctx.style)}`
+  // Bullets (default layout only): a two-column flex row places the glyph in
+  // its own column so every content line aligns under the heading, not the
+  // bullet. Off by default, so the plain `.ve-item` markup is unchanged.
+  if (ctx.style.item_bullets) {
+    return `<div class="ve-item ve-bulleted">
+        <span class="ve-bullet" aria-hidden="true">${escapeHtml(bulletGlyph(ctx.style))}</span>
+        <div class="ve-item-main">${inner}</div>
+      </div>`
+  }
+  return `<div class="ve-item">
+        ${inner}
       </div>`
 }
 
@@ -778,6 +788,12 @@ export function buildViewHtml(store: ResumeStore, view: ResumeView, locale: stri
                 line-height: ${tokens.lineHeight}; color: #1f2937; white-space: pre-line; }
     .ve-section { margin-bottom: 8px; }
     .ve-item { margin-bottom: ${tokens.itemGapPx}px; padding-bottom: ${tokens.itemGapPx}px; border-bottom: 1px solid ${tokens.accentCss}1A; }
+    /* Item bullets (opt-in): the glyph sits in its own column and the content
+       column carries everything else, so every wrapped line aligns under the
+       heading rather than under the bullet (a hanging indent). */
+    .ve-item.ve-bulleted { display: flex; gap: 0.5em; }
+    .ve-bullet { flex: 0 0 auto; color: ${tokens.headingCss}; font-weight: 600; line-height: ${tokens.h3Pt}pt; }
+    .ve-item-main { flex: 1 1 auto; min-width: 0; }
     /* Tabulated summary: an aligned column grid holding just the item rows (the
        section heading stays outside it). Each part — title, role, org, start,
        (separator,) end — lands in its own column, sized to the widest entry.

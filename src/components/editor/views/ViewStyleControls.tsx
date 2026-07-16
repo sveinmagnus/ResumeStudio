@@ -1,10 +1,10 @@
 import { DEFAULT_VIEW_STYLE, DEFAULT_SUMMARY_LAYOUT, normalizeFullLayout } from '../../../lib/viewStyle'
 import { fontOptions, fontInstallInfo } from '../../../lib/fonts'
 import { getDefaultFonts } from '../../../lib/appPrefs'
-import type { ViewStyle, Density, BodySize, PageMargin, TagStyle, DividerStyle, SummaryLayout, FullLayout, DateFormat } from '../../../types'
+import type { ViewStyle, Density, BodySize, PageMargin, TagStyle, DividerStyle, SummaryLayout, FullLayout, DateFormat, BulletStyle } from '../../../types'
 import { RotateCcw, Download } from 'lucide-react'
 import { Select } from './Select'
-import { SUMMARY_LAYOUT_OPTIONS, FULL_LAYOUT_OPTIONS, DATE_FORMAT_OPTIONS } from './SectionStylePanel'
+import { SUMMARY_LAYOUT_OPTIONS, FULL_LAYOUT_OPTIONS, DATE_FORMAT_OPTIONS, BULLET_STYLE_OPTIONS } from './SectionStylePanel'
 
 // Font <select> options: "Inherit global default" first, then the catalog.
 const FONT_SELECT_OPTIONS: Array<[string, string]> = [
@@ -91,6 +91,14 @@ export function ViewStyleControls({ style, onChange }: { style: ViewStyle; onCha
           onChange={(v) => onChange(v === 'off'
             ? { item_divider: false }
             : { item_divider: true, divider_style: v as DividerStyle })}
+        />
+        <Select<string>
+          label="Item bullets"
+          value={style.item_bullets ? (style.bullet_style ?? 'disc') : 'off'}
+          options={[['off', 'None'], ...BULLET_STYLE_OPTIONS]}
+          onChange={(v) => onChange(v === 'off'
+            ? { item_bullets: false }
+            : { item_bullets: true, bullet_style: v as BulletStyle })}
         />
         <Select<SummaryLayout>
           label="Summary layout"

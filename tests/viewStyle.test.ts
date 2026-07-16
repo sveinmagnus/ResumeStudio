@@ -2,9 +2,41 @@ import { describe, it, expect } from 'vitest'
 import {
   DEFAULT_VIEW_STYLE, withDefaults, deriveTokens, sanitizeHexColor,
   resolveFontCss, resolveFontDocx, resolveSectionStyle, sectionHeadingText,
-  normalizeFullLayout, kqVisibility,
+  normalizeFullLayout, kqVisibility, bulletGlyph,
 } from '../src/lib/viewStyle'
 import type { ViewStyle } from '../src/types'
+
+// ─── Item bullets (resolve + glyph) ──────────────────────────────────────────
+
+describe('item bullets', () => {
+  it('default off, disc glyph', () => {
+    const r = resolveSectionStyle(DEFAULT_VIEW_STYLE, null)
+    expect(r.item_bullets).toBe(false)
+    expect(r.bullet_style).toBe('disc')
+  })
+
+  it('inherits the view-wide default when the section is silent', () => {
+    const r = resolveSectionStyle({ ...DEFAULT_VIEW_STYLE, item_bullets: true, bullet_style: 'arrow' }, null)
+    expect(r.item_bullets).toBe(true)
+    expect(r.bullet_style).toBe('arrow')
+  })
+
+  it('a section override wins over the view default (either direction)', () => {
+    const viewOn = { ...DEFAULT_VIEW_STYLE, item_bullets: true, bullet_style: 'dash' as const }
+    expect(resolveSectionStyle(viewOn, { item_bullets: false }).item_bullets).toBe(false)
+    expect(resolveSectionStyle(DEFAULT_VIEW_STYLE, { item_bullets: true, bullet_style: 'square' }))
+      .toMatchObject({ item_bullets: true, bullet_style: 'square' })
+  })
+
+  it('maps each style to its glyph, falling back to the disc', () => {
+    expect(bulletGlyph({ item_bullets: true, bullet_style: 'disc' })).toBe('•')
+    expect(bulletGlyph({ item_bullets: true, bullet_style: 'dash' })).toBe('–')
+    expect(bulletGlyph({ item_bullets: true, bullet_style: 'arrow' })).toBe('›')
+    expect(bulletGlyph({ item_bullets: true, bullet_style: 'square' })).toBe('▪')
+    // Unknown → disc.
+    expect(bulletGlyph({ item_bullets: true, bullet_style: 'nope' as never })).toBe('•')
+  })
+})
 
 // ─── kqVisibility (profile Summary/Full mode) ─────────────────────────────────
 
