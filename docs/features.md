@@ -36,6 +36,13 @@ you open the app — nothing here is buried behind config files.
   header — jump straight to any item.
 - **Career timeline.** An overview chart of employments, education, and
   projects, with work-history-gap detection and a full-width zoom.
+- **Cross-language drift check.** The Overview flags fields whose two
+  languages have drifted apart — a number that changed on one side but not
+  the other (a wrong headcount, a dropped percentage, a timeline that runs a
+  year longer in one language), or prose that grew in one language while the
+  other stayed a stub. Click a flag to jump straight to the field. It's the
+  natural companion to the completeness meter: one tells you what's missing,
+  the other what's out of sync.
 - **Freshness warnings.** The overview flags expired or expiring
   certifications and suspiciously long "ongoing" items; anything you've
   checked can be snoozed for a year.

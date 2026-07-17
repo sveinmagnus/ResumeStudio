@@ -134,7 +134,9 @@ src/
 │   │ — core: locales (resolve/bcp47/detectLocalesInData), sections (GROUP_ORDER,
 │   │   canonicalSectionKey), router (hand-rolled History API), freshStore, migrate
 │   │   (CURRENT_SHAPE_VERSION; single migration choke point), usage, merge (generic
-│   │   mergeRegistry), completeness, wipeLocale, contentSearch, careerTimeline, freshness
+│   │   mergeRegistry), completeness (+ shared collectTrackedFields), drift
+│   │   (cross-language divergence; reuses collectTrackedFields), wipeLocale,
+│   │   contentSearch, careerTimeline, freshness
 │   │ — persistence/sync: api, localCache (per-id fallback+queue), connectivity,
 │   │   syncEngine (PURE boot/drain decisions), diffResume, storage (weight thresholds),
 │   │   backup (per-resume JSON), snapshotDiff, snapshotImages

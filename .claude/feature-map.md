@@ -279,6 +279,20 @@ prescriptive.
   employments, education + projects as an overlap-packed timeline with
   work-history-gap detection (education counts as coverage, so study periods
   aren't gaps) and a full-viewport-width zoom modal for readability.
+- **Cross-language drift check** (`lib/drift.ts`) — the Overview panel below
+  translation completeness. Where completeness asks "is this field translated
+  at all?", drift asks the follow-up the app's whole promise rests on: for a
+  field filled in BOTH the editing-pair locales, have the two versions
+  diverged? Two structural, offline heuristics (no LLM): **numbers** (high
+  severity — the multiset of digits differs; `numberDiff` reports only the
+  delta, e.g. "2027 only in EN", so a 20-year timeline doesn't dump a wall) and
+  **length** (low — one side ≥2× the other and the longer side is ≥6 words, so
+  title-like fields are spared). Walks the SAME curated field set as
+  completeness via the shared `collectTrackedFields` (add a field once, both
+  reports see it), and each finding carries the completeness `MissingField`
+  locator so a click navigates to the item. Only shown with a second language
+  selected. A semantic (LLM/AssistRun) pass is the natural third signal, not
+  yet built.
 - **Accessibility regression net** — `tests/components/a11y.test.tsx` runs
   jest-axe (dev-only) over the editor surfaces; keep new editors passing it.
 - **Registry management** — Skill, Role and Industry lists carry an "Unused /

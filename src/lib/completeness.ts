@@ -33,7 +33,14 @@ export interface LocaleCompleteness {
   missing: MissingField[]
 }
 
-interface TrackedField {
+/**
+ * A single localized field worth tracking, with its pre-resolved navigation
+ * label. `meta` reuses `MissingField` because the same (section, itemId,
+ * labels) tuple identifies a field whether we're reporting it as *missing* in
+ * one locale (completeness) or *diverged* between two (drift). Exported so
+ * `lib/drift.ts` walks the identical field set — add a field once, both see it.
+ */
+export interface TrackedField {
   ls: LocalizedString
   meta: MissingField
 }
@@ -63,6 +70,40 @@ export function computeCompleteness(
   data: ResumeStore,
   locales: string[],
 ): Record<string, LocaleCompleteness> {
+  const fields = collectTrackedFields(data)
+
+  const result: Record<string, LocaleCompleteness> = {}
+  for (const l of locales) {
+    if (fields.length === 0) {
+      result[l] = { percent: 100, missing: [] }
+      continue
+    }
+    const missing: MissingField[] = []
+    let present = 0
+    for (const f of fields) {
+      const v = f.ls[l]
+      // Strip rich-text markup so a value like `<p></p>` counts as empty.
+      // Plain text is unchanged (fast path).
+      if (v && richToPlain(v).trim()) present++
+      else missing.push(f.meta)
+    }
+    result[l] = {
+      percent: Math.round((present / fields.length) * 100),
+      missing,
+    }
+  }
+  return result
+}
+
+/**
+ * Walk the resume's curated "primary content" localized fields — the same set
+ * `computeCompleteness` scores and `computeDrift` (lib/drift.ts) compares
+ * across locales. Only fields with *some* content are returned (an all-empty
+ * LocalizedString is nothing to translate or compare). Disabled/unused items
+ * are excluded exactly as they are from exports, so neither report is dragged
+ * down by content that never ships.
+ */
+export function collectTrackedFields(data: ResumeStore): TrackedField[] {
   const fields: TrackedField[] = []
 
   const track = (
@@ -164,27 +205,7 @@ export function computeCompleteness(
     track(c.name, 'skills', c.id, resolve(c.name, LABEL_LOCALE) || 'Category', 'Skill category name')
   })
 
-  const result: Record<string, LocaleCompleteness> = {}
-  for (const l of locales) {
-    if (fields.length === 0) {
-      result[l] = { percent: 100, missing: [] }
-      continue
-    }
-    const missing: MissingField[] = []
-    let present = 0
-    for (const f of fields) {
-      const v = f.ls[l]
-      // Strip rich-text markup so a value like `<p></p>` counts as empty.
-      // Plain text is unchanged (fast path).
-      if (v && richToPlain(v).trim()) present++
-      else missing.push(f.meta)
-    }
-    result[l] = {
-      percent: Math.round((present / fields.length) * 100),
-      missing,
-    }
-  }
-  return result
+  return fields
 }
 
 // ─── Per-section coverage ────────────────────────────────────────────────────

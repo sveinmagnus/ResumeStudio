@@ -3,6 +3,7 @@ import { ChevronDown, ChevronRight, MoreHorizontal, Trash2, FileSearch, X, Alert
 import { useStore } from '../../store/useStore'
 import { LOCALE_LABELS, resolve, fmtDate } from '../../lib/locales'
 import { computeCompleteness, computeSectionCoverage, type MissingField, type SectionCoverage } from '../../lib/completeness'
+import { computeDrift } from '../../lib/drift'
 import { freshnessReport, snoozeUntil } from '../../lib/freshness'
 import { wipeLocale } from '../../lib/wipeLocale'
 import { CareerTimeline } from './CareerTimeline'
@@ -38,6 +39,9 @@ export function Overview() {
 
   const completeness = computeCompleteness(data, locales)
   const freshness = freshnessReport(data, new Date(), locales[0])
+  // Drift is only meaningful with two languages in play — it compares the pair
+  // the user is editing in. In single-column mode there's nothing to compare.
+  const drift = secondaryLocale ? computeDrift(data, primaryLocale, secondaryLocale) : null
 
   const goToItem = (section: string, itemId: string) => {
     setActiveSection(section)
@@ -51,6 +55,7 @@ export function Overview() {
   const [confirmWipe, setConfirmWipe] = useState<string | null>(null)
   const [coverageLocale, setCoverageLocale] = useState<string | null>(null)
   const [snoozedOpen, setSnoozedOpen] = useState(false)
+  const [driftOpen, setDriftOpen] = useState(false)
 
   const goToField = (m: MissingField) => {
     setActiveSection(m.section)
@@ -258,6 +263,55 @@ export function Overview() {
         })}
       </div>
 
+      {/* Cross-language drift — only with a second language selected. Compares
+          the editing pair for fields whose two versions have diverged. */}
+      {drift && drift.comparedFields > 0 && (
+        <>
+          <h3 className="ov-section-title">
+            Cross-language check
+            <span className="ov-drift-pair">
+              {LOCALE_LABELS[drift.a]?.flag} {drift.a.toUpperCase()} ↔ {LOCALE_LABELS[drift.b]?.flag} {drift.b.toUpperCase()}
+            </span>
+          </h3>
+          {drift.findings.length === 0 ? (
+            <p className="ov-trans-hint ov-drift-ok">
+              <Check size={14} /> The {drift.comparedFields} field{drift.comparedFields !== 1 ? 's' : ''} filled in both
+              languages look consistent — no diverging numbers or lengths.
+            </p>
+          ) : (
+            <>
+              <p className="ov-trans-hint">
+                {drift.findings.length} of {drift.comparedFields} bilingual field{drift.comparedFields !== 1 ? 's' : ''} may
+                have drifted. Click one to open it. These are hints, not errors — the two languages differ in a way
+                worth a glance.
+              </p>
+              <ul className="ov-drift-list">
+                {(driftOpen ? drift.findings : drift.findings.slice(0, 6)).map((f, i) => (
+                  <li key={`${f.meta.section}:${f.meta.itemId ?? 'root'}:${f.meta.fieldLabel}:${i}`}>
+                    <button className="ov-drift-row" onClick={() => goToField(f.meta)}>
+                      <span className={`ov-drift-badge ov-drift-${f.severity}`}>
+                        {f.severity === 'high' ? 'numbers' : 'length'}
+                      </span>
+                      <span className="ov-drift-loc">
+                        <span className="ov-missing-item">{f.meta.itemLabel}</span>
+                        <span className="ov-missing-sep">·</span>
+                        <span className="ov-missing-field">{f.meta.fieldLabel}</span>
+                      </span>
+                      <span className="ov-drift-detail">{f.detail}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              {drift.findings.length > 6 && (
+                <button className="ov-drift-more" onClick={() => setDriftOpen((v) => !v)}>
+                  {driftOpen ? 'Show fewer' : `Show all ${drift.findings.length}`}
+                </button>
+              )}
+            </>
+          )}
+        </>
+      )}
+
       {confirmWipe && (
         <ConfirmWipeModal
           locale={confirmWipe}
@@ -421,6 +475,35 @@ export function Overview() {
         .ov-missing-row:hover .ov-missing-item { color: var(--accent); }
         .ov-missing-sep { color: var(--ink-faint); }
         .ov-missing-field { color: var(--ink-soft); }
+
+        /* Cross-language drift */
+        .ov-drift-pair {
+          font-size: 12px; font-weight: 600; color: var(--ink-faint);
+          margin-left: 10px; letter-spacing: .04em; vertical-align: middle;
+        }
+        .ov-drift-ok { display: flex; align-items: center; gap: 6px; color: var(--ok-ink); }
+        .ov-drift-list { list-style: none; padding: 0; margin: 0 0 8px; display: flex; flex-direction: column; gap: 2px; }
+        .ov-drift-row {
+          display: flex; align-items: baseline; gap: 10px; width: 100%;
+          padding: 6px 12px; border-radius: var(--r-sm); background: transparent;
+          text-align: left; font-size: 13px; color: var(--ink-soft);
+          transition: color .12s, background .12s;
+        }
+        .ov-drift-row:hover { background: var(--accent-wash); color: var(--accent); }
+        .ov-drift-badge {
+          flex: none; font-size: 10px; font-weight: 700; text-transform: uppercase;
+          letter-spacing: .06em; padding: 2px 7px; border-radius: 999px; line-height: 1.5;
+        }
+        .ov-drift-high { background: var(--warn-wash); color: var(--warn-ink); }
+        .ov-drift-low  { background: var(--paper-sunken); color: var(--ink-faint); }
+        .ov-drift-loc { flex: none; }
+        .ov-drift-row:hover .ov-missing-item { color: var(--accent); }
+        .ov-drift-detail { color: var(--ink-faint); font-size: 12px; }
+        .ov-drift-more {
+          font-size: 12px; font-weight: 600; color: var(--accent);
+          background: transparent; padding: 4px 12px; border-radius: var(--r-sm);
+        }
+        .ov-drift-more:hover { background: var(--accent-wash); }
       `}</style>
     </div>
   )
