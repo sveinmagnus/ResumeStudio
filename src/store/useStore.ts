@@ -1,7 +1,6 @@
 import { create } from 'zustand'
 import { v4 as uuidv4 } from 'uuid'
 import type { ResumeStore, Resume, LocalizedString } from '../types'
-import { importFromCVPartner } from '../lib/importer'
 import { detectLocalesInData, sortLocales } from '../lib/locales'
 import { migrateStore, isNewerShape } from '../lib/migrate'
 import { emptyStore as makeEmpty, freshStore as makeFresh } from '../lib/freshStore'
@@ -47,8 +46,6 @@ interface AppState {
   mutationCount: number
 
   // ── Load actions (do NOT bump mutationCount) ──────────────────────────────
-  /** Import raw CVpartner JSON. Resets mutationCount. */
-  loadFromCVPartner: (raw: Record<string, unknown>) => void
   /**
    * Replace data with a server/backup payload. Resets mutationCount.
    * Optional `locales` seeds primary/secondary from the resume row; if omitted
@@ -141,15 +138,6 @@ export const useStore = create<AppState>((set, get) => {
     return { ...patch, mutationCount: st.mutationCount + 1 }
   })
 
-  /** Pick sensible primary/secondary locales for a freshly loaded store. */
-  const pickLocales = (locales: string[]): { primary: string; secondary: string | null } => {
-    const primary = locales.includes('no') ? 'no' : (locales[0] ?? 'en')
-    const secondary = locales.includes('en') && primary !== 'en'
-      ? 'en'
-      : (locales.find((l) => l !== primary) ?? null)
-    return { primary, secondary }
-  }
-
   return {
     data: emptyStore,
     currentResumeId: null,
@@ -164,18 +152,6 @@ export const useStore = create<AppState>((set, get) => {
     mutationCount: 0,
 
     // ── Loads ──────────────────────────────────────────────────────────────
-
-    loadFromCVPartner: (raw) => {
-      // Importer output is current-shape by construction; migrateStore just
-      // stamps it (and is a no-op if the importer starts stamping itself).
-      const data = migrateStore(importFromCVPartner(raw))
-      const { primary, secondary } = pickLocales(data.resume?.supported_locales ?? ['en'])
-      set({
-        data, hasData: true, mutationCount: 0, dataFromNewerApp: false,
-        activeSection: 'overview', activeViewId: null, sectionSort: {},
-        primaryLocale: primary, secondaryLocale: secondary,
-      })
-    },
 
     loadStore: (store, localesArg) => {
       // Bring older persisted data up to the current shape (and stamp it)
@@ -385,7 +361,5 @@ export const useStore = create<AppState>((set, get) => {
 })
 
 // ─── Helpers for components ────────────────────────────────────────────────────
-
-export function emptyLocalized(): LocalizedString { return {} }
 
 export function newId(): string { return uuidv4() }

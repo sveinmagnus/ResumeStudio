@@ -19,7 +19,6 @@
 
 import {
   createElement,
-  useEffect,
   useSyncExternalStore,
   type AnchorHTMLAttributes,
   type MouseEvent,
@@ -145,13 +144,3 @@ export function Link({ to, replace, onClick, children, ...rest }: LinkProps) {
   return createElement('a', { href, onClick: handleClick, ...rest }, children)
 }
 
-/**
- * Imperatively redirect on mount. Useful inside route bodies for things like
- * "if no such resume, send the user home".
- */
-export function useRedirect(to: string | Route, opts?: { replace?: boolean }): void {
-  useEffect(() => {
-    navigate(to, opts)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-}

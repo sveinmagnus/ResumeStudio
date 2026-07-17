@@ -82,9 +82,6 @@ export const CEFR_LEVEL_DESC: Record<CefrLevel, string> = {
   C2: 'Proficient user (Mastery) — effortless, precise and nuanced.',
 }
 
-export const CEFR_CATEGORY_LABEL: Record<CefrCategory, string> =
-  Object.fromEntries(CEFR_CATEGORIES.map((c) => [c.key, c.label])) as Record<CefrCategory, string>
-
 /** The localized name of a CEFR category. */
 export function cefrCategoryLabel(key: CefrCategory, locale = 'en'): string {
   const entry = CEFR_CATEGORIES.find((c) => c.key === key)

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { useStore, emptyLocalized, newId } from '../src/store/useStore'
+import { useStore, newId } from '../src/store/useStore'
 import { CURRENT_SHAPE_VERSION } from '../src/lib/migrate'
 import { emptyStore, makeProject, makeWork, makeRole } from './fixtures'
 
@@ -47,7 +47,7 @@ const seed = (section: 'projects', items: ReturnType<typeof makeProject>[]) =>
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-describe('newId() & emptyLocalized()', () => {
+describe('newId()', () => {
   it('newId returns a UUID-shaped string', () => {
     const id = newId()
     expect(id).toMatch(/^[0-9a-f-]{36}$/)
@@ -56,14 +56,6 @@ describe('newId() & emptyLocalized()', () => {
   it('newId produces unique ids across calls', () => {
     const ids = new Set([newId(), newId(), newId(), newId(), newId()])
     expect(ids.size).toBe(5)
-  })
-
-  it('emptyLocalized returns a fresh empty object each call', () => {
-    const a = emptyLocalized()
-    const b = emptyLocalized()
-    expect(a).toEqual({})
-    expect(b).toEqual({})
-    expect(a).not.toBe(b)
   })
 })
 

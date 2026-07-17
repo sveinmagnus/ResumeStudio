@@ -251,11 +251,11 @@ export interface ResolvedSectionStyle extends ViewStyle {
   short_desc_line: 'inline' | 'below'
   /** Show the section icon before its heading (resolved: section → view → false). */
   show_icon: boolean
-  /** Professional-summary part toggles (see SectionStyle.kq_show_*). */
+  /** Profile label/tagline toggles (see SectionStyle.kq_show_*). The deprecated
+   *  kq_show_short/long stay on SectionStyle for parse tolerance but are never
+   *  resolved — the section MODE owns that choice (see kqVisibility). */
   kq_show_label?: boolean
   kq_show_tagline?: boolean
-  kq_show_short?: boolean
-  kq_show_long?: boolean
 }
 
 /** The default full-item layout when nothing is set (title first, org then date). */
@@ -376,7 +376,5 @@ export function resolveSectionStyle(
     show_icon: section?.show_icon ?? view.section_icons ?? false,
     kq_show_label: section?.kq_show_label,
     kq_show_tagline: section?.kq_show_tagline,
-    kq_show_short: section?.kq_show_short,
-    kq_show_long: section?.kq_show_long,
   }
 }

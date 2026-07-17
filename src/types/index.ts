@@ -939,10 +939,3 @@ export interface ResumeStore {
  * canonical "all sections" type; generic CRUD and sortable components alias it.
  */
 export type SectionKey = Exclude<keyof ResumeStore, 'resume' | 'shape_version' | 'skill_categories'>
-
-export interface UIState {
-  activeSection: string
-  primaryLocale: string
-  secondaryLocale: string | null
-  expandedItemId: string | null
-}
