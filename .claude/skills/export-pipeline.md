@@ -26,19 +26,32 @@ sections, excluded items, and — if set — non-starred items). Then:
 - **DOCX** → `exporter.ts → exportDocx()` builds a `docx` `Document`.
 - **Text / Markdown** → `viewText.ts → buildViewText()` / `buildViewMarkdown()`
   for ATS-safe plain formats.
+- **Europass XML** → `exporterEuropass.ts → exportEuropassXml()` emits a
+  `SkillsPassport` document, the round-trip partner of `importerEuropass.ts`.
+  It is a **targeted-format** path, NOT a general render path: Europass only
+  models identity / work / education / languages, so it deliberately covers
+  just those and does not read the section catalog. Don't "fix" that by
+  mapping projects/courses onto `<WorkExperience>` — it would misrepresent
+  them and break the import round-trip. It builds a **DOM tree serialized by
+  XMLSerializer**, never XML strings, so escaping is structural (see the
+  security note in the file); its regression net is the export→import
+  round-trip in `tests/exporterEuropass.test.ts`.
 
-Every path (plus one more consumer — `getItemTitle` / `getItemSubtitle` in
-`viewFilter.ts`, which feed the View-editor's item-toggle list) is driven by a
-**single section-descriptor catalog** (`lib/sectionCatalog.ts`, one descriptor
-per section with `summary()` / `full()` data views returning **data only**).
-The per-path adapters own escaping and layout — there are no per-section
-switch statements left. So "support a section in exports" means **adding one
-descriptor**, not editing four renderers. Per-path differences go behind
-`ctx.target`. See CLAUDE.md §7 step 7.
+Every full render path (plus one more consumer — `getItemTitle` /
+`getItemSubtitle` in `viewFilter.ts`, which feed the View-editor's item-toggle
+list) is driven by a **single section-descriptor catalog**
+(`lib/sectionCatalog.ts`, one descriptor per section with `summary()` /
+`full()` data views returning **data only**). The per-path adapters own
+escaping and layout — there are no per-section switch statements left. So
+"support a section in exports" means **adding one descriptor**, not editing
+four renderers. Per-path differences go behind `ctx.target`. See CLAUDE.md §7
+step 7. (Europass is the exception — a fixed external schema, not the catalog.)
 
-**Rule:** if a section/field renders in one path, it renders in the other (or
-there's a deliberate, commented reason it doesn't — e.g. the `skills`/`roles`
-*registries* are intentionally never exported as their own sections).
+**Rule:** if a section/field renders in one *catalog-driven* path, it renders
+in the others (or there's a deliberate, commented reason it doesn't — e.g. the
+`skills`/`roles` *registries* are intentionally never exported as their own
+sections). Europass is exempt by design — its schema, not our catalog, decides
+what it carries.
 
 **Rule: no English literal in a render path.** Anything the *app* supplies
 around the user's content is chrome, and chrome is localized — it lands in a

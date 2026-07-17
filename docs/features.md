@@ -132,6 +132,10 @@ an API key.
   loaded so the bundle only grows when you actually export.
 - **Plain text & Markdown** — ATS-friendly exports for application portals
   that mangle formatted documents.
+- **Europass XML** — the `SkillsPassport` format EU and Norwegian public
+  tenders ask for, and the round-trip partner of the Europass import. Covers
+  identity, work history, education and language skills (with CEFR levels);
+  the sections Europass has no concept of stay in the richer PDF/DOCX exports.
 - **Fully localized output.** Every piece of document chrome a client reads —
   section headings, month names, "Present", contact-field labels, skill-matrix
   columns, language levels — ships translated in all 15 offered languages, so

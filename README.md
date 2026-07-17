@@ -87,7 +87,8 @@ The full feature tour lives on the
   header/footer (localized contact fields, photo + logo placement), and a
   **live preview pane** with a page-count estimate. Export as **PDF**
   (one-click vector download), **DOCX** (lazy-loaded
-  [`docx`](https://docx.js.org/)), or ATS-friendly **plain text / Markdown** —
+  [`docx`](https://docx.js.org/)), ATS-friendly **plain text / Markdown**, or
+  **Europass XML** (the `SkillsPassport` format public tenders ask for) —
   with every heading, month name and label a client reads localized in all
   15 offered languages.
 - **Tailor a view to a job posting.** Paste the posting and either run it

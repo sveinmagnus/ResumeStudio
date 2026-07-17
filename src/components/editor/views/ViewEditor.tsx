@@ -22,6 +22,7 @@ import { PageFitPanel } from './PageFitPanel'
 import { selectOnly, isSingleSelectSection } from '../../../lib/viewItemSelect'
 import { VIEW_TEMPLATES, getTemplate, applyTemplate } from '../../../lib/viewTemplates'
 import { buildViewText, buildViewMarkdown } from '../../../lib/viewText'
+import { exportEuropassXml } from '../../../lib/exporterEuropass'
 import { exportFilename } from '../../../lib/exportFilename'
 import type {
   ResumeView, ViewStyle, SectionStyle, ViewSection,
@@ -135,11 +136,12 @@ function SortableSecRow({ id, off, children }: {
  * trigger so exporting — the frequent task — is always one click away without
  * scrolling to the bottom of the config. Closes on outside-click / Escape.
  */
-function ExportMenu({ onPdf, onDocx, onText, onMarkdown, pdfBusy, docxBusy, lastExportedAt }: {
+function ExportMenu({ onPdf, onDocx, onText, onMarkdown, onEuropass, pdfBusy, docxBusy, lastExportedAt }: {
   onPdf: () => void
   onDocx: () => void
   onText: () => void
   onMarkdown: () => void
+  onEuropass: () => void
   pdfBusy: boolean
   docxBusy: boolean
   lastExportedAt: string | null
@@ -190,6 +192,15 @@ function ExportMenu({ onPdf, onDocx, onText, onMarkdown, pdfBusy, docxBusy, last
           </button>
           <button type="button" role="menuitem" className="rv-export-item" onClick={() => pick(onMarkdown)}>
             <FileCode size={15} /> Markdown
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="rv-export-item"
+            onClick={() => pick(onEuropass)}
+            title="Europass covers identity, work, education and languages — other sections are not part of the format"
+          >
+            <FileType size={15} /> Europass XML
           </button>
           {lastExportedAt && (
             <div className="rv-export-menu-foot">
@@ -480,12 +491,10 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
     })()
   }
 
-  // ATS-friendly exports (F6): pure string builders, downloaded as files.
-  const handleExportTextual = (ext: 'txt' | 'md') => {
-    const content = ext === 'txt'
-      ? buildViewText(data, view, exportLocale)
-      : buildViewMarkdown(data, view, exportLocale)
-    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
+  // Download a synchronously-built string export (the ATS text/Markdown paths
+  // and Europass XML). One blob-download dance for all of them.
+  const downloadText = (content: string, ext: string, mime: string) => {
+    const blob = new Blob([content], { type: mime })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
@@ -493,6 +502,19 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
     a.click()
     setTimeout(() => URL.revokeObjectURL(url), 100)
     onUpdate({ last_exported_at: new Date().toISOString() })
+  }
+
+  // ATS-friendly exports (F6): pure string builders, downloaded as files.
+  const handleExportTextual = (ext: 'txt' | 'md') => {
+    const content = ext === 'txt'
+      ? buildViewText(data, view, exportLocale)
+      : buildViewMarkdown(data, view, exportLocale)
+    downloadText(content, ext, 'text/plain;charset=utf-8')
+  }
+
+  // Europass SkillsPassport XML — the round-trip partner of the Europass import.
+  const handleExportEuropass = () => {
+    downloadText(exportEuropassXml(data, view, exportLocale), 'xml', 'application/xml;charset=utf-8')
   }
 
   // The docx library is ~400 kB — lazy-load only when the user clicks Export DOCX.
@@ -553,6 +575,7 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
             onDocx={() => void handleExportDocx()}
             onText={() => handleExportTextual('txt')}
             onMarkdown={() => handleExportTextual('md')}
+            onEuropass={handleExportEuropass}
             pdfBusy={pdfBusy}
             docxBusy={docxBusy}
             lastExportedAt={view.last_exported_at}

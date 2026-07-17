@@ -96,10 +96,15 @@ prescriptive.
   recoverable "snoozed" list).
 - **Targeted exports via Resume Views** — pick sections, exclude items,
   starred-only filter, custom intro, then export PDF (one-click vector
-  download via lazy-loaded pdfmake), DOCX (lazy-loaded docx lib), or
-  ATS-friendly **plain text / Markdown** (`lib/viewText.ts`). A **live preview
-  pane** in the view editor re-renders the document as you tune it (iframe +
-  page-count estimate + optional pop-out window). All render paths share the
+  download via lazy-loaded pdfmake), DOCX (lazy-loaded docx lib),
+  ATS-friendly **plain text / Markdown** (`lib/viewText.ts`), or **Europass
+  XML** (`lib/exporterEuropass.ts` — the `SkillsPassport` format public
+  tenders ask for, round-trip partner of the Europass importer; covers
+  identity/work/education/languages only, by the schema's design, and builds
+  a DOM serialized by XMLSerializer so escaping is structural). A **live
+  preview pane** in the view editor re-renders the document as you tune it
+  (iframe + page-count estimate + optional pop-out window). All catalog-driven
+  render paths share the
   **section-descriptor catalog** (`lib/sectionCatalog.ts`).
 - **Item bullets** (opt-in, `viewStyle.item_bullets` + `bullet_style`): a glyph
   (• – › ▪) before each item heading with the item's content **hang-indented**

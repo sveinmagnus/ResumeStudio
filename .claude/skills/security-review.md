@@ -24,6 +24,7 @@ The pipeline spans several `lib/` files; **all of them must stay safe**:
 - `src/lib/viewStyle.ts` → `deriveTokens` — maps the view's style choices to concrete CSS values that are interpolated into the document's `<style>` block.
 - `src/lib/viewHeader.ts` → `withHeaderDefaults` / `withFooterDefaults` — header/footer config consumed by both render paths.
 - `src/lib/exporter.ts` — the DOCX path (the `docx` lib XML-escapes `TextRun`s, so it's safe by construction — but don't hand-roll XML/HTML there).
+- `src/lib/exporterEuropass.ts` — the Europass XML path. Safe by construction the same way: it builds a **DOM tree and hands it to `XMLSerializer`**, so text/attribute escaping is structural, not per-`${}` discipline. The file's header says why in full — the one rule is **don't rewrite it into template-literal XML strings**, which would opt it back into the escape-every-value tax and let a `&`/`</` in a field corrupt or inject.
 - `components/ui/RichField.tsx` — the **live editor** is a render boundary too: its `useLayoutEffect` assigns the stored value to `contentEditable.innerHTML`, and the store can be filled by an untrusted import, so that write goes through `sanitizeRich` (regression-tested). Any new `innerHTML`/DOM-write of stored rich text must do the same.
 
 ### The two rules that keep it safe

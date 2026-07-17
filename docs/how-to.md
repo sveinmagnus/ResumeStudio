@@ -114,6 +114,11 @@ From inside the Resume View editor, pick the **export language**, then:
   feel a touch slower.
 - **Export text / Markdown** — ATS-friendly plain formats for application
   portals that mangle rich documents.
+- **Export Europass XML** — the `SkillsPassport` file public-sector tenders
+  often require. It carries identity, work history, education and languages
+  (with CEFR levels); sections Europass doesn't define — projects, courses,
+  certifications and so on — aren't part of that format, so reach for PDF or
+  DOCX when you need them.
 
 Every export respects your view's section list, detail levels, exclusions,
 styling, and header/footer — and all document labels (headings, months,

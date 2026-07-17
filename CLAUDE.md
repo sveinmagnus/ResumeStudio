@@ -142,6 +142,7 @@ src/
 │   │   export-only by design — see §12), sectionCatalog (one descriptor feeds ALL render adapters),
 │   │   viewFilter (applyView + buildViewHtml; escapeHtml; SECURITY-CRITICAL),
 │   │   exporter (LAZY-LOADED docx; SECURITY: TextRun escapes), viewText (ATS text/MD),
+│   │   exporterEuropass (SkillsPassport XML; DOM+XMLSerializer, NOT string XML; round-trips importerEuropass),
 │   │   viewStyle + viewHeader (render-boundary sanitisers), richText (allowlist;
 │   │   SECURITY-CRITICAL), image (canvas downscale; rejects SVG), sectionSort,
 │   │   viewTemplates, viewTailor (BYO-LLM), skillMatrix, showcase (showcaseGroups)
