@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   isBackupFormat, exportToBackup, importFromBackup,
   migrateBackup, UnsupportedBackupVersionError, CURRENT_FORMAT_VERSION,
+  validateBackup, InvalidBackupError,
   type AnyBackup,
 } from '../src/lib/backup'
 import {
@@ -64,6 +65,122 @@ describe('isBackupFormat()', () => {
       profile: null,
       sections: {},
     })).toBe(false)
+  })
+})
+
+describe('validateBackup()', () => {
+  // A minimal well-formed backup, mutated per-case.
+  const good = (): Record<string, unknown> => exportToBackup(emptyStore()) as unknown as Record<string, unknown>
+
+  it('accepts a well-formed backup and returns it typed', () => {
+    const b = good()
+    expect(validateBackup(b)).toBe(b)
+  })
+
+  it('accepts a real round-trippable export with content', () => {
+    const store = { ...emptyStore(), projects: [makeProject()], skills: [makeSkill()], views: [makeView()] }
+    expect(() => validateBackup(exportToBackup(store))).not.toThrow()
+  })
+
+  it('rejects non-objects with a root issue', () => {
+    for (const bad of [null, undefined, 'x', 42, []]) {
+      expect(() => validateBackup(bad)).toThrow(InvalidBackupError)
+    }
+  })
+
+  it('flags a wrong $schema and a non-number format_version', () => {
+    const b = good()
+    b['$schema'] = 'not-ours'
+    b['format_version'] = '1'
+    try {
+      validateBackup(b)
+      throw new Error('should have thrown')
+    } catch (e) {
+      expect(e).toBeInstanceOf(InvalidBackupError)
+      const paths = (e as InvalidBackupError).issues.map((i) => i.path)
+      expect(paths).toContain('$schema')
+      expect(paths).toContain('format_version')
+    }
+  })
+
+  it('rejects a profile that is neither object nor null', () => {
+    const b = good()
+    b['profile'] = 'Ada Lovelace'
+    expect(() => validateBackup(b)).toThrow(/profile/)
+  })
+
+  it('tolerates a null profile and omitted optional collections', () => {
+    // Older/partial backups: profile null, no industries/skill_categories, no views.
+    const b = {
+      $schema: 'resumestudio/v1', format_version: 1, exported_at: '2026-01-01T00:00:00Z',
+      profile: null,
+      registries: { skills: [], roles: [] },
+      sections: { key_qualifications: [], projects: [], work_experiences: [], educations: [], courses: [], certifications: [], spoken_languages: [], positions: [], presentations: [], honor_awards: [], publications: [], references: [] },
+    }
+    expect(() => validateBackup(b)).not.toThrow()
+  })
+
+  it('rejects a collection that is not an array', () => {
+    const b = good()
+    ;(b['sections'] as Record<string, unknown>)['projects'] = { 0: 'nope' }
+    expect(() => validateBackup(b)).toThrow(/sections\.projects/)
+  })
+
+  it('rejects an item missing its id, with the exact path', () => {
+    const b = good()
+    ;(b['sections'] as Record<string, unknown>)['projects'] = [{ customer: {} }, { id: 'ok' }]
+    try {
+      validateBackup(b)
+      throw new Error('should have thrown')
+    } catch (e) {
+      expect((e as InvalidBackupError).issues[0].path).toBe('sections.projects[0].id')
+    }
+  })
+
+  it('rejects a non-object item in a registry array', () => {
+    const b = good()
+    ;(b['registries'] as Record<string, unknown>)['skills'] = ['just a string']
+    expect(() => validateBackup(b)).toThrow(/registries\.skills\[0\]/)
+  })
+
+  it('rejects views that are not id-bearing objects', () => {
+    const b = good()
+    b['views'] = [{ name: 'no id here' }]
+    expect(() => validateBackup(b)).toThrow(/views\[0\]\.id/)
+  })
+
+  it('allows the legacy technology_categories blob as any array', () => {
+    const b = good()
+    ;(b['sections'] as Record<string, unknown>)['technology_categories'] = [{ anything: true }, 'even this']
+    expect(() => validateBackup(b)).not.toThrow()
+  })
+
+  it('collects every problem in one pass, not just the first', () => {
+    const b = good()
+    b['format_version'] = '1'
+    ;(b['sections'] as Record<string, unknown>)['projects'] = 'nope'
+    ;(b['registries'] as Record<string, unknown>)['roles'] = [{ noId: 1 }]
+    try {
+      validateBackup(b)
+      throw new Error('should have thrown')
+    } catch (e) {
+      expect((e as InvalidBackupError).issues.length).toBeGreaterThanOrEqual(3)
+    }
+  })
+})
+
+describe('importFromBackup() gates on validation', () => {
+  it('throws InvalidBackupError before building a store from a malformed backup', () => {
+    const b = exportToBackup(emptyStore()) as unknown as Record<string, unknown>
+    ;(b['sections'] as Record<string, unknown>)['projects'] = [{ customer: {} }] // no id
+    expect(() => importFromBackup(b as unknown as AnyBackup)).toThrow(InvalidBackupError)
+  })
+
+  it('still imports a valid backup unchanged', () => {
+    const store = { ...emptyStore(), projects: [makeProject()], views: [makeView()] }
+    const back = importFromBackup(exportToBackup(store))
+    expect(back.projects).toHaveLength(1)
+    expect(back.views).toHaveLength(1)
   })
 })
 

@@ -69,4 +69,34 @@ describe('<ImportScreen>', () => {
     expect(store.projects).toHaveLength(1)
     expect(store.skills).toHaveLength(1)
   })
+
+  it('surfaces a field-pathed error for a malformed backup instead of importing it', async () => {
+    const onImported = vi.fn()
+    const { container } = render(<ImportScreen onStartFresh={() => {}} onImported={onImported} />)
+    // A backup envelope whose projects array holds an id-less item.
+    const file = new File(
+      [JSON.stringify({
+        $schema: 'resumestudio/v1', format_version: 1, exported_at: '2026-01-01T00:00:00Z',
+        profile: null, registries: { skills: [], roles: [] },
+        sections: { projects: [{ customer: {} }] },
+      })],
+      'backup.json',
+      { type: 'application/json' },
+    )
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement
+    await userEvent.upload(input, file)
+    // The error names the offending field; nothing was imported.
+    expect(await screen.findByText(/sections\.projects\[0\]\.id/)).toBeInTheDocument()
+    expect(onImported).not.toHaveBeenCalled()
+  })
+
+  it('rejects a non-object JSON file with a clear message', async () => {
+    const onImported = vi.fn()
+    const { container } = render(<ImportScreen onStartFresh={() => {}} onImported={onImported} />)
+    const file = new File(['[1,2,3]'], 'weird.json', { type: 'application/json' })
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement
+    await userEvent.upload(input, file)
+    expect(await screen.findByText(/not a recognised resume format/i)).toBeInTheDocument()
+    expect(onImported).not.toHaveBeenCalled()
+  })
 })

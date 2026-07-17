@@ -106,6 +106,136 @@ export function isBackupFormat(json: unknown): json is AnyBackup {
   return true
 }
 
+// ─── Validation ─────────────────────────────────────────────────────────────
+//
+// `isBackupFormat` is a lenient ROUTER — it decides "this is a backup, not a
+// CVpartner export" from the envelope alone, deliberately loose so a slightly
+// unusual backup still gets handled here rather than misrouted. `validateBackup`
+// is the stricter GATE: before we build a ResumeStore from untrusted JSON, it
+// confirms the structural invariants the app relies on — collections are arrays
+// of id-bearing objects, profile is object-or-null — and reports every problem
+// with a field path, mirroring `validateAIImport` in aiImport.ts.
+//
+// It is intentionally STRUCTURAL, not a full data-model schema. Deep per-field
+// validation of every LocalizedString would double the data model as a second
+// source of truth (drift the codebase avoids) for little gain — the render
+// boundary already escapes every value (see the security skill), so the danger
+// isn't a malformed string, it's a `projects` that isn't an array or an item
+// with no `id`, which breaks the store the moment it loads.
+
+export interface BackupIssue {
+  /** Dotted path to the offending field, e.g. `sections.projects[3].id`. */
+  path: string
+  reason: string
+}
+
+/**
+ * Thrown when a backup file is structurally unusable. Carries every issue found
+ * (not just the first) so a caller could list them; `ImportScreen` surfaces the
+ * message. Same shape/spirit as `InvalidAIImportError`.
+ */
+export class InvalidBackupError extends Error {
+  constructor(public issues: BackupIssue[]) {
+    super(
+      issues.length === 1
+        ? `${issues[0].path}: ${issues[0].reason}`
+        : `This backup file has ${issues.length} structural problems and can't be imported.`,
+    )
+    this.name = 'InvalidBackupError'
+  }
+}
+
+function isObj(v: unknown): v is Record<string, unknown> {
+  return !!v && typeof v === 'object' && !Array.isArray(v)
+}
+
+/** Registry keys that must be arrays of id-bearing objects when present. */
+const REGISTRY_KEYS = ['skills', 'roles', 'industries', 'skill_categories'] as const
+/**
+ * Section keys that must be arrays of id-bearing objects when present. NB:
+ * `technology_categories` is intentionally excluded — it's the legacy
+ * pre-v6 showcase blob (`unknown[]`), validated only as "an array" below,
+ * because migrateStore reshapes it rather than reading it as entities.
+ */
+const SECTION_KEYS = [
+  'key_qualifications', 'key_competencies', 'recommendations', 'projects',
+  'work_experiences', 'educations', 'courses', 'certifications',
+  'spoken_languages', 'positions', 'presentations', 'honor_awards',
+  'publications', 'references',
+] as const
+
+/**
+ * Assert `val` is an array of objects each carrying a string `id`, pushing an
+ * issue per offender. Absent (`null`/`undefined`) is fine — optional
+ * collections and older backups simply omit keys; that's handled by the
+ * `?? []` defaults in `importFromBackup`.
+ */
+function checkIdArray(val: unknown, path: string, issues: BackupIssue[]): void {
+  if (val == null) return
+  if (!Array.isArray(val)) {
+    issues.push({ path, reason: 'expected an array' })
+    return
+  }
+  val.forEach((item, i) => {
+    if (!isObj(item)) {
+      issues.push({ path: `${path}[${i}]`, reason: 'expected an object' })
+    } else if (typeof item['id'] !== 'string' || !item['id']) {
+      issues.push({ path: `${path}[${i}].id`, reason: 'expected a non-empty string id' })
+    }
+  })
+}
+
+/**
+ * Validate a parsed backup's structure and return it typed, or throw
+ * `InvalidBackupError` listing every problem. Call this before
+ * `importFromBackup` on untrusted input (`ImportScreen` does). `migrateBackup`
+ * inside `importFromBackup` then handles version differences on the now-trusted
+ * shape.
+ */
+export function validateBackup(json: unknown): AnyBackup {
+  if (!isObj(json)) {
+    throw new InvalidBackupError([{ path: '(root)', reason: 'expected a JSON object' }])
+  }
+  const issues: BackupIssue[] = []
+
+  const schema = json['$schema']
+  if (typeof schema !== 'string' || !schema.startsWith('resumestudio/')) {
+    issues.push({ path: '$schema', reason: `expected a "resumestudio/…" schema, got ${JSON.stringify(schema)}` })
+  }
+  if (typeof json['format_version'] !== 'number') {
+    issues.push({ path: 'format_version', reason: 'expected a number' })
+  }
+
+  // profile: object or null (an absent profile is tolerated — treated as null).
+  if ('profile' in json && json['profile'] != null && !isObj(json['profile'])) {
+    issues.push({ path: 'profile', reason: 'expected an object or null' })
+  }
+
+  const registries = json['registries']
+  if (registries != null && !isObj(registries)) {
+    issues.push({ path: 'registries', reason: 'expected an object' })
+  } else if (isObj(registries)) {
+    for (const key of REGISTRY_KEYS) checkIdArray(registries[key], `registries.${key}`, issues)
+  }
+
+  const sections = json['sections']
+  if (sections != null && !isObj(sections)) {
+    issues.push({ path: 'sections', reason: 'expected an object' })
+  } else if (isObj(sections)) {
+    for (const key of SECTION_KEYS) checkIdArray(sections[key], `sections.${key}`, issues)
+    // Legacy showcase blob: only require it be an array; migrateStore reshapes it.
+    const tc = sections['technology_categories']
+    if (tc != null && !Array.isArray(tc)) {
+      issues.push({ path: 'sections.technology_categories', reason: 'expected an array' })
+    }
+  }
+
+  checkIdArray(json['views'], 'views', issues)
+
+  if (issues.length) throw new InvalidBackupError(issues)
+  return json as unknown as AnyBackup
+}
+
 // ─── Migration scaffold ───────────────────────────────────────────────────────
 
 export class UnsupportedBackupVersionError extends Error {
@@ -180,7 +310,13 @@ export function exportToBackup(store: ResumeStore): BackupV1 {
  * `UnsupportedBackupVersionError` if the version is unknown.
  */
 export function importFromBackup(backup: AnyBackup): ResumeStore {
-  const v1 = migrateBackup(backup)
+  // Gate untrusted input on the way in: even callers that skipped
+  // `validateBackup` (or passed something `isBackupFormat` waved through) get
+  // the structural guarantees the store build below relies on. Idempotent and
+  // cheap on an already-valid backup, so validating here AND in ImportScreen is
+  // fine — belt and braces on the one boundary that turns JSON into a store.
+  const valid = validateBackup(backup)
+  const v1 = migrateBackup(valid)
   const store: ResumeStore = {
     shape_version:           v1.shape_version,
     resume:                  v1.profile,

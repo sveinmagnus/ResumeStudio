@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { Upload, FileJson, Sparkles, FilePlus, Wand2 } from 'lucide-react'
-import { isBackupFormat, importFromBackup, UnsupportedBackupVersionError } from '../lib/backup'
+import { isBackupFormat, importFromBackup, UnsupportedBackupVersionError, InvalidBackupError } from '../lib/backup'
 import { importFromCVPartner } from '../lib/importer'
 import {
   isAIImportFormat, validateAIImport, importFromAIDraft, InvalidAIImportError,
@@ -95,15 +95,26 @@ export function ImportScreen({ compact = false, onStartFresh, onImported }: Impo
         const store = await normalizeImported(importFromAIDraft(validateAIImport(json)))
         await onImported(store, deriveName(store, 'AI-imported resume'))
       } else if (isBackupFormat(json)) {
-        // Backups carry intentional existing names — restore verbatim, no normalization.
+        // Backups carry intentional existing names — restore verbatim, no
+        // normalization. importFromBackup validates the structure and throws
+        // InvalidBackupError (with a field path) on anything malformed.
         const store = importFromBackup(json)
         await onImported(store, deriveName(store, 'Imported resume'))
       } else {
+        // Everything unrecognised falls through to the CVpartner importer, which
+        // maps a large, real-world-messy object. Guard the one thing its cast
+        // assumes — that we have an object at all — so a stray array/string/
+        // number gets a clear message instead of a confusing internal failure.
+        if (!json || typeof json !== 'object' || Array.isArray(json)) {
+          throw new Error('this file is not a recognised resume format (expected a CVpartner export, a Resume Studio backup, Europass, or an AI-import file).')
+        }
         const store = await normalizeImported(importFromCVPartner(json as Record<string, unknown>))
         await onImported(store, deriveName(store, 'Imported CV'))
       }
     } catch (e) {
-      const msg = e instanceof UnsupportedBackupVersionError || e instanceof InvalidAIImportError
+      const msg = e instanceof UnsupportedBackupVersionError
+        || e instanceof InvalidAIImportError
+        || e instanceof InvalidBackupError
         ? e.message
         : `Could not parse file: ${(e as Error).message}`
       setError(msg)
