@@ -4,8 +4,8 @@
 # re-verify a unit's accuracy, and when you change a document, update its unit here.
 kcp_version: "0.20"
 project: resume-studio
-version: 0.3.1
-updated: "2026-07-09"
+version: 0.8.0
+updated: "2026-07-17"
 language: en
 hints:
   recommended_entry_point: claude-instructions
@@ -17,7 +17,7 @@ units:
     intent: "How must an agent work in this codebase? Architecture map, data model, store patterns, conventions (incl. the v0.3.1 accessibility invariants + the version source-of-truth rule), and what not to change. Holds invariants only — the exhaustive feature catalog is in feature-map."
     scope: global
     audience: [agent, developer]
-    validated: "2026-07-16"
+    validated: "2026-07-17"
     update_frequency: weekly
     triggers: [conventions, architecture, data-model, store, persistence, sections, accessibility, routing]
     content_structure:
@@ -53,7 +53,7 @@ units:
     intent: "What is Resume Studio and how do I install, run, and configure it?"
     scope: global
     audience: [human, agent]
-    validated: "2026-06-15"
+    validated: "2026-07-17"
     update_frequency: monthly
     triggers: [overview, quickstart, install, configuration, env]
     not_for: ["architecture", "data model", "code conventions"]
@@ -63,10 +63,10 @@ units:
 
   - id: desktop-guide
     path: DESKTOP.md
-    intent: "How does the portable desktop build work — building, data dirs, cloud-folder sync, tray, and auto-update?"
+    intent: "How does the portable desktop build work — building, data dirs, cloud-folder sync, tray, tabbed in-app settings (translation + AI assist), and auto-update?"
     scope: project
     audience: [human, developer, agent]
-    validated: "2026-06-15"
+    validated: "2026-07-17"
     update_frequency: monthly
     depends_on: [readme]
     triggers: [desktop, launcher, portable, tray, auto-update, sync, backup-folder]
@@ -81,7 +81,7 @@ units:
     format: text
     scope: global
     audience: [developer, agent]
-    validated: "2026-06-11"
+    validated: "2026-07-17"
     update_frequency: monthly
     triggers: [types, entities, LocalizedString, ResumeStore, ResumeView, schema]
     not_for: ["runtime behavior", "business logic", "how a feature works"]
@@ -95,10 +95,10 @@ units:
   - id: ai-import-schema
     kind: schema
     path: public/ai-import-template.md
-    intent: "What is the resumestudio-ai/v1 exchange schema that external LLMs fill in for the bring-your-own-LLM CV import?"
+    intent: "What is the resumestudio-ai/v1 exchange schema that external LLMs fill in for the bring-your-own-LLM CV import? (docs/ai-import-template.md mirrors it for the docs site.)"
     scope: module
     audience: [human, agent]
-    validated: "2026-06-10"
+    validated: "2026-07-17"
     update_frequency: rarely
     triggers: [ai-import, byo-llm, exchange-schema, import]
     not_for: ["the internal ResumeStore data model"]
@@ -115,7 +115,7 @@ units:
     intent: "What rules govern the Zustand store, auto-save, boot, undo, offline sync, and the loadStore-vs-replaceData split? Includes the /api/resumes route grammar and the boot/save/conflict sequences."
     scope: module
     audience: [agent]
-    validated: "2026-07-09"
+    validated: "2026-07-17"
     depends_on: [claude-instructions, data-model]
     triggers: [store, zustand, auto-save, undo, redo, mutationCount, localCache, persistence, offline, conflict, api-routes]
     hints:
@@ -123,10 +123,10 @@ units:
 
   - id: skill-export-pipeline
     path: .claude/skills/export-pipeline.md
-    intent: "How do the HTML/PDF and DOCX export paths stay in sync, what is the docx lazy-load discipline, and why does no render path hold an English literal?"
+    intent: "How do the four render paths (HTML preview, pdfmake PDF, DOCX, ATS text/Markdown) stay in agreement via the section-descriptor catalog, what is the lazy-load discipline, and why does no render path hold an English literal?"
     scope: module
     audience: [agent]
-    validated: "2026-07-16"
+    validated: "2026-07-17"
     depends_on: [claude-instructions, data-model]
     triggers: [export, docx, pdf, viewFilter, exporter, buildViewHtml, preview, localization, locale, translation, chrome, exportStrings]
     hints:
@@ -134,11 +134,11 @@ units:
 
   - id: skill-security-review
     path: .claude/skills/security-review.md
-    intent: "What escaping/sanitising rules protect the render pipeline, server, auth, and imports — and how to review changes against them?"
+    intent: "What escaping/sanitising rules protect the render pipeline, server, auth, imports, and the LLM proxy (translate/summarize/llm routes, AssistRun honesty contract) — and how to review changes against them?"
     kind: policy
     scope: project
     audience: [agent]
-    validated: "2026-06-10"
+    validated: "2026-07-17"
     depends_on: [claude-instructions]
     triggers: [security, xss, escaping, sanitise, auth, csp, untrusted-input]
     hints:
@@ -150,7 +150,7 @@ units:
     intent: "How to write tests that find bugs here — the typecheck/test/build gate, regression discipline, and live verification."
     scope: project
     audience: [agent]
-    validated: "2026-06-10"
+    validated: "2026-07-17"
     depends_on: [claude-instructions]
     triggers: [testing, vitest, rtl, regression, qa, verification]
     hints:
@@ -161,7 +161,7 @@ units:
     intent: "What CVpartner-format quirks and importer invariants must be preserved when touching importer.ts?"
     scope: module
     audience: [agent]
-    validated: "2026-06-10"
+    validated: "2026-07-17"
     depends_on: [claude-instructions, data-model]
     triggers: [cvpartner, importer, locale-detection, import]
     hints:
@@ -172,7 +172,7 @@ units:
     intent: "What are the Cartavio brand colors, fonts, and design tokens all UI must follow? Includes the WCAG-AA text-safe variants and self-hosted font setup."
     scope: project
     audience: [agent]
-    validated: "2026-06-12"
+    validated: "2026-07-17"
     triggers: [brand, design, colors, fonts, tokens, styling, contrast]
     hints:
       token_estimate: 1400
@@ -222,19 +222,20 @@ units:
     hints:
       token_estimate: 400
 
-  # ── Plans (design rationale; the first is live, the others shipped) ──────
+  # ── Plans (historical design rationale — every plan has been resolved) ────
   - id: plan-roadmap
     path: plans/improvement-roadmap.md
-    intent: "What improvements and new features are planned, in what order, and why? (Full-solution review, June 2026.)"
+    intent: "How were improvements prioritised in the June 2026 full-solution review, and what happened to each item? Every entry is now done, dropped, or explicitly deferred — a historical record, not a live plan. Live future work: CLAUDE.md §12."
     scope: global
     audience: [human, developer, agent]
-    validated: "2026-06-15"
-    update_frequency: monthly
+    validated: "2026-07-17"
+    update_frequency: never
     depends_on: [claude-instructions]
-    triggers: [roadmap, future-work, refactor, features, priorities]
-    not_for: ["current shipped behavior"]
+    triggers: [roadmap, design-rationale, priorities, what-happened-to]
+    not_for: ["current shipped behavior", "what to build next"]
     hints:
       token_estimate: 4400
+      priority: reference
 
   - id: plan-unify-showcase
     path: plans/unify-showcase-into-categories.md
@@ -280,7 +281,7 @@ units:
     intent: "What is Resume Studio, who is it for, and what makes it different? (End-user landing page.)"
     scope: global
     audience: [human]
-    validated: "2026-07-09"
+    validated: "2026-07-17"
     update_frequency: monthly
     hints:
       token_estimate: 650
@@ -290,7 +291,7 @@ units:
     intent: "What does Resume Studio do today, feature by feature? (Most current end-user feature list.)"
     scope: global
     audience: [human, agent]
-    validated: "2026-07-09"
+    validated: "2026-07-17"
     update_frequency: monthly
     triggers: [features, capabilities, what-shipped]
     not_for: ["architecture", "implementation detail"]
@@ -299,9 +300,10 @@ units:
 
   - id: site-how-to
     path: docs/how-to.md
-    intent: "How does an end user perform day-to-day tasks — first launch, editing, views, exporting, syncing?"
+    intent: "How does an end user perform day-to-day tasks — first launch, editing, views, exporting, translation and AI assist, syncing?"
     scope: global
     audience: [human]
+    validated: "2026-07-17"
     update_frequency: monthly
     not_for: ["code or implementation questions"]
     hints:
@@ -312,7 +314,7 @@ units:
     intent: "Where does an end user download the desktop build for each OS?"
     scope: global
     audience: [human]
-    validated: "2026-07-09"
+    validated: "2026-07-17"
     update_frequency: monthly
     hints:
       token_estimate: 1000
@@ -357,9 +359,9 @@ units:
     format: text
     scope: project
     audience: [developer, agent]
-    validated: "2026-06-10"
+    validated: "2026-07-17"
     update_frequency: monthly
-    triggers: [env, configuration, token, translate-provider]
+    triggers: [env, configuration, token, translate-provider, summarize-provider, llm]
     content_structure:
       primary: reference
       density: sparse
@@ -401,6 +403,9 @@ relationships:
     type: supersedes
   - from: feature-map
     to: plan-unify-showcase
+    type: supersedes
+  - from: claude-instructions
+    to: plan-roadmap
     type: supersedes
   # The AI exchange schema is a projection of the internal data model.
   - from: data-model

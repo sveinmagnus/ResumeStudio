@@ -18,8 +18,10 @@ you open the app — nothing here is buried behind config files.
   configured, a **Draft translation** button that pre-fills a machine
   translation for you to review. Drafts are always flagged as review-required.
 - **Multiple translation providers.** LibreTranslate (Docker-managed local
-  instance, or a remote URL you host), DeepL, Google Cloud Translation, or
-  Microsoft Azure Translator. Switch between them from Settings.
+  instance with a pick-your-languages install, or a remote URL you host),
+  DeepL, Google Cloud Translation, Microsoft Azure Translator — or the AI
+  model you configured for assist, with zero extra setup. Switch between
+  them from Settings.
 - **Re-detect languages.** A refresh button in the language switcher scans
   your content and adds any locale it finds to your supported list — handy
   after importing a CV.
@@ -55,6 +57,32 @@ you open the app — nothing here is buried behind config files.
 - **Skill matrix.** An exportable skill × years × proficiency × last-used
   table derived from your project history.
 
+## AI assist — bring your own model
+
+One model powers every AI feature, and you choose where it runs: a **local
+Ollama** (the app can run it in Docker for you — your CV never leaves the
+machine), **OpenAI**, or **any OpenAI-compatible endpoint** (LM Studio, Groq,
+OpenRouter, …). Every AI button states plainly whether content stays on this
+computer or goes to your provider, results are always drafts you review
+before they touch your CV, and with no model configured the buttons simply
+hide. Every feature also has a **manual path** — copy a generated prompt into
+whatever AI you already use and paste the answer back — so nothing requires
+an API key.
+
+- **One-line summaries.** Draft a short description from a long one — per
+  field, or "Summarize all empty" for a whole section at once.
+- **Job-posting tailoring.** Paste a posting and get a proposed view:
+  section detail levels, item exclusions, a drafted intro, and a gap list.
+- **Skill suggestions.** Propose the skills a project's prose demonstrates,
+  matched against your existing registry so it links "React" rather than
+  minting "React.js".
+- **Drafted project highlights** from the project description.
+- **Anonymization check.** Scan an anonymized view for real client names
+  that leaked through in prose.
+- **Page-fit advice.** When a view runs over its page limit, get concrete
+  suggestions for what to cut.
+- **AI import and bulk add** — see the Import section below.
+
 ## Multi-resume
 
 - **One app, many master CVs.** Keep separate CVs for different lines of
@@ -67,10 +95,14 @@ you open the app — nothing here is buried behind config files.
 
 - **Curated subsets of the master CV.** A view names a set of sections to
   include, items to exclude, a starred-only toggle, and a custom intro.
-- **Per-section detail levels.** Each section can be Off, Summary, or Full —
-  so a one-pager and a deep technical CV share the same source data.
-- **Per-view styling.** Density, body size, heading font, accent color, page
-  margin, tag style — all stored on the view, not the master CV.
+- **Per-section detail levels.** Each section can be Off, Summary, Tabulated
+  (aligned columns), or Full — so a one-pager and a deep technical CV share
+  the same source data. Sections can also flip to starred-only individually
+  and be bulk-selected by type facets (e.g. only Research publications).
+- **Per-view styling.** Density, body size, fonts, heading and accent
+  colors, page margin, tag style, item dividers and bullets, section icons,
+  custom section headings, date formats, per-section sort and summary
+  layout — all stored on the view, not the master CV.
 - **Configurable header and footer.** Choose which contact fields appear,
   the labels and separators, name/title type size, photo and logo placement,
   and a footer note.
@@ -79,10 +111,12 @@ you open the app — nothing here is buried behind config files.
 - **Export templates.** Named presets (compact technical, formal management,
   minimal one-pager) that seed a view's style, header/footer, and section
   detail in one click.
-- **Job-posting tailoring — bring your own AI.** Paste a job posting, get a
-  prompt to run in any LLM you already use, paste the answer back, and the
-  view reorders and trims itself for that role. No API key, no data sent
-  anywhere by the app.
+- **Job-posting tailoring.** Paste a job posting and run it with your
+  configured model in one click — or copy the generated prompt into any LLM
+  and paste the answer back. Either way the view reorders and trims itself
+  for that role, as a proposal you review first.
+- **Page limit with real advice.** Set a page budget, watch the live
+  page-count estimate, and ask the AI what to cut when you're over.
 - **Anonymized variants.** A per-view toggle that anonymizes customers and
   redacts references to initials — for tenders and broker submissions.
 - **Per-view export language** — the same view can ship in English to one
@@ -92,12 +126,19 @@ you open the app — nothing here is buried behind config files.
 
 ## Export
 
-- **PDF** via the browser's print pipeline — uses the system's native
-  Save-as-PDF, so the result matches what you see in the preview.
+- **PDF** — a one-click vector download, rendered from the same section
+  catalog as the preview.
 - **DOCX** (`.docx`) via the [`docx`](https://docx.js.org/) library, lazy-
   loaded so the bundle only grows when you actually export.
 - **Plain text & Markdown** — ATS-friendly exports for application portals
   that mangle formatted documents.
+- **Fully localized output.** Every piece of document chrome a client reads —
+  section headings, month names, "Present", contact-field labels, skill-matrix
+  columns, language levels — ships translated in all 15 offered languages, so
+  a Norwegian or German export never leaks English labels.
+- **Language proficiency done properly.** Spoken languages render as a
+  compact one-liner or a full Europass CEFR passport (A1–C2 per skill),
+  your choice per view.
 
 ## Import & backup
 
@@ -109,10 +150,14 @@ you open the app — nothing here is buried behind config files.
   get a working resume.
 - **Europass import.** Reads both SkillsPassport XML and Europass profile
   JSON.
-- **AI-assisted import from PDF or Word — bring your own AI.** Download the
-  instruction template, run it with your CV in any LLM, paste the JSON back,
-  and preview the result before it becomes a resume. Your CV goes only to the
-  AI *you* chose.
+- **AI-assisted import from PDF or Word.** Paste your CV's text and run the
+  import with your configured model in one click — or download the
+  instruction template, run it in any LLM, and paste the JSON back. Either
+  way you preview the result before it becomes a resume.
+- **Per-section bulk add.** Paste raw source material (an old CV chapter, a
+  course list, a project log) and turn it into many items in one reviewed
+  batch — with the same one-click-or-manual AI choice, and duplicates
+  detected against what the section already has.
 - **Portable JSON backup.** Per-resume export from the editor; versioned
   format with a migration scaffold so older backups keep loading.
 - **Server-side snapshot history.** Every save is snapshotted (last 50 per
@@ -145,8 +190,10 @@ you open the app — nothing here is buried behind config files.
 
 ## Privacy & security posture
 
-- **Your CV never leaves your machine** unless you turn translation on, in
-  which case the chosen provider sees only the text fragments you draft.
+- **Your CV never leaves your machine** unless you point translation or AI
+  assist at a remote provider — and the app says exactly where content goes
+  before you run anything. Local options (Docker LibreTranslate, Ollama)
+  keep everything on your computer.
 - **No account, no telemetry, no analytics.**
 - **Loopback-only on desktop.** The local server binds `127.0.0.1` — the app
   is never exposed to your network.

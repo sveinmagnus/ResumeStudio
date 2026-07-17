@@ -1,5 +1,9 @@
 # Improvement Roadmap — full-solution review (June 2026, v0.2.2)
 
+> **Status: historical (resolved July 2026).** Every item below is done,
+> dropped, or explicitly deferred — see the per-item markers. This is kept as
+> a design-rationale record; live future work is CLAUDE.md §12.
+
 A whole-codebase + documentation review against the product target: a
 **no-dependencies, stand-alone, locally runnable resume manager for
 individuals or a small team**, centred on one master CV extracted into

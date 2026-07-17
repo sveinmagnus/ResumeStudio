@@ -17,6 +17,7 @@ tasks once you're set up. If you haven't installed it yet, head to the
 - [Export to PDF or Word](#export-to-pdf-or-word)
 - [Snapshot history & undo](#snapshot-history--undo)
 - [Translation assist](#translation-assist)
+- [AI assist](#ai-assist)
 - [Sync CVs across computers](#sync-cvs-across-computers)
 - [Backups](#backups)
 - [Stopping & uninstalling](#stopping--uninstalling)
@@ -28,12 +29,15 @@ tasks once you're set up. If you haven't installed it yet, head to the
 
 Double-click the launcher for your platform (see the [download page](download.html)
 if you're not sure which file). A small log window opens, the app picks a free
-port starting at 3001, and your browser opens automatically to the home screen.
+port starting at 3001, your browser opens automatically to the home screen,
+and a **Resume Studio icon appears in the system tray**.
 
 That home screen is the **picker** — your list of CVs. It starts empty.
 
-Stop the app at any time by closing the launcher window (or pressing **Ctrl-C**
-in it). The Windows `.vbs` variant has no window — stop it from Task Manager.
+Stop the app at any time from the **tray icon → Quit Resume Studio** (closing
+the browser tab does not stop it). Closing the launcher window or pressing
+**Ctrl-C** in it works too; the tray is the way to quit the no-window `.vbs`
+launcher.
 
 ## Add your first CV
 
@@ -41,9 +45,15 @@ Two ways to start, both from the picker:
 
 1. **Start fresh** — opens an empty CV with a name you pick. Add sections as
    you go.
-2. **Import from a file** — drag in a CVpartner JSON export, or a Resume Studio
-   backup file (`.json`). The importer pulls in everything it can, including
-   detecting languages your export under-declared.
+2. **Import** — bring an existing CV in:
+   - a **CVpartner** JSON export (languages your export under-declared are
+     detected from the content),
+   - a **LinkedIn** data-export `.zip`,
+   - a **Europass** XML or JSON file,
+   - a Resume Studio **backup** file (`.json`), or
+   - **any PDF / Word CV via AI import** — paste the text, run it with your
+     configured model (or any LLM you trust, manually), and preview the
+     result before it becomes a resume.
 
 Each CV gets its own URL, so you can keep multiple master CVs (one per line of
 business, joint venture, or career chapter) side by side. Use the picker — or
@@ -77,8 +87,8 @@ styling, and section choices — that's what you actually send to a client.
 1. Open **Resume Views** from the sidebar and add a new view.
 2. Give it a name, a custom **introduction**, and (optionally) a page limit.
 3. Tick the **sections** to include and drag them into the order you want.
-4. For each included section, pick a **detail level** — *Off*, *Summary*, or
-   *Full*. Summary trims long descriptions to a single line; Full keeps them.
+4. For each included section, pick a **detail level** — *Off*, *Summary*
+   (one line per item, optionally as aligned *tabulated* columns), or *Full*.
 5. Exclude individual items you don't want in this view (e.g. early-career
    roles for a senior position).
 6. Toggle **starred only** if the view should show only your starred
@@ -89,21 +99,25 @@ styling, and section choices — that's what you actually send to a client.
 
 The **live preview pane** re-renders as you tune the view, and shows a
 page-count estimate against your page limit, so you can dial it in without
-exporting first.
+exporting first. A one-click **template** (compact technical, formal
+management, minimal one-pager) is the fastest starting point — apply one,
+then adjust.
 
 ## Export to PDF or Word
 
-From inside the Resume View editor:
+From inside the Resume View editor, pick the **export language**, then:
 
-- **Export PDF** — opens your system's print dialog with the rendered view
-  loaded. Choose "Save as PDF" as the destination. (Pop-ups must be allowed
-  for the app's local URL.)
-- **Export DOCX** — downloads a `.docx` file. The first export downloads the
+- **Export PDF** — downloads a `.pdf` in one click. No print dialog, no
+  pop-ups.
+- **Export DOCX** — downloads a `.docx` file. The first export fetches the
   word-export library (~350 kB, cached afterward), so the very first click can
   feel a touch slower.
+- **Export text / Markdown** — ATS-friendly plain formats for application
+  portals that mangle rich documents.
 
-Both exports respect your view's section list, detail levels, exclusions,
-styling, and header/footer.
+Every export respects your view's section list, detail levels, exclusions,
+styling, and header/footer — and all document labels (headings, months,
+"Present", contact labels) come out in the export language.
 
 ## Snapshot history & undo
 
@@ -140,17 +154,40 @@ open **Settings**, then pick a provider:
 
 | Provider | What you need | Notes |
 |---|---|---|
-| **LibreTranslate — local (Docker)** | Docker Desktop installed | First start downloads language models (a few GB). Use Start / Stop / Check status. Fully self-hosted. |
+| **LibreTranslate — local (Docker)** | Docker Desktop installed | You pick which languages to install (each a few-hundred-MB download on first start). Use Start / Stop / Check status. Fully self-hosted. |
 | **LibreTranslate — remote URL** | The URL of a LibreTranslate instance you host | Optional API key. |
 | **DeepL** | A DeepL API key | Free and Pro keys both work. Best quality for Norwegian/Swedish/Danish. |
 | **Google Cloud Translation** | A Google Cloud API key | |
 | **Microsoft Azure Translator** | The key + a region (e.g. `westeurope`) | |
+| **Use the AI model from Summarize** | An AI assist backend (next section) | Zero extra config — drafts run on that model. |
 
 After saving, **Test connection** drafts one short phrase to confirm the
 configuration works.
 
 CV text only ever travels from your browser through the app to the provider
 you chose — there is no Resume Studio backend in the loop.
+
+## AI assist
+
+The AI features — one-line summaries, "Summarize all empty", job-posting
+tailoring, AI import, bulk add, skill suggestions, drafted highlights, the
+anonymization check, and page-fit advice — all run on **one model you
+configure** in **Settings → AI assist**:
+
+- **Local Ollama (Docker-managed)** — the app starts the container and pulls
+  your chosen model for you. Your CV never leaves the computer; the buttons
+  say so.
+- **Remote Ollama, OpenAI, or any OpenAI-compatible endpoint** — paste a URL
+  and/or key. The buttons then say content is sent to that provider, and
+  whole-CV tasks confirm once per session before the first send.
+
+Pick a model (the field suggests a curated shortlist plus whatever your
+Ollama has already pulled), hit **Test**, and Save. Every AI result is a
+draft you review before it touches your CV.
+
+No model configured? Every AI feature still works manually: copy the
+generated prompt into whatever AI you already use and paste the answer back.
+Nothing is ever sent by the app itself on that path.
 
 ## Sync CVs across computers
 
@@ -195,8 +232,8 @@ And, server-side, every save is snapshotted automatically (last 50 per CV).
 
 ## Stopping & uninstalling
 
-- **Stop the app** — close the launcher window, or press Ctrl-C in it. The
-  silent `.vbs` launcher on Windows stops from Task Manager.
+- **Stop the app** — tray icon → **Quit Resume Studio** (or close the
+  launcher window / Ctrl-C in it).
 - **Move the app** — drag the folder anywhere. Your data is in the per-user
   folder (see the [download page](download.html#what-you-get)), not in the
   app folder.
@@ -212,6 +249,9 @@ And, server-side, every save is snapshotted automatically (last 50 per CV).
   provider, and save. With the Docker option, models download on first
   launch — until that finishes, drafts will fail and **Test connection**
   reports "not reachable".
+- **AI buttons are missing.** No model is configured — set one up in
+  **Settings → AI assist** (or use each feature's manual copy/paste path,
+  which is always there).
 - **"Restore from folder" is greyed out.** No backup file exists in the sync
   folder yet — click **Back up now** on the first machine first, and wait for
   your cloud client to sync the file across.

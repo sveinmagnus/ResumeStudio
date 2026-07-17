@@ -1,36 +1,40 @@
 ---
 name: export-pipeline
-description: How Resume Studio renders a Resume View to PDF (HTML/print) and DOCX, and the rules that keep the two paths in sync. Use before changing src/lib/viewFilter.ts, src/lib/exporter.ts, the live preview, or the Export buttons in ResumeViewsEditor — or when adding a section/field to exports. Covers the two-render-path parity, the docx lazy-load discipline, the `italics` gotcha, and the escaping cross-check.
+description: How Resume Studio renders a Resume View — HTML preview, one-click PDF (pdfmake), DOCX, and ATS text/Markdown — and the rules that keep the paths in agreement. Use before changing src/lib/viewFilter.ts, src/lib/pdfExporter.ts, src/lib/exporter.ts, src/lib/viewText.ts, the live preview, or the Export controls in ViewEditor — or when adding a section/field to exports. Covers the section-descriptor catalog, render-path parity, the lazy-load discipline, the `italics` gotcha, and the escaping cross-check.
 ---
 
-# Export pipeline (PDF + DOCX)
+# Export pipeline (HTML preview, PDF, DOCX, text/Markdown)
 
-A Resume View is exported through **two independent render paths** that must
-stay visually and structurally in agreement. The whole class of export bugs is
-"changed one path, forgot the other." Read this before touching either renderer
+A Resume View is exported through **independent render paths** that must stay
+visually and structurally in agreement. The whole class of export bugs is
+"changed one path, forgot the other." Read this before touching any renderer
 or the export UI. Pairs with CLAUDE.md §7 (adding a section) and the
 security-review skill (escaping).
 
-## 1. The two paths (keep them in sync)
+## 1. The render paths (keep them in sync)
 
-Both consume the **filtered** store from `applyView(store, view)` (drops hidden
+All consume the **filtered** store from `applyView(store, view)` (drops hidden
 sections, excluded items, and — if set — non-starred items). Then:
 
-- **PDF / preview** → `viewFilter.ts → buildViewHtml()` builds an HTML string.
-  It's rendered two ways: the live preview pane (`<iframe srcDoc={previewHtml}>`
-  in `ResumeViewsEditor`) and the print export (`win.document.write(html)` →
-  `window.print()`).
-- **DOCX** → `exporter.ts → exportDocx()` builds a `docx` `Document` from the
-  same filtered store.
+- **HTML** → `viewFilter.ts → buildViewHtml()` builds an HTML string, rendered
+  two ways: the live preview pane (`<iframe srcDoc={previewHtml}>` in
+  `ViewEditor`) and an optional pop-out preview window (`win.document.write`,
+  kept in sync while it's open).
+- **PDF** → `pdfExporter.ts → exportPdf()` builds a pdfmake document — a
+  one-click vector `.pdf` download, no print dialog. Its own render engine, so
+  it ~matches (not pixel-identical to) the HTML preview.
+- **DOCX** → `exporter.ts → exportDocx()` builds a `docx` `Document`.
+- **Text / Markdown** → `viewText.ts → buildViewText()` / `buildViewMarkdown()`
+  for ATS-safe plain formats.
 
-Both paths (plus a third consumer — `getItemTitle` / `getItemSubtitle` in
-`viewFilter.ts`, which feed the View-editor's item-toggle list) are driven by a
+Every path (plus one more consumer — `getItemTitle` / `getItemSubtitle` in
+`viewFilter.ts`, which feed the View-editor's item-toggle list) is driven by a
 **single section-descriptor catalog** (`lib/sectionCatalog.ts`, one descriptor
-per section with `summary()` / `full()` data views). `renderItem` (viewFilter),
-`renderSection` (exporter), and the title/subtitle pair all read `SECTION_CATALOG`
-— there are no per-section switch statements left. So "support a section in
-exports" means **adding one descriptor**, not editing three renderers; the
-adapters own escaping/layout. See CLAUDE.md §7 step 7.
+per section with `summary()` / `full()` data views returning **data only**).
+The per-path adapters own escaping and layout — there are no per-section
+switch statements left. So "support a section in exports" means **adding one
+descriptor**, not editing four renderers. Per-path differences go behind
+`ctx.target`. See CLAUDE.md §7 step 7.
 
 **Rule:** if a section/field renders in one path, it renders in the other (or
 there's a deliberate, commented reason it doesn't — e.g. the `skills`/`roles`
@@ -54,23 +58,27 @@ inflect the noun by count).
 The **editor** is the other side of that boundary and stays English — see
 CLAUDE.md §12. Don't import `exportStrings.ts` from `components/`.
 
-## 2. DOCX specifics (`exporter.ts`)
+## 2. DOCX + PDF specifics
 
-- **It is lazy-loaded.** `ResumeViewsEditor` does
-  `const { exportDocx } = await import('../../lib/exporter')` on click. The
-  `docx` library is ~352 kB. **Never statically import `exporter.ts` from an
-  always-loaded module** or it rejoins the initial bundle. Verify after changes
-  with `npm run build` — you should see a separate `exporter-*.js` chunk, and
-  the initial `index-*.js` should not jump ~350 kB.
+- **Both are lazy-loaded.** `ViewEditor` does
+  `await import('../../../lib/exporter')` / `…/pdfExporter` on click. The
+  `docx` library is ~352 kB; pdfmake is ~1.2 MB + a ~0.9 MB font vfs. **Never
+  statically import `exporter.ts`, `pdfExporter.ts`, or `pdfmake` from an
+  always-loaded module** or they rejoin the initial bundle. Verify after
+  changes with `npm run build` — you should see separate `exporter-*.js` /
+  `pdfmake-*.js` chunks, and the initial `index-*.js` should not jump.
 - **`italics: true`, not `italic`.** The `docx` `TextRun` option is `italics`.
   Easy typo; `tsc` catches it, but know it.
 - **`docx` XML-escapes `TextRun` text automatically** — the DOCX path is
   XSS-safe as long as content goes through `TextRun`. Do **not** hand-roll an
-  XML/OOXML string emitter; if you ever do, it needs its own escaping.
-- **Brand + page constants** live at the top: `ACCENT_HEX` (Cartavio navy
-  `002E6E`), `HEADING_FONT` (`Open Sans Condensed`), `BODY_FONT` (`Ubuntu`), A4
-  page size in twips. Keep DOCX output visually aligned with the HTML/PDF brand
-  (see the cartavio-brand skill).
+  XML/OOXML string emitter; if you ever do, it needs its own escaping. The PDF
+  path likewise consumes a pdfmake object tree, never markup strings.
+- **Style comes from `viewStyle.ts`, not constants.** All three document paths
+  resolve the view's style through `withDefaults` → `withResolvedFonts` →
+  `deriveTokens` (colors sanitised, enums coerced, fonts from the catalog).
+  PDF can't embed arbitrary fonts, so each family maps onto a pdfmake
+  standard-14 base font; brand defaults are the Cartavio tokens (see the
+  cartavio-brand skill).
 - `view.template_id` seeds a named **export template** (`lib/viewTemplates.ts`)
   — style/header/footer + section detail presets. It's applied at view-edit
   time, not at render; the renderers see only the resulting concrete config.
@@ -79,30 +87,35 @@ CLAUDE.md §12. Don't import `exportStrings.ts` from `components/`.
 
 This path builds HTML by **string concatenation**, so every interpolated value
 MUST be escaped. This is a security boundary, not a nicety — see the
-security-review skill for the full rationale (imported content → export → XSS →
-token theft).
+security-review skill for the full rationale (imported content → preview/export
+→ XSS → drive the API as the user via the session cookie).
 
 - Every `${...}` that lands inside `<...>` goes through `escapeHtml(...)`
-  (exported from `viewFilter.ts`). `resolve()` returns raw text and does **not**
-  escape. The `l()`/`r()` helpers in `renderItem` already wrap `escapeHtml`.
+  (exported from `viewFilter.ts`), and description-shaped fields through
+  `renderRichHtml`. `resolve()` returns raw text and does **not** escape.
 - `buildViewHtml` emits a `<meta http-equiv="Content-Security-Policy">`
   defence-in-depth header. Keep it. Any *new* document/popup/iframe you open
   gets the same escape + CSP treatment.
-- PDF export is `window.open()` + `window.print()` → **pop-ups must be
-  allowed**; the user gets an `alert()` if blocked.
+- The **pop-out preview** is `window.open()` + `document.write(previewHtml)` →
+  pop-ups must be allowed; the user gets an inline error if blocked. (PDF is a
+  plain download — no popup involved.)
 
 ## 4. Adding a section or field to exports
 
-1. `viewFilter.ts → renderItem`: add a `case` for the section (HTML, escaped).
-2. `exporter.ts → renderSection`: add the matching `case` (DOCX, via
-   `TextRun`/paragraph helpers).
-3. `viewFilter.ts → getItemTitle` / `getItemSubtitle`: so the item appears in
-   the View editor's toggle list.
-4. Confirm the section is in `SECTIONS` with a `storeKey` and not excluded by
-   `applyView`.
-5. Render the *same fields* in both paths; respect `disabled`, exclusion, and
-   `starred_only` (handled by `applyView`, so consume the filtered store —
-   don't re-read `store` directly).
+1. Add (or extend) the **one descriptor** in `lib/sectionCatalog.ts` —
+   title/subtitle + `summary()`/`full()` data views. Descriptors return
+   **data only**; never build markup in a descriptor (the adapters own
+   escaping). Per-path differences go behind `ctx.target`.
+2. Confirm the section is in `SECTIONS` with a `storeKey` and reaches views
+   via `isExportableSection` + `normalizeViewSections`; give it a
+   `defaultViewDetail` if it shouldn't start as `full`.
+3. A new *localized chrome string* goes in `lib/exportStrings.ts` (or the
+   vocabulary's own home) with all 15 locales — `localeCoverage.test.ts`
+   fails otherwise.
+4. Respect `disabled`, exclusion, and `starred_only` by consuming the
+   filtered store from `applyView` — don't re-read `store` directly.
+5. Eyeball all four outputs (preview, PDF, DOCX, text) — one descriptor
+   feeds them, but layout quirks are per-adapter.
 
 ## 5. Test discipline
 
@@ -115,14 +128,18 @@ token theft).
   starred), `buildViewHtml` content, and the **HTML-escaping (XSS) canary**.
   That XSS test is the regression net for the whole string-HTML class — never
   delete or weaken it.
+- `tests/pdfExporter.test.ts` + `tests/viewText.test.ts` — same
+  structural-smoke idea for the other two paths.
 - After any change: `npm run typecheck && npm test && npm run build` (the build
-  is the only check that proves the lazy chunk is still split).
+  is the only check that proves the lazy chunks are still split).
 
 ## 6. When you touch this — checklist
 
-1. Changed one render path? Mirror it in the other (or comment why not).
-2. Added a section? Update all three switches (§4).
+1. Changed one render path's layout? Mirror it in the others (or comment why
+   not).
+2. Added a section? One descriptor in the catalog + the §4 steps.
 3. Touched `viewFilter` string HTML? Every interpolation escaped? Run the XSS
    test.
-4. Touched `exporter.ts` imports? Re-run `npm run build`; confirm the
-   `exporter-*.js` chunk is still separate and initial JS didn't balloon.
+4. Touched `exporter.ts`/`pdfExporter.ts` imports? Re-run `npm run build`;
+   confirm the `exporter-*.js`/`pdfmake-*.js` chunks are still separate and
+   initial JS didn't balloon.

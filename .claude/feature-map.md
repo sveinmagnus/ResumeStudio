@@ -95,11 +95,12 @@ prescriptive.
   to snooze it for a year (`Resume.attention_dismissals`, surfaced as a
   recoverable "snoozed" list).
 - **Targeted exports via Resume Views** — pick sections, exclude items,
-  starred-only filter, custom intro, then export PDF (browser print pipeline),
-  DOCX (lazy-loaded docx lib), or ATS-friendly **plain text / Markdown**
-  (`lib/viewText.ts`). A **live preview pane** in the view editor re-renders
-  the document as you tune it (iframe + page-count estimate). All render
-  paths share the **section-descriptor catalog** (`lib/sectionCatalog.ts`).
+  starred-only filter, custom intro, then export PDF (one-click vector
+  download via lazy-loaded pdfmake), DOCX (lazy-loaded docx lib), or
+  ATS-friendly **plain text / Markdown** (`lib/viewText.ts`). A **live preview
+  pane** in the view editor re-renders the document as you tune it (iframe +
+  page-count estimate + optional pop-out window). All render paths share the
+  **section-descriptor catalog** (`lib/sectionCatalog.ts`).
 - **Item bullets** (opt-in, `viewStyle.item_bullets` + `bullet_style`): a glyph
   (• – › ▪) before each item heading with the item's content **hang-indented**
   to line up under the heading, not the bullet. View-wide default + per-section

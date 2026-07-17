@@ -33,8 +33,10 @@ primary/secondary locale (from the caller's `locales` arg, else from
 `supported_locales`). `replaceData` never migrates — in-app computed data is
 current by construction.
 
-Other loads (also reset `mutationCount`): `loadFromCVPartner`, `startFresh`,
-`unloadStore`.
+Other loads (also reset `mutationCount`): `startFresh`, `unloadStore`. (The
+old `loadFromCVPartner` action is gone — CVpartner import goes through
+ImportScreen → `importFromCVPartner()` → `api.createResume`, like every other
+import format.)
 
 ## 2. The `mutationCount` + `mutate()` contract
 

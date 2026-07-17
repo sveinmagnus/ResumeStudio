@@ -691,8 +691,8 @@ export function buildViewHtml(store: ResumeStore, view: ResumeView, locale: stri
 
   // Restrictive CSP: blocks any script execution inside the generated document
   // (defence in depth — the escape-at-render above is the primary defence).
-  // The print popup still works because window.print() is called from the
-  // parent window, not from a script inside the document.
+  // Both consumers tolerate it: the preview iframe/pop-out never needs to run
+  // scripts, and printing from the pop-out is browser chrome, not page script.
   const csp = [
     "default-src 'none'",
     "style-src 'unsafe-inline'",

@@ -24,6 +24,7 @@ The pipeline spans several `lib/` files; **all of them must stay safe**:
 - `src/lib/viewStyle.ts` → `deriveTokens` — maps the view's style choices to concrete CSS values that are interpolated into the document's `<style>` block.
 - `src/lib/viewHeader.ts` → `withHeaderDefaults` / `withFooterDefaults` — header/footer config consumed by both render paths.
 - `src/lib/exporter.ts` — the DOCX path (the `docx` lib XML-escapes `TextRun`s, so it's safe by construction — but don't hand-roll XML/HTML there).
+- `components/ui/RichField.tsx` — the **live editor** is a render boundary too: its `useLayoutEffect` assigns the stored value to `contentEditable.innerHTML`, and the store can be filled by an untrusted import, so that write goes through `sanitizeRich` (regression-tested). Any new `innerHTML`/DOM-write of stored rich text must do the same.
 
 ### The two rules that keep it safe
 
@@ -56,7 +57,10 @@ The server is hardened in `server/app.ts` — keep it that way:
 - **Cross-site guard** (CSRF brake): a global middleware 403s state-changing requests (non-GET/HEAD/OPTIONS) with `Sec-Fetch-Site: cross-site`. This is the desktop build's main CSRF defence — there the API runs auth-less on loopback, so a visited web page could otherwise fire a simple no-preflight POST (e.g. `/api/update/install`, `/api/backup/restore`). Same-origin SPA fetches and header-less non-browser clients are unaffected. Don't regress it; new mutating routes inherit it automatically.
 - **`auth.ts` / `routes/auth.ts`**: `crypto.timingSafeEqual` compare; single generic `{error:'Unauthorized'}` for all failures; token read lazily; accepts the HttpOnly cookie or a bearer header. `/api/auth/login` is rate-limited but NOT auth-gated (it's how you authenticate) — keep it that way, and never log the token or echo it (only the `Set-Cookie` carries it, HttpOnly).
 - **`routes/resume.ts`** (multi-resume `/api/resumes`): validate body shape; `version` optimistic-concurrency (409 on stale `base_version`); errors must not leak SQL/internal detail. SQL is parameterised in `db.ts` — keep it parameterised (never string-build SQL).
-- **`translate.ts`** (provider proxy): upstream URLs/keys stay server-side; errors **never echo upstream detail** (could leak an internal URL/key); timeout via `AbortSignal.timeout`; Google key is `encodeURIComponent`'d in the query. The upstream URL is operator-configured (env / desktop settings), not attacker-supplied per request.
+- **`translate.ts`** (provider proxy): upstream URLs/keys stay server-side; errors **never echo upstream detail** (could leak an internal URL/key); timeout via `AbortSignal.timeout`; the Google key AND the Azure locale codes are `encodeURIComponent`'d in the query (locale codes are request input validated only for length). The upstream URL is operator-configured (env / desktop settings), not attacker-supplied per request. Provider enums validate against the **exported canonical lists** (`TRANSLATE_PROVIDERS` / `SUMMARIZE_PROVIDERS`) — an inline copy is how the `llm` provider shipped unsaveable.
+- **`summarize.ts` + `routes/summarize.ts` + `routes/llm.ts`** (the LLM proxy): same rules as translate — endpoint/key/model are server config, never request input; all `SummarizeError` messages are static strings (no upstream echo); `AbortSignal.timeout`. `/api/llm/complete` is a **general prompt proxy by design** (the prompt builders live in `src/lib/`, each caller has its own reply validator) — acceptable because it's behind the same auth as full CV read/write and can only choose the prompt, never the destination; it is NOT an open relay. Prompt (60 k chars) and reply (4096 tokens) are capped. `GET /api/summarize/models` fetches from the **server's** configured Ollama URL only — accepting a client-supplied URL would be SSRF. All three routers mount with `apiLimiter` + `translateLimiter` (success-counting — LLM calls are billable) + `authMiddleware`.
+- **`summarizeDocker.ts`**: like `translateDocker.ts` — `spawn` with explicit argv, fixed compose service/container names, and the one non-fixed value (the model tag for `ollama pull`) is charset-validated (`isValidModelName`) before it reaches a command line. Never throws into the request path.
+- **AI assist client honesty** (`src/lib/llmAssist.ts` + `components/ui/AssistRun.tsx`): "nothing leaves this computer" is only said when the SERVER derived `local` from the endpoint host (`isLocalEndpoint` — fails closed: unparseable = remote); remote whole-CV sends confirm once per session, and the consent resets when settings change. Don't add an AI affordance that bypasses `AssistRun`, and don't soften the wording.
 - **`settings.ts`** (desktop-only; VPS reports `managed:false`, PUT 403s): API keys are **write-only over the API** — `toView()` returns `*_set` booleans, never the value. `settings.json` is written `0600`. Don't add a route or log line that echoes a key. PUT validates types + the provider enum.
 - **`translateDocker.ts`**: shells out with `spawn` + **explicit argv** (never a shell string) and a fixed service name. No user input reaches the command line. Keep it that way — no `exec`, no template-string commands.
 - **`routes/backup.ts`**: the backup dir comes from `RESUME_BACKUP_DIR` (operator env), never from the request body — the client can't choose a filesystem path. Don't add a body-supplied path.
@@ -98,8 +102,9 @@ The server is hardened in `server/app.ts` — keep it that way:
 
 Closed: rate limiting, SPA-shell CSP, DB/settings file ACLs, clean-401 cache
 clearing, the render-pipeline XSS class (§2), the **token→HttpOnly-cookie**
-migration, the `/api/settings/translate/test` SSRF (pending overrides ignored
-on non-desktop builds), SVG data URLs (`isDataImage` is raster-only), and the
+migration, the `/api/settings/translate/test` + `/summarize/test` SSRF
+(pending overrides ignored on non-desktop builds), SVG data URLs
+(`isDataImage` is raster-only), and the
 **cross-site CSRF brake** (`Sec-Fetch-Site` guard in §3 — closes the auth-less
 desktop build's exposure). Remaining:
 
@@ -116,7 +121,7 @@ desktop build's exposure). Remaining:
 
 - `localStorage`/`sessionStorage` existing — load-bearing for offline-first; the fix is closing XSS, not removing storage.
 - `docx` output — it XML-escapes; the DOCX path is safe.
-- PDF via `window.print()` — browser-driven; no PDF library = no PDF-engine CVE surface.
+- pdfmake rendering local content — the PDF is built from the user's own (escaped/validated) view data and downloaded; there's no untrusted-PDF *parsing* surface. Track pdfmake advisories like any prod dep, but "app renders a PDF" is not itself a finding.
 - `alert()` for error UX — renders text, not HTML.
 - Operator-configured upstreams (LibreTranslate URL, backup dir, compose file) — these are the operator's own server, not remote-attacker input.
 - `uuid < 11.1.1` advisory — only the `buf` parameter path; we call `uuidv4()` with no args. `esbuild`/`vite` advisories — dev-only, don't ship.

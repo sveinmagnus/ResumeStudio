@@ -1,8 +1,8 @@
 # Cartavio Resume Studio
 
 A multi-language consultant resume manager. Maintain one master CV across
-languages, then export targeted variants — PDF or Microsoft Word — for
-different audiences.
+languages, then export targeted variants — PDF, Microsoft Word, or ATS
+text — for different audiences.
 
 Built for a single consultant or small team; runs as a small self-hosted web app (React +
 Express + SQLite) with offline-tolerant persistence.
@@ -66,19 +66,34 @@ The full feature tour lives on the
 - **Translation assist.** Per-field **Copy from primary** (no network) and an
   optional **Draft translation** button proxied through your own server.
   Providers: self-hosted [LibreTranslate](https://libretranslate.com/)
-  (Docker-managed or remote), DeepL, Google Cloud Translation, or Azure
-  Translator.
+  (Docker-managed or remote, with a pick-your-languages install), DeepL,
+  Google Cloud Translation, Azure Translator — or the same local/remote LLM
+  you configured for AI assist, with zero extra setup.
+- **AI assist, bring-your-own model.** Point the app at a local Ollama
+  (Docker-managed for you), OpenAI, or any OpenAI-compatible endpoint, and
+  one model powers the whole assist suite: one-line summaries (per field or
+  "Summarize all empty"), skill suggestions from project prose, drafted
+  project highlights, an anonymization leak check, and over-length page-fit
+  advice. Every button says honestly whether content stays on this machine
+  or leaves it; every result is a review-before-apply draft; and with no
+  model configured the buttons simply hide — the copy-the-prompt-into-any-AI
+  manual path always works.
 - **Resume Views — targeted exports.** Curated subsets of the master CV:
-  per-section detail levels (off / summary / full), item exclusions,
-  starred-only, custom intro, per-view styling (density, fonts, accent color,
-  tag style), **named templates** (compact technical / formal management /
-  minimal one-pager), a configurable header/footer (contact fields, photo +
-  logo placement), and a **live preview pane** with a page-count estimate.
-  Export as **PDF** (browser print pipeline), **DOCX** (lazy-loaded
-  [`docx`](https://docx.js.org/)), or ATS-friendly **plain text / Markdown**.
-- **Tailor a view to a job posting.** Paste the posting, run the generated
-  prompt in any LLM you trust, paste the JSON back — get a proposed view with
-  detail levels, exclusions, a drafted intro, and a gap list. No API key.
+  per-section detail levels (off / summary / tabulated / full), item
+  exclusions and bulk selection, starred-only, custom intro, per-view styling
+  (density, fonts, colors, dividers, bullets, section icons, custom
+  headings, date formats, per-section sort and layout), **named templates**
+  (compact technical / formal management / minimal one-pager), a configurable
+  header/footer (localized contact fields, photo + logo placement), and a
+  **live preview pane** with a page-count estimate. Export as **PDF**
+  (one-click vector download), **DOCX** (lazy-loaded
+  [`docx`](https://docx.js.org/)), or ATS-friendly **plain text / Markdown** —
+  with every heading, month name and label a client reads localized in all
+  15 offered languages.
+- **Tailor a view to a job posting.** Paste the posting and either run it
+  with your configured model in one click, or run the generated prompt in any
+  LLM you trust and paste the JSON back — get a proposed view with detail
+  levels, exclusions, a drafted intro, and a gap list.
 - **Anonymized submissions.** A per-view toggle renders every project with
   its anonymized customer alias and redacts reference names to initials —
   for agency/broker submissions where client names must not leak.
@@ -89,8 +104,10 @@ The full feature tour lives on the
   descriptions, uploaded profile photo with cropper, company logo, key
   competencies, recommendations.
 - **Import.** CVpartner JSON, **LinkedIn data exports** (.zip), **Europass**
-  (XML/JSON), portable JSON backups, and an **AI-assisted import** from any
-  PDF/Word CV — a bring-your-own-LLM flow with no external service or API key.
+  (XML/JSON), portable JSON backups, an **AI-assisted import** from any
+  PDF/Word CV, and a per-section **bulk add** that turns pasted source
+  material into many items at once — both AI flows run with your configured
+  model or as a bring-your-own-LLM copy/paste, no external service required.
   Imported skills are **normalized** to a curated skill library's canonical
   spellings so you don't accumulate near-duplicates.
 - **Skill intelligence.** A local, dependency-free skill library (Quadim,
@@ -189,11 +206,12 @@ translation, sync, and updates.
 |---|---|---|
 | `RESUME_API_TOKEN` | empty | Bearer token required by the API. Empty = auth disabled (local dev). |
 | `PORT` | `3001` | Express listen port (the desktop launcher picks a free port itself). |
-| `TRANSLATE_PROVIDER` | empty | Translation backend: `off` / `libretranslate` / `deepl` / `google` / `azure`. Unset + `LIBRETRANSLATE_URL` set = `libretranslate` (back-compat). |
+| `TRANSLATE_PROVIDER` | empty | Translation backend: `off` / `libretranslate` / `deepl` / `google` / `azure` / `llm` (`llm` reuses the AI-assist model below). Unset + `LIBRETRANSLATE_URL` set = `libretranslate` (back-compat). |
 | `LIBRETRANSLATE_URL` / `LIBRETRANSLATE_API_KEY` | empty | Self-hosted LibreTranslate base URL + optional key. |
 | `DEEPL_API_KEY` | empty | DeepL key (Free vs Pro auto-detected from the `:fx` suffix). |
 | `GOOGLE_TRANSLATE_API_KEY` | empty | Google Cloud Translation v2 key. |
 | `AZURE_TRANSLATOR_KEY` / `AZURE_TRANSLATOR_REGION` | empty | Azure Translator key + resource region. |
+| `SUMMARIZE_PROVIDER` + `SUMMARIZE_MODEL` | empty | AI-assist backend: `off` / `ollama` / `openai` / `compat`, plus the chat model name. Powers Summarize, every "Run with my AI" button, and `TRANSLATE_PROVIDER=llm`. Per-provider URL/key vars in `.env.example`. |
 | `RESUME_RATE_LIMIT_MAX` / `RESUME_RATE_LIMIT_WINDOW_MS` | `50` / `900000` | Failure-focused API rate limiter (only ≥400 responses count, so auto-save is never throttled). |
 | `RESUME_DATA_DIR` | per-user OS folder | Desktop build: where the live SQLite DB + log live. |
 | `RESUME_BACKUP_DIR` | empty | Desktop build: cloud-synced folder for the whole-store JSON backup (cross-computer sync). |
@@ -219,11 +237,14 @@ npm run dev               # restart so the server reads the URL
 npm run translate:down    # stop the service when you're done
 ```
 
-It loads only the `en, nb, sv, da` models (English + Norwegian/Swedish/Danish)
-to stay light, and caches them in a named Docker volume. Key-based providers
-(DeepL, Google, Azure) are configured via `TRANSLATE_PROVIDER` + the matching
-key instead — see `.env.example`. On the desktop build, all of this lives in
-Settings, which can also start/stop the Docker service for you.
+By default it loads the `en, nb, sv, da` models (English +
+Norwegian/Swedish/Danish) to stay light — each language is a few hundred MB —
+and caches them in a named Docker volume; set `LT_LOAD_ONLY` to install a
+different set. Key-based providers (DeepL, Google, Azure) are configured via
+`TRANSLATE_PROVIDER` + the matching key instead, and `TRANSLATE_PROVIDER=llm`
+translates with the AI-assist model — see `.env.example`. On the desktop
+build, all of this lives in Settings, which can also start/stop the Docker
+services and pick the installed languages for you.
 
 Translation is entirely optional — without it, "Copy from primary" still works
 and the Draft button stays hidden. CV text only travels browser → app server →

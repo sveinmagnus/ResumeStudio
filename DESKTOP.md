@@ -109,37 +109,57 @@ button), so accidental edits are recoverable independently of backups.
 
 ---
 
-## 4. Settings (translation + sync folder)
+## 4. Settings
 
 Click the **gear icon** (top-right of the resume picker) to open Settings. This
 is where a desktop user turns features on or off — no shell variables, no
-editing the launcher. Changes are saved to `settings.json` in the data folder
-(§3) and take effect immediately.
+editing the launcher. It is one form with one **Save**; the tabs just organize
+it. Changes land in `settings.json` in the data folder (§3) and take effect
+immediately.
 
-Two things are configured here:
-
-- **Translation** (the "Draft translation" button on the second language) — pick
-  a provider from the dropdown:
+- **Version** — the installed version, **Check for updates**, and **Install
+  update** (see §6).
+- **Translation** (the "Draft translation" button on the second language) —
+  pick a provider:
   - **Off** (default) — no machine translation. "Copy from primary" still works.
   - **LibreTranslate — local (Docker-managed)** — the app runs a LibreTranslate
     container for you via Docker. Requires **Docker Desktop** installed and
-    running; the **first** start downloads language models (a few GB, several
-    minutes). Use **Start / Stop / Check status**, then **Save** to auto-start it
-    on every launch. Nothing leaves your machine.
-  - **LibreTranslate — remote URL** — point at a LibreTranslate instance you host
-    elsewhere, with an optional API key.
-  - **DeepL** — paste a DeepL API key. Free and Pro keys both work (auto-detected
-    from the `:fx` suffix). Best quality for Norwegian/Swedish/Danish.
-  - **Google Cloud Translation** — paste a Google Cloud Translation API key.
+    running. You **choose which languages to install** (each is a
+    few-hundred-MB download, so the first start takes minutes; English is
+    always included — the engine pivots through it). Use **Start / Stop /
+    Check status**, then **Save** to auto-start it on every launch. Nothing
+    leaves your machine.
+  - **LibreTranslate — remote URL** — an instance you host elsewhere, with an
+    optional API key.
+  - **DeepL** — paste a DeepL API key. Free and Pro keys both work
+    (auto-detected from the `:fx` suffix). Best quality for
+    Norwegian/Swedish/Danish.
+  - **Google Cloud Translation** — paste an API key.
   - **Microsoft Azure Translator** — paste the key and its **region** (e.g.
     `westeurope`).
-  - For any provider except "off", **Test connection** drafts one short phrase to
-    confirm the key/URL works. CV text only ever travels browser → this app →
-    the chosen provider.
-- **Backup & sync folder** — the cloud-synced folder described in §5. Paste the
-  path and Save.
+  - **Use the AI model from Summarize** — no config at all: translation drafts
+    run on whatever model the AI assist tab configures.
+  - For any provider except "off", **Test connection** drafts one short phrase
+    to confirm the key/URL works. CV text only ever travels browser → this
+    app → the chosen provider.
+- **AI assist** — the model behind Summarize, every "Run with my AI" button,
+  and (optionally) translation:
+  - **Ollama — local (Docker-managed)** — the app runs an Ollama container and
+    pulls your chosen model for you (Docker Desktop required; models are
+    GB-scale downloads). Content never leaves your machine.
+  - **Ollama — remote URL**, **OpenAI** (API key), or **any OpenAI-compatible
+    endpoint** (URL + optional key — LM Studio, Groq, OpenRouter, …).
+  - The **model** field offers a curated shortlist of open-weight models plus
+    whatever your Ollama instance has already pulled (**Refresh** re-probes),
+    and stays free-text so any tag works. **Test** runs one tiny summary.
+  - Every AI button in the app states whether content stays on this computer
+    or is sent to the configured provider, based on where the endpoint
+    actually is.
+- **Sync & backup** — the cloud-synced folder described in §5.
+- **Appearance** — the app-wide default heading/body fonts that views with
+  fonts set to "inherit" pick up.
 
-> On a server (VPS) deployment the gear shows a read-only note instead: there,
+> On a server (VPS) deployment the gear shows a read-only view instead: there,
 > these are controlled by environment variables, not the app.
 
 ## 5. Backup & sync across computers
@@ -218,7 +238,7 @@ launch and then daily**, and you can check on demand. The tray menu shows the
   item and the in-app banner.
 - **In the app** — the resume picker shows an **"Update available"** banner with
   an **Install update** button (and a *Release notes* link); **Settings →
-  Updates** shows your current version with a **Check for updates** button; and
+  Version** shows your current version with a **Check for updates** button; and
   the picker footer always shows the installed version.
 
 **How it installs.** Click **Install** (the pop-up), or **Install update** (tray
@@ -264,6 +284,7 @@ first run, then overrides them.
 | `RESUME_BACKUP_INTERVAL_MS` | How often to refresh the backup when changed | `60000` |
 | `LIBRETRANSLATE_URL` | LibreTranslate base URL (usually set via Settings) | unset (translate off) |
 | `LIBRETRANSLATE_API_KEY` | Optional LibreTranslate key | unset |
+| `SUMMARIZE_PROVIDER` / `SUMMARIZE_MODEL` (+ per-provider URL/key vars) | AI-assist backend seed values (usually set via Settings → AI assist; see `.env.example`) | unset (AI assist off) |
 | `RESUME_DB_PATH` | Exact DB file (overrides data-dir derivation) | `<dataDir>/resume.db` |
 | `RESUME_DB_JOURNAL` | SQLite journal mode | `WAL` |
 | `RESUME_CLIENT_DIR` | Where the built client lives | set by the launcher shim |

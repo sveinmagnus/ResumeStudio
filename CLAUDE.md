@@ -474,7 +474,7 @@ After any significant change: 1. `npm run typecheck` (clean) → 2. `npm test` (
 ### Known quirks
 - The preview tool injects `PORT=5173`, but Express reads `process.env.PORT` and collides with Vite. To verify auto-save inside the preview, run the server manually with `PORT=3001 npx tsx server/index.ts`.
 - `.pdf` export is a **vector one-click download** via lazy-loaded `pdfmake` (`lib/pdfExporter.ts`) — no print dialog, no pop-up. Like the DOCX path it's a *separate* render engine (bundled Roboto font, not the brand Open Sans Condensed/Ubuntu), so its layout is close to but not pixel-identical with the HTML preview. Don't statically import `lib/pdfExporter.ts` or `pdfmake` from any always-loaded file.
-- The DOCX exporter (`lib/exporter.ts`) is lazy-loaded via dynamic import in `ResumeViewsEditor` (~352 kB chunk). Don't statically import it from any always-loaded file.
+- The DOCX exporter (`lib/exporter.ts`) is lazy-loaded via dynamic import in `views/ViewEditor.tsx` (~352 kB chunk). Don't statically import it from any always-loaded file.
 - CVpartner project skills may have proficiency=0 across the board — don't assume non-zero.
 
 ### What NOT to change without good reason

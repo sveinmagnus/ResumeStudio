@@ -46,6 +46,12 @@ computers.
   through a self-hosted [LibreTranslate](https://libretranslate.com/) instance
   (or a key-based provider you choose). CV text only ever travels between your
   app and the provider you configured — there's no Resume Studio backend.
+- **AI help that can stay on your machine.** Point the app at a local model
+  (it can run Ollama in Docker for you) and the AI features — one-line
+  summaries, tailoring a view to a job posting, importing an old CV, skill
+  suggestions — work without your CV leaving the computer. A cloud model is
+  your choice too; the app always tells you which one you're on before it
+  sends anything.
 
 ## Quick links
 
