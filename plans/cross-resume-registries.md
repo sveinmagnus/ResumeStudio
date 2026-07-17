@@ -76,13 +76,60 @@ Introduce the server-owned registry WITHOUT dethroning the per-resume ones:
 - Store change is additive (a lookup table alongside the resume); the
   one-resume-in-memory model is untouched.
 
-### Stage 3 — promotion to authoritative (the big, optional step)
+### Stage 3 — promotion to authoritative (CHOSEN — full instance-level)
 
-Only if Stages 1–2 prove the value. Make the shared registry the source of
-truth: a one-time server migration unions every resume's registries by key,
-rewrites references to shared ids, and the store loads registries separately
-from the resume. This is where sync/conflict/undo/backup all change, and where
-the real risk lives — specced in full only when we commit to it.
+Make the shared registry the source of truth. The reading of the entity shapes
+revealed the linchpin below; the rest of Stage 3 hangs off it.
+
+#### 3.0 The canonical / per-resume-use split (the linchpin)
+
+A registry entity is NOT wholly shareable. It mixes the skill's **identity**
+(shared — a rename should propagate everywhere) with **per-person facts** (Ada's
+Java proficiency is not Bob's). So each entity splits:
+
+| Entity | Canonical (instance-level, shared) | Per-resume "use" (stays in the resume) |
+|---|---|---|
+| Skill | `name`, normalized `key`, `classification`, `category_id`, `version` | `proficiency`, `total_duration_in_years`, `experience_offset_years`, `is_highlighted` |
+| Role | `name`, `key`, `version` | (none beyond the existing reference links) |
+| Industry | `name`, `key`, `version` | `sort_order`, `disabled` |
+| SkillCategory | `name`, `version` | `sort_order` (the By-category display order) |
+
+- **In-memory shape is unchanged.** `ResumeStore.skills` is RECONSTRUCTED at
+  load by joining the instance canonical entry (name/key/classification/
+  category) with this resume's use record (proficiency/highlight/offset). So the
+  ~27 files reading `data.skills` don't change — the projection preserves the
+  `Skill` shape. Only the store's load/save boundary and the registry-mutating
+  actions change.
+- **A rename writes the canonical entry** (instance endpoint, its own version) →
+  propagates to every resume on next load. **A proficiency/highlight edit writes
+  the per-resume use** (the normal per-resume save). The action layer routes each
+  mutation to the right place.
+- `ProjectSkill.name` etc. (denormalized link snapshots) still resolve as today;
+  `merge.ts` semantics move to the canonical rename.
+
+#### 3.1 Server + migration
+
+- Instance tables `registry_skills` / `_roles` / `_industries` /
+  `_skill_categories` (canonical columns above + `version`).
+- One-time migration: union every resume's registries by `key` into the instance
+  tables (localized names merged), rewrite each resume's `data` so its registry
+  arrays become per-resume USE records keyed by the new canonical ids. Idempotent,
+  transactional, snapshots each rewritten resume first (reversible from History).
+
+#### 3.2 Store, backup, sync, UI
+
+- **Store**: `loadStore` fetches the instance registry once + the resume, joins
+  them into the in-memory `ResumeStore`. Auto-save PUTs only the per-resume use
+  data; registry edits hit `/api/registry/*`.
+- **Backup portability** (§4) is now mandatory, not optional: a per-resume backup
+  embeds referenced canonical entries; import re-interns by key.
+- **Sync/conflict** (§3): registry gets its own `version` + conflict surface.
+- **Desktop merge**: whole-store backup carries the instance registry; union by key.
+- **Matrix** (Stage 1's endpoint) now reads canonical skills + per-resume uses
+  directly — cleaner than the name-matching fallback.
+
+This is multi-session work; build it as green, non-breaking increments in the
+order above, never leaving `main` broken.
 
 ---
 
@@ -118,9 +165,16 @@ has a DIFFERENT shared registry. So:
 
 ---
 
-## 6. Recommendation
+## 6. Decision (July 2026)
 
-Build **Stage 1 now** (ships the picker matrix, zero risk), then decide Stage 2/3
-from what it reveals about name consistency across the real CVs. The owner chose
-the instance-level end state; this staging reaches it without a big-bang
-migration that would be painful to unwind.
+The owner chose **full instance-level (Stage 3)**. Building it as green,
+non-breaking increments per §2/§3.0–3.2, in order: server foundation + migration
+→ store projection rewire → backup portability → sync/conflict → desktop merge →
+picker matrix. Each increment compiles, tests green, and leaves `main` shippable.
+
+**Implication the owner should know:** "shared registries" shares the skill's
+*identity* (name/spelling/classification/category), so a rename or merge
+propagates across all CVs — but **per-person facts (proficiency, years,
+showcase highlight) stay per-resume** by necessity (they differ per consultant).
+The who-knows-what matrix reads the shared identity plus each person's own
+proficiency. This is the only sane meaning of "shared" and is baked into §3.0.
