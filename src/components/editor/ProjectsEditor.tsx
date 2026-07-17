@@ -15,6 +15,7 @@ import { TranslationPopover } from '../ui/TranslationPopover'
 import { effectiveSkillCategory, categoryNameIndex } from '../../lib/skillCategorize'
 import { AssistRun } from '../ui/AssistRun'
 import { KeyPointsPanel } from '../ui/KeyPointsPanel'
+import { WritingCoachPanel } from '../ui/WritingCoachPanel'
 import { toHighlights } from '../../lib/keyPoints'
 import { extractJson } from '../../lib/llmAssist'
 import {
@@ -69,6 +70,15 @@ export function ProjectsEditor() {
           <ProjectIndustriesEditor project={p} />
           <ProjectRolesEditor project={p} />
           <RichField label="Description" value={p.long_description} onChange={(v) => updateItem('projects', p.id, { long_description: v })} />
+          {/* Coaches the PRIMARY column only — the model read one locale, so
+              rewriting the other would be a translation nobody asked for. */}
+          <WritingCoachPanel
+            source={p.long_description}
+            locale={primaryLocale}
+            onApply={(html) => updateItem('projects', p.id, {
+              long_description: { ...p.long_description, [primaryLocale]: html },
+            })}
+          />
           <DualField label="Short description (summary mode)" value={p.short_description ?? {}} onChange={(v) => updateItem('projects', p.id, { short_description: v })} summarizeFrom={p.long_description} placeholder="One concise line shown in summary mode" />
 
           <FieldRow>
