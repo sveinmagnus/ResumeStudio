@@ -99,6 +99,11 @@ an API key.
   each CV has its own URL, history, and supported languages.
 - **Per-resume language pair.** Each CV remembers which two languages you
   were last editing in.
+- **"Who knows what" skill matrix.** With more than one CV in the instance, the
+  picker offers a skill × person grid across everyone — who has which skill and
+  at what proficiency, with a filter for the skills more than one person shares
+  (team overlap) versus the ones only a single person holds (bus-factor risks).
+  Click a name to open that CV.
 
 ## Resume Views — targeted exports
 

@@ -9,6 +9,7 @@ import { listDirty } from '../lib/localCache'
 import { navigate, Link } from '../lib/router'
 import { ImportScreen } from './ImportScreen'
 import { SyncPanel } from './SyncPanel'
+import { WhoKnowsWhatPanel } from './WhoKnowsWhatPanel'
 import { SettingsModal } from './SettingsModal'
 import { UpdateBanner } from './UpdateBanner'
 import { confirmDialog } from './ui/ConfirmDialog'
@@ -347,6 +348,8 @@ export function ResumeList({ onUnauthorized }: ResumeListProps) {
             </li>
           ))}
         </ul>
+
+        <WhoKnowsWhatPanel items={items} onUnauthorized={onUnauthorized} />
       </div>
 
       <footer className="rl-page-footer">

@@ -168,9 +168,22 @@ has a DIFFERENT shared registry. So:
 ## 6. Decision (July 2026)
 
 The owner chose **full instance-level (Stage 3)**. Building it as green,
-non-breaking increments per §2/§3.0–3.2, in order: server foundation + migration
-→ store projection rewire → backup portability → sync/conflict → desktop merge →
-picker matrix. Each increment compiles, tests green, and leaves `main` shippable.
+non-breaking increments per §2/§3.0–3.2, never leaving `main` broken.
+
+**Progress:**
+- ✅ **Increment 0 — the who-knows-what matrix, shipped** (`lib/whoKnowsWhat.ts`
+  + `WhoKnowsWhatPanel`). Read-only, zero migration: the picker aggregates
+  skills across every resume by normalized `skillKey`, showing a skill × person
+  grid (proficiency, present-but-unrated ✓, a shared-only filter). Built first
+  because it delivers the headline goal now AND its UI/output shape is exactly
+  what the canonical registry will feed later — only the data SOURCE swaps
+  (name-matching → shared canonical id), not the shell.
+- ⬜ Increment 1 — server registry tables + promote migration + CRUD/matrix routes.
+- ⬜ Increment 2 — client store projection rewire (the coupled big commit, §3.0).
+- ⬜ Increments 3–5 — backup portability, sync/conflict, desktop merge.
+
+Remaining order per §3.1–3.2. Each increment compiles, tests green, leaves
+`main` shippable.
 
 **Implication the owner should know:** "shared registries" shares the skill's
 *identity* (name/spelling/classification/category), so a rename or merge

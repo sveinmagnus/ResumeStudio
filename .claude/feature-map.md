@@ -17,6 +17,18 @@ prescriptive.
   route at `/`; each resume lives at `/r/:uuid`; header dropdown switches
   between them; hard-delete with confirm (snapshots cascade). Each resume
   carries its own per-resume primary/secondary locales server-side. See §8.
+- **"Who knows what" skill matrix** (`lib/whoKnowsWhat.ts` +
+  `WhoKnowsWhatPanel`, picker) — the small-team affordance: with ≥2 resumes,
+  the picker aggregates skills across everyone into a skill × person grid
+  (proficiency per holder; a present-but-unrated ✓ for CVpartner's 0s; a
+  shared-only filter for team overlap vs single-holder bus-factor risks; click a
+  name to open that CV). **Interim data source**: groups by normalized
+  `skillKey` across each resume's own registry, fetched client-side (fine at
+  small-team scale). This is Increment 0 of the cross-resume registry
+  re-architecture (`plans/cross-resume-registries.md`) — the UI/output shape is
+  final; only the grouping source swaps to the shared canonical id once
+  instance-level registries land (§3.0 there — the canonical/per-resume-use
+  split, since proficiency is per-person by nature).
 - **Auto-save** to an Express + SQLite backend (debounced ~1s) — sends the
   resume payload + locales in a single PUT per mutation. **Per-id
   localStorage fallback** so a server outage never costs work.
