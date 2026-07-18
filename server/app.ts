@@ -6,6 +6,7 @@ import { authMiddleware } from './auth.js'
 import { isDesktop } from './settings.js'
 import authRouter from './routes/auth.js'
 import resumeRouter from './routes/resume.js'
+import registryRouter from './routes/registry.js'
 import translateRouter from './routes/translate.js'
 import summarizeRouter from './routes/summarize.js'
 import llmRouter from './routes/llm.js'
@@ -206,6 +207,9 @@ export function createApp(): Express {
 
   // ── Resume API (auth-gated) ──────────────────────────────────────────────
   app.use('/api/resumes', apiLimiter, authMiddleware, resumeRouter)
+
+  // ── Instance registry (auth-gated) — cross-resume canonical registries ─────
+  app.use('/api/registry', apiLimiter, authMiddleware, registryRouter)
 
   // ── Translation proxy (auth-gated) — drafts via self-hosted LibreTranslate ─
   // Both limiters: apiLimiter brakes failure-floods (401s), translateLimiter

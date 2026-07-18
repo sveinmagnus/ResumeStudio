@@ -178,8 +178,19 @@ non-breaking increments per §2/§3.0–3.2, never leaving `main` broken.
   because it delivers the headline goal now AND its UI/output shape is exactly
   what the canonical registry will feed later — only the data SOURCE swaps
   (name-matching → shared canonical id), not the shell.
-- ⬜ Increment 1 — server registry tables + promote migration + CRUD/matrix routes.
-- ⬜ Increment 2 — client store projection rewire (the coupled big commit, §3.0).
+- ✅ **Increment 1 — server registry foundation, shipped** (additive,
+  client untouched). `server/registryDb.ts`: canonical `registry_entries` table
+  (id/kind/name/key/extra/version), CRUD with optimistic `version`, and
+  `promoteFromResumes` (read-only union of every resume's registries by key —
+  the safe half of the migration; the reference-rewrite is Increment 2).
+  `/api/registry` routes (auth-gated, validated, 409-on-conflict).
+  `server/skillKey.ts` mirrors the client key (cross-check test guards drift).
+  Not yet consumed by the client.
+- ⬜ Increment 2 — client store projection rewire + run the reference-rewrite
+  migration (the coupled big commit, §3.0): registries load from `/api/registry`,
+  the in-memory `Skill` shape is reconstructed by joining canonical + per-resume
+  use, registry edits route to the registry endpoint, resume save drops the
+  registry arrays. This is where `main`'s behaviour actually changes.
 - ⬜ Increments 3–5 — backup portability, sync/conflict, desktop merge.
 
 Remaining order per §3.1–3.2. Each increment compiles, tests green, leaves

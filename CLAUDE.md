@@ -177,6 +177,9 @@ server/              ← Express API + SQLite persistence
 ├── index.ts (VPS/dev entry) + app.ts (createApp: security headers, routers, static serving)
 ├── auth.ts (cookie OR Bearer; constant-time; env read lazily) · db.ts (createResumeDb +
 │   lazy singleton; snapshots; dump/restore; close checkpoints WAL) · config.ts (PURE paths)
+├── registryDb.ts (instance-level cross-resume registry: canonical entries +
+│   promoteFromResumes; Increment 1, not yet client-consumed) · skillKey.ts
+│   (server mirror of the client skill key; cross-check test guards drift)
 ├── backup.ts (whole-store StoreBackupV1 — NOT the client backup) + backupScheduler/-Runtime
 ├── settings.ts (desktop settings.json; applyToEnv; isDesktop gate) · storage.ts (payloadStats)
 ├── translate.ts (pluggable proxy: libretranslate/deepl/google/azure) · translateDocker.ts
@@ -184,7 +187,7 @@ server/              ← Express API + SQLite persistence
 │   summarizeDocker.ts (app-driven local Ollama, like translateDocker)
 ├── version.ts (APP_VERSION) · desktop/ (launcher, freePort, openBrowser, notify, tray,
 │   trayIcon, updater, updateRuntime — CJS-bundled, see §14)
-└── routes/          ← auth, resume, translate, summarize, backup, settings, update
+└── routes/          ← auth, resume, registry, translate, summarize, backup, settings, update
 
 scripts/build-desktop.mjs ← assembles the portable release/ folder (per target OS)
 tests/               ← Vitest (lib/store/components/server) + e2e/smoke.spec.ts. See §10

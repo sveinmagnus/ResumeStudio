@@ -4,6 +4,9 @@ import { fileURLToPath } from 'url'
 import { randomUUID } from 'crypto'
 import fs from 'fs'
 import { payloadStats } from './storage.js'
+import {
+  createRegistryStore, type RegistryStore,
+} from './registryDb.js'
 
 // See the note in app.ts: esbuild emits "" for import.meta.url in the desktop
 // CJS bundle, so guard against fileURLToPath(""). DATA_DIR is only consulted
@@ -155,7 +158,7 @@ export interface LocaleUpdate {
   secondary_locale: string | null
 }
 
-export interface ResumeDb {
+export interface ResumeDb extends RegistryStore {
   listResumes(): ResumeMeta[]
   createResume(input: CreateResumeInput): ResumeMeta
   getResume(id: string): ResumeFull | null
@@ -603,10 +606,16 @@ export function createResumeDb(dbPath: string): ResumeDb {
     db.close()
   }
 
+  // Instance-level registry (cross-resume registries, Increment 1). Shares this
+  // connection; creates its own table. Additive — not yet consumed by the
+  // resume save path (see plans/cross-resume-registries.md).
+  const registry = createRegistryStore(db)
+
   return {
     listResumes, createResume, getResume, saveResume,
     deleteResume, renameResume, listSnapshots, getSnapshot,
     storageStats, dumpResumes, restoreResumes, close,
+    ...registry,
   }
 }
 
@@ -658,6 +667,13 @@ export const dumpResumes = (): ResumeBackupEntry[] => defaultDb().dumpResumes()
 export const restoreResumes = (
   entries: ResumeBackupEntry[], opts?: RestoreOptions,
 ): RestoreSummary => defaultDb().restoreResumes(entries, opts)
+
+// Instance registry (Increment 1) — singleton wrappers, like the resume ops.
+export const listRegistry: RegistryStore['listRegistry'] = (kind) => defaultDb().listRegistry(kind)
+export const getRegistryEntry: RegistryStore['getRegistryEntry'] = (id) => defaultDb().getRegistryEntry(id)
+export const upsertRegistryEntry: RegistryStore['upsertRegistryEntry'] = (input) => defaultDb().upsertRegistryEntry(input)
+export const deleteRegistryEntry: RegistryStore['deleteRegistryEntry'] = (id) => defaultDb().deleteRegistryEntry(id)
+export const promoteFromResumes: RegistryStore['promoteFromResumes'] = (datas) => defaultDb().promoteFromResumes(datas)
 
 /**
  * The shared singleton DB instance (same one the routes use). The desktop
