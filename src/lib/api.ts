@@ -1,4 +1,4 @@
-import type { ResumeStore } from '../types'
+import type { ResumeStore, LocalizedString, RegistryEntry, RegistryKind } from '../types'
 import type { StorageStats } from './storage'
 import type { InstalledModel } from './ollamaCatalog'
 
@@ -42,6 +42,14 @@ export class ConflictError extends Error {
   constructor(public current: { data: ResumeStore; meta: ResumeMeta }) {
     super('Resume changed elsewhere')
     this.name = 'ConflictError'
+  }
+}
+
+/** A registry entry moved on the server since the client's `base_version`. */
+export class RegistryConflictError extends Error {
+  constructor(public current: RegistryEntry | null) {
+    super('Registry entry changed elsewhere')
+    this.name = 'RegistryConflictError'
   }
 }
 
@@ -400,6 +408,52 @@ export const api = {
     if (!res.ok) throw new ServerError(res.status, `Could not load snapshot: ${res.statusText}`)
     const json = await res.json() as { data: ResumeStore }
     return json.data
+  },
+
+  // ── Instance registry (cross-resume shared registries) ────────────────────
+
+  /** List the instance-level canonical registry entries, optionally one kind. */
+  async listRegistry(kind?: RegistryKind): Promise<RegistryEntry[]> {
+    const q = kind ? `?kind=${encodeURIComponent(kind)}` : ''
+    const res = await request('GET', `/api/registry${q}`)
+    if (!res.ok) throw new ServerError(res.status, `Could not list registry: ${res.statusText}`)
+    const json = await res.json() as { entries: RegistryEntry[] }
+    return json.entries
+  },
+
+  /** Create a canonical registry entry. Returns the created entry (version 1). */
+  async createRegistryEntry(input: { kind: RegistryKind; name: LocalizedString; extra?: RegistryEntry['extra'] }): Promise<RegistryEntry> {
+    const res = await request('POST', '/api/registry', input)
+    if (!res.ok) throw new ServerError(res.status, `Could not create registry entry: ${res.statusText}`)
+    const json = await res.json() as { entry: RegistryEntry }
+    return json.entry
+  },
+
+  /**
+   * Update a canonical entry (rename / re-classify). Pass `base_version` for
+   * optimistic concurrency — a stale token throws ConflictError with the current
+   * entry, mirroring the resume save contract.
+   */
+  async updateRegistryEntry(
+    id: string,
+    input: { name: LocalizedString; extra?: RegistryEntry['extra']; base_version?: number },
+  ): Promise<RegistryEntry> {
+    const res = await request('PUT', `/api/registry/${encodeURIComponent(id)}`, input)
+    if (res.status === 409) {
+      const json = await res.json().catch(() => ({})) as { current?: RegistryEntry }
+      throw new RegistryConflictError(json.current ?? null)
+    }
+    if (!res.ok) throw new ServerError(res.status, `Could not update registry entry: ${res.statusText}`)
+    const json = await res.json() as { entry: RegistryEntry }
+    return json.entry
+  },
+
+  /** Delete a canonical entry. Returns whether a row was removed. */
+  async deleteRegistryEntry(id: string): Promise<boolean> {
+    const res = await request('DELETE', `/api/registry/${encodeURIComponent(id)}`)
+    if (!res.ok) throw new ServerError(res.status, `Could not delete registry entry: ${res.statusText}`)
+    const json = await res.json() as { deleted: boolean }
+    return json.deleted
   },
 
   // ── Translation assist ──────────────────────────────────────────────────

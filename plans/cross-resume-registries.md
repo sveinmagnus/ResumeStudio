@@ -186,11 +186,22 @@ non-breaking increments per §2/§3.0–3.2, never leaving `main` broken.
   `/api/registry` routes (auth-gated, validated, 409-on-conflict).
   `server/skillKey.ts` mirrors the client key (cross-check test guards drift).
   Not yet consumed by the client.
-- ⬜ Increment 2 — client store projection rewire + run the reference-rewrite
-  migration (the coupled big commit, §3.0): registries load from `/api/registry`,
-  the in-memory `Skill` shape is reconstructed by joining canonical + per-resume
-  use, registry edits route to the registry endpoint, resume save drops the
-  registry arrays. This is where `main`'s behaviour actually changes.
+- **Increment 2 — reach instance-level via an ADDITIVE `canonical_id` link**
+  (avoids the destructive reference-rewrite; the resume keeps its registry
+  arrays, each entry gains an optional link, canonical identity wins at load).
+  - ✅ **2a — additive foundation, shipped.** `canonical_id?` on
+    Skill/Role/Industry/SkillCategory (additive optional, no shape bump);
+    `RegistryEntry`/`RegistryKind` client types; `api.listRegistry` /
+    `createRegistryEntry` / `updateRegistryEntry` (409→`RegistryConflictError`) /
+    `deleteRegistryEntry`; and the PURE `lib/registrySync.ts` —
+    `overlayCanonicalNames` (canonical identity wins at load for linked entries;
+    per-person facts untouched; same-ref when nothing links) and `planPublish`
+    (creates/links, same-key siblings coalesced). 28 tests. Nothing loads or
+    overlays yet — non-breaking.
+  - ⬜ 2b — wire it in: `loadStore` fetches `/api/registry` + overlays;
+    a "Share across resumes" action runs `planPublish` + sets links; a canonical
+    rename (registry editor) PUTs the canonical entry so it propagates. This is
+    where behaviour changes — kept reversible (unlink = revert to per-resume).
 - ⬜ Increments 3–5 — backup portability, sync/conflict, desktop merge.
 
 Remaining order per §3.1–3.2. Each increment compiles, tests green, leaves

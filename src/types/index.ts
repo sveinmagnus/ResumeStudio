@@ -125,6 +125,18 @@ export interface Skill {
    * `migrate.ts` from the old free-text `category` string.
    */
   category_id?: string | null
+  /**
+   * Cross-resume shared-registry link (Stage 3, additive). When set, this
+   * skill's IDENTITY — its `name`, `classification`, `category_id` — is owned by
+   * the instance-level `RegistryEntry` with this id and reconciled from it at
+   * load, so a rename in one resume propagates to every resume that links the
+   * same canonical entry. This resume's PER-PERSON facts (`proficiency`,
+   * `is_highlighted`, `experience_offset_years`, `total_duration_in_years`) stay
+   * here regardless — see plans/cross-resume-registries.md §3.0. `null`/absent =
+   * a purely per-resume skill (today's behaviour); the stored `name` is then
+   * authoritative. Additive/optional: pre-Stage-3 data simply has no link.
+   */
+  canonical_id?: string | null
   created_at: string
 }
 
@@ -148,6 +160,32 @@ export interface SkillCategory {
   /** Curated display / export order — drives the By-category view's header
    *  order and the Skills Showcase section's group order. */
   sort_order: number
+  /** Cross-resume shared-registry link — see the note on `Skill.canonical_id`. */
+  canonical_id?: string | null
+}
+
+// ─── Instance-level (cross-resume) registry ───────────────────────────────────
+
+/**
+ * The canonical, instance-owned half of a registry entry — the SHARED identity
+ * a `canonical_id` link points at (see `Skill.canonical_id` and
+ * plans/cross-resume-registries.md §3.0). Lives on the SERVER
+ * (`server/registryDb.ts`), fetched via `api.listRegistry()`; this is the
+ * client mirror. Per-person facts (proficiency, highlight, ordering) are NOT
+ * here — they stay on the resume's own registry entry.
+ */
+export type RegistryKind = 'skill' | 'role' | 'industry' | 'category'
+
+export interface RegistryEntry {
+  id: string
+  kind: RegistryKind
+  name: LocalizedString
+  key: string
+  /** Skill-only canonical extras (classification + category link). `{}` otherwise. */
+  extra: { classification?: string; category_id?: string | null }
+  /** Optimistic-concurrency token, like a resume's `version`. */
+  version: number
+  updated_at: string
 }
 
 /**
@@ -163,6 +201,8 @@ export interface Industry {
   name: LocalizedString
   sort_order: number
   disabled: boolean
+  /** Cross-resume shared-registry link — see the note on `Skill.canonical_id`. */
+  canonical_id?: string | null
 }
 
 export interface Role {
@@ -194,6 +234,8 @@ export interface Role {
    * across roles form the category headers.
    */
   category?: string | null
+  /** Cross-resume shared-registry link — see the note on `Skill.canonical_id`. */
+  canonical_id?: string | null
 }
 
 export interface KeyQualification {
