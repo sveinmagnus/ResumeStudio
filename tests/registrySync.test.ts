@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { overlayCanonicalNames, planPublish, registryKey } from '../src/lib/registrySync'
+import { overlayCanonicalNames, planPublish, registryKey, applyCanonicalLinks, linkedNameSnapshot } from '../src/lib/registrySync'
 import { emptyStore, makeSkill, makeRole, makeIndustry, makeSkillCategory } from './fixtures'
 import type { RegistryEntry, ResumeStore } from '../src/types'
 
@@ -128,5 +128,45 @@ describe('planPublish()', () => {
   it('ignores an entry whose name is empty in every locale', () => {
     const store = { ...emptyStore(), skills: [makeSkill({ id: 's1', name: {} })] }
     expect(planPublish(store, [])).toEqual({ creates: [], links: [] })
+  })
+})
+
+describe('applyCanonicalLinks()', () => {
+  it('sets canonical_id on the named entries across all kinds', () => {
+    const store = {
+      ...emptyStore(),
+      skills: [makeSkill({ id: 's1' }), makeSkill({ id: 's2' })],
+      roles: [makeRole({ id: 'r1' })],
+      industries: [makeIndustry({ id: 'i1' })],
+      skill_categories: [makeSkillCategory({ id: 'k1' })],
+    }
+    const out = applyCanonicalLinks(store, { s1: 'c-s1', r1: 'c-r1', i1: 'c-i1', k1: 'c-k1' })
+    expect(out.skills.find((s) => s.id === 's1')!.canonical_id).toBe('c-s1')
+    expect(out.skills.find((s) => s.id === 's2')!.canonical_id).toBeUndefined() // untouched
+    expect(out.roles[0].canonical_id).toBe('c-r1')
+    expect(out.industries[0].canonical_id).toBe('c-i1')
+    expect(out.skill_categories![0].canonical_id).toBe('c-k1')
+  })
+
+  it('returns the same store ref for an empty map', () => {
+    const store = { ...emptyStore(), skills: [makeSkill({ id: 's1' })] }
+    expect(applyCanonicalLinks(store, {})).toBe(store)
+  })
+})
+
+describe('linkedNameSnapshot()', () => {
+  it('captures the name of only the linked entries, keyed by canonical id', () => {
+    const store = {
+      ...emptyStore(),
+      skills: [
+        makeSkill({ id: 's1', name: { en: 'Go' }, canonical_id: 'c1' }),
+        makeSkill({ id: 's2', name: { en: 'Rust' } }), // unlinked → excluded
+      ],
+      roles: [makeRole({ id: 'r1', name: { en: 'SRE' }, canonical_id: 'cr' })],
+    }
+    const snap = linkedNameSnapshot(store)
+    expect([...snap.keys()].sort()).toEqual(['c1', 'cr'])
+    expect(snap.get('c1')).toEqual({ en: 'Go' })
+    expect(snap.get('cr')).toEqual({ en: 'SRE' })
   })
 })

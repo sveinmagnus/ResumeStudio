@@ -1,7 +1,9 @@
 import { useState, useCallback } from 'react'
-import { Users, Loader2, ChevronDown, ChevronRight } from 'lucide-react'
+import { Users, Loader2, ChevronDown, ChevronRight, Share2, Check } from 'lucide-react'
 import { api, type ResumeMeta, UnauthorizedError } from '../lib/api'
 import { buildWhoKnowsWhat, type WhoKnowsWhat } from '../lib/whoKnowsWhat'
+import { publishToInstanceRegistry, type PublishTarget } from '../lib/registryPublish'
+import type { ResumeStore } from '../types'
 import { navigate } from '../lib/router'
 
 /**
@@ -18,17 +20,22 @@ export function WhoKnowsWhatPanel({ items, onUnauthorized }: {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [data, setData] = useState<WhoKnowsWhat | null>(null)
+  // Loaded resumes kept with their version, for building the matrix AND publishing.
+  const [loaded, setLoaded] = useState<Array<{ id: string; name: string; data: ResumeStore; version: number }>>([])
+  const [publishing, setPublishing] = useState(false)
+  const [publishNote, setPublishNote] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setBusy(true)
     setError(null)
     try {
-      // Fetch every resume's full data. Fine for the small-team scale this
-      // serves; if an instance ever holds many CVs this moves server-side.
-      const loaded = await Promise.all(items.map((m) => api.loadResume(m.id)))
-      const resumes = loaded
-        .map((r, i) => (r ? { id: items[i].id, name: items[i].name, data: r.data } : null))
-        .filter((r): r is { id: string; name: string; data: NonNullable<typeof r>['data'] } => r !== null)
+      // Fetch every resume's full data + version. Fine for the small-team scale
+      // this serves; if an instance ever holds many CVs this moves server-side.
+      const results = await Promise.all(items.map((m) => api.loadResume(m.id)))
+      const resumes = results
+        .map((r, i) => (r ? { id: items[i].id, name: items[i].name, data: r.data, version: r.meta.version } : null))
+        .filter((r): r is { id: string; name: string; data: ResumeStore; version: number } => r !== null)
+      setLoaded(resumes)
       setData(buildWhoKnowsWhat(resumes))
     } catch (e) {
       if (e instanceof UnauthorizedError) { onUnauthorized(); return }
@@ -37,6 +44,26 @@ export function WhoKnowsWhatPanel({ items, onUnauthorized }: {
       setBusy(false)
     }
   }, [items, onUnauthorized])
+
+  const publish = useCallback(async () => {
+    setPublishing(true)
+    setPublishNote(null)
+    try {
+      const targets: PublishTarget[] = loaded.map((r) => ({ id: r.id, data: r.data, version: r.version }))
+      const res = await publishToInstanceRegistry(targets)
+      const parts: string[] = []
+      if (res.created) parts.push(`${res.created} shared entr${res.created === 1 ? 'y' : 'ies'} created`)
+      if (res.linked) parts.push(`${res.linked} linked`)
+      if (res.conflicts) parts.push(`${res.conflicts} skipped (open elsewhere)`)
+      setPublishNote(parts.length ? `Done — ${parts.join(', ')}.` : 'Everything is already shared.')
+      await load() // refresh with the new links + versions
+    } catch (e) {
+      if (e instanceof UnauthorizedError) { onUnauthorized(); return }
+      setPublishNote('Could not share the registries. Try again.')
+    } finally {
+      setPublishing(false)
+    }
+  }, [loaded, load, onUnauthorized])
 
   const toggle = () => {
     const next = !open
@@ -59,7 +86,22 @@ export function WhoKnowsWhatPanel({ items, onUnauthorized }: {
         <div className="wkw-body">
           {busy && <p className="wkw-status"><Loader2 size={14} className="wkw-spin" /> Building the matrix…</p>}
           {error && <p className="wkw-status wkw-err" role="alert">{error}</p>}
-          {data && !busy && <Matrix data={data} />}
+          {data && !busy && (
+            <>
+              <div className="wkw-share">
+                <button className="wkw-share-btn" onClick={() => void publish()} disabled={publishing}>
+                  {publishing ? <Loader2 size={14} className="wkw-spin" /> : <Share2 size={14} />}
+                  {publishing ? 'Sharing…' : 'Share registries across resumes'}
+                </button>
+                <span className="wkw-share-hint">
+                  Links matching skills, roles and industries to one shared registry — then a rename in any
+                  resume updates them all.
+                </span>
+              </div>
+              {publishNote && <p className="wkw-status wkw-ok" role="status"><Check size={14} /> {publishNote}</p>}
+              <Matrix data={data} />
+            </>
+          )}
         </div>
       )}
 
@@ -74,6 +116,16 @@ export function WhoKnowsWhatPanel({ items, onUnauthorized }: {
         .wkw-body { padding: 4px 16px 16px; }
         .wkw-status { display: flex; align-items: center; gap: 7px; color: var(--ink-soft); font-size: 13px; padding: 8px 0; }
         .wkw-err { color: var(--err-ink); }
+        .wkw-ok { color: var(--ok-ink); }
+        .wkw-share { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 4px 0 12px; }
+        .wkw-share-btn {
+          display: inline-flex; align-items: center; gap: 7px; flex: none; font-size: 13px; font-weight: 600;
+          padding: 8px 13px; border-radius: var(--r-sm); border: 1px solid var(--line);
+          background: var(--paper); color: var(--accent);
+        }
+        .wkw-share-btn:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-wash); }
+        .wkw-share-btn:disabled { opacity: .6; }
+        .wkw-share-hint { font-size: 12px; color: var(--ink-faint); flex: 1; min-width: 200px; }
         .wkw-spin { animation: wkw-rot 1s linear infinite; }
         @keyframes wkw-rot { to { transform: rotate(360deg); } }
         .wkw-controls { padding: 4px 0 12px; }

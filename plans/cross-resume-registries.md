@@ -206,11 +206,29 @@ non-breaking increments per §2/§3.0–3.2, never leaving `main` broken.
     in-app as a clean no-op with the empty registry (217 skills load,
     `mutationCount` stays 0, no console errors). Non-breaking; the load path is
     now live and proven inert, de-risking 2c.
-  - ⬜ 2c — value delivery (its own focused pass): a "Share across resumes"
-    publish action (`planPublish` → `api.create/link` → set `canonical_id`) and
-    canonical-rename propagation (registry editor PUTs the canonical entry). This
-    is where the cross-resume rename payoff becomes visible; kept reversible
-    (unlink = revert to per-resume).
+  - ✅ **2c — value delivery, shipped.** The cross-resume rename loop works
+    end-to-end:
+    - **Publish** — the picker's "Share registries across resumes" button
+      (`lib/registryPublish.ts` over the pure `planPublish`/`applyCanonicalLinks`)
+      creates canonical entries for every resume's skills/roles/industries/
+      categories, dedups across resumes via a growing working registry, writes
+      the `canonical_id` links back, and saves each resume (a conflicting save is
+      skipped + counted, not fatal).
+    - **Propagate** — `useCanonicalRegistrySync` (mounted in `EditorRoute`)
+      debounce-pushes a rename of a SHARED entry to its canonical
+      (`api.updateRegistryEntry`), NAME only (never per-resume `category_id`).
+    - **Reconcile** — the 2b boot overlay applies the canonical name to every
+      linked resume on load; a locally-diverged name self-heals back to canonical.
+    - Verified in the running 3-resume instance: published 254 canonical entries
+      (217 skills + 13 roles + …), all resume skills linked, an editor rename
+      pushed to the canonical (version bumped), an API canonical rename appeared
+      on the linked resume after reload, and the self-heal confirmed.
+
+**Remaining (Increments 3–5): backup portability (embed + re-intern — §4), a
+registry-scoped conflict surface, and the desktop whole-store merge carrying the
+instance registry.** Until those land, a per-resume backup carries bare
+`canonical_id`s that only resolve on the SAME instance — fine today (single
+instance), the sharp edge for cross-instance backup restore.
 - ⬜ Increments 3–5 — backup portability, sync/conflict, desktop merge.
 
 Remaining order per §3.1–3.2. Each increment compiles, tests green, leaves

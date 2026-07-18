@@ -104,6 +104,10 @@ an API key.
   at what proficiency, with a filter for the skills more than one person shares
   (team overlap) versus the ones only a single person holds (bus-factor risks).
   Click a name to open that CV.
+- **Shared registries across CVs.** From the same panel, "Share registries
+  across resumes" links matching skills, roles and industries to one shared
+  registry — after which renaming a skill in any CV updates it in all of them,
+  while each person keeps their own proficiency and highlights.
 
 ## Resume Views — targeted exports
 

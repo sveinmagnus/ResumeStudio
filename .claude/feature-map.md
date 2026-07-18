@@ -24,11 +24,25 @@ prescriptive.
   shared-only filter for team overlap vs single-holder bus-factor risks; click a
   name to open that CV). **Interim data source**: groups by normalized
   `skillKey` across each resume's own registry, fetched client-side (fine at
-  small-team scale). This is Increment 0 of the cross-resume registry
-  re-architecture (`plans/cross-resume-registries.md`) — the UI/output shape is
-  final; only the grouping source swaps to the shared canonical id once
-  instance-level registries land (§3.0 there — the canonical/per-resume-use
-  split, since proficiency is per-person by nature).
+  small-team scale). The panel also hosts **"Share registries across resumes"**
+  (below).
+- **Cross-resume shared registries** (`plans/cross-resume-registries.md`,
+  Stage 3, additive-link path) — skills/roles/industries/categories can be
+  linked to an instance-level canonical registry so a **rename in one resume
+  propagates to all**. Reached WITHOUT a destructive migration: an additive
+  `canonical_id?` on each registry entry (§3.0 split — shared identity is the
+  name; per-person facts proficiency/highlight/ordering stay on the resume).
+  Pieces: server `registry_entries` table + CRUD + `promoteFromResumes`
+  (`server/registryDb.ts`, `/api/registry`, `server/skillKey.ts` mirrors the
+  client key); pure `lib/registrySync.ts` (`overlayCanonicalNames` — canonical
+  name wins at load; `planPublish`/`applyCanonicalLinks`); `lib/registryPublish.ts`
+  (the picker "Share…" orchestrator — create canonical + link + save, cross-
+  resume dedup via a growing registry); `reconcileRegistry` store action (boot
+  overlay, raw set — no auto-save); `useCanonicalRegistrySync` (EditorRoute —
+  debounced rename→canonical push, NAME only, never per-resume `category_id`).
+  The overlay is authoritative, so a locally-diverged name self-heals to
+  canonical on load. Remaining: backup portability (embed+re-intern), a
+  registry conflict surface, desktop-merge — see the plan §4/§3.
 - **Auto-save** to an Express + SQLite backend (debounced ~1s) — sends the
   resume payload + locales in a single PUT per mutation. **Per-id
   localStorage fallback** so a server outage never costs work.

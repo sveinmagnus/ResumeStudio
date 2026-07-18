@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useStore } from './store/useStore'
 import { useResumePersistence } from './store/useResumePersistence'
+import { useCanonicalRegistrySync } from './store/useCanonicalRegistrySync'
 import { ResumeList } from './components/ResumeList'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { AuthGate } from './components/AuthGate'
@@ -84,6 +85,9 @@ function EditorRoute({ resumeId, routeSection, routeViewId, onUnauthorized }: {
   const hasData = useStore((s) => s.hasData)
   const data = useStore((s) => s.data)
   const { loadState, saveState, cacheSavedAt, unsyncedCount, conflict, resolveConflict, retry } = useResumePersistence(resumeId)
+  // Propagate a rename of a SHARED registry entry to the instance registry so
+  // other resumes pick it up on load (no-op unless entries are linked).
+  useCanonicalRegistrySync()
 
   // ── URL ⇄ section sync ───────────────────────────────────────────────────
   // The URL is canonical (/r/:id[/:section | /views/:viewId]) so a refresh

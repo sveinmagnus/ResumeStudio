@@ -159,3 +159,45 @@ export function planPublish(store: ResumeStore, entries: RegistryEntry[]): Publi
   ;(['skill', 'role', 'industry', 'category'] as RegistryKind[]).forEach(plan)
   return { creates: [...createByKey.values()], links }
 }
+
+/**
+ * Return a store with `canonical_id` set on the registry entries named in
+ * `byLocalId` (localId → canonicalId). Pure + shallow; entries not in the map
+ * are untouched, and the store ref is returned unchanged when the map is empty.
+ * Used by the publish flow to write links back before saving a resume.
+ */
+export function applyCanonicalLinks(store: ResumeStore, byLocalId: Record<string, string>): ResumeStore {
+  if (!Object.keys(byLocalId).length) return store
+  const link = <T extends { id: string; canonical_id?: string | null }>(item: T): T =>
+    byLocalId[item.id] ? { ...item, canonical_id: byLocalId[item.id] } : item
+  return {
+    ...store,
+    skills: store.skills.map(link),
+    roles: store.roles.map(link),
+    industries: store.industries.map(link),
+    skill_categories: (store.skill_categories ?? []).map(link),
+  }
+}
+
+/**
+ * The NAME of every registry entry currently linked to the shared registry, as
+ * `canonicalId → LocalizedString`. The canonical-sync hook diffs this against
+ * its last-synced snapshot to detect a rename of a shared entry and push it to
+ * the instance so other resumes see it on load.
+ *
+ * NAME only — deliberately not classification/`category_id`: `category_id` is a
+ * per-resume reference (it points at THIS resume's `skill_categories`), so
+ * propagating it to another resume would be meaningless. Cross-resume category
+ * sharing needs categories to be linked too, and is a later refinement.
+ */
+export function linkedNameSnapshot(store: ResumeStore): Map<string, LocalizedString> {
+  const out = new Map<string, LocalizedString>()
+  const add = (item: { canonical_id?: string | null; name: LocalizedString }) => {
+    if (item.canonical_id) out.set(item.canonical_id, item.name)
+  }
+  store.skills.forEach(add)
+  store.roles.forEach(add)
+  store.industries.forEach(add)
+  ;(store.skill_categories ?? []).forEach(add)
+  return out
+}
