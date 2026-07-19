@@ -194,6 +194,9 @@ each resume's last-saved time, and a union across machines:
 - A resume that's newer locally is kept.
 - **Nothing is ever deleted** by a normal restore. (A restore also drops a
   snapshot first, so you can undo it from History.)
+- Your **shared skill registry** ("who knows what") rides along too, so if you
+  share skills across resumes on one machine, the links come through on the
+  others — merged by skill, newest name wins, never deleted.
 
 This means it's last-writer-wins if you edit the *same* resume on two machines
 without syncing in between — fine for a single person hopping between computers,

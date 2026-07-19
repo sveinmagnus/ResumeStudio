@@ -235,12 +235,23 @@ non-breaking increments per §2/§3.0–3.2, never leaving `main` broken.
   guards the new field. Pure `planReintern`/`remapCanonicalIds` + orchestrator,
   19 tests.
 
-**Remaining (Increments 4–5): a registry-scoped conflict surface (the editor
-rename hook currently last-writer-wins via a force PUT — adequate for a small
-team, not yet a conflict UI), and the desktop whole-store merge carrying the
-instance registry.** Both are refinements; the shared-registry feature is
-functional and portable as of Increment 3.
-- ⬜ Increments 4–5 — sync/conflict surface, desktop whole-store merge.
+- ✅ **Increment 4 — concurrent-rename conflict handling, shipped.**
+  `useCanonicalRegistrySync` PUTs with `base_version`; a 409 reconciles the local
+  name to the server's and shows a non-blocking `RegistryConflictNotice`
+  (server-wins, no modal — proportionate to a skill rename).
+- ✅ **Increment 5 — desktop whole-store merge, shipped.** The sync file
+  (`StoreBackupV1.registry`) now carries the instance registry;
+  `db.mergeRegistry` unions it by key (newest-wins by `updated_at`, keeps the
+  existing id, never deletes) on `/api/backup/restore` and the launcher boot
+  restore, so a synced resume's `canonical_id` links resolve on the other
+  machine. A dangling link degrades to per-resume display (re-publish fixes).
+
+**Phase 2 is complete.** All increments shipped: the who-knows-what matrix, the
+instance-level shared registry (rename propagates across CVs, per-person facts
+stay per-resume), portable backups, conflict handling, and desktop sync. The
+one accepted residual: independent publishes on two machines can leave by-key
+duplicate canonical entries (the matrix groups them anyway) — a canonical-merge
+UI would tidy that, out of scope.
 
 Remaining order per §3.1–3.2. Each increment compiles, tests green, leaves
 `main` shippable.

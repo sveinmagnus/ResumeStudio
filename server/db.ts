@@ -674,6 +674,7 @@ export const getRegistryEntry: RegistryStore['getRegistryEntry'] = (id) => defau
 export const upsertRegistryEntry: RegistryStore['upsertRegistryEntry'] = (input) => defaultDb().upsertRegistryEntry(input)
 export const deleteRegistryEntry: RegistryStore['deleteRegistryEntry'] = (id) => defaultDb().deleteRegistryEntry(id)
 export const promoteFromResumes: RegistryStore['promoteFromResumes'] = (datas) => defaultDb().promoteFromResumes(datas)
+export const mergeRegistry: RegistryStore['mergeRegistry'] = (entries) => defaultDb().mergeRegistry(entries)
 
 /**
  * The shared singleton DB instance (same one the routes use). The desktop

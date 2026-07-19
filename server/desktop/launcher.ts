@@ -29,7 +29,7 @@ import { createApp } from '../app.js'
 import { getDefaultDb, closeDefaultDb } from '../db.js'
 import { resolvePaths } from '../config.js'
 import { loadOrInitSettings } from '../settings.js'
-import { readBackupFile } from '../backup.js'
+import { readStoreBackup } from '../backup.js'
 import { initBackupRuntime, reconfigureBackup, flushBackup, stopBackup } from '../backupRuntime.js'
 import { startTranslate } from '../translateDocker.js'
 import { findFreePort } from './freePort.js'
@@ -114,12 +114,14 @@ async function main(): Promise<void> {
   // Non-destructive merge (newest-wins per resume) — safe to run every launch.
   if (backupDir) {
     try {
-      const entries = readBackupFile(backupDir)
-      if (entries) {
-        const summary = db.restoreResumes(entries) // merge mode
+      const backup = readStoreBackup(backupDir)
+      if (backup) {
+        const summary = db.restoreResumes(backup.resumes) // merge mode
+        // Merge the shared registry too so synced resumes' canonical links resolve.
+        const reg = db.mergeRegistry(backup.registry)
         log(
           `  sync-in    : +${summary.inserted} new, ${summary.updated} updated, ` +
-          `${summary.skipped} already current`,
+          `${summary.skipped} already current; registry +${reg.added}/${reg.updated}`,
         )
       } else {
         log('  sync-in    : no backup file yet (first run on this sync folder)')

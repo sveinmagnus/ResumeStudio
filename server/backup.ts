@@ -20,6 +20,7 @@
 import fs from 'fs'
 import path from 'path'
 import type { ResumeBackupEntry } from './db.js'
+import type { RegistryEntry } from './registryDb.js'
 
 /** Stable filename so the same file is overwritten/synced in place. */
 export const BACKUP_FILENAME = 'resume-studio-backup.json'
@@ -30,16 +31,24 @@ export interface StoreBackupV1 {
   exported_at: string
   generator: 'resume-studio'
   resumes: ResumeBackupEntry[]
+  /**
+   * The instance-level canonical registry (cross-resume registries, Stage 3),
+   * so a desktop sync carries shared skills/roles across machines with the
+   * resumes that link them. Additive/optional — backups written before Stage 3,
+   * or by a build with no registry, omit it; `parseStoreRegistry` returns [].
+   */
+  registry?: RegistryEntry[]
 }
 
-/** Wrap the DB's resume dump in the versioned envelope. */
-export function buildStoreBackup(entries: ResumeBackupEntry[]): StoreBackupV1 {
+/** Wrap the DB's resume dump (+ optional registry) in the versioned envelope. */
+export function buildStoreBackup(entries: ResumeBackupEntry[], registry?: RegistryEntry[]): StoreBackupV1 {
   return {
     $schema: 'resumestudio-store/v1',
     format_version: 1,
     exported_at: new Date().toISOString(),
     generator: 'resume-studio',
     resumes: entries,
+    ...(registry?.length ? { registry } : {}),
   }
 }
 
@@ -93,6 +102,23 @@ export function parseStoreBackup(json: unknown): ResumeBackupEntry[] {
 }
 
 /**
+ * Extract the optional canonical registry from a parsed backup. LENIENT — the
+ * field is additive, so a missing/non-array `registry` (or an older file) yields
+ * `[]` rather than throwing; individual malformed entries are dropped. A bad
+ * registry must never fail a restore whose resumes are fine.
+ */
+export function parseStoreRegistry(json: unknown): RegistryEntry[] {
+  if (!json || typeof json !== 'object') return []
+  const reg = (json as { registry?: unknown }).registry
+  if (!Array.isArray(reg)) return []
+  return reg.filter((e): e is RegistryEntry =>
+    !!e && typeof e === 'object' &&
+    typeof (e as RegistryEntry).id === 'string' &&
+    typeof (e as RegistryEntry).key === 'string' &&
+    typeof (e as RegistryEntry).kind === 'string')
+}
+
+/**
  * A content fingerprint of the store: id + saved_at per resume, order-independent.
  * Used to decide whether the on-disk backup is already up to date so the
  * scheduler/UI don't rewrite an unchanged file (avoids needless sync churn).
@@ -134,8 +160,8 @@ export function writeBackupAtomic(dir: string, backup: StoreBackupV1): WriteResu
   return { file, bytes: Buffer.byteLength(json) }
 }
 
-/** Read + parse the backup file in `dir`, or null if it doesn't exist. */
-export function readBackupFile(dir: string): ResumeBackupEntry[] | null {
+/** Read + parse the whole file in `dir` (resumes + registry), or null if absent. */
+export function readStoreBackup(dir: string): { resumes: ResumeBackupEntry[]; registry: RegistryEntry[] } | null {
   const file = path.join(dir, BACKUP_FILENAME)
   if (!fs.existsSync(file)) return null
   let parsed: unknown
@@ -144,5 +170,10 @@ export function readBackupFile(dir: string): ResumeBackupEntry[] | null {
   } catch {
     throw new UnreadableBackupError('Backup file is not valid JSON.')
   }
-  return parseStoreBackup(parsed)
+  return { resumes: parseStoreBackup(parsed), registry: parseStoreRegistry(parsed) }
+}
+
+/** Read + parse just the resume entries in `dir`, or null if it doesn't exist. */
+export function readBackupFile(dir: string): ResumeBackupEntry[] | null {
+  return readStoreBackup(dir)?.resumes ?? null
 }

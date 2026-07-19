@@ -113,6 +113,17 @@ export interface RegistryStore {
    * localized names, never duplicates. Returns per-kind created/merged counts.
    */
   promoteFromResumes(resumeDatas: unknown[]): PromoteSummary
+  /**
+   * Merge canonical entries from a whole-store backup (desktop cross-machine
+   * sync). Union by (kind, key), newest-wins by `updated_at`, NEVER deletes —
+   * the same safe-by-design merge as resumes. A key match KEEPS the existing
+   * entry's id (so a resume synced from another machine that linked a DIFFERENT
+   * id for the same key just falls back to per-resume display until re-published
+   * — harmless; the boot overlay tolerates a dangling link). A new key inserts
+   * with the incoming id, so the common case (publish on one machine, sync to
+   * another) resolves every link.
+   */
+  mergeRegistry(entries: RegistryEntry[]): { added: number; updated: number }
 }
 
 /**
@@ -230,5 +241,40 @@ export function createRegistryStore(db: Database): RegistryStore {
     return summary
   }
 
-  return { listRegistry, getRegistryEntry, upsertRegistryEntry, deleteRegistryEntry, promoteFromResumes }
+  const insertWithId = db.prepare(`
+    INSERT INTO registry_entries (id, kind, name, key, extra, version, updated_at)
+    VALUES (@id, @kind, @name, @key, @extra, @version, @updated_at)
+  `)
+
+  function mergeRegistry(entries: RegistryEntry[]): { added: number; updated: number } {
+    let added = 0, updated = 0
+    const run = db.transaction((rows: RegistryEntry[]) => {
+      for (const e of rows) {
+        if (!e || typeof e.id !== 'string' || !e.id || typeof e.key !== 'string' || !e.key || !e.kind) continue
+        const existing = selectByKindKey.get(e.kind, e.key) as Row | undefined
+        if (existing) {
+          // Newest-wins by updated_at; keep the EXISTING id (see the interface note).
+          if ((e.updated_at ?? '') > (existing.updated_at ?? '')) {
+            update.run({
+              id: existing.id, name: JSON.stringify(e.name ?? {}), key: e.key,
+              extra: JSON.stringify(e.extra ?? {}), updated_at: e.updated_at,
+            })
+            updated++
+          }
+        } else {
+          // New key → insert with the INCOMING id so synced resume links resolve.
+          insertWithId.run({
+            id: e.id, kind: e.kind, name: JSON.stringify(e.name ?? {}), key: e.key,
+            extra: JSON.stringify(e.extra ?? {}), version: e.version ?? 1,
+            updated_at: e.updated_at ?? new Date().toISOString(),
+          })
+          added++
+        }
+      }
+    })
+    run(entries)
+    return { added, updated }
+  }
+
+  return { listRegistry, getRegistryEntry, upsertRegistryEntry, deleteRegistryEntry, promoteFromResumes, mergeRegistry }
 }

@@ -136,3 +136,43 @@ describe('promoteFromResumes()', () => {
     expect(db.listRegistry()).toEqual([])
   })
 })
+
+describe('mergeRegistry() — desktop cross-machine sync', () => {
+  const entry = (id: string, kind: 'skill' | 'role', key: string, name: Record<string, string>, updated_at: string) =>
+    ({ id, kind, name, key, extra: {}, version: 1, updated_at } as const)
+
+  it('inserts a new-key entry with the INCOMING id (so synced resume links resolve)', () => {
+    const db = freshDb()
+    const r = db.mergeRegistry([entry('remote-1', 'skill', 'react', { en: 'React' }, '2026-01-01T00:00:00Z')])
+    expect(r).toEqual({ added: 1, updated: 0 })
+    expect(db.getRegistryEntry('remote-1')?.name.en).toBe('React')
+  })
+
+  it('newest-wins on a key match, KEEPING the existing id', () => {
+    const db = freshDb()
+    const local = db.upsertRegistryEntry({ kind: 'skill', name: { en: 'React' } })
+    if (!local.ok) throw new Error('setup')
+    // Incoming has the same key but a different id and a NEWER timestamp.
+    const r = db.mergeRegistry([entry('remote-1', 'skill', 'react', { en: 'ReactJS' }, '2999-01-01T00:00:00Z')])
+    expect(r).toEqual({ added: 0, updated: 1 })
+    // The existing id is kept; only the name updated.
+    expect(db.getRegistryEntry(local.entry.id)?.name.en).toBe('ReactJS')
+    expect(db.getRegistryEntry('remote-1')).toBeNull()
+  })
+
+  it('does NOT overwrite a newer local entry with an older incoming one', () => {
+    const db = freshDb()
+    const local = db.upsertRegistryEntry({ kind: 'skill', name: { en: 'Local wins' } })
+    if (!local.ok) throw new Error('setup')
+    const r = db.mergeRegistry([entry('remote-1', 'skill', 'local wins', { en: 'stale' }, '2000-01-01T00:00:00Z')])
+    expect(r).toEqual({ added: 0, updated: 0 })
+    expect(db.getRegistryEntry(local.entry.id)?.name.en).toBe('Local wins')
+  })
+
+  it('never deletes, and skips malformed incoming entries', () => {
+    const db = freshDb()
+    db.upsertRegistryEntry({ kind: 'role', name: { en: 'SRE' } })
+    db.mergeRegistry([{ id: '', kind: 'skill', key: '', name: {}, extra: {}, version: 1, updated_at: '' } as never])
+    expect(db.listRegistry('role')).toHaveLength(1) // untouched
+  })
+})

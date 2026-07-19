@@ -59,7 +59,9 @@ export class BackupScheduler {
       const entries = this.db.dumpResumes()
       const sig = backupSignature(entries)
       if (sig === this.lastSignature) return
-      const { file, bytes } = writeBackupAtomic(this.dir, buildStoreBackup(entries))
+      // The registry rides along (a canonical rename always coincides with the
+      // editing resume's save, so the resume signature already gates the write).
+      const { file, bytes } = writeBackupAtomic(this.dir, buildStoreBackup(entries, this.db.listRegistry()))
       this.lastSignature = sig
       this.log(`[backup] wrote ${entries.length} resume(s), ${bytes} bytes → ${file}`)
     } catch (err) {
@@ -71,7 +73,7 @@ export class BackupScheduler {
   flush(): void {
     try {
       const entries = this.db.dumpResumes()
-      const { file } = writeBackupAtomic(this.dir, buildStoreBackup(entries))
+      const { file } = writeBackupAtomic(this.dir, buildStoreBackup(entries, this.db.listRegistry()))
       this.lastSignature = backupSignature(entries)
       this.log(`[backup] final flush → ${file}`)
     } catch (err) {

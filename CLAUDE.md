@@ -177,8 +177,8 @@ server/              ← Express API + SQLite persistence
 ├── index.ts (VPS/dev entry) + app.ts (createApp: security headers, routers, static serving)
 ├── auth.ts (cookie OR Bearer; constant-time; env read lazily) · db.ts (createResumeDb +
 │   lazy singleton; snapshots; dump/restore; close checkpoints WAL) · config.ts (PURE paths)
-├── registryDb.ts (instance-level cross-resume registry: canonical entries +
-│   promoteFromResumes; Increment 1, not yet client-consumed) · skillKey.ts
+├── registryDb.ts (instance-level cross-resume registry: canonical entries,
+│   promoteFromResumes, mergeRegistry for desktop sync) · skillKey.ts
 │   (server mirror of the client skill key; cross-check test guards drift)
 ├── backup.ts (whole-store StoreBackupV1 — NOT the client backup) + backupScheduler/-Runtime
 ├── settings.ts (desktop settings.json; applyToEnv; isDesktop gate) · storage.ts (payloadStats)
@@ -536,7 +536,7 @@ Full end-user + build docs in **`DESKTOP.md`**. Load-bearing invariants for work
 - **Two server entries, one app.** `server/index.ts` (VPS/dev, `tsx`) and `server/desktop/launcher.ts` (desktop) both call `createApp()`. Don't fork app logic per entry — differences are env/wiring only.
 - **The launcher is bundled to CJS** (esbuild, `better-sqlite3` external). So **launcher code must not use `import.meta`/`__dirname`** — it uses env + `process.cwd()`. `app.ts`/`db.ts` guard `import.meta.url` (`import.meta.url ? … : process.cwd()`) because esbuild emits `""` for it; don't "simplify" that back or the bundle crashes at boot.
 - **Paths come from `server/config.ts`** (pure). The launcher sets `RESUME_DB_PATH` + `RESUME_CLIENT_DIR` before `createApp()`/first DB use. **Data dir** is per-user OS-standard (`%APPDATA%\ResumeStudio`, `~/Library/Application Support/ResumeStudio`, `~/.local/share/resume-studio`), overridable via `RESUME_DATA_DIR` — matches Electron's `app.getPath('userData')`.
-- **Sync model = whole-store JSON backup, NOT the live DB in the cloud folder.** `RESUME_BACKUP_DIR` holds one `resume-studio-backup.json` written atomically. Merge is **newest-wins per resume by `saved_at`, union, never deletes** (`db.restoreResumes`, `merge` mode). Live SQLite in a sync folder is intentionally avoided (corruption); `RESUME_DB_JOURNAL=TRUNCATE` is the documented escape hatch.
+- **Sync model = whole-store JSON backup, NOT the live DB in the cloud folder.** `RESUME_BACKUP_DIR` holds one `resume-studio-backup.json` written atomically. Merge is **newest-wins per resume by `saved_at`, union, never deletes** (`db.restoreResumes`, `merge` mode). The file also carries the **instance registry** (cross-resume shared skills/roles, `StoreBackupV1.registry`); `db.mergeRegistry` unions it by key (newest-wins by `updated_at`, keeps the existing id, never deletes) so a synced resume's `canonical_id` links resolve on the other machine — a dangling link just degrades to per-resume display, fixable by re-publishing. Live SQLite in a sync folder is intentionally avoided (corruption); `RESUME_DB_JOURNAL=TRUNCATE` is the documented escape hatch.
 - **`db.close()`** does `wal_checkpoint(TRUNCATE)` then close. Keep shutdown ordering: `tray.kill()` → `flushBackup()` → `closeDefaultDb()` → `server.close()`.
 - **System-tray icon = the user's Quit affordance** (`desktop/tray.ts`, `systray2`). Tray Quit calls the same `shutdown()` — never add a "quit" control to the web UI. Gotchas: register `onClick`/`onError` only after `await systray.ready()`; the CJS↔ESM interop puts the `SysTray` constructor in different places under `tsx` vs the bundle (`tray.ts` resolves defensively). `systray2` is **external + vendored** in the build; best-effort (any failure → null, app keeps running).
 - **Two backup concepts, don't conflate:** `src/lib/backup.ts` = per-resume client download (`resumestudio/v1`); `server/backup.ts` = whole-store sync file (`resumestudio-store/v1`).

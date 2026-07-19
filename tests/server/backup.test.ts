@@ -3,10 +3,11 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 import {
-  BACKUP_FILENAME, buildStoreBackup, isStoreBackup, parseStoreBackup,
-  backupSignature, writeBackupAtomic, readBackupFile, UnreadableBackupError,
+  BACKUP_FILENAME, buildStoreBackup, isStoreBackup, parseStoreBackup, parseStoreRegistry,
+  backupSignature, writeBackupAtomic, readBackupFile, readStoreBackup, UnreadableBackupError,
 } from '../../server/backup'
 import type { ResumeBackupEntry } from '../../server/db'
+import type { RegistryEntry } from '../../server/registryDb'
 
 const entry = (over: Partial<ResumeBackupEntry> = {}): ResumeBackupEntry => ({
   id: 'r1',
@@ -22,6 +23,11 @@ const entry = (over: Partial<ResumeBackupEntry> = {}): ResumeBackupEntry => ({
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'rs-bk-'))
 const rmQuiet = (d: string) => { try { fs.rmSync(d, { recursive: true, force: true }) } catch { /* ignore */ } }
 
+const regEntry = (over: Partial<RegistryEntry> = {}): RegistryEntry => ({
+  id: 'c1', kind: 'skill', name: { en: 'React' }, key: 'react', extra: {}, version: 1,
+  updated_at: '2026-01-01T00:00:00.000Z', ...over,
+})
+
 describe('buildStoreBackup', () => {
   it('wraps entries in the versioned envelope', () => {
     const b = buildStoreBackup([entry()])
@@ -30,6 +36,42 @@ describe('buildStoreBackup', () => {
     expect(b.generator).toBe('resume-studio')
     expect(typeof b.exported_at).toBe('string')
     expect(b.resumes).toHaveLength(1)
+  })
+
+  it('embeds the registry when passed, omits it otherwise', () => {
+    expect(buildStoreBackup([entry()]).registry).toBeUndefined()
+    expect(buildStoreBackup([entry()], []).registry).toBeUndefined() // empty → omitted
+    expect(buildStoreBackup([entry()], [regEntry()]).registry).toHaveLength(1)
+  })
+})
+
+describe('parseStoreRegistry (lenient)', () => {
+  it('extracts the registry array', () => {
+    expect(parseStoreRegistry(buildStoreBackup([entry()], [regEntry()]))).toHaveLength(1)
+  })
+  it('returns [] for an absent, non-array, or older backup', () => {
+    expect(parseStoreRegistry(buildStoreBackup([entry()]))).toEqual([])
+    expect(parseStoreRegistry({ registry: 'nope' })).toEqual([])
+    expect(parseStoreRegistry(null)).toEqual([])
+  })
+  it('drops malformed entries but keeps good ones', () => {
+    const mixed = { registry: [regEntry(), { id: 'x' }, null, { key: 'k' }] }
+    expect(parseStoreRegistry(mixed)).toHaveLength(1)
+  })
+})
+
+describe('readStoreBackup round-trip (resumes + registry)', () => {
+  it('writes and reads back both resumes and the registry', () => {
+    const dir = tmp()
+    try {
+      writeBackupAtomic(dir, buildStoreBackup([entry(), entry({ id: 'r2' })], [regEntry(), regEntry({ id: 'c2', key: 'go', name: { en: 'Go' } })]))
+      const back = readStoreBackup(dir)!
+      expect(back.resumes).toHaveLength(2)
+      expect(back.registry).toHaveLength(2)
+      expect(back.registry.map((e) => e.key).sort()).toEqual(['go', 'react'])
+      // The resume-only reader still works.
+      expect(readBackupFile(dir)).toHaveLength(2)
+    } finally { rmQuiet(dir) }
   })
 })
 

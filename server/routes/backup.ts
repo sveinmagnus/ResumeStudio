@@ -17,9 +17,9 @@
 import { Router, type Request, type Response } from 'express'
 import fs from 'fs'
 import path from 'path'
-import { dumpResumes, restoreResumes } from '../db.js'
+import { dumpResumes, restoreResumes, listRegistry, mergeRegistry } from '../db.js'
 import {
-  BACKUP_FILENAME, backupSignature, buildStoreBackup, readBackupFile,
+  BACKUP_FILENAME, backupSignature, buildStoreBackup, readBackupFile, readStoreBackup,
   writeBackupAtomic, UnreadableBackupError,
 } from '../backup.js'
 
@@ -79,7 +79,7 @@ router.post('/now', (_req: Request, res: Response): void => {
   }
   try {
     const entries = dumpResumes()
-    const { file, bytes } = writeBackupAtomic(dir, buildStoreBackup(entries))
+    const { file, bytes } = writeBackupAtomic(dir, buildStoreBackup(entries, listRegistry()))
     res.json({ ok: true, file, bytes, resumeCount: entries.length, saved_at: new Date().toISOString() })
   } catch (err) {
     // Don't echo the raw message — it can carry a filesystem path.
@@ -102,13 +102,16 @@ router.post('/restore', (req: Request, res: Response): void => {
   const body = (req.body ?? {}) as Record<string, unknown>
   const mode = body.mode === 'replace' ? 'replace' : 'merge'
   try {
-    const entries = readBackupFile(dir)
-    if (!entries) {
+    const backup = readStoreBackup(dir)
+    if (!backup) {
       res.status(404).json({ error: 'No backup file found in the sync folder yet.' })
       return
     }
-    const summary = restoreResumes(entries, { mode })
-    res.json({ ok: true, mode, ...summary })
+    const summary = restoreResumes(backup.resumes, { mode })
+    // Merge the shared registry too, so cross-machine resumes' canonical links
+    // resolve. Union by key, never deletes — independent of the resume mode.
+    const registry = mergeRegistry(backup.registry)
+    res.json({ ok: true, mode, ...summary, registry })
   } catch (err) {
     if (err instanceof UnreadableBackupError) {
       // A controlled, path-free message describing why the backup won't parse.
