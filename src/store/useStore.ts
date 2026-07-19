@@ -81,6 +81,13 @@ interface AppState {
    * links. Called at boot after the resume loads.
    */
   reconcileRegistry: (entries: RegistryEntry[]) => void
+  /**
+   * A non-blocking message when a shared-registry rename couldn't be applied
+   * because the entry changed on another device (server won). Rendered by
+   * `RegistryConflictNotice`; `null` clears it. UI-only — no mutationCount bump.
+   */
+  registryNotice: string | null
+  setRegistryNotice: (message: string | null) => void
 
   // ── UI state ──────────────────────────────────────────────────────────────
   setActiveSection: (s: string) => void
@@ -160,6 +167,7 @@ export const useStore = create<AppState>((set, get) => {
     dataFromNewerApp: false,
     sectionSort: {},
     mutationCount: 0,
+    registryNotice: null,
 
     // ── Loads ──────────────────────────────────────────────────────────────
 
@@ -211,6 +219,8 @@ export const useStore = create<AppState>((set, get) => {
       const next = overlayCanonicalNames(st.data, entries)
       return next === st.data ? {} : { data: next }
     }),
+
+    setRegistryNotice: (message) => set({ registryNotice: message }),
 
     // ── UI ─────────────────────────────────────────────────────────────────
 

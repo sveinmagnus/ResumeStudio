@@ -470,6 +470,18 @@ describe('reconcileRegistry()', () => {
   })
 })
 
+describe('registryNotice', () => {
+  it('starts null and is set/cleared without touching mutationCount', () => {
+    expect(useStore.getState().registryNotice).toBeNull()
+    const before = useStore.getState().mutationCount
+    useStore.getState().setRegistryNotice('shared rename not applied')
+    expect(useStore.getState().registryNotice).toBe('shared rename not applied')
+    useStore.getState().setRegistryNotice(null)
+    expect(useStore.getState().registryNotice).toBeNull()
+    expect(useStore.getState().mutationCount).toBe(before) // UI-only, no auto-save
+  })
+})
+
 describe('mutationCount semantics', () => {
   it('every observable mutating action bumps the counter exactly once', () => {
     // Need 2 items so moveItem is a real move (not the from===to no-op).

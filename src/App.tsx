@@ -21,6 +21,7 @@ import { ResumeViewsEditor } from './components/editor/ResumeViewsEditor'
 import { CoverLettersEditor } from './components/editor/CoverLettersEditor'
 import { ConflictModal } from './components/ConflictModal'
 import { NewerDataNotice } from './components/NewerDataNotice'
+import { RegistryConflictNotice } from './components/RegistryConflictNotice'
 import { useRoute, navigate, Link } from './lib/router'
 import { dropLegacyCache } from './lib/localCache'
 import { api } from './lib/api'
@@ -215,6 +216,7 @@ function EditorRoute({ resumeId, routeSection, routeViewId, onUnauthorized }: {
         />
 
         <NewerDataNotice />
+        <RegistryConflictNotice />
 
         {conflict && !conflictDismissed && (
           <ConflictModal
