@@ -116,7 +116,11 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps = {}) {
               <div className="sb-group-label">{GROUP_LABELS[group]}</div>
               {items.map((s) => {
                 const Icon = ICON_MAP[s.icon] || Circle
-                const count = s.storeKey ? (data[s.storeKey] as unknown[]).length : null
+                // A store entering from an old backup or snapshot can predate a
+                // section's array (added in a later version); treat a missing
+                // array as empty rather than crashing the entire nav over a
+                // cosmetic count. Normal loads backfill via freshStore/migrate.
+                const count = s.storeKey ? ((data[s.storeKey] as unknown[] | undefined)?.length ?? 0) : null
 
                 // The Resume Views item gets a sub-list so each view is reachable
                 // directly from the nav (parent → the view list).
@@ -133,9 +137,9 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps = {}) {
                         <span className="sb-item-label">{s.label}</span>
                         {count !== null && <span className="sb-count">{count}</span>}
                       </button>
-                      {data.views.length > 0 && (
+                      {(data.views?.length ?? 0) > 0 && (
                         <div className="sb-subnav">
-                          {data.views.map((v) => {
+                          {(data.views ?? []).map((v) => {
                             const vActive = activeSection === 'views' && activeViewId === v.id
                             return (
                               <button

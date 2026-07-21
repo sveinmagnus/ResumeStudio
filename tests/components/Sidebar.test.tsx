@@ -26,6 +26,23 @@ describe('<Sidebar>', () => {
     expect(screen.getByRole('button', { name: /Projects\s*2/ })).toBeInTheDocument()
   })
 
+  it('does not crash when a section array is missing (old backup / bypassed migrate)', () => {
+    // The Sidebar renders OUTSIDE the per-section ErrorBoundary, so a throw here
+    // white-screens the whole editor. A store that predates a section's array
+    // (added in a later version, loaded before defaults backfill it) must render
+    // the section with a 0 count, not crash.
+    const store = emptyStore() as Record<string, unknown>
+    delete store.cover_letters
+    delete store.views
+    useStore.setState({
+      data: store as never,
+      hasData: true, activeSection: 'overview', expandedItemId: null, mutationCount: 0,
+    })
+    expect(() => render(<Sidebar />)).not.toThrow()
+    // The nav still renders (Projects is always present).
+    expect(screen.getByRole('button', { name: /Projects/ })).toBeInTheDocument()
+  })
+
   it('renders the Export group first (Resume Views at the top of the nav)', () => {
     seed()
     render(<Sidebar />)
