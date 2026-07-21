@@ -37,13 +37,13 @@ describe('<HeaderEditor>', () => {
     await waitFor(() => expect(useStore.getState().data.resume?.full_name).toBe('Astrid Solberg'))
   })
 
-  it('edits the localized title through a DualField', async () => {
-    const user = userEvent.setup()
+  it('no longer exposes a personal-details Title field (it comes from the profile tag line now)', () => {
     seed()
     render(<HeaderEditor />)
-    const title = screen.getByDisplayValue('Consultant')
-    await user.type(title, ' Architect')
-    await waitFor(() => expect(useStore.getState().data.resume?.title.en).toBe('Consultant Architect'))
+    // The single master "Title" was removed — the professional headline is the
+    // selected profile's tag line per view (see the Profile rework).
+    expect(screen.queryByDisplayValue('Consultant')).toBeNull()
+    expect(screen.queryByText('Title')).toBeNull()
   })
 
   it('edits the email field', async () => {

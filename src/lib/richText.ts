@@ -48,7 +48,56 @@ export function sanitizeRich(html: string): string {
 
   stripComments(root)
   walk(root)
+  normalizeBreaks(root)
   return root.innerHTML
+}
+
+/**
+ * Collapse the "oversized gap" artifacts that Word / Google Docs / external
+ * translators leave behind — the ones that survived the tag allowlist because
+ * `<p>` and `<br>` are legal:
+ *
+ *  - runs of consecutive `<br>` (ignoring whitespace-only text between them)
+ *    collapse to a single `<br>`;
+ *  - a leading / trailing `<br>` inside a `<p>` / `<li>` is dropped (it only
+ *    adds a blank line at the block's edge);
+ *  - a paragraph whose only content is whitespace and/or `<br>` — a Word "blank
+ *    line" between paragraphs — is removed entirely (paragraph spacing is the
+ *    `<p>` margin, not an empty paragraph).
+ *
+ * Runs on every write AND on the editor's mount render boundary, so it also
+ * normalises values stored before this existed on their next edit/save. While a
+ * field is focused the editor keeps a just-typed trailing empty paragraph in the
+ * DOM (it's stripped only from storage), so creating a new line still works.
+ */
+function normalizeBreaks(root: Element): void {
+  const isBlank = (n: Node | null): boolean =>
+    !!n && n.nodeType === 3 && !(n.textContent || '').trim()
+  const isBr = (n: Node | null): boolean =>
+    !!n && n.nodeType === 1 && (n as Element).tagName === 'BR'
+
+  // 1. Collapse consecutive <br> (whitespace-only text nodes don't break a run).
+  for (const br of Array.from(root.querySelectorAll('br'))) {
+    let next = br.nextSibling
+    while (isBlank(next)) next = next!.nextSibling
+    if (isBr(next)) br.remove()
+  }
+
+  // 2. Strip leading/trailing <br> (and the blank text around them) inside
+  //    every <p>/<li>, where they only draw an empty edge line.
+  for (const block of Array.from(root.querySelectorAll('p,li'))) {
+    while (block.lastChild && (isBr(block.lastChild) || isBlank(block.lastChild))) {
+      block.removeChild(block.lastChild)
+    }
+    while (block.firstChild && (isBr(block.firstChild) || isBlank(block.firstChild))) {
+      block.removeChild(block.firstChild)
+    }
+  }
+
+  // 3. Remove paragraphs left with no meaningful content (a Word blank line).
+  for (const p of Array.from(root.querySelectorAll('p'))) {
+    if (!(p.textContent || '').trim()) p.remove()
+  }
 }
 
 /** Remove comment nodes (Word clipboard HTML is full of them). */

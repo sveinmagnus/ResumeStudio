@@ -14,7 +14,7 @@
 import type { ResumeStore, ResumeView, LocalizedString } from '../types'
 import { SECTIONS, localizedSectionHeading } from './sections'
 import {
-  applyView, isExportableSection, defaultViewDetail, promotedProjectItems,
+  applyView, isExportableSection, defaultViewDetail, promotedProjectItems, viewProfileTagLine,
 } from './viewFilter'
 import { SECTION_CATALOG, summaryTitleMeta, type CatalogCtx, type ItemView } from './sectionCatalog'
 import { skillMatrixRows, fmtLastUsed, fmtProficiency } from './skillMatrix'
@@ -111,7 +111,7 @@ function buildViewDoc(store: ResumeStore, view: ResumeView, locale: string, fmt:
 
   // ── Identity + contact ────────────────────────────────────────────────────
   out.push(md ? `# ${r.full_name}` : r.full_name.toUpperCase())
-  const title = resolve(header.title_override, locale) || resolve(r.title, locale)
+  const title = resolve(header.title_override, locale) || viewProfileTagLine(store, view, locale) || resolve(r.title, locale)
   if (title) out.push(md ? `*${title}*` : title)
   for (const line of buildHeaderLines(header, r, store, locale)) {
     out.push(line.map((s) => `${s.label ?? ''}${s.value}`).join(header.separator))
@@ -131,7 +131,7 @@ function buildViewDoc(store: ResumeStore, view: ResumeView, locale: string, fmt:
         sort_order: vs?.sort_order ?? 999,
         detail: vs?.detail ?? defaultViewDetail(s.key),
         sectionStyle: vs?.style,
-        sort: vs?.sort ?? 'custom',
+        sort: vs?.sort ?? view.style?.sort ?? 'custom',
       }
     })
     .filter((s) => s.detail !== 'off')

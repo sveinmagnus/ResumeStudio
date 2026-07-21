@@ -29,7 +29,9 @@ export function HeaderEditor() {
 
       <div className="editor-block">
         <h3 className="eb-title">Professional</h3>
-        <DualField label="Title" value={r.title} onChange={(v) => updateResume({ title: v })} placeholder="e.g. Technology Architect" />
+        {/* The professional title/headline now comes from the selected Profile's
+            tag line (per view), so there is no single master title here. A view
+            can still override it in its Header settings. */}
         <DualField label="Nationality" value={r.nationality} onChange={(v) => updateResume({ nationality: v })} />
         <DualField label="Place of residence" value={r.place_of_residence} onChange={(v) => updateResume({ place_of_residence: v })} />
       </div>

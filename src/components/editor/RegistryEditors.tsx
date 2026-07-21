@@ -934,6 +934,18 @@ export function RolesEditor() {
       roles: data.roles.map((r) => ((r.category ?? '').trim().toLowerCase() === target ? { ...r, category: null } : r)),
     })
   }
+  // Rename a role category: rewrite the free-text `category` on every role that
+  // carries the old value (case-insensitive) to the new one. Roles have no
+  // category ENTITY (unlike skills), so this is a plain string rewrite.
+  const renameCategory = (category: string, newName: string) => {
+    const target = category.trim().toLowerCase()
+    const next = newName.trim()
+    if (!next || next.toLowerCase() === target) return
+    replaceData({
+      ...data,
+      roles: data.roles.map((r) => ((r.category ?? '').trim().toLowerCase() === target ? { ...r, category: next } : r)),
+    })
+  }
 
   const onMerge = (sourceId: string, targetId: string) => void (async () => {
     if (!await confirmMerge('role', sourceId, targetId, data.roles, primaryLocale, countRoleReferences(data, sourceId))) return
@@ -1015,6 +1027,7 @@ export function RolesEditor() {
             onRecategorize={(id, cat) => updateItem('roles', id, { category: cat })}
             onRemove={(id) => updateItem('roles', id, { category: null })}
             onDeleteCategory={deleteCategory}
+            onRenameCategoryText={renameCategory}
           />
           <AddButton label="Add role" onClick={addInCategory} />
         </>
@@ -1603,6 +1616,11 @@ function RegistryStyles() {
         transition: color .12s, background .12s;
       }
       .rcv-head-rename:hover { color: var(--accent); background: var(--paper-raised); }
+      .rcv-head-rename-input {
+        font: inherit; font-weight: 600; padding: 2px 6px; min-width: 120px;
+        border: 1px solid var(--accent); border-radius: var(--r-sm);
+        background: var(--paper); color: var(--ink);
+      }
       .rcv-head-move {
         display: grid; place-items: center; width: 24px; height: 24px; flex-shrink: 0;
         color: var(--ink-faint); border-radius: var(--r-sm);

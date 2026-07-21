@@ -423,7 +423,9 @@ describe('importFromCVPartner — subsidiary sections', () => {
       }],
     })
     expect(store.courses[0].name.en).toBe('Algorithms')
-    expect(store.courses[0].completed).toEqual({ year: 2020, month: 5 })
+    // Course dates are a from/to range now (shape v11); the import date lands on `end`.
+    expect(store.courses[0].end).toEqual({ year: 2020, month: 5 })
+    expect(store.courses[0].start).toBeNull()
   })
 
   it('maps spoken languages', () => {

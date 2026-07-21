@@ -32,7 +32,7 @@ import type {
 } from '../types'
 import { resolve } from './locales'
 import { richToPlain } from './richText'
-import { applyView } from './viewFilter'
+import { applyView, viewProfileTagLine } from './viewFilter'
 import { sortItems } from './sectionSort'
 
 /** Europass proficiency element names, in the schema's own order. */
@@ -192,7 +192,7 @@ export function exportEuropassXml(
    * interface doesn't structurally satisfy.
    */
   const sortBy = <T extends { id: string; sort_order: number }>(key: string, items: T[]): T[] =>
-    sortItems(key, items as Array<{ id: string; sort_order: number }>, view.sections.find((s) => s.key === key)?.sort ?? 'custom', locale) as T[]
+    sortItems(key, items as Array<{ id: string; sort_order: number }>, view.sections.find((s) => s.key === key)?.sort ?? view.style?.sort ?? 'custom', locale) as T[]
   const root = doc.documentElement
   root.setAttribute('locale', locale)
   root.appendChild(el('Locale', {}, locale))
@@ -235,7 +235,7 @@ export function exportEuropassXml(
     }
     if (ident.length) learner.appendChild(el('Identification', {}, ident))
 
-    const title = resolve(r.title, locale)
+    const title = viewProfileTagLine(store, view, locale) || resolve(r.title, locale)
     if (title) {
       learner.appendChild(el('Headline', {}, [
         el('Description', {}, [el('Label', {}, title)]),

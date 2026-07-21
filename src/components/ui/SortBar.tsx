@@ -1,11 +1,12 @@
 import { useState } from 'react'
-import { ArrowDownUp, ListPlus } from 'lucide-react'
+import { ArrowDownUp, ListPlus, Filter } from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import { availableSortModes, SORT_LABELS, type SortMode } from '../../lib/sectionSort'
 import { bulkSpec } from '../../lib/bulkImport'
 import { BulkImportModal } from './BulkImportModal'
 import { SummarizeAllButton } from './SummarizeAllButton'
 import { summaryFields } from '../../lib/summarizeBatch'
+import { typeGroups, typeFilterKey, type SelectableItem } from '../../lib/viewItemSelect'
 import type { SectionKey } from '../../types'
 
 type ArraySection = SectionKey
@@ -26,13 +27,26 @@ type ArraySection = SectionKey
 export function SortBar({ section, count }: { section: ArraySection; count: number }) {
   const mode = useStore((s) => s.sectionSort[section] ?? 'custom')
   const setSectionSort = useStore((s) => s.setSectionSort)
+  // Editor type filter (UI-only, never touches views/exports).
+  const items = useStore((s) => s.data[section]) as unknown as SelectableItem[]
+  const locale = useStore((s) => s.primaryLocale)
+  const roles = useStore((s) => s.data.roles)
+  const keyQualifications = useStore((s) => s.data.key_qualifications)
+  const filterKey = useStore((s) => s.sectionTypeFilter[section] ?? '')
+  const setSectionTypeFilter = useStore((s) => s.setSectionTypeFilter)
   const [bulkOpen, setBulkOpen] = useState(false)
 
   const modes = availableSortModes(section)
   const showSort = count >= 2 && modes.length >= 2
   const spec = bulkSpec(section)
 
-  if (!showSort && !spec && !summaryFields(section)) return null
+  // Facet groups for the type filter (only those with actual values). Built off
+  // the UNFILTERED items so options don't vanish once a filter is applied.
+  const facetSets = (count >= 2 ? typeGroups(section, items, locale, { roles, keyQualifications }) : [])
+    .filter((s) => s.groups.length > 0)
+  const showFilter = facetSets.length > 0
+
+  if (!showSort && !showFilter && !spec && !summaryFields(section)) return null
 
   return (
     <div className="sortbar">
@@ -53,6 +67,30 @@ export function SortBar({ section, count }: { section: ArraySection; count: numb
           {mode !== 'custom' && (
             <span className="sortbar-hint">Reordering switches back to Custom</span>
           )}
+        </>
+      )}
+      {showFilter && (
+        <>
+          <Filter size={13} className="sortbar-icon" />
+          <label className="sortbar-label" htmlFor={`filter-${section}`}>Filter</label>
+          <select
+            id={`filter-${section}`}
+            className={`sortbar-select${filterKey ? ' sortbar-select-active' : ''}`}
+            value={filterKey}
+            onChange={(e) => setSectionTypeFilter(section, e.target.value)}
+            title="Show only items of one type (editor view only — never affects exports)"
+          >
+            <option value="">All types</option>
+            {facetSets.map((set) => (
+              <optgroup key={set.name} label={set.name}>
+                {set.groups.map((g) => (
+                  <option key={g.value || '_untyped'} value={typeFilterKey(set.name, g.value)}>
+                    {g.label} ({g.ids.length})
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
         </>
       )}
       {/* Right-hand group. Bulk add is anchored last so the summarize button —
@@ -88,6 +126,7 @@ export function SortBar({ section, count }: { section: ArraySection; count: numb
           background: var(--paper); font-size: 13px; font-weight: 500; cursor: pointer;
         }
         .sortbar-select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-wash); }
+        .sortbar-select-active { border-color: var(--accent); background: var(--accent-wash); color: var(--accent); }
         .sortbar-hint { font-size: 11.5px; color: var(--ink-faint); font-style: italic; }
         .sortbar-bulk {
           display: inline-flex; align-items: center; gap: 5px;

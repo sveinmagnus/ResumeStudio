@@ -1,10 +1,17 @@
 import { DEFAULT_VIEW_STYLE, DEFAULT_SUMMARY_LAYOUT, normalizeFullLayout } from '../../../lib/viewStyle'
 import { fontOptions, fontInstallInfo } from '../../../lib/fonts'
 import { getDefaultFonts } from '../../../lib/appPrefs'
-import type { ViewStyle, Density, BodySize, PageMargin, TagStyle, DividerStyle, SummaryLayout, FullLayout, DateFormat, BulletStyle } from '../../../types'
+import type { ViewStyle, Density, BodySize, PageMargin, TagStyle, DividerStyle, SummaryLayout, FullLayout, DateFormat, BulletStyle, SortMode } from '../../../types'
+import { SORT_LABELS } from '../../../lib/sectionSort'
 import { RotateCcw, Download } from 'lucide-react'
 import { Select } from './Select'
 import { SUMMARY_LAYOUT_OPTIONS, FULL_LAYOUT_OPTIONS, DATE_FORMAT_OPTIONS, BULLET_STYLE_OPTIONS } from './SectionStylePanel'
+
+// The view-wide item sort (overrides each section editor's order; a per-section
+// sort override still wins). Same modes the per-section control offers.
+const VIEW_SORT_OPTIONS: Array<[SortMode, string]> = (
+  ['custom', 'alpha', 'start', 'start_asc', 'end', 'end_asc', 'date', 'date_asc'] as SortMode[]
+).map((m) => [m, SORT_LABELS[m]])
 
 // Font <select> options: "Inherit global default" first, then the catalog.
 const FONT_SELECT_OPTIONS: Array<[string, string]> = [
@@ -126,6 +133,12 @@ export function ViewStyleControls({ style, onChange }: { style: ViewStyle; onCha
           value={style.date_format ?? 'month-year'}
           options={DATE_FORMAT_OPTIONS}
           onChange={(date_format) => onChange({ date_format })}
+        />
+        <Select<SortMode>
+          label="Sort items"
+          value={style.sort ?? 'custom'}
+          options={VIEW_SORT_OPTIONS}
+          onChange={(sort) => onChange({ sort: sort === 'custom' ? undefined : sort })}
         />
         <Select<string>
           label="Section icons"

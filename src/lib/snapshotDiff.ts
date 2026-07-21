@@ -73,6 +73,7 @@ const FIELD_LABELS: Record<string, string> = {
   level: 'Level', highlights: 'Highlights', roles: 'Roles', skills: 'Skills',
   key_points: 'Key points', start: 'Start date', end: 'End date',
   expires: 'Expiry', issued: 'Issued', completed: 'Completed', date: 'Date',
+  category: 'Category',
   percent_allocated: 'Allocation %', team_size: 'Team size',
   skill_tags: 'Skill tags', co_authors: 'Co-authors', email: 'Email',
   phone: 'Phone', nationality: 'Nationality',

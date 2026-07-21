@@ -47,7 +47,7 @@ export interface CatalogCtx {
   detail?: 'plain' | 'tabulated'
   /** Professional-summary (key_qualifications) part visibility. Only the KQ
    *  descriptor reads this; absent → its documented defaults. */
-  kq?: { label: boolean; tagline: boolean; short: boolean; long: boolean }
+  kq?: { tagline: boolean; short: boolean; long: boolean }
 }
 
 /** One bullet point under an item. `label` is plain text, `body` is rich text. */
@@ -309,11 +309,16 @@ export const SECTION_CATALOG: Record<string, SectionDescriptor> = {
     // field: Summary → the short summary, Full → the long "Full profile". The
     // mode reaches here as kq.short/kq.long (see kqVisibility); there is no
     // separate `summary()` to reach.
+    //
+    // The tag line is the profile's identity (title in the editor + view
+    // config). In an export it is HIDDEN by default (it doubles as the resume
+    // title, set from the header); a view can show it via kq.tagline, and then
+    // it renders like a heading beside the description.
     alwaysFull: true,
-    title: (it, locale) => ls(it, 'label', locale) || 'Untitled profile',
+    title: (it, locale) => ls(it, 'tag_line', locale) || 'Untitled profile',
     full(it, ctx) {
       const { locale } = ctx
-      const kq = ctx.kq ?? { label: true, tagline: true, short: false, long: true }
+      const kq = ctx.kq ?? { tagline: false, short: false, long: true }
       // Key points are the profile's detail bullets — they belong to the Full
       // profile (long), not the compact Summary. `kq.long` is the Full-mode
       // signal (see kqVisibility), so summary mode omits them.
@@ -329,12 +334,12 @@ export const SECTION_CATALOG: Record<string, SectionDescriptor> = {
         kq.short ? ls(it, 'summary_short', locale) : '',
         kq.long ? ls(it, 'summary', locale) : '',
       ].filter(Boolean).join('')
-      const tagMeta = kq.tagline ? [ls(it, 'tag_line', locale)].filter(Boolean) : []
+      const tagLine = ls(it, 'tag_line', locale)
       // DOCX historically renders the tag line as meta rather than a heading.
       if (ctx.target === 'docx') {
-        return view({ meta: tagMeta, body, points })
+        return view({ meta: kq.tagline ? [tagLine].filter(Boolean) : [], body, points })
       }
-      return view({ title: kq.label ? ls(it, 'label', locale) : '', meta: tagMeta, body, points })
+      return view({ title: kq.tagline ? tagLine : '', meta: [], body, points })
     },
   },
 
@@ -453,22 +458,24 @@ export const SECTION_CATALOG: Record<string, SectionDescriptor> = {
 
   courses: {
     title: (it, locale) => ls(it, 'name', locale) || 'Untitled',
-    subtitle: (it, locale) => ls(it, 'program', locale),
-    summary: (it, ctx) =>
-      summaryOf({
+    subtitle: (it) => rawRange(it),
+    summary(it, ctx) {
+      const { start, end } = rangeParts(it, ctx)
+      return summaryOf({
         title: ls(it, 'name', ctx.locale) || 'Course',
         org: ls(it, 'program', ctx.locale),
-        date: dateAt(it, 'completed', ctx),
-      }),
+        start, end,
+      })
+    },
     full(it, ctx) {
       const { locale } = ctx
       const common = { title: ls(it, 'name', locale), body: ls(it, 'description', locale) }
       if (ctx.target === 'html') {
-        return view({ ...common, date: dateAt(it, 'completed', ctx), meta: [ls(it, 'program', locale)].filter(Boolean) })
+        return view({ ...common, date: range(it, ctx), meta: [ls(it, 'program', locale)].filter(Boolean) })
       }
       return view({
         ...common,
-        date: dateAt(it, 'completed', ctx),
+        date: range(it, ctx),
         meta: [ls(it, 'program', locale)].filter(Boolean),
       })
     },
@@ -522,13 +529,14 @@ export const SECTION_CATALOG: Record<string, SectionDescriptor> = {
     },
     full(it, ctx) {
       const { locale } = ctx
-      const type = positionTypeLabel(it.position_type as string | undefined, locale)
       const org = ls(it, 'organisation', locale)
       const name = ls(it, 'name', locale)
-      // Organisation as the heading; role name + type below. Drop the name from
-      // meta when it's already the heading (no organisation).
+      // Organisation as the heading; role name below. The position TYPE is an
+      // editor-only organizing field and is never exported — so it is not part
+      // of `meta` (nor the summary). Drop the name from meta when it's already
+      // the heading (no organisation).
       const title = org || name
-      const meta = (org ? [name, type] : [type]).filter(Boolean)
+      const meta = (org ? [name] : []).filter(Boolean)
       const common = { title, body: ls(it, 'description', locale) }
       if (ctx.target === 'html') {
         return view({ ...common, date: range(it, ctx), meta })

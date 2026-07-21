@@ -29,7 +29,7 @@ describe('sections', () => {
       expect(isExportableSection(def), key).toBe(true)
     }
     // Profile's sidebar label differs from its export heading — deliberate.
-    expect(SECTIONS.find((s) => s.key === 'key_qualifications')!.label).toBe('Profile')
+    expect(SECTIONS.find((s) => s.key === 'key_qualifications')!.label).toBe('Profiles')
     expect(SECTION_HEADINGS.key_qualifications.en).toBe('Professional summary')
   })
 

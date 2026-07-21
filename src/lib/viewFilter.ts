@@ -152,6 +152,20 @@ function sectionDetail(view: ResumeView, key: string): SectionDetail {
 }
 
 /**
+ * The tag line of the profile a view shows — the FIRST non-disabled,
+ * non-excluded `key_qualification` (the one the single-select profile section
+ * renders). This is the default resume title/headline for the view: with many
+ * profiles there is no single master title, so each view's title follows the
+ * profile it presents. Empty when the view shows no profile. Used by every
+ * header render path + the editor Overview.
+ */
+export function viewProfileTagLine(store: ResumeStore, view: ResumeView, locale: string): string {
+  const excluded = new Set(view.excluded_item_ids)
+  const kq = store.key_qualifications.find((k) => !k.disabled && !excluded.has(k.id))
+  return kq ? resolve(kq.tag_line, locale) : ''
+}
+
+/**
  * Whether a section shows only starred items: its own override wins, else the
  * view-wide `starred_only`. An explicit `false` on the section is a real
  * choice ("every course, even in a starred-only view"), so it must beat the
@@ -192,6 +206,15 @@ export function applyView(store: ResumeStore, view: ResumeView): ResumeStore {
         return true
       })
     }
+  }
+
+  // The Profile section is single-select: a view shows exactly ONE profile (the
+  // editor renders its item list as radios). Enforce that here so the RENDER
+  // agrees with the UI — otherwise a freshly-added profile (not yet in any
+  // view's excluded list) would surface as a surprise second block. Keep the
+  // first surviving profile, matching the editor radio's `includedIds[0]`.
+  if (filtered.key_qualifications.length > 1) {
+    filtered.key_qualifications = filtered.key_qualifications.slice(0, 1)
   }
 
   // View-wide anonymization (F5): rewrite the filtered COPIES so both render
@@ -549,7 +572,8 @@ export function buildViewHtml(store: ResumeStore, view: ResumeView, locale: stri
         sort_order: vs?.sort_order ?? 999,
         detail: vs?.detail ?? defaultViewDetail(s.key),
         sectionStyle: vs?.style,
-        sort: vs?.sort ?? 'custom',
+        // Per-section sort override wins; else the view-wide global sort; else custom.
+        sort: vs?.sort ?? view.style?.sort ?? 'custom',
       }
     })
     .filter((s) => s.detail !== 'off')
@@ -651,8 +675,10 @@ export function buildViewHtml(store: ResumeStore, view: ResumeView, locale: stri
     })
     .join('\n')
 
-  // The view can override the resume's professional title/headline.
-  const titleText = escapeHtml(lc(header.title_override) || lc(r.title))
+  // Title/headline resolution: the view's explicit override wins, else the
+  // selected profile's tag line (the per-view default), else the resume's
+  // legacy master title (kept only as a final fallback for imported data).
+  const titleText = escapeHtml(lc(header.title_override) || viewProfileTagLine(store, view, locale) || lc(r.title))
   // photo_shape is sanitised by withHeaderDefaults — only ever 'square' /
   // 'rounded' / 'circle' here, so it's safe to interpolate as a class name.
   const photoImg = showPhoto

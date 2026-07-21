@@ -38,7 +38,7 @@ const ADD_CASES: { name: string; Comp: ComponentType; section: SectionKey; addLa
   { name: 'PublicationsEditor', Comp: PublicationsEditor, section: 'publications', addLabel: /add publication/i },
   { name: 'AwardsEditor', Comp: AwardsEditor, section: 'honor_awards', addLabel: /add award/i },
   { name: 'SpokenLanguagesEditor', Comp: SpokenLanguagesEditor, section: 'spoken_languages', addLabel: /add language/i },
-  { name: 'ProfileEditor', Comp: ProfileEditor, section: 'key_qualifications', addLabel: /add profile block/i },
+  { name: 'ProfileEditor', Comp: ProfileEditor, section: 'key_qualifications', addLabel: /add profile/i },
   { name: 'KeyCompetenciesEditor', Comp: KeyCompetenciesEditor, section: 'key_competencies', addLabel: /add competency/i },
 ]
 
@@ -96,7 +96,7 @@ describe('ProfileEditor', () => {
     // not surface an "Add competency" affordance here.
     seed()
     render(<ProfileEditor />)
-    await userEvent.click(screen.getByRole('button', { name: /add profile block/i }))
+    await userEvent.click(screen.getByRole('button', { name: /add profile/i }))
     expect(useStore.getState().data.key_qualifications).toHaveLength(1)
     expect(useStore.getState().data.key_qualifications[0].key_points).toEqual([])
     expect(screen.queryByRole('button', { name: /add competency/i })).toBeNull()

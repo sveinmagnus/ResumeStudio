@@ -401,7 +401,7 @@ export async function buildPdfDocDefinition(
         sort_order: vs?.sort_order ?? 999,
         detail: vs?.detail ?? defaultViewDetail(s.key),
         sectionStyle: vs?.style as SectionStyle | undefined,
-        sort: vs?.sort ?? 'custom',
+        sort: vs?.sort ?? view.style?.sort ?? 'custom',
       }
     })
     .filter((s) => s.detail !== 'off')

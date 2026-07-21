@@ -3,9 +3,9 @@ import {
   appendLocalized, buildRoleParagraph, foldRoleDescriptions,
   extractKeyPointsToCompetencies, migrateEmploymentShape, internProjectIndustries,
   internSkillCategories, unifyShowcaseCategories, localizeRecommenderTitles,
-  unpinLegacyHeadingFont, ensureCoverLetters, migrateStore, isNewerShape, CURRENT_SHAPE_VERSION,
+  unpinLegacyHeadingFont, ensureCoverLetters, migrateCourseDates, migrateStore, isNewerShape, CURRENT_SHAPE_VERSION,
 } from '../src/lib/migrate'
-import { emptyStore, makeProject, makeWork, makeSkill, makeSkillCategory, makeView, makeCoverLetter, makeRecommendation } from './fixtures'
+import { emptyStore, makeProject, makeWork, makeSkill, makeSkillCategory, makeView, makeCoverLetter, makeRecommendation, makeCourse } from './fixtures'
 import type { ProjectRole, KeyQualification, KeyPoint, WorkExperience, Project, LocalizedString, Skill, ResumeStore } from '../src/types'
 
 /** A project carrying the pre-v4 single `industry`/`industry_id` pair. */
@@ -633,5 +633,37 @@ describe('ensureCoverLetters() — shape v10', () => {
     const out = migrateStore(store)
     expect(out.shape_version).toBe(CURRENT_SHAPE_VERSION)
     expect(out.cover_letters).toEqual([])
+  })
+})
+
+describe('migrateCourseDates (v11)', () => {
+  it('seeds end from the legacy completed date and leaves start blank', () => {
+    const store = emptyStore()
+    const legacy = { ...makeCourse({ id: 'c1', name: { en: 'K8s' } }) } as Record<string, unknown>
+    delete legacy.start
+    delete legacy.end
+    legacy.completed = { year: 2022, month: 3 }
+    store.courses = [legacy as never]
+    const out = migrateCourseDates(store)
+    expect(out.courses[0].start).toBeNull()
+    expect(out.courses[0].end).toEqual({ year: 2022, month: 3 })
+  })
+
+  it('is idempotent — a course already carrying a range is untouched', () => {
+    const store = emptyStore()
+    store.courses = [makeCourse({ id: 'c1', start: { year: 2020, month: 1 }, end: { year: 2021, month: 6 } })]
+    const out = migrateCourseDates(store)
+    expect(out).toBe(store) // same reference, no work
+  })
+
+  it('handles a legacy course with no completed date (both range ends null)', () => {
+    const store = emptyStore()
+    const legacy = { ...makeCourse({ id: 'c1' }) } as Record<string, unknown>
+    delete legacy.start
+    delete legacy.end
+    store.courses = [legacy as never]
+    const out = migrateCourseDates(store)
+    expect(out.courses[0].start).toBeNull()
+    expect(out.courses[0].end).toBeNull()
   })
 })

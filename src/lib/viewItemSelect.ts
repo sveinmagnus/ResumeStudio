@@ -21,11 +21,12 @@
  * selection inherits it rather than inventing a second, contradictory rule.
  */
 
-import type { Role } from '../types'
+import type { Role, KeyQualification } from '../types'
 import { resolve } from './locales'
 import { POSITION_TYPES, positionTypeLabel } from './positionTypes'
 import { PUBLICATION_TYPES, publicationTypeLabel } from './publicationTypes'
 import { EMPLOYMENT_TYPES, employmentTypeLabel } from './employmentTypes'
+import { COURSE_CATEGORIES, courseCategoryLabel } from './courseCategories'
 
 /** The shape bulk selection needs: an id, plus whatever facet field applies. */
 export type SelectableItem = { id: string } & Record<string, unknown>
@@ -85,11 +86,13 @@ export function isSingleSelectSection(sectionKey: string): boolean {
 // ─── Facets ──────────────────────────────────────────────────────────────────
 
 /**
- * Context a facet may need beyond the items themselves — currently the role
- * registry, so a role facet can show the registry name for a role id.
+ * Context a facet may need beyond the items themselves — the role registry (so
+ * a role facet can name a role id) and the profiles (so a competency's
+ * profile_id facet can name its profile by tag line).
  */
 export interface FacetCtx {
   roles: readonly Role[]
+  keyQualifications?: readonly KeyQualification[]
 }
 
 /**
@@ -153,6 +156,23 @@ function roleFacet(getIds: (item: SelectableItem) => string[], locale: string): 
 }
 
 /**
+ * Profile facet for Key Competencies: a competency's `profile_id` links it to a
+ * Profile (key_qualification), used as a "type" so a view can quick-select the
+ * competencies relevant to the profile it shows. Values are ordered by the
+ * resume's profiles and labelled by their tag line; a stale link falls into
+ * "No type".
+ */
+function profileFacet(locale: string): FacetSpec {
+  return {
+    name: 'Profile',
+    extract: strField('profile_id'),
+    ordered: (ctx) => (ctx.keyQualifications ?? []).map((q) => ({
+      value: q.id, label: resolve(q.tag_line, locale) || '(unnamed profile)',
+    })),
+  }
+}
+
+/**
  * The facets each section offers, in dropdown order. `locale` localizes the
  * enum labels (position/publication) and the role names; employment type is
  * English-only (editor metadata, not exported — see lib/employmentTypes.ts).
@@ -180,6 +200,12 @@ function sectionFacets(sectionKey: string, locale: string): FacetSpec[] {
           .map((r) => r.role_id).filter((id): id is string => !!id),
         locale,
       )]
+    case 'courses':
+    case 'certifications':
+      return [enumFacet('Category', 'category',
+        COURSE_CATEGORIES.map((t) => t.value), (v) => courseCategoryLabel(v))]
+    case 'key_competencies':
+      return [profileFacet(locale)]
     default:
       return []
   }
@@ -196,6 +222,38 @@ export interface TypeGroup {
 export interface FacetGroupSet {
   name: string
   groups: TypeGroup[]
+}
+
+/** Separator for an opaque type-filter key (facet name + facet value). A group's
+ *  "No type" value is '' — still distinct once prefixed by the facet name. */
+const TYPE_FILTER_SEP = ''
+
+/** Build the opaque key the editor type filter stores for a facet+value pair. */
+export function typeFilterKey(facet: string, value: string): string {
+  return `${facet}${TYPE_FILTER_SEP}${value}`
+}
+
+/**
+ * The set of item ids matching an editor type-filter `key` (from
+ * `typeFilterKey`), or `null` when there's no filter. A key that no longer
+ * matches any group returns an EMPTY set (nothing shown) rather than null, so a
+ * stale filter doesn't silently show everything. Editor-only — never touches
+ * views/exports.
+ */
+export function itemsMatchingTypeFilter(
+  sectionKey: string,
+  items: readonly SelectableItem[],
+  locale: string,
+  ctx: FacetCtx,
+  key: string,
+): Set<string> | null {
+  if (!key) return null
+  for (const set of typeGroups(sectionKey, items, locale, ctx)) {
+    for (const g of set.groups) {
+      if (typeFilterKey(set.name, g.value) === key) return new Set(g.ids)
+    }
+  }
+  return new Set()
 }
 
 /** True when this section offers at least one facet. */

@@ -51,9 +51,11 @@ describe('positions — type excluded from summary, kept in full', () => {
     expect(meta.join(' · ')).not.toMatch(/Board member/i)
   })
 
-  it('full detail still shows the type', () => {
+  it('full detail excludes the type (editor-only, never exported)', () => {
     const v = SECTION_CATALOG.positions.full!(pos, html)!
-    expect(v.meta).toContain('Board member')
+    // Only the role NAME shows; the TYPE label ('Board member') is withheld —
+    // so meta is exactly the role name, not [name, type].
+    expect(v.meta).toEqual(['Board Member'])
   })
 })
 
@@ -176,12 +178,15 @@ describe('key_qualifications — disabled points filtered (both paths)', () => {
     expect(v.points.map((p) => p.label)).toEqual(['Visible'])
   })
 
-  it('docx renders the tag line instead of the label heading (historic drift)', () => {
+  it('uses the tag line as the heading, shown only when opted in (label is gone)', () => {
     const k = makeKQ({ label: { en: 'Senior Dev' }, tag_line: { en: 'Tagline' } }) as unknown as Record<string, unknown>
-    expect(SECTION_CATALOG.key_qualifications.full!(k, html)!.title).toBe('Senior Dev')
-    const d = SECTION_CATALOG.key_qualifications.full!(k, docx)!
-    expect(d.title).toBe('')
-    expect(d.meta).toEqual(['Tagline'])
+    // Default: tag line hidden (it doubles as the resume title) — no heading/meta.
+    expect(SECTION_CATALOG.key_qualifications.full!(k, html)!.title).toBe('')
+    expect(SECTION_CATALOG.key_qualifications.full!(k, docx)!.meta).toEqual([])
+    // Opt in via ctx.kq.tagline → html title / docx meta carry the tag line.
+    const shown = { tagline: true, short: false, long: true }
+    expect(SECTION_CATALOG.key_qualifications.full!(k, { ...html, kq: shown })!.title).toBe('Tagline')
+    expect(SECTION_CATALOG.key_qualifications.full!(k, { ...docx, kq: shown })!.meta).toEqual(['Tagline'])
   })
 })
 
@@ -336,26 +341,30 @@ describe('layout kinds', () => {
     expect(SECTION_CATALOG.technology_categories.full!(item({ name: {}, skills: [] }), html)).toBeNull()
   })
 
-  it('professional summary renders only the enabled parts (label/tagline/short/long)', () => {
+  it('professional summary renders the enabled parts (tag line + short/long)', () => {
     const kq = {
       label: { en: 'Leadership' }, tag_line: { en: 'Builds teams' },
       summary: { en: 'The long version.' }, summary_short: { en: 'The short version.' },
       key_points: [],
     } as unknown as Record<string, unknown>
 
-    // Default: label + tagline + long; short hidden.
+    // Default: long body; tag line HIDDEN (it doubles as the resume title).
     const def = SECTION_CATALOG.key_qualifications.full!(kq, html)!
-    expect(def.title).toBe('Leadership')
-    expect(def.meta).toContain('Builds teams')
+    expect(def.title).toBe('')
     expect(def.body).toContain('The long version.')
     expect(def.body).not.toContain('The short version.')
 
-    // Short only; heading + tagline off.
+    // Tag line opted in + Full → it shows as the heading.
+    const withTag = SECTION_CATALOG.key_qualifications.full!(kq, {
+      ...html, kq: { tagline: true, short: false, long: true },
+    })!
+    expect(withTag.title).toBe('Builds teams')
+
+    // Short only (Summary mode): the short body, still no tag line.
     const shortOnly = SECTION_CATALOG.key_qualifications.full!(kq, {
-      ...html, kq: { label: false, tagline: false, short: true, long: false },
+      ...html, kq: { tagline: false, short: true, long: false },
     })!
     expect(shortOnly.title).toBe('')
-    expect(shortOnly.meta).not.toContain('Builds teams')
     expect(shortOnly.body).toContain('The short version.')
     expect(shortOnly.body).not.toContain('The long version.')
   })

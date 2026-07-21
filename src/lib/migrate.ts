@@ -20,7 +20,7 @@
 
 import type {
   ResumeStore, LocalizedString, ProjectRole, ProjectIndustry, KeyCompetency, KeyPoint,
-  WorkExperience, Industry, Project, Skill, SkillCategory, ViewStyle,
+  WorkExperience, Industry, Project, Skill, SkillCategory, ViewStyle, Course, YearMonth,
 } from '../types'
 import { v4 as uuidv4 } from 'uuid'
 
@@ -64,6 +64,10 @@ import { v4 as uuidv4 } from 'uuid'
  *                 (`ensureCoverLetters`). Nothing to backfill — the feature is
  *                 new — but code iterates the array, so it must be present (the
  *                 same reason `industries` bumped, per the note below).
+ *  - 11         — Courses gain a from/to date RANGE (`start`/`end`) in place of
+ *                 the single `completed` date (`migrateCourseDates`): `end` is
+ *                 seeded from `completed`, `start` starts blank, and an empty
+ *                 `end` now means ongoing (like every other date range).
  *
  * Bump this ONLY for structural changes that need a migration (moving or
  * reshaping data). Additive optional fields are handled by render-boundary
@@ -72,7 +76,7 @@ import { v4 as uuidv4 } from 'uuid'
  * (like `industries`) is NOT a tolerable "optional field" — it must be
  * guaranteed present, hence the bump + migration.
  */
-export const CURRENT_SHAPE_VERSION = 10
+export const CURRENT_SHAPE_VERSION = 11
 
 /**
  * True when `store` was written by a build with a NEWER shape than this one
@@ -100,14 +104,16 @@ export function isNewerShape(store: ResumeStore): boolean {
 export function migrateStore(store: ResumeStore): ResumeStore {
   const stored = store.shape_version ?? 1
   if (stored >= CURRENT_SHAPE_VERSION) return store
-  const migrated = ensureCoverLetters(
-    unpinLegacyHeadingFont(
-      localizeRecommenderTitles(
-        unifyShowcaseCategories(
-          internSkillCategories(
-            internProjectIndustries(
-              migrateEmploymentShape(
-                extractKeyPointsToCompetencies(foldRoleDescriptions(store)),
+  const migrated = migrateCourseDates(
+    ensureCoverLetters(
+      unpinLegacyHeadingFont(
+        localizeRecommenderTitles(
+          unifyShowcaseCategories(
+            internSkillCategories(
+              internProjectIndustries(
+                migrateEmploymentShape(
+                  extractKeyPointsToCompetencies(foldRoleDescriptions(store)),
+                ),
               ),
             ),
           ),
@@ -126,6 +132,34 @@ export function migrateStore(store: ResumeStore): ResumeStore {
 export function ensureCoverLetters(store: ResumeStore): ResumeStore {
   if (Array.isArray(store.cover_letters)) return store
   return { ...store, cover_letters: [] }
+}
+
+/**
+ * Shape v11: Courses gain a from/to date RANGE. The single `completed` date
+ * becomes the range's `end` (its natural meaning — when the course finished),
+ * `start` begins blank, and an empty `end` now signals ongoing like every other
+ * date range. The deprecated `completed` is left in place (round-trips
+ * harmlessly and keeps importers unchanged). Idempotent shape-sniff: a course
+ * that already carries `start`/`end` is untouched.
+ */
+/** A Course as it may exist pre-v11: a single `completed` date, no range yet. */
+type PreV11Course = Omit<Course, 'start' | 'end'> & {
+  start?: YearMonth | null
+  end?: YearMonth | null
+  completed?: YearMonth | null
+}
+
+export function migrateCourseDates(store: ResumeStore): ResumeStore {
+  let changed = false
+  const courses = store.courses.map((c): Course => {
+    const legacy = c as unknown as PreV11Course
+    // Already migrated (both range ends present as keys) → leave as-is.
+    if ('start' in legacy && 'end' in legacy) return c
+    changed = true
+    return { ...legacy, start: legacy.start ?? null, end: legacy.end ?? legacy.completed ?? null }
+  })
+  if (!changed) return store
+  return { ...store, courses }
 }
 
 /**

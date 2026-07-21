@@ -59,10 +59,15 @@ describe('kqVisibility()', () => {
     expect(kqVisibility(style)).toMatchObject({ short: false, long: true })
   })
 
-  it('keeps label/tagline as independent toggles regardless of mode', () => {
-    const s = resolveSectionStyle(DEFAULT_VIEW_STYLE, { kq_show_label: false, kq_show_tagline: false })
-    expect(kqVisibility(s, 'full')).toMatchObject({ label: false, tagline: false })
-    expect(kqVisibility(s, 'summary')).toMatchObject({ label: false, tagline: false })
+  it('hides the tag line by default (it doubles as the resume title)', () => {
+    expect(kqVisibility(style, 'full').tagline).toBe(false)
+    expect(kqVisibility(style, 'summary').tagline).toBe(false)
+  })
+
+  it('shows the tag line only when kq_show_tagline is opted in', () => {
+    const s = resolveSectionStyle(DEFAULT_VIEW_STYLE, { kq_show_tagline: true })
+    expect(kqVisibility(s, 'full').tagline).toBe(true)
+    expect(kqVisibility(s, 'summary').tagline).toBe(true)
   })
 
   it('ignores the deprecated kq_show_short/kq_show_long fields (mode owns it)', () => {

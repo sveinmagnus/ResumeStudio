@@ -46,15 +46,10 @@ import { Styles } from './Styles'
 // ─── Content sections (excludes non-content + the skill/role registries) ─────
 const CONTENT_SECTIONS = SECTIONS.filter(isExportableSection)
 
-// The show/hide parts of the professional-summary box (key_qualifications) —
-// core per-view configuration, surfaced directly on the section (not in the
-// collapsible style-override panel).
-// Short-vs-long is now the section MODE (Summary → short, Full → the long
-// "Full profile"), so only the always-optional header parts remain as toggles.
-const KQ_PARTS: Array<{ key: 'kq_show_label' | 'kq_show_tagline'; label: string; def: boolean }> = [
-  { key: 'kq_show_label', label: 'About heading', def: true },
-  { key: 'kq_show_tagline', label: 'Tag line', def: true },
-]
+// The tag line is a profile's identity and doubles as the resume title, so it
+// is HIDDEN in the profile body by default. This single per-view toggle lets a
+// view show it alongside the description (e.g. when the resume title is
+// overridden). Short-vs-long is the section MODE, not a toggle.
 
 // Compact labels for the collapsed-section overview chips.
 const LAYOUT_LABEL = new Map<string, string>(SUMMARY_LAYOUT_OPTIONS)
@@ -92,9 +87,8 @@ function sectionConfigChips(vs: ViewSection): string[] {
   if (s.item_divider === false) chips.push('No divider')
   else if (s.divider_style) chips.push(`${cap(s.divider_style)} rule`)
   if (s.tag_style) chips.push(s.tag_style === 'chips' ? 'Chip tags' : 'Inline tags')
-  if (vs.key === 'key_qualifications') {
-    const parts = KQ_PARTS.filter((p) => (s[p.key] ?? p.def)).map((p) => p.label)
-    if (parts.length) chips.push(parts.join(' + '))
+  if (vs.key === 'key_qualifications' && s.kq_show_tagline) {
+    chips.push('Tag line shown')
   }
   return chips
 }
@@ -368,9 +362,11 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
   // detail + style.tabulate pair.
   const modeOf = (vs: ViewSection): SectionMode => {
     if (vs.detail === 'off') return 'off'
-    // The Skill Matrix is always a table; the professional summary always full.
+    // The Skill Matrix is always a table.
     if (vs.key === 'skill_matrix') return 'tabulated'
-    if (vs.key === 'key_qualifications') return 'full'
+    // The professional summary offers Off/Summary/Full (no tabulated), so its
+    // mode still follows `detail` — don't hard-pin it to 'full', or the toggle
+    // would show Full active even after switching to Summary.
     if (vs.detail === 'full') return 'full'
     return vs.style?.tabulate ? 'tabulated' : 'summary'
   }
@@ -831,17 +827,16 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
                     <>
                       {!off && vs.key === 'key_qualifications' && (
                         <div className="rv-kq-parts">
-                          <span className="rv-kq-parts-label">Show parts</span>
-                          {KQ_PARTS.map((p) => (
-                            <label key={p.key} className="rv-kq-part">
-                              <input
-                                type="checkbox"
-                                checked={vs.style?.[p.key] ?? p.def}
-                                onChange={(e) => setSectionStyle(vs.key, { [p.key]: e.target.checked } as SectionStyle)}
-                              />
-                              <span>{p.label}</span>
-                            </label>
-                          ))}
+                          <label className="rv-kq-part">
+                            <input
+                              type="checkbox"
+                              // Hidden by default (tag line = the resume title);
+                              // checked = hide, unchecked = show it in the body.
+                              checked={!(vs.style?.kq_show_tagline ?? false)}
+                              onChange={(e) => setSectionStyle(vs.key, { kq_show_tagline: e.target.checked ? undefined : true })}
+                            />
+                            <span>Hide tag line (shown as the resume title)</span>
+                          </label>
                         </div>
                       )}
 
@@ -866,6 +861,7 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
                           excludedIds={view.excluded_item_ids}
                           locale={primaryLocale}
                           roles={data.roles}
+                          keyQualifications={data.key_qualifications}
                           sectionLabel={def.label}
                           onChange={(excluded_item_ids) => onUpdate({ excluded_item_ids })}
                         />

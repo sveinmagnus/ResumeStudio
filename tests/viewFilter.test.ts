@@ -3,6 +3,7 @@ import {
   applyView, buildViewSections, reorderViewSections,
   getItemTitle, getItemSubtitle, buildViewHtml, isDataImage,
   normalizeViewSections, defaultViewDetail, promotedProjectItems, sectionStarredOnly,
+  viewProfileTagLine,
 } from '../src/lib/viewFilter'
 import { SECTIONS } from '../src/lib/sections'
 import { DEFAULT_VIEW_STYLE } from '../src/lib/viewStyle'
@@ -597,10 +598,11 @@ describe('buildViewHtml()', () => {
   it('honours a per-section sort override in the view', () => {
     const store = emptyStore()
     store.resume = makeResume()
-    store.courses.push(makeCourse({ id: 'c1', name: { en: 'AlphaCourse' }, sort_order: 0, completed: { year: 2019, month: 1 } }))
-    store.courses.push(makeCourse({ id: 'c2', name: { en: 'ZebraCourse' }, sort_order: 1, completed: { year: 2023, month: 1 } }))
-    // 'date' = newest first → 2023 (Zebra) before 2019 (Alpha), overriding sort_order.
-    const view = makeView({ sections: [{ key: 'courses', detail: 'full' as const, sort_order: 0, sort: 'date' }] })
+    store.courses.push(makeCourse({ id: 'c1', name: { en: 'AlphaCourse' }, sort_order: 0, end: { year: 2019, month: 1 } }))
+    store.courses.push(makeCourse({ id: 'c2', name: { en: 'ZebraCourse' }, sort_order: 1, end: { year: 2023, month: 1 } }))
+    // Courses sort by their end (to) date now; 'end' = newest first → 2023
+    // (Zebra) before 2019 (Alpha), overriding sort_order.
+    const view = makeView({ sections: [{ key: 'courses', detail: 'full' as const, sort_order: 0, sort: 'end' }] })
     const html = buildViewHtml(store, view, 'en')
     expect(html.indexOf('ZebraCourse')).toBeLessThan(html.indexOf('AlphaCourse'))
   })
@@ -1517,5 +1519,55 @@ describe('defaultViewDetail()', () => {
     expect(defaultViewDetail('promoted_projects')).toBe('off')
     expect(defaultViewDetail('projects')).toBe('full')
     expect(defaultViewDetail('recommendations')).toBe('full')
+  })
+})
+
+describe('single profile per view + tag-line title', () => {
+  const storeWith = (kqs: Array<Parameters<typeof makeKQ>[0]>) => {
+    const store = emptyStore()
+    store.resume = makeResume({ title: { en: 'Master Title' } })
+    store.key_qualifications = kqs.map((o) => makeKQ(o))
+    return store
+  }
+
+  it('applyView keeps only the first non-excluded profile (fixes the surprise 2nd block)', () => {
+    const store = storeWith([
+      { id: 'k1', tag_line: { en: 'Architect' } },
+      { id: 'k2', tag_line: { en: 'Leader' } },
+    ])
+    const view = makeView({})
+    expect(applyView(store, view).key_qualifications.map((k) => k.id)).toEqual(['k1'])
+  })
+
+  it('excluding the first profile promotes the next one', () => {
+    const store = storeWith([
+      { id: 'k1', tag_line: { en: 'Architect' } },
+      { id: 'k2', tag_line: { en: 'Leader' } },
+    ])
+    const view = makeView({ excluded_item_ids: ['k1'] })
+    expect(applyView(store, view).key_qualifications.map((k) => k.id)).toEqual(['k2'])
+  })
+
+  it('viewProfileTagLine returns the shown profile’s tag line', () => {
+    const store = storeWith([
+      { id: 'k1', tag_line: { en: 'Architect' } },
+      { id: 'k2', tag_line: { en: 'Leader' } },
+    ])
+    expect(viewProfileTagLine(store, makeView({}), 'en')).toBe('Architect')
+    expect(viewProfileTagLine(store, makeView({ excluded_item_ids: ['k1'] }), 'en')).toBe('Leader')
+  })
+
+  it('the view header title defaults to the selected profile’s tag line, not the master title', () => {
+    const store = storeWith([{ id: 'k1', tag_line: { en: 'Cloud Architect' } }])
+    const html = buildViewHtml(store, makeView({}), 'en')
+    expect(html).toContain('Cloud Architect')
+    expect(html).not.toContain('Master Title')
+  })
+
+  it('falls back to the master title when there is no profile', () => {
+    const store = emptyStore()
+    store.resume = makeResume({ title: { en: 'Master Title' } })
+    const html = buildViewHtml(store, makeView({}), 'en')
+    expect(html).toContain('Master Title')
   })
 })

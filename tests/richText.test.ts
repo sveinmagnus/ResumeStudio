@@ -38,6 +38,18 @@ describe('sanitizeRich', () => {
     expect(sanitizeRich('<div><b>x</b></div>')).toBe('<b>x</b>')
     expect(sanitizeRich('<a href="http://x">link</a>')).toBe('link')
   })
+  it('collapses the oversized-gap artifacts from Word/translator pastes', () => {
+    // consecutive <br> collapse to one (whitespace between them doesn't break the run)
+    expect(sanitizeRich('a<br><br>b')).toBe('a<br>b')
+    expect(sanitizeRich('a<br><br><br>b')).toBe('a<br>b')
+    // empty / whitespace-only / <br>-only paragraphs are removed
+    expect(sanitizeRich('<p>a</p><p></p><p>b</p>')).toBe('<p>a</p><p>b</p>')
+    expect(sanitizeRich('<p>a</p><p><br></p><p>b</p>')).toBe('<p>a</p><p>b</p>')
+    expect(sanitizeRich('<p>a</p><p> </p><p>b</p>')).toBe('<p>a</p><p>b</p>')
+    // a trailing <br> inside a paragraph (a blank edge line) is dropped
+    expect(sanitizeRich('<p>a<br></p>')).toBe('<p>a</p>')
+    expect(sanitizeRich('<p><br>a</p>')).toBe('<p>a</p>')
+  })
   it('drops dangerous container tags with their content', () => {
     expect(sanitizeRich('<script>alert(1)</script>safe')).toBe('safe')
     expect(sanitizeRich('<style>body{}</style>x')).toBe('x')

@@ -74,7 +74,7 @@ export function categoriesOf(items: CatItem[]): string[] {
 
 export function RegistryCategoryView({
   items, categories, unnamed, onOpen, onRecategorize, onRemove, onDeleteCategory,
-  onRenameCategory, onMoveCategory,
+  onRenameCategory, onRenameCategoryText, onMoveCategory,
 }: {
   items: CatItem[]
   /** Known category headers to always render, even with zero items (so an
@@ -92,6 +92,9 @@ export function RegistryCategoryView({
   onDeleteCategory?: (category: string) => void
   /** Optional: rename a category's localized name (renders a pencil + popover in the header). */
   onRenameCategory?: (category: string, name: LocalizedString) => void
+  /** Optional: rename a PLAIN-STRING category (roles, which have no localized
+   *  entity) — renders a pencil that opens a small inline text input. */
+  onRenameCategoryText?: (category: string, newName: string) => void
   /** Optional: reorder a category up/down in the curated display order (renders ↑/↓ in the header). */
   onMoveCategory?: (category: string, dir: 'up' | 'down') => void
 }) {
@@ -190,6 +193,7 @@ export function RegistryCategoryView({
               items={g.items} locale={locale} unnamed={unnamed} onOpen={onOpen} onRemove={onRemove}
               onDeleteCategory={onDeleteCategory}
               onRenameCategory={onRenameCategory}
+              onRenameCategoryText={onRenameCategoryText}
               onMoveCategory={orderIdx === -1 ? undefined : onMoveCategory}
               isFirst={orderIdx <= 0} isLast={orderIdx === -1 || orderIdx === orderableKeys.length - 1}
             />
@@ -241,25 +245,49 @@ function DropRow({ catKey, label, count }: { catKey: string; label: string; coun
 
 function CatGroup({
   catKey, label, name, items, locale, unnamed, onOpen, onRemove, onDeleteCategory,
-  onRenameCategory, onMoveCategory, isFirst, isLast,
+  onRenameCategory, onRenameCategoryText, onMoveCategory, isFirst, isLast,
 }: {
   catKey: string; label: string; name?: LocalizedString; items: CatItem[]; locale: string; unnamed: string
   onOpen: (id: string) => void; onRemove?: (id: string) => void
   onDeleteCategory?: (category: string) => void
   onRenameCategory?: (category: string, name: LocalizedString) => void
+  onRenameCategoryText?: (category: string, newName: string) => void
   onMoveCategory?: (category: string, dir: 'up' | 'down') => void
   isFirst?: boolean; isLast?: boolean
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: catKey })
   const [renaming, setRenaming] = useState(false)
+  const [renameText, setRenameText] = useState('')
   const canDelete = !!onDeleteCategory && catKey !== UNCATEGORIZED
   const canRename = !!onRenameCategory && !!name && catKey !== UNCATEGORIZED
+  // Plain-string rename (roles) — only when there's no localized entity to edit.
+  const canRenameText = !canRename && !!onRenameCategoryText && catKey !== UNCATEGORIZED
   const canMove = !!onMoveCategory && catKey !== UNCATEGORIZED
+  const commitTextRename = () => {
+    const next = renameText.trim()
+    if (next && next !== label) onRenameCategoryText!(catKey, next)
+    setRenaming(false)
+  }
   return (
     <div className="rcv-group">
       <div ref={setNodeRef} className={`rcv-head ${isOver ? 'is-over' : ''}`}>
-        <span className="rcv-head-label" style={canRename ? { position: 'relative' } : undefined}>
-          {label} <span className="rcv-count">{items.length}</span>
+        <span className="rcv-head-label" style={canRename || canRenameText ? { position: 'relative' } : undefined}>
+          {canRenameText && renaming ? (
+            <input
+              className="rcv-head-rename-input"
+              autoFocus
+              value={renameText}
+              onChange={(e) => setRenameText(e.target.value)}
+              onBlur={commitTextRename}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') { e.preventDefault(); commitTextRename() }
+                else if (e.key === 'Escape') { e.preventDefault(); setRenaming(false) }
+              }}
+              aria-label={`Rename category "${label}"`}
+            />
+          ) : (
+            <>{label} <span className="rcv-count">{items.length}</span></>
+          )}
           {canRename && (
             <>
               <button
@@ -281,6 +309,17 @@ function CatGroup({
                 />
               )}
             </>
+          )}
+          {canRenameText && !renaming && (
+            <button
+              type="button"
+              className="rcv-head-rename"
+              onClick={() => { setRenameText(label); setRenaming(true) }}
+              aria-label={`Rename category "${label}"`}
+              title="Rename this category"
+            >
+              <Pencil size={12} />
+            </button>
           )}
         </span>
         <span className="rcv-head-actions">

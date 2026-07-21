@@ -32,7 +32,7 @@ import { resolve, type DateFormat } from './locales'
 import { SECTION_CATALOG, summaryTitleMeta, type AnyItem as CatalogItem, type CatalogCtx, type ItemView } from './sectionCatalog'
 import { skillMatrixRows, fmtLastUsed, fmtProficiency, type SkillMatrixRow } from './skillMatrix'
 import { xs, fmtYears } from './exportStrings'
-import { applyView, isExportableSection, defaultViewDetail, promotedProjectItems } from './viewFilter'
+import { applyView, isExportableSection, defaultViewDetail, promotedProjectItems, viewProfileTagLine } from './viewFilter'
 import { sortItems } from './sectionSort'
 import { showcaseGroups } from './showcase'
 import { parseRichBlocks, type RichRun } from './richText'
@@ -196,6 +196,7 @@ function buildIdentityParagraphs(
   r: Resume,
   header: ViewHeaderConfig,
   store: ResumeStore,
+  view: ResumeView,
   locale: string,
   baseTokens: StyleTokens,
 ): Paragraph[] {
@@ -210,7 +211,7 @@ function buildIdentityParagraphs(
       color: baseTokens.headingHex,
     })],
   }))
-  const titleText = L(header.title_override, locale) || L(r.title, locale)
+  const titleText = L(header.title_override, locale) || viewProfileTagLine(store, view, locale) || L(r.title, locale)
   if (titleText) {
     out.push(new Paragraph({
       spacing: { after: 120 },
@@ -312,7 +313,7 @@ export async function exportDocx(store: ResumeStore, view: ResumeView, locale: s
       }))
     }
 
-    const identity = buildIdentityParagraphs(r, header, store, locale, baseTokens)
+    const identity = buildIdentityParagraphs(r, header, store, view, locale, baseTokens)
 
     if (header.photo_placement !== 'none' && photoInfo) {
       const photoRun = imageRunScaled(photoInfo, 132, 156)
@@ -357,7 +358,7 @@ export async function exportDocx(store: ResumeStore, view: ResumeView, locale: s
         sort_order: vs?.sort_order ?? 999,
         detail: vs?.detail ?? defaultViewDetail(s.key),
         sectionStyle: vs?.style as SectionStyle | undefined,
-        sort: vs?.sort ?? 'custom',
+        sort: vs?.sort ?? view.style?.sort ?? 'custom',
       }
     })
     .filter((s) => s.detail !== 'off')

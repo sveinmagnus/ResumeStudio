@@ -186,13 +186,19 @@ describe('buildViewMarkdown', () => {
 
   it('renders key qualification points as labelled bullets', () => {
     const store = sampleStore()
-    store.key_qualifications.push(makeKQ({
-      label: { en: 'Senior Profile' },
+    // A view shows ONE profile, so make this the sole profile. The tag line is
+    // the heading now (label is gone) and is hidden by default, so opt it in.
+    store.key_qualifications = [makeKQ({
+      tag_line: { en: 'Senior Profile' },
+      summary: { en: 'Summary here' },
       key_points: [
         { id: 'k1', name: { en: 'Leadership' }, long_description: { en: 'Led teams of 10+' }, sort_order: 0 },
       ] as never,
-    }))
-    const md = buildViewMarkdown(store, makeView({ sections: buildViewSections() }), 'en')
+    })]
+    const sections = buildViewSections().map((s) =>
+      s.key === 'key_qualifications' ? { ...s, style: { kq_show_tagline: true } } : s,
+    )
+    const md = buildViewMarkdown(store, makeView({ sections }), 'en')
     expect(md).toContain('### Senior Profile')
     expect(md).toContain('- **Leadership**: Led teams of 10+')
   })

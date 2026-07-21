@@ -81,12 +81,20 @@ export function Overview() {
     if (openLocale === locale) setOpenLocale(null)
   }
 
+  // The headline is now the profile's tag line (there's no single master title
+  // anymore). Outside a view we pick the starred profile, else the first one,
+  // falling back to the resume's legacy title for imported data.
+  const heroProfile = data.key_qualifications.filter((k) => !k.disabled)
+  const heroTagLine =
+    resolve((heroProfile.find((k) => k.starred) ?? heroProfile[0])?.tag_line, locales[0])
+    || resolve(data.resume?.title, locales[0])
+
   return (
     <div className="section-pane">
       <div className="ov-hero">
         <div>
           <h2 className="ov-name">{data.resume?.full_name}</h2>
-          <p className="ov-title">{resolve(data.resume?.title, locales[0])}</p>
+          <p className="ov-title">{heroTagLine}</p>
         </div>
       </div>
 

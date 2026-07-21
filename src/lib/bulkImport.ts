@@ -411,7 +411,10 @@ export const BULK_SPECS: readonly BulkSectionSpec[] = [
         program: toLocalized(raw['program'], ctx.defaultLocale),
         description: toLocalized(raw['description'], ctx.defaultLocale),
         short_description: toLocalized(raw['short_description'], ctx.defaultLocale),
-        completed: toYearMonth(raw['completed']),
+        // The paste schema still takes a single "completed" date; it maps to the
+        // range's end (start left blank) — see the Course from/to change (v11).
+        start: null,
+        end: toYearMonth(raw['completed']),
         skill_ids: [],
         skill_tags: [],
         sort_order: 0,
@@ -422,7 +425,8 @@ export const BULK_SPECS: readonly BulkSectionSpec[] = [
     },
     title: (i, l) => pick(i['name'], l),
     subtitle: (i, l) => pick(i['program'], l),
-    dupKeys: (i) => keysOf(i['name'], i['completed']),
+    // Produced courses carry the range's `end` (mapped from the paste "completed").
+    dupKeys: (i) => keysOf(i['name'], i['end']),
   },
   {
     key: 'certifications',

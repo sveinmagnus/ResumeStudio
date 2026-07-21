@@ -282,6 +282,13 @@ export interface KeyCompetency {
   /** Single-line summary shown in a view's SUMMARY mode (in place of the long
    *  description used in FULL mode). Additive/optional. */
   short_description?: LocalizedString
+  /**
+   * Editor-only link to a `KeyQualification` (Profile) this competency belongs
+   * to — used as a "type" to group competencies and to quick-select the ones
+   * relevant to a view's chosen profile. NEVER exported (item stays selectable
+   * in any view regardless). Additive/optional — `null`/absent = unassigned.
+   */
+  profile_id?: string | null
   sort_order: number
   starred: boolean
   disabled: boolean
@@ -417,7 +424,21 @@ export interface Course {
   description: LocalizedString
   /** Single-line summary shown in SUMMARY mode. Additive/optional. */
   short_description?: LocalizedString
-  completed: YearMonth | null
+  /**
+   * @deprecated Superseded by the `start`/`end` range (shape v11). Kept so
+   * pre-v11 data + importers round-trip; `migrate.ts` seeds `end` from it.
+   */
+  completed?: YearMonth | null
+  /** When the course/training began (shape v11). `null` = unknown/blank. */
+  start: YearMonth | null
+  /** When it finished (shape v11). `null` = ongoing (like other date ranges). */
+  end: YearMonth | null
+  /**
+   * Editor-only classification (see lib/courseCategories.ts) for grouping and
+   * filtering while editing + quick view-selection. NEVER exported. Additive/
+   * optional — absent reads as "no category".
+   */
+  category?: string | null
   skill_ids: string[]
   skill_tags: string[]
   sort_order: number
@@ -433,6 +454,11 @@ export interface Certification {
   description: LocalizedString
   /** Single-line summary shown in SUMMARY mode. Additive/optional. */
   short_description?: LocalizedString
+  /**
+   * Editor-only classification (see lib/courseCategories.ts), shared with
+   * Courses. NEVER exported. Additive/optional.
+   */
+  category?: string | null
   issued: YearMonth | null
   expires: YearMonth | null
   credential_url: string | null
@@ -692,6 +718,13 @@ export interface ViewStyle {
   item_bullets?: boolean
   /** View-wide bullet glyph (default 'disc'). Additive. */
   bullet_style?: BulletStyle
+  /**
+   * View-wide default item sort applied to every section (default 'custom' =
+   * each section's arranged `sort_order`). A per-section `ViewSection.sort`
+   * overrides this; the section editor's own sort never affects a view.
+   * Additive/optional — absent reads as 'custom'.
+   */
+  sort?: SortMode
 }
 
 /**
@@ -756,16 +789,16 @@ export interface SectionStyle {
   /** Show/hide the section icon before its heading (overrides the view default). */
   show_icon?: boolean
   // ── Professional-summary (key_qualifications) part toggles ──
-  // Which parts of each profile block render. Only read by the
-  // key_qualifications renderer. Undefined defaults: label/tagline/long shown,
-  // short hidden — so existing views are unchanged.
-  /** Show the block's "about" heading (its label). Default true. */
+  // Only the tag-line toggle is live. Short-vs-long is the section MODE.
+  /** @deprecated The per-item "label" was removed — the tag line is a profile's
+   *  identity now. Kept for parse tolerance on old views; never read. */
   kq_show_label?: boolean
-  /** Show the tag line. Default true. */
+  /** Show the tag line in the profile body. Default FALSE — the tag line
+   *  doubles as the resume title, so it's hidden unless a view opts in. */
   kq_show_tagline?: boolean
-  /** Show the short-form summary. Default false. */
+  /** @deprecated Owned by the section MODE (Summary → short). Never read. */
   kq_show_short?: boolean
-  /** Show the long-form summary. Default true. */
+  /** @deprecated Owned by the section MODE (Full → long). Never read. */
   kq_show_long?: boolean
 }
 

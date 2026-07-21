@@ -16,6 +16,7 @@ import { RELATIONSHIP_OPTIONS, matchRelationshipKey, relationshipLabels } from '
 import { PUBLICATION_TYPES } from '../../lib/publicationTypes'
 import { POSITION_TYPES, positionTypeLabel } from '../../lib/positionTypes'
 import { EMPLOYMENT_TYPES, employmentTypeLabel } from '../../lib/employmentTypes'
+import { COURSE_CATEGORIES, courseCategoryLabel } from '../../lib/courseCategories'
 import { CEFR_CATEGORIES, CEFR_LEVELS, CEFR_LEVEL_DESC, cefrSummary } from '../../lib/cefr'
 import type {
   WorkExperience, Education, Course, Certification, Position,
@@ -23,6 +24,30 @@ import type {
   KeyCompetency, Recommendation, Role, LocalizedString, CefrCategory, CefrLevel,
 } from '../../types'
 import { X } from 'lucide-react'
+
+/** Current year+month as a YearMonth — the default "To" date for a new course. */
+function thisMonth(): { year: number; month: number } {
+  const d = new Date()
+  return { year: d.getFullYear(), month: d.getMonth() + 1 }
+}
+
+/**
+ * The shared Course/Certification "Category" picker — an editor-only organizing
+ * type (never exported). Same vocabulary for both sections (lib/courseCategories).
+ */
+function CategorySelect({ value, onChange }: { value: string | null | undefined; onChange: (v: string | null) => void }) {
+  return (
+    <label className="pf-wrap">
+      <span className="pf-label">Category</span>
+      <select className="pf-input" value={value ?? ''} onChange={(e) => onChange(e.target.value || null)}>
+        <option value="">—</option>
+        {COURSE_CATEGORIES.map((t) => (
+          <option key={t.value} value={t.value}>{t.label}</option>
+        ))}
+      </select>
+    </label>
+  )
+}
 
 // ── Employment ────────────────────────────────────────────────────────────────
 
@@ -240,7 +265,10 @@ export function CoursesEditor() {
   const add = () => {
     const c: Course = {
       id: newId(), resume_id: data.resume!.id, name: {}, program: {}, description: {},
-      completed: null, skill_ids: [], skill_tags: [], sort_order: items.length, starred: false, disabled: false,
+      // New courses default the "To" date to today and leave "From" blank; an
+      // empty To later reads as ongoing (like every other date range).
+      start: null, end: thisMonth(), category: null,
+      skill_ids: [], skill_tags: [], sort_order: items.length, starred: false, disabled: false,
     }
     addItem('courses', c)
   }
@@ -255,14 +283,19 @@ export function CoursesEditor() {
       <SortableList section="courses" ids={items.map((x) => x.id)} addLabel="Add course" onAdd={add}>
       {items.map((c) => (
         <EditorCard key={c.id} section="courses" id={c.id}
-          title={resolve(c.name, primaryLocale)} subtitle={resolve(c.program, primaryLocale)}
-          meta={fmtDate(c.completed)} preview={richToPlain(resolve(c.description, primaryLocale))}
+          title={resolve(c.name, primaryLocale)}
+          subtitle={[resolve(c.program, primaryLocale), courseCategoryLabel(c.category)].filter(Boolean).join(' · ')}
+          meta={fmtRange(c.start, c.end)} preview={richToPlain(resolve(c.description, primaryLocale))}
           starred={c.starred} disabled={c.disabled}>
           <DualField label="Course name" value={c.name} onChange={(v) => updateItem('courses', c.id, { name: v })} />
           <DualField label="Provider" value={c.program} onChange={(v) => updateItem('courses', c.id, { program: v })} />
           <RichField label="Description" value={c.description} onChange={(v) => updateItem('courses', c.id, { description: v })} />
           <DualField label="Short description (summary mode)" value={c.short_description ?? {}} onChange={(v) => updateItem('courses', c.id, { short_description: v })} summarizeFrom={c.description} placeholder="One concise line shown in summary mode" />
-          <DateField label="Completed" value={c.completed} onChange={(v) => updateItem('courses', c.id, { completed: v })} />
+          <FieldRow>
+            <DateField label="From" value={c.start} onChange={(v) => updateItem('courses', c.id, { start: v })} />
+            <DateField label="To" value={c.end} onChange={(v) => updateItem('courses', c.id, { end: v })} allowOngoing />
+            <CategorySelect value={c.category} onChange={(v) => updateItem('courses', c.id, { category: v })} />
+          </FieldRow>
         </EditorCard>
       ))}
       </SortableList>
@@ -303,6 +336,7 @@ export function CertificationsEditor() {
           <FieldRow>
             <DateField label="Issued" value={c.issued} onChange={(v) => updateItem('certifications', c.id, { issued: v })} />
             <DateField label="Expires" value={c.expires} onChange={(v) => updateItem('certifications', c.id, { expires: v })} allowOngoing />
+            <CategorySelect value={c.category} onChange={(v) => updateItem('certifications', c.id, { category: v })} />
           </FieldRow>
           <TextField label="Credential URL" value={c.credential_url || ''} onChange={(v) => updateItem('certifications', c.id, { credential_url: v })} />
         </EditorCard>
@@ -592,16 +626,29 @@ export function KeyCompetenciesEditor() {
       </SectionIntro>
       <SortBar section="key_competencies" count={items.length} />
       <SortableList section="key_competencies" ids={items.map((x) => x.id)} addLabel="Add competency" onAdd={add}>
-      {items.map((k) => (
+      {items.map((k) => {
+        const profile = data.key_qualifications.find((q) => q.id === k.profile_id)
+        return (
         <EditorCard key={k.id} section="key_competencies" id={k.id}
           title={resolve(k.title, primaryLocale) || 'Competency'}
+          subtitle={profile ? resolve(profile.tag_line, primaryLocale) : ''}
           preview={richToPlain(resolve(k.description, primaryLocale))}
           starred={k.starred} disabled={k.disabled}>
           <DualField label="Competency" value={k.title} onChange={(v) => updateItem('key_competencies', k.id, { title: v })} placeholder="e.g. Solution architecture" />
           <RichField label="Description" value={k.description} onChange={(v) => updateItem('key_competencies', k.id, { description: v })} />
           <DualField label="Short description (summary mode)" value={k.short_description ?? {}} onChange={(v) => updateItem('key_competencies', k.id, { short_description: v })} summarizeFrom={k.description} placeholder="One concise line shown in summary mode" />
+          <label className="pf-wrap">
+            <span className="pf-label">Profile <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>— editor-only grouping, never exported</span></span>
+            <select className="pf-input" value={k.profile_id ?? ''} onChange={(e) => updateItem('key_competencies', k.id, { profile_id: e.target.value || null })}>
+              <option value="">—</option>
+              {data.key_qualifications.filter((q) => !q.disabled).map((q) => (
+                <option key={q.id} value={q.id}>{resolve(q.tag_line, primaryLocale) || '(unnamed profile)'}</option>
+              ))}
+            </select>
+          </label>
         </EditorCard>
-      ))}
+        )
+      })}
       </SortableList>
     </div>
   )
@@ -705,6 +752,15 @@ export function ProfileEditor() {
       key_points: [], skill_tags: [], sort_order: items.length, starred: false, disabled: false, internal_notes: null,
     }
     addItem('key_qualifications', k)
+    // A view shows exactly ONE profile. So a new profile must not silently
+    // appear in views that already picked a different one — exclude it from
+    // every existing view (the user opts a view into it explicitly). This keeps
+    // each view's selection sticky when profiles are added.
+    for (const v of data.views) {
+      if (!v.excluded_item_ids.includes(k.id)) {
+        updateItem('views', v.id, { excluded_item_ids: [...v.excluded_item_ids, k.id] })
+      }
+    }
   }
 
   // Per-KQ key_points are deprecated UI: the standalone "Key Competencies"
@@ -715,18 +771,19 @@ export function ProfileEditor() {
     <div className="section-pane">
       <SectionIntro>
         The opening statement of your CV — a tag line plus a short and a long
-        summary. Each Resume View chooses which parts to show, so a compact
-        view can lead with the short version and a detailed one with the long.
+        summary. The tag line names the profile and, by default, becomes the
+        resume title in each view. Each Resume View chooses which parts to show,
+        so a compact view can lead with the short version and a detailed one with
+        the long. Add several profiles and pick one per view.
       </SectionIntro>
       <SortBar section="key_qualifications" count={items.length} />
-      <SortableList section="key_qualifications" ids={items.map((x) => x.id)} addLabel="Add profile block" onAdd={add}>
+      <SortableList section="key_qualifications" ids={items.map((x) => x.id)} addLabel="Add profile" onAdd={add}>
       {items.map((kq) => (
         <EditorCard key={kq.id} section="key_qualifications" id={kq.id}
-          title={resolve(kq.label, primaryLocale) || 'Profile'} subtitle={resolve(kq.tag_line, primaryLocale)}
+          title={resolve(kq.tag_line, primaryLocale) || 'Profile'}
           preview={richToPlain(resolve(kq.summary, primaryLocale))}
           starred={kq.starred} disabled={kq.disabled}>
-          <DualField label="Section label" value={kq.label} onChange={(v) => updateItem('key_qualifications', kq.id, { label: v })} />
-          <DualField label="Tag line" value={kq.tag_line} onChange={(v) => updateItem('key_qualifications', kq.id, { tag_line: v })} />
+          <DualField label="Tag line" value={kq.tag_line} onChange={(v) => updateItem('key_qualifications', kq.id, { tag_line: v })} placeholder="e.g. Senior Cloud Architect" />
           <RichField label="Short summary (summary mode)" value={kq.summary_short ?? {}} onChange={(v) => updateItem('key_qualifications', kq.id, { summary_short: v })} />
           <RichField label="Full profile (full mode)" value={kq.summary} onChange={(v) => updateItem('key_qualifications', kq.id, { summary: v })} />
         </EditorCard>

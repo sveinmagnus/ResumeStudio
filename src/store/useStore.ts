@@ -34,6 +34,15 @@ interface AppState {
   sectionSort: Record<string, SortMode>
 
   /**
+   * Per-section EDITOR type filter (UI-only, NOT persisted, no effect on views
+   * or exports). Keyed by section → an opaque `typeFilterKey(facet, value)`
+   * (see lib/viewItemSelect); an unset/empty section shows all items. Lets the
+   * consultant narrow a section to one type while editing, like the registries'
+   * category view.
+   */
+  sectionTypeFilter: Record<string, string>
+
+  /**
    * Monotonic counter that increments on every USER-initiated data mutation.
    * Load actions reset it to 0. The auto-save effect uses this to decide
    * whether to fire — comparing it to a "last-saved" ref. This replaced an
@@ -98,6 +107,8 @@ interface AppState {
   setExpandedItem: (id: string | null) => void
   /** Change a section's display sort mode (UI-only; does not bump mutationCount). */
   setSectionSort: (section: ArraySectionKey, mode: SortMode) => void
+  /** Set a section's editor type filter (UI-only; '' clears it). */
+  setSectionTypeFilter: (section: ArraySectionKey, key: string) => void
 
   // ── Resume / locale ───────────────────────────────────────────────────────
   updateResume: (patch: Partial<Resume>) => void
@@ -166,6 +177,7 @@ export const useStore = create<AppState>((set, get) => {
     hasData: false,
     dataFromNewerApp: false,
     sectionSort: {},
+    sectionTypeFilter: {},
     mutationCount: 0,
     registryNotice: null,
 
@@ -184,7 +196,7 @@ export const useStore = create<AppState>((set, get) => {
         ? localesArg.secondary
         : (supported[1] ?? null)
       set({
-        data: migrated, hasData: true, mutationCount: 0, sectionSort: {}, activeViewId: null,
+        data: migrated, hasData: true, mutationCount: 0, sectionSort: {}, sectionTypeFilter: {}, activeViewId: null,
         dataFromNewerApp: isNewerShape(migrated),
         primaryLocale: primary, secondaryLocale: secondary,
       })
@@ -192,7 +204,7 @@ export const useStore = create<AppState>((set, get) => {
 
     unloadStore: () => set({
       data: emptyStore, hasData: false, mutationCount: 0, dataFromNewerApp: false,
-      currentResumeId: null, expandedItemId: null, activeViewId: null, sectionSort: {},
+      currentResumeId: null, expandedItemId: null, activeViewId: null, sectionSort: {}, sectionTypeFilter: {},
     }),
 
     setCurrentResumeId: (id) => set({ currentResumeId: id }),
@@ -200,7 +212,7 @@ export const useStore = create<AppState>((set, get) => {
     startFresh: () => {
       set({
         data: makeFresh(), hasData: true, mutationCount: 0, dataFromNewerApp: false,
-        activeSection: 'header', expandedItemId: null, activeViewId: null, sectionSort: {},
+        activeSection: 'header', expandedItemId: null, activeViewId: null, sectionSort: {}, sectionTypeFilter: {},
         primaryLocale: 'en', secondaryLocale: null,
       })
     },
@@ -230,6 +242,9 @@ export const useStore = create<AppState>((set, get) => {
     setActiveView: (id) => set({ activeSection: 'views', activeViewId: id, expandedItemId: null }),
     // Sort mode is a display preference only — plain set, no mutationCount bump
     // (nothing in `data` changes, so there's nothing to auto-save).
+    setSectionTypeFilter: (section, key) => set((st) => ({
+      sectionTypeFilter: { ...st.sectionTypeFilter, [section]: key },
+    })),
     setSectionSort: (section, mode) => set((st) => ({
       sectionSort: { ...st.sectionSort, [section]: mode },
     })),

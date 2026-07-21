@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { availableSortModes, sortItems, SORT_LABELS, type SortMode } from '../src/lib/sectionSort'
 import {
-  makeProject, makeWork, makeEducation, makeCourse, makeSpokenLanguage, makeRole,
+  makeProject, makeWork, makeEducation, makeCourse, makeCertification, makeSpokenLanguage, makeRole,
 } from './fixtures'
 
 describe('availableSortModes()', () => {
@@ -13,10 +13,11 @@ describe('availableSortModes()', () => {
   it('adds start + end (newest and oldest) for date-range sections', () => {
     expect(availableSortModes('projects')).toEqual(['custom', 'alpha', 'start', 'start_asc', 'end', 'end_asc'])
     expect(availableSortModes('work_experiences')).toEqual(['custom', 'alpha', 'start', 'start_asc', 'end', 'end_asc'])
+    // Courses gained a from/to range (shape v11), so they sort like the other ranged sections.
+    expect(availableSortModes('courses')).toEqual(['custom', 'alpha', 'start', 'start_asc', 'end', 'end_asc'])
   })
 
   it('adds both single date directions for single-date sections', () => {
-    expect(availableSortModes('courses')).toEqual(['custom', 'alpha', 'date', 'date_asc'])
     expect(availableSortModes('certifications')).toEqual(['custom', 'alpha', 'date', 'date_asc'])
     expect(availableSortModes('honor_awards')).toEqual(['custom', 'alpha', 'date', 'date_asc'])
     expect(availableSortModes('presentations')).toEqual(['custom', 'alpha', 'date', 'date_asc'])
@@ -103,18 +104,25 @@ describe('sortItems()', () => {
     expect(out.map((x) => x.id)).toEqual(['undated', 'dated', 'ended'])
   })
 
-  it('date mode uses the section single-date field (courses → completed)', () => {
-    const a = makeCourse({ id: 'a', completed: { year: 2019, month: 1 } })
-    const b = makeCourse({ id: 'b', completed: { year: 2023, month: 1 } })
-    const out = sortItems('courses', [a, b], 'date', 'en')
+  it('date mode uses the section single-date field (certifications → issued)', () => {
+    const a = makeCertification({ id: 'a', issued: { year: 2019, month: 1 } })
+    const b = makeCertification({ id: 'b', issued: { year: 2023, month: 1 } })
+    const out = sortItems('certifications', [a, b], 'date', 'en')
     expect(out.map((x) => x.id)).toEqual(['b', 'a'])
   })
 
   it('date_asc mode orders single dates oldest first', () => {
-    const a = makeCourse({ id: 'a', completed: { year: 2019, month: 1 } })
-    const b = makeCourse({ id: 'b', completed: { year: 2023, month: 1 } })
-    const out = sortItems('courses', [a, b], 'date_asc', 'en')
+    const a = makeCertification({ id: 'a', issued: { year: 2019, month: 1 } })
+    const b = makeCertification({ id: 'b', issued: { year: 2023, month: 1 } })
+    const out = sortItems('certifications', [a, b], 'date_asc', 'en')
     expect(out.map((x) => x.id)).toEqual(['a', 'b'])
+  })
+
+  it('courses sort by their end (to) date, newest first', () => {
+    const a = makeCourse({ id: 'a', end: { year: 2019, month: 1 } })
+    const b = makeCourse({ id: 'b', end: { year: 2023, month: 1 } })
+    const out = sortItems('courses', [a, b], 'end', 'en')
+    expect(out.map((x) => x.id)).toEqual(['b', 'a'])
   })
 
   it('start_asc mode orders oldest start first, undated still floats to the top', () => {

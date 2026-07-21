@@ -30,7 +30,7 @@ export const SECTIONS: SectionDef[] = [
   // The sidebar label for the profile section is "Profile"; its EXPORT heading
   // stays "Professional summary" (SECTION_HEADINGS) so client-facing documents
   // are unchanged — the two intentionally differ here.
-  { key: 'key_qualifications', label: 'Profile', storeKey: 'key_qualifications', icon: 'FileText', group: 'profile' },
+  { key: 'key_qualifications', label: 'Profiles', storeKey: 'key_qualifications', icon: 'FileText', group: 'profile' },
   { key: 'key_competencies', label: 'Key competencies', storeKey: 'key_competencies', icon: 'ListChecks', group: 'profile' },
 
   { key: 'projects', label: 'Projects', storeKey: 'projects', icon: 'Briefcase', group: 'experience' },

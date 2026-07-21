@@ -48,7 +48,7 @@ const DATE_CAPS: Record<string, { start?: boolean; end?: boolean; single?: strin
   work_experiences: { start: true, end: true },
   educations:       { start: true, end: true },
   positions:        { start: true, end: true },
-  courses:          { single: 'completed' },
+  courses:          { start: true, end: true },
   certifications:   { single: 'issued' },
   presentations:    { single: 'date' },
   publications:     { single: 'date' },

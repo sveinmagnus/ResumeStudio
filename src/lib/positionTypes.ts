@@ -87,6 +87,17 @@ const ENTRIES: ReadonlyArray<{ value: string; labels: LocalizedString }> = [
       fi: 'Arvioija', is: 'Ritrýnir', ru: 'Рецензент', uk: 'Рецензент',
     },
   },
+  {
+    // A business run alongside a primary job/role (the "side-business
+    // entrepreneur"). Editor-only classification — never exported.
+    value: 'side_venture',
+    labels: {
+      en: 'Side venture', no: 'Sidevirksomhet', se: 'Sidoverksamhet', dk: 'Bivirksomhed',
+      de: 'Nebengewerbe', fr: 'Activité secondaire', es: 'Negocio paralelo', it: 'Attività secondaria',
+      nl: 'Nevenactiviteit', pt: 'Negócio paralelo', pl: 'Działalność dodatkowa',
+      fi: 'Sivutoiminta', is: 'Hliðarrekstur', ru: 'Побочный бизнес', uk: 'Побічний бізнес',
+    },
+  },
 ]
 
 export const POSITION_TYPES: ReadonlyArray<{ value: string; label: string; labels: LocalizedString }> =

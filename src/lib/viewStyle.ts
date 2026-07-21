@@ -251,10 +251,10 @@ export interface ResolvedSectionStyle extends ViewStyle {
   short_desc_line: 'inline' | 'below'
   /** Show the section icon before its heading (resolved: section → view → false). */
   show_icon: boolean
-  /** Profile label/tagline toggles (see SectionStyle.kq_show_*). The deprecated
-   *  kq_show_short/long stay on SectionStyle for parse tolerance but are never
-   *  resolved — the section MODE owns that choice (see kqVisibility). */
-  kq_show_label?: boolean
+  /** Profile tag-line toggle (see SectionStyle.kq_show_tagline). The deprecated
+   *  kq_show_label / kq_show_short / kq_show_long stay on SectionStyle for parse
+   *  tolerance but are never resolved — label is gone (the tag line is the
+   *  profile's identity now) and short/long are owned by the section MODE. */
   kq_show_tagline?: boolean
 }
 
@@ -278,25 +278,25 @@ export function normalizeFullLayout(v: string | null | undefined): FullLayout {
 
 /** Which professional-summary parts to render, with the documented defaults. */
 /**
- * Which parts of a profile block render. `short`/`long` are now driven by the
- * section MODE, not by style toggles: Summary mode shows the short summary,
- * Full mode ("Full profile") shows the long one. `label`/`tagline` remain
- * independent toggles.
+ * Which parts of a profile block render. `short`/`long` are driven by the
+ * section MODE (Summary → short summary, Full → the long "Full profile"), not
+ * by style toggles.
  *
- * The old `kq_show_short`/`kq_show_long` style fields are deprecated and no
- * longer read — mode owns that choice (a section could otherwise be in Summary
- * mode yet configured to show the long text, which never made sense). The
- * fields stay on the type so pre-existing serialized views still parse; they're
- * simply ignored. Default mode is 'full' so any caller that doesn't pass one
- * (and every legacy path) behaves exactly as "Full" did before.
+ * The tag line is the profile's identity and doubles as the resume title, so it
+ * is HIDDEN in the profile body by default (`kq_show_tagline` absent/false); a
+ * view sets it true to show the tag line alongside the description (e.g. when
+ * the resume title is overridden). The old per-item "label" is gone entirely.
+ *
+ * The deprecated `kq_show_label`/`kq_show_short`/`kq_show_long` style fields
+ * stay on the type so pre-existing serialized views still parse; they're
+ * simply ignored. Default mode is 'full' so legacy callers behave as before.
  */
 export function kqVisibility(
   r: ResolvedSectionStyle,
   mode: 'summary' | 'full' = 'full',
-): { label: boolean; tagline: boolean; short: boolean; long: boolean } {
+): { tagline: boolean; short: boolean; long: boolean } {
   return {
-    label: r.kq_show_label ?? true,
-    tagline: r.kq_show_tagline ?? true,
+    tagline: r.kq_show_tagline ?? false,
     short: mode === 'summary',
     long: mode === 'full',
   }
@@ -374,7 +374,6 @@ export function resolveSectionStyle(
     date_format: section?.date_format ?? view.date_format ?? 'month-year',
     short_desc_line: section?.short_desc_line ?? 'below',
     show_icon: section?.show_icon ?? view.section_icons ?? false,
-    kq_show_label: section?.kq_show_label,
     kq_show_tagline: section?.kq_show_tagline,
   }
 }

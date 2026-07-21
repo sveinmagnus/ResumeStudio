@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   groupState, includeIds, excludeIds, toggleIds, selectOnly, isSingleSelectSection,
-  typeGroups, hasTypeFacet,
+  typeGroups, hasTypeFacet, itemsMatchingTypeFilter, typeFilterKey,
   type SelectableItem, type FacetGroupSet,
 } from '../src/lib/viewItemSelect'
 import type { Role } from '../src/types'
@@ -187,5 +187,59 @@ describe('typeGroups() — project roles', () => {
     // is a single group and still returned, but a section with zero items yields
     // no facets at all.
     expect(typeGroups('projects', [], 'en', { roles })).toEqual([])
+  })
+})
+
+describe('typeGroups() — course/certification category + competency profile', () => {
+  const course = (id: string, category?: string | null): SelectableItem => ({ id, category })
+  const comp = (id: string, profile_id?: string | null): SelectableItem => ({ id, profile_id })
+
+  it('groups courses by their editor category', () => {
+    const sets = typeGroups('courses', [
+      course('a', 'technical_expertise'), course('b', 'finance'), course('c', null),
+    ], 'en')
+    const g = facet(sets, 'Category')!.groups
+    expect(g.find((x) => x.label === 'Technical expertise')!.ids).toEqual(['a'])
+    expect(g.find((x) => x.label === 'Finance')!.ids).toEqual(['b'])
+    expect(g.find((x) => x.value === '')!.ids).toEqual(['c'])
+  })
+
+  it('offers the same category facet for certifications', () => {
+    const sets = typeGroups('certifications', [course('a', 'medical'), course('b', 'medical')], 'en')
+    expect(facet(sets, 'Category')!.groups.find((x) => x.label === 'Medical')!.ids.sort()).toEqual(['a', 'b'])
+  })
+
+  it('groups key competencies by their linked profile, named by tag line', () => {
+    const keyQualifications = [
+      { id: 'p1', tag_line: { en: 'Architect' } },
+      { id: 'p2', tag_line: { en: 'Leader' } },
+    ] as never
+    const sets = typeGroups('key_competencies', [
+      comp('a', 'p1'), comp('b', 'p2'), comp('c', 'p1'), comp('d', null),
+    ], 'en', { roles: [], keyQualifications })
+    const g = facet(sets, 'Profile')!.groups
+    expect(g.find((x) => x.label === 'Architect')!.ids.sort()).toEqual(['a', 'c'])
+    expect(g.find((x) => x.label === 'Leader')!.ids).toEqual(['b'])
+    expect(g.find((x) => x.value === '')!.ids).toEqual(['d'])
+  })
+})
+
+describe('itemsMatchingTypeFilter()', () => {
+  const course = (id: string, category?: string | null): SelectableItem => ({ id, category })
+  const items = [course('a', 'finance'), course('b', 'sales'), course('c', 'finance')]
+
+  it('returns null when there is no filter key', () => {
+    expect(itemsMatchingTypeFilter('courses', items, 'en', { roles: [] }, '')).toBeNull()
+  })
+
+  it('returns the ids of the matching facet group', () => {
+    const key = typeFilterKey('Category', 'finance')
+    const match = itemsMatchingTypeFilter('courses', items, 'en', { roles: [] }, key)
+    expect(match && [...match].sort()).toEqual(['a', 'c'])
+  })
+
+  it('returns an empty set for a stale key that no longer matches', () => {
+    const match = itemsMatchingTypeFilter('courses', items, 'en', { roles: [] }, 'Categorynope')
+    expect(match && match.size).toBe(0)
   })
 })
