@@ -275,9 +275,22 @@ function RichColumn({ variant, locale, fieldLabel, html, onCommit, placeholder, 
     if (!el) return
     const clean = sanitizeRich(html)
     if (el.innerHTML === clean) return
-    // Only re-sync when not focused; while typing the user owns the buffer.
-    if (document.activeElement === el) return
+    // While the field is focused, only repaint when the incoming value is
+    // genuinely DIFFERENT content — an external change (undo/redo, copy, draft)
+    // — not merely the sanitiser's reformatting of what the user is typing
+    // right now (repainting that would jump the caret every keystroke).
+    // Comparing the SANITISED DOM against the incoming value separates the two:
+    // equal ⇒ the same content the user just produced, leave the caret alone;
+    // different ⇒ external, so repaint even mid-focus. This is what makes Ctrl+Z
+    // update the field while the caret is still inside it — clicking the Undo
+    // button blurs the field first, which is why only the keyboard path looked
+    // broken.
+    const focused = document.activeElement === el
+    if (focused && sanitizeRich(el.innerHTML) === clean) return
     el.innerHTML = clean
+    // We just replaced the DOM under a live caret; drop the caret at the end so
+    // typing continues naturally after an undo/redo instead of from position 0.
+    if (focused) placeCaretAtEnd(el)
   }, [html])
 
   // Commit on every input — sanitiser cleans whatever the browser produced.
@@ -511,4 +524,24 @@ function ToolBtn({ label, pressed, disabled, onClick, children }: {
 function stripTags(html: string): string {
   if (!html) return ''
   return html.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').trim()
+}
+
+/**
+ * Move the caret to the end of a contentEditable after we replace its innerHTML
+ * under a live focus (undo/redo). Best-effort and fully guarded — jsdom and
+ * older engines may lack parts of the Selection/Range API, and a failure here
+ * must never break the repaint that just happened.
+ */
+function placeCaretAtEnd(el: HTMLElement): void {
+  try {
+    const sel = window.getSelection?.()
+    if (!sel || typeof document.createRange !== 'function') return
+    const range = document.createRange()
+    range.selectNodeContents(el)
+    range.collapse(false)
+    sel.removeAllRanges()
+    sel.addRange(range)
+  } catch {
+    /* selection API unavailable — the content is repainted, which is what matters */
+  }
 }

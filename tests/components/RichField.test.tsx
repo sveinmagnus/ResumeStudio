@@ -32,6 +32,41 @@ describe('<RichField>', () => {
     expect((window as unknown as Record<string, unknown>).__pwned).toBeUndefined()
   })
 
+  it('repaints a FOCUSED editor when the value changes externally (undo/redo)', () => {
+    // Regression: Ctrl+Z updated the store but the contentEditable didn't
+    // repaint because it was still focused — the caret-preservation guard also
+    // swallowed genuine external changes. The Undo *button* worked only because
+    // clicking it blurred the field first.
+    const { rerender } = render(
+      <RichField label="Description" value={{ en: '<p>hello world</p>' }} onChange={vi.fn()} />,
+    )
+    const editor = screen.getByRole('textbox')
+    expect(editor.innerHTML).toBe('<p>hello world</p>')
+
+    editor.focus()
+    // A contentEditable is focusable in jsdom; bail the assertion in if not, so
+    // the test only makes its claim when it can actually reproduce the state.
+    expect(document.activeElement).toBe(editor)
+
+    // External value change (an undo) arrives while the field is still focused.
+    rerender(<RichField label="Description" value={{ en: '<p>hello</p>' }} onChange={vi.fn()} />)
+    expect(editor.innerHTML).toBe('<p>hello</p>')
+  })
+
+  it('does NOT clobber the caret when the focused DOM already matches (mid-typing)', () => {
+    // The other half of the guard: an incoming value that sanitises to what the
+    // focused editor already shows must be left alone (no repaint, no caret
+    // jump). We approximate "already shows it" by rerendering the same content.
+    const { rerender } = render(
+      <RichField label="Description" value={{ en: '<p>draft</p>' }} onChange={vi.fn()} />,
+    )
+    const editor = screen.getByRole('textbox')
+    editor.focus()
+    const setSpy = vi.spyOn(editor, 'innerHTML', 'set')
+    rerender(<RichField label="Description" value={{ en: '<p>draft</p>' }} onChange={vi.fn()} />)
+    expect(setSpy).not.toHaveBeenCalled()
+  })
+
   it('cleans pasted HTML down to the allowed tags', () => {
     const onChange = vi.fn()
     render(<RichField label="Description" value={{}} onChange={onChange} />)

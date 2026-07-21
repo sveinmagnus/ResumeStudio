@@ -300,12 +300,19 @@ export async function translate(
   }
 }
 
+// The target language is named THREE times, including as the final instruction:
+// smaller models weight the most recent instruction heavily, and the reported
+// bug (Norwegian coming back as Swedish) is exactly a weak-target-signal failure
+// for close languages. The language names carry their native form too (see
+// LANG_NAMES) so "{TARGET}" reads e.g. "Norwegian Bokmål (norsk bokmål)".
 const LLM_TRANSLATE_PROMPT =
-  'You are a translation engine for résumé/CV content. Translate the user message from {SOURCE} to {TARGET}. ' +
-  'Output ONLY the translation — no preamble, no explanation, no quotes, no markdown fences. ' +
+  'You are a professional translation engine for résumé/CV content. ' +
+  'Translate the user message from {SOURCE} into {TARGET}. ' +
   'Preserve the original line breaks, capitalisation style and any HTML tags exactly. ' +
   'Keep proper nouns, company names, product names and technology names untranslated. ' +
-  'If the text is already in {TARGET}, return it unchanged.'
+  'If the text is already written in {TARGET}, return it unchanged. ' +
+  'Output ONLY the translation — no preamble, explanation, quotes or markdown fences. ' +
+  'Your entire response MUST be written in {TARGET} and in no other language.'
 
 /**
  * Strip the wrapper an LLM sometimes adds despite instructions. Unlike

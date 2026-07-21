@@ -97,16 +97,22 @@ export function useUndoRedo(): {
     sync()
   }
 
-  // Ctrl/Cmd+Z and Ctrl/Cmd+Shift+Z (or Ctrl/Cmd+Y) keyboard shortcuts.
+  // Keyboard shortcuts:
+  //   Undo — Ctrl/Cmd+Z
+  //   Redo — Ctrl/Cmd+Shift+Z, Ctrl/Cmd+Alt+Z, or Ctrl/Cmd+Y
+  // The physical-key `code` is checked alongside `key` so an international
+  // layout (where AltGr = Ctrl+Alt may reshape `key`) still triggers redo.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const mod = e.ctrlKey || e.metaKey
       if (!mod) return
-      if (e.key === 'z' || e.key === 'Z') {
+      const isZ = e.code === 'KeyZ' || e.key === 'z' || e.key === 'Z'
+      const isY = e.code === 'KeyY' || e.key === 'y' || e.key === 'Y'
+      if (isZ) {
         e.preventDefault()
-        if (e.shiftKey) redo()
+        if (e.shiftKey || e.altKey) redo()
         else undo()
-      } else if (e.key === 'y' || e.key === 'Y') {
+      } else if (isY) {
         e.preventDefault()
         redo()
       }

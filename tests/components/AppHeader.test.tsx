@@ -87,6 +87,52 @@ describe('<AppHeader>', () => {
     }
   })
 
+  it('redoes with Ctrl+Alt+Z and Ctrl+Shift+Z, not just Ctrl+Y', () => {
+    vi.useFakeTimers()
+    try {
+      seed()
+      renderHeader()
+      const before = useStore.getState().data.resume!.full_name
+
+      act(() => { useStore.getState().updateResume({ full_name: 'Edited Name' }) })
+      act(() => { vi.advanceTimersByTime(600) })
+
+      // Undo, then redo via Ctrl+Alt+Z (the newly-added binding).
+      act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true })) })
+      expect(useStore.getState().data.resume!.full_name).toBe(before)
+      act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, altKey: true })) })
+      expect(useStore.getState().data.resume!.full_name).toBe('Edited Name')
+
+      // Ctrl+Shift+Z still redoes too.
+      act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true })) })
+      expect(useStore.getState().data.resume!.full_name).toBe(before)
+      act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, shiftKey: true })) })
+      expect(useStore.getState().data.resume!.full_name).toBe('Edited Name')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('redoes with Ctrl+Alt+Z even when the layout reshapes the key (code fallback)', () => {
+    // On some international layouts AltGr (= Ctrl+Alt) changes event.key; the
+    // physical `code` must still trigger redo.
+    vi.useFakeTimers()
+    try {
+      seed()
+      renderHeader()
+      const before = useStore.getState().data.resume!.full_name
+      act(() => { useStore.getState().updateResume({ full_name: 'Edited Name' }) })
+      act(() => { vi.advanceTimersByTime(600) })
+      act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true })) })
+      expect(useStore.getState().data.resume!.full_name).toBe(before)
+      // key is a stray dead-key char, but code identifies the physical Z.
+      act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Dead', code: 'KeyZ', ctrlKey: true, altKey: true })) })
+      expect(useStore.getState().data.resume!.full_name).toBe('Edited Name')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('opens the settings modal from the header cogwheel', async () => {
     seed()
     vi.spyOn(api, 'getSettings').mockRejectedValue(new Error('offline'))

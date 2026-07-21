@@ -237,6 +237,30 @@ describe("translate() — 'llm' provider", () => {
     expect(body.messages[1].content).toBe('Hello world')
   })
 
+  it('disambiguates Norwegian as Bokmål so it is not answered in Swedish', async () => {
+    // Regression: en→no came back Swedish because "Norwegian" alone doesn't pin
+    // the variant for a small model. The target now carries the Bokmål name.
+    configureLlm()
+    const fn = mockFetch(chat('Hei'))
+    await translate('Hi', 'en', 'no')
+    const prompt = JSON.parse((fn.mock.calls[0][1] as RequestInit).body as string).messages[0].content
+    expect(prompt).toContain('Bokmål')
+    expect(prompt).not.toContain('Swedish')
+  })
+
+  it('states the target language emphatically and last (recency)', async () => {
+    // Small models weight the final instruction heavily, so the target must be
+    // named more than once and appear at the very end.
+    configureLlm()
+    const fn = mockFetch(chat('Hei'))
+    await translate('Hi', 'en', 'no')
+    const prompt: string = JSON.parse((fn.mock.calls[0][1] as RequestInit).body as string).messages[0].content
+    const occurrences = prompt.match(/Norwegian/g)?.length ?? 0
+    expect(occurrences).toBeGreaterThanOrEqual(2)
+    // The closing sentence pins the output language.
+    expect(prompt.trimEnd()).toMatch(/Norwegian[^.]*\.$/)
+  })
+
   it('names every offered locale rather than sending a bare code', async () => {
     configureLlm()
     mockFetch(chat('x'))

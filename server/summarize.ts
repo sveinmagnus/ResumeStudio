@@ -121,18 +121,25 @@ export function summarizeInfo(config?: SummarizeConfig): SummarizeInfo {
 }
 
 /**
- * App locale code → the English language name we put in the prompt. One entry
- * per offered locale (LOCALE_LABELS in src/lib/locales.ts) — an unlisted code
+ * App locale code → the language name we put in the prompt. One entry per
+ * offered locale (LOCALE_LABELS in src/lib/locales.ts) — an unlisted code
  * degrades to "the same language as the input", which is a sane fallback for
  * summarising but would silently no-op a TRANSLATION, so this table must track
- * the offered set. Named in English because that's what models resolve most
- * reliably in an instruction.
+ * the offered set.
+ *
+ * The name is English (what models resolve most reliably) PLUS the native name
+ * in parentheses. The native word is a strong anchor for smaller models, which
+ * otherwise conflate close languages — the reported bug was English→Norwegian
+ * coming back Swedish, because "Norwegian" alone doesn't distinguish Bokmål from
+ * Swedish in a 3B model's representation. `no` is spelled out as Bokmål (the
+ * app's `no` is Bokmål, per the CVpartner convention) so the target is
+ * unmistakable.
  */
 const LANG_NAMES: Record<string, string> = {
-  en: 'English', no: 'Norwegian', se: 'Swedish', dk: 'Danish',
-  de: 'German', fr: 'French', es: 'Spanish', it: 'Italian',
-  nl: 'Dutch', pt: 'Portuguese', pl: 'Polish', fi: 'Finnish',
-  is: 'Icelandic', ru: 'Russian', uk: 'Ukrainian',
+  en: 'English', no: 'Norwegian Bokmål (norsk bokmål)', se: 'Swedish (svenska)', dk: 'Danish (dansk)',
+  de: 'German (Deutsch)', fr: 'French (français)', es: 'Spanish (español)', it: 'Italian (italiano)',
+  nl: 'Dutch (Nederlands)', pt: 'Portuguese (português)', pl: 'Polish (polski)', fi: 'Finnish (suomi)',
+  is: 'Icelandic (íslenska)', ru: 'Russian (русский)', uk: 'Ukrainian (українська)',
 }
 
 /** The English name of a locale's language, or null when we don't know it. */
