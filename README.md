@@ -72,7 +72,7 @@ The full feature tour lives on the
 - **AI assist, bring-your-own model.** Point the app at a local Ollama
   (Docker-managed for you), OpenAI, or any OpenAI-compatible endpoint, and
   one model powers the whole assist suite: one-line summaries (per field or
-  "Summarize all empty"), skill suggestions from project prose, drafted
+  "Bulk summarize" for a whole section), skill suggestions from project prose, drafted
   project highlights, an anonymization leak check, and over-length page-fit
   advice. Every button says honestly whether content stays on this machine
   or leaves it; every result is a review-before-apply draft; and with no
