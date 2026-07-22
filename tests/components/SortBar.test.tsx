@@ -128,6 +128,9 @@ describe('<SortBar> type filter never traps the user (via CoursesEditor)', () =>
     const filter = screen.getByLabelText('Filter') as HTMLSelectElement
     expect(filter).toBeInTheDocument()
     expect(filter.value).toBe(typeFilterKey('Category', 'technical_expertise'))
+    // The Sort selector must ALSO stay — it hides only when the section has one
+    // item TOTAL, not merely one item showing through a filter (2 courses here).
+    expect(screen.getByLabelText('Sort')).toBeInTheDocument()
 
     // Resetting to "All types" is always reachable and restores every item.
     await userEvent.selectOptions(filter, '')

@@ -19,8 +19,7 @@
 const RAW_COURSE_CATEGORIES: ReadonlyArray<{ value: string; label: string }> = [
   { value: 'technical_expertise', label: 'Expertise, technical' },
   { value: 'non_technical_expertise', label: 'Expertise, non-technical' },
-  { value: 'entrepreneurship', label: 'Entrepreneurship' },
-  { value: 'finance', label: 'Finance' },
+  { value: 'finance', label: 'Finance & Investments' },
   { value: 'management', label: 'Company and board management' },
   { value: 'project_management', label: 'Project management' },
   { value: 'creativity_agile', label: 'Creativity & Agile processes' },
