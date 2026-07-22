@@ -198,7 +198,7 @@ describe('typeGroups() — course/certification category', () => {
       course('a', 'technical_expertise'), course('b', 'finance'), course('c', null),
     ], 'en')
     const g = facet(sets, 'Category')!.groups
-    expect(g.find((x) => x.label === 'Technical expertise')!.ids).toEqual(['a'])
+    expect(g.find((x) => x.label === 'Expertise, technical')!.ids).toEqual(['a'])
     expect(g.find((x) => x.label === 'Finance')!.ids).toEqual(['b'])
     expect(g.find((x) => x.value === '')!.ids).toEqual(['c'])
   })

@@ -11,13 +11,21 @@
  * editor chrome isn't localized, and CLAUDE.md §12).
  */
 
+// NOTE: `value` is the opaque key stored on a course/cert — never change an
+// existing value or that item silently loses its category. Labels are free to
+// change (editor-only, never exported). `management` is kept (relabelled to
+// "Company and board management") so items tagged before the management split
+// keep a category; the new facet of that split is `project_management`.
 const RAW_COURSE_CATEGORIES: ReadonlyArray<{ value: string; label: string }> = [
-  { value: 'technical_expertise', label: 'Technical expertise' },
-  { value: 'non_technical_expertise', label: 'Non-technical expertise' },
+  { value: 'technical_expertise', label: 'Expertise, technical' },
+  { value: 'non_technical_expertise', label: 'Expertise, non-technical' },
   { value: 'entrepreneurship', label: 'Entrepreneurship' },
   { value: 'finance', label: 'Finance' },
-  { value: 'management', label: 'Management' },
-  { value: 'creativity_design', label: 'Creativity & Design' },
+  { value: 'management', label: 'Company and board management' },
+  { value: 'project_management', label: 'Project management' },
+  { value: 'creativity_design', label: 'Creativity & Agile processes' },
+  { value: 'architecture_design', label: 'Architecture & Design' },
+  { value: 'food_beverage', label: 'Food & Beverage' },
   { value: 'sales', label: 'Sales' },
   { value: 'soft_skills', label: 'Soft skills' },
   { value: 'communication', label: 'Communication' },
