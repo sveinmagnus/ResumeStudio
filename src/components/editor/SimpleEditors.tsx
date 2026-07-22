@@ -27,6 +27,7 @@ import { X, ChevronUp, ChevronDown, Plus, GripVertical } from 'lucide-react'
 import { DndContext, PointerSensor, KeyboardSensor, useSensor, useSensors, closestCenter, type DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import { RegistryLightbox } from './RegistryCategoryView'
 
 /** Current year+month as a YearMonth — the default "To" date for a new course. */
 function thisMonth(): { year: number; month: number } {
@@ -631,9 +632,62 @@ function bundlesContaining(quals: KeyQualification[], id: string): KeyQualificat
   return quals.filter((q) => (q.competency_ids ?? []).includes(id))
 }
 
+/**
+ * Read/navigate grouping of the competency library BY PROFILE — each profile's
+ * bundle listed under its tag line, plus an "Unassigned" group for competencies
+ * in no profile. A competency in several profiles appears once under EACH (the
+ * point of the view). Chips open the competency in a lightbox to edit; membership
+ * itself is edited on the Profile page. Mirrors the registries' "By category".
+ */
+function CompetenciesByProfile({ onOpen }: { onOpen: (id: string) => void }) {
+  const { data, primaryLocale } = useStore()
+  const byId = new Map(data.key_competencies.map((c) => [c.id, c]))
+  const inSome = new Set<string>()
+  const groups = data.key_qualifications.filter((q) => !q.disabled).map((p) => {
+    const comps = (p.competency_ids ?? [])
+      .map((id) => byId.get(id))
+      .filter((c): c is KeyCompetency => !!c && !c.disabled)
+    comps.forEach((c) => inSome.add(c.id))
+    return { id: p.id, label: resolve(p.tag_line, primaryLocale) || '(unnamed profile)', comps }
+  })
+  const unassigned = data.key_competencies.filter((c) => !c.disabled && !inSome.has(c.id))
+
+  const chip = (c: KeyCompetency) => (
+    <button key={c.id} type="button" className="kcp-chip" onClick={() => onOpen(c.id)} title="Click to edit">
+      {resolve(c.title, primaryLocale) || 'Untitled competency'}
+    </button>
+  )
+
+  return (
+    <div className="kcp">
+      {groups.map((g) => (
+        <div key={g.id} className="kcp-group">
+          <div className="kcp-head">{g.label} <span className="kcp-count">{g.comps.length}</span></div>
+          <div className="kcp-chips">
+            {g.comps.length === 0
+              ? <span className="kcp-empty">No competencies — add them from this profile on the Profile page.</span>
+              : g.comps.map(chip)}
+          </div>
+        </div>
+      ))}
+      {unassigned.length > 0 && (
+        <div className="kcp-group">
+          <div className="kcp-head kcp-head-un">Unassigned <span className="kcp-count">{unassigned.length}</span></div>
+          <div className="kcp-chips">{unassigned.map(chip)}</div>
+        </div>
+      )}
+      {groups.length === 0 && unassigned.length === 0 && (
+        <p className="kcp-empty" style={{ padding: '4px 2px' }}>No competencies yet.</p>
+      )}
+    </div>
+  )
+}
+
 export function KeyCompetenciesEditor() {
-  const { data, primaryLocale, addItem, updateItem } = useStore()
+  const { data, primaryLocale, addItem } = useStore()
   const items = useSortedItems('key_competencies')
+  const [byProfile, setByProfile] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
   const add = () => {
     const k: KeyCompetency = {
       id: newId(), resume_id: data.resume!.id, title: {}, description: {},
@@ -641,6 +695,19 @@ export function KeyCompetenciesEditor() {
     }
     addItem('key_competencies', k)
   }
+  // In the by-profile view there are no inline cards — create then open the
+  // competency in the lightbox to edit it.
+  const addAndEdit = () => {
+    const k: KeyCompetency = {
+      id: newId(), resume_id: data.resume!.id, title: {}, description: {},
+      sort_order: items.length, starred: false, disabled: false,
+    }
+    addItem('key_competencies', k, { open: false })
+    setEditingId(k.id)
+  }
+  const editing = editingId ? data.key_competencies.find((c) => c.id === editingId) ?? null : null
+  const editingBundles = editing ? bundlesContaining(data.key_qualifications, editing.id) : []
+
   return (
     <div className="section-pane">
       <SectionIntro>
@@ -649,32 +716,81 @@ export function KeyCompetenciesEditor() {
         shows exactly the competencies of the profile it presents. This page is
         the full library of every competency.
       </SectionIntro>
-      <SortBar section="key_competencies" />
-      <SortableList section="key_competencies" ids={items.map((x) => x.id)} addLabel="Add competency" onAdd={add}>
-      {items.map((k) => {
-        const bundles = bundlesContaining(data.key_qualifications, k.id)
-        const inLabel = bundles.length
-          ? `In: ${bundles.map((q) => resolve(q.tag_line, primaryLocale) || '(unnamed profile)').join(', ')}`
-          : 'Not in any profile'
-        return (
-        <EditorCard key={k.id} section="key_competencies" id={k.id}
-          title={resolve(k.title, primaryLocale) || 'Competency'}
-          subtitle={inLabel}
-          preview={richToPlain(resolve(k.description, primaryLocale))}
-          starred={k.starred} disabled={k.disabled}>
-          <CompetencyFields competency={k} />
+
+      <div className="kc-toolbar">
+        <div className="kc-viewtoggle" role="group" aria-label="Key competencies view">
+          <button type="button" className={byProfile ? '' : 'is-active'} aria-pressed={!byProfile} onClick={() => setByProfile(false)}>List</button>
+          <button type="button" className={byProfile ? 'is-active' : ''} aria-pressed={byProfile} onClick={() => setByProfile(true)}>By profile</button>
+        </div>
+        {byProfile && (
+          <button type="button" className="kc-add" onClick={addAndEdit}><Plus size={14} /> Add competency</button>
+        )}
+      </div>
+
+      {byProfile ? (
+        <CompetenciesByProfile onOpen={setEditingId} />
+      ) : (
+        <>
+          <SortBar section="key_competencies" />
+          <SortableList section="key_competencies" ids={items.map((x) => x.id)} addLabel="Add competency" onAdd={add}>
+          {items.map((k) => {
+            const bundles = bundlesContaining(data.key_qualifications, k.id)
+            const inLabel = bundles.length
+              ? `In: ${bundles.map((q) => resolve(q.tag_line, primaryLocale) || '(unnamed profile)').join(', ')}`
+              : 'Not in any profile'
+            return (
+            <EditorCard key={k.id} section="key_competencies" id={k.id}
+              title={resolve(k.title, primaryLocale) || 'Competency'}
+              subtitle={inLabel}
+              preview={richToPlain(resolve(k.description, primaryLocale))}
+              starred={k.starred} disabled={k.disabled}>
+              <CompetencyFields competency={k} />
+              <p className="kc-bundles" role="note">
+                {bundles.length
+                  ? <>Belongs to {bundles.length === 1 ? 'profile' : 'profiles'}: <strong>{bundles.map((q) => resolve(q.tag_line, primaryLocale) || '(unnamed profile)').join(', ')}</strong>. Manage membership on the Profile page.</>
+                  : <>Not yet in any profile — add it from a profile on the Profile page to have it appear in a view.</>}
+              </p>
+            </EditorCard>
+            )
+          })}
+          </SortableList>
+        </>
+      )}
+
+      {editing && (
+        <RegistryLightbox
+          title={resolve(editing.title, primaryLocale) || 'Competency'}
+          ariaLabel="Edit competency"
+          onClose={() => setEditingId(null)}
+        >
+          <CompetencyFields competency={editing} />
           <p className="kc-bundles" role="note">
-            {bundles.length
-              ? <>Belongs to {bundles.length === 1 ? 'profile' : 'profiles'}: <strong>{bundles.map((q) => resolve(q.tag_line, primaryLocale) || '(unnamed profile)').join(', ')}</strong>. Manage membership on the Profile page.</>
-              : <>Not yet in any profile — add it from a profile on the Profile page to have it appear in a view.</>}
+            {editingBundles.length
+              ? <>Belongs to: <strong>{editingBundles.map((q) => resolve(q.tag_line, primaryLocale) || '(unnamed profile)').join(', ')}</strong>. Manage membership on the Profile page.</>
+              : <>Not in any profile — add it from a profile on the Profile page to have it appear in a view.</>}
           </p>
-        </EditorCard>
-        )
-      })}
-      </SortableList>
+        </RegistryLightbox>
+      )}
+
       <style>{`
         .kc-bundles { margin: 4px 2px 0; font-size: 12px; color: var(--ink-soft); }
         .kc-bundles strong { color: var(--ink); font-weight: 600; }
+        .kc-toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+        .kc-viewtoggle { display: inline-flex; border: 1px solid var(--line-strong); border-radius: var(--r-md); overflow: hidden; }
+        .kc-viewtoggle button { border: none; background: var(--paper); padding: 6px 14px; font-size: 13px; font-weight: 600; color: var(--ink-soft); cursor: pointer; }
+        .kc-viewtoggle button + button { border-left: 1px solid var(--line-strong); }
+        .kc-viewtoggle button.is-active { background: var(--accent); color: #fff; }
+        .kc-add { display: inline-flex; align-items: center; gap: 5px; padding: 6px 11px; border: 1px solid var(--accent); border-radius: var(--r-sm); background: var(--accent-wash); color: var(--accent); font-size: 13px; font-weight: 600; cursor: pointer; }
+        .kc-add:hover { background: var(--accent); color: #fff; }
+        .kcp { display: flex; flex-direction: column; gap: 14px; }
+        .kcp-group { border: 1px solid var(--line); border-radius: var(--r-md); background: var(--paper-raised); overflow: hidden; }
+        .kcp-head { padding: 8px 12px; background: var(--paper-sunken); border-bottom: 1px solid var(--line); font-size: 13px; font-weight: 700; color: var(--ink); }
+        .kcp-head-un { color: var(--ink-soft); font-style: italic; }
+        .kcp-count { display: inline-block; margin-left: 4px; font-size: 11.5px; font-weight: 600; color: var(--ink-faint); }
+        .kcp-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 12px; }
+        .kcp-chip { border: 1px solid var(--line-strong); border-radius: 999px; background: var(--paper); padding: 4px 12px; font-size: 12.5px; font-weight: 500; color: var(--ink); cursor: pointer; }
+        .kcp-chip:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-wash); }
+        .kcp-empty { font-size: 12.5px; color: var(--ink-faint); font-style: italic; }
       `}</style>
     </div>
   )

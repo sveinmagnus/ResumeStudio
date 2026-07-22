@@ -159,6 +159,48 @@ describe('ProfileEditor', () => {
   })
 })
 
+describe('KeyCompetenciesEditor — by-profile grouping', () => {
+  beforeEach(() => resetStore())
+
+  function seedGrouped() {
+    const data = emptyStore()
+    data.key_competencies.push(
+      makeKeyCompetency({ id: 'c1', title: { en: 'Shared' } }),
+      makeKeyCompetency({ id: 'c2', title: { en: 'Solo' } }),
+      makeKeyCompetency({ id: 'c3', title: { en: 'Loose' } }),
+    )
+    // c1 is in BOTH profiles; c2 only in p1; c3 in none (unassigned).
+    data.key_qualifications.push(
+      makeKQ({ id: 'p1', tag_line: { en: 'Architect' }, competency_ids: ['c1', 'c2'] }),
+      makeKQ({ id: 'p2', tag_line: { en: 'Leader' }, competency_ids: ['c1'] }),
+    )
+    seed(data)
+  }
+
+  it('shows a competency once per profile it belongs to, plus an Unassigned group', async () => {
+    seedGrouped()
+    render(<KeyCompetenciesEditor />)
+    await userEvent.click(screen.getByRole('button', { name: 'By profile' }))
+
+    expect(screen.getByText('Architect')).toBeInTheDocument()
+    expect(screen.getByText('Leader')).toBeInTheDocument()
+    expect(screen.getByText('Unassigned')).toBeInTheDocument()
+    // c1 ("Shared") is in two profiles → rendered twice (once per group).
+    expect(screen.getAllByRole('button', { name: 'Shared' })).toHaveLength(2)
+    // c2 only in p1 → once; c3 unassigned → once.
+    expect(screen.getAllByRole('button', { name: 'Solo' })).toHaveLength(1)
+    expect(screen.getAllByRole('button', { name: 'Loose' })).toHaveLength(1)
+  })
+
+  it('opens a competency in a lightbox when a chip is clicked', async () => {
+    seedGrouped()
+    render(<KeyCompetenciesEditor />)
+    await userEvent.click(screen.getByRole('button', { name: 'By profile' }))
+    await userEvent.click(screen.getAllByRole('button', { name: 'Shared' })[0])
+    expect(screen.getByRole('dialog', { name: 'Edit competency' })).toBeInTheDocument()
+  })
+})
+
 describe('RecommendationsEditor', () => {
   beforeEach(() => resetStore())
 
