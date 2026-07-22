@@ -10,6 +10,7 @@ import { api } from '../../src/lib/api'
 import { resetSummarizeAvailability } from '../../src/lib/summarizeClient'
 import { useStore } from '../../src/store/useStore'
 import { resetStore } from '../helpers/store-reset'
+import { resolveConfirm } from '../helpers/confirm'
 import { emptyStore, makeResume, makeCourse } from '../fixtures'
 import type { ResumeStore } from '../../src/types'
 
@@ -47,7 +48,7 @@ describe('SummarizeAllButton — when it shows', () => {
       makeCourse({ id: 'c2', description: { no: 'Mer tekst' } }),
     ])
     render(<SummarizeAllButton section="courses" />)
-    expect(await screen.findByRole('button', { name: /Summarize all empty \(2\)/ })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: /Bulk summarize \(2\)/ })).toBeInTheDocument()
   })
 
   it('stays hidden when no summarize backend is configured', async () => {
@@ -55,7 +56,7 @@ describe('SummarizeAllButton — when it shows', () => {
     seed([makeCourse({ id: 'c1', description: { no: 'Lang tekst' } })])
     render(<SummarizeAllButton section="courses" />)
     await waitFor(() => expect(api.summarizeStatus).toHaveBeenCalled())
-    expect(screen.queryByRole('button', { name: /Summarize all empty/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Bulk summarize/ })).not.toBeInTheDocument()
   })
 
   it('stays hidden when every summary is already filled', async () => {
@@ -63,7 +64,7 @@ describe('SummarizeAllButton — when it shows', () => {
     seed([makeCourse({ id: 'c1', description: { no: 'Tekst' }, short_description: { no: 'Fylt' } })])
     render(<SummarizeAllButton section="courses" />)
     await waitFor(() => expect(api.summarizeStatus).toHaveBeenCalled())
-    expect(screen.queryByRole('button', { name: /Summarize all empty/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Bulk summarize/ })).not.toBeInTheDocument()
   })
 
   it('stays hidden when there is nothing to summarize from', async () => {
@@ -71,21 +72,21 @@ describe('SummarizeAllButton — when it shows', () => {
     seed([makeCourse({ id: 'c1', description: {} })])
     render(<SummarizeAllButton section="courses" />)
     await waitFor(() => expect(api.summarizeStatus).toHaveBeenCalled())
-    expect(screen.queryByRole('button', { name: /Summarize all empty/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Bulk summarize/ })).not.toBeInTheDocument()
   })
 
   it('counts both visible columns when a secondary language is shown', async () => {
     backend(true)
     seed([makeCourse({ id: 'c1', description: { no: 'Norsk tekst', en: 'English text' } })], 'en')
     render(<SummarizeAllButton section="courses" />)
-    expect(await screen.findByRole('button', { name: /Summarize all empty \(2\)/ })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: /Bulk summarize \(2\)/ })).toBeInTheDocument()
   })
 
   it('counts only the primary column when the secondary is hidden', async () => {
     backend(true)
     seed([makeCourse({ id: 'c1', description: { no: 'Norsk tekst', en: 'English text' } })], null)
     render(<SummarizeAllButton section="courses" />)
-    expect(await screen.findByRole('button', { name: /Summarize all empty \(1\)/ })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: /Bulk summarize \(1\)/ })).toBeInTheDocument()
   })
 
   it('renders nothing at all for a section with no summary field', async () => {
@@ -93,6 +94,21 @@ describe('SummarizeAllButton — when it shows', () => {
     seed([])
     const { container } = render(<SummarizeAllButton section="spoken_languages" />)
     expect(container).toBeEmptyDOMElement()
+  })
+})
+
+describe('SummarizeAllButton — confirmation gate', () => {
+  it('asks for confirmation before running and does nothing if cancelled', async () => {
+    backend(true)
+    const spy = vi.spyOn(api, 'summarize').mockResolvedValue('Nope')
+    seed([makeCourse({ id: 'c1', description: { no: 'A' } })])
+    render(<SummarizeAllButton section="courses" />)
+    await userEvent.click(await screen.findByRole('button', { name: /Bulk summarize \(1\)/ }))
+
+    // A confirm dialog appears describing the run; cancelling runs nothing.
+    await resolveConfirm('cancel')
+    expect(spy).not.toHaveBeenCalled()
+    expect(useStore.getState().data.courses[0].short_description ?? {}).toEqual({})
   })
 })
 
@@ -105,7 +121,8 @@ describe('SummarizeAllButton — running the batch', () => {
       makeCourse({ id: 'c2', description: { no: 'Andre' } }),
     ])
     render(<SummarizeAllButton section="courses" />)
-    await userEvent.click(await screen.findByRole('button', { name: /Summarize all empty \(2\)/ }))
+    await userEvent.click(await screen.findByRole('button', { name: /Bulk summarize \(2\)/ }))
+    await resolveConfirm('confirm')
 
     await waitFor(() => {
       const courses = useStore.getState().data.courses
@@ -119,7 +136,8 @@ describe('SummarizeAllButton — running the batch', () => {
     const spy = vi.spyOn(api, 'summarize').mockImplementation(async (t, l) => `[${l}] ${t}`)
     seed([makeCourse({ id: 'c1', description: { no: 'Norsk kilde', en: 'English source' } })], 'en')
     render(<SummarizeAllButton section="courses" />)
-    await userEvent.click(await screen.findByRole('button', { name: /Summarize all empty \(2\)/ }))
+    await userEvent.click(await screen.findByRole('button', { name: /Bulk summarize \(2\)/ }))
+    await resolveConfirm('confirm')
 
     await waitFor(() => {
       expect(useStore.getState().data.courses[0].short_description).toEqual({
@@ -140,7 +158,8 @@ describe('SummarizeAllButton — running the batch', () => {
     ])
     const before = useStore.getState().mutationCount
     render(<SummarizeAllButton section="courses" />)
-    await userEvent.click(await screen.findByRole('button', { name: /Summarize all empty \(3\)/ }))
+    await userEvent.click(await screen.findByRole('button', { name: /Bulk summarize \(3\)/ }))
+    await resolveConfirm('confirm')
 
     await waitFor(() => {
       expect(useStore.getState().data.courses[2].short_description).toEqual({ no: 'A summary' })
@@ -157,7 +176,8 @@ describe('SummarizeAllButton — running the batch', () => {
       makeCourse({ id: 'c2', description: { no: 'B' } }),
     ])
     render(<SummarizeAllButton section="courses" />)
-    await userEvent.click(await screen.findByRole('button', { name: /Summarize all empty \(1\)/ }))
+    await userEvent.click(await screen.findByRole('button', { name: /Bulk summarize \(1\)/ }))
+    await resolveConfirm('confirm')
 
     await waitFor(() => {
       expect(useStore.getState().data.courses[1].short_description).toEqual({ no: 'Drafted' })
@@ -170,9 +190,10 @@ describe('SummarizeAllButton — running the batch', () => {
     vi.spyOn(api, 'summarize').mockResolvedValue('Done')
     seed([makeCourse({ id: 'c1', description: { no: 'A' } })])
     render(<SummarizeAllButton section="courses" />)
-    await userEvent.click(await screen.findByRole('button', { name: /Summarize all empty \(1\)/ }))
+    await userEvent.click(await screen.findByRole('button', { name: /Bulk summarize \(1\)/ }))
+    await resolveConfirm('confirm')
     await waitFor(() => {
-      expect(screen.queryByRole('button', { name: /Summarize all empty/ })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /Bulk summarize/ })).not.toBeInTheDocument()
     })
   })
 
@@ -187,7 +208,8 @@ describe('SummarizeAllButton — running the batch', () => {
       makeCourse({ id: 'c3', description: { no: 'C' } }),
     ])
     render(<SummarizeAllButton section="courses" />)
-    await userEvent.click(await screen.findByRole('button', { name: /Summarize all empty \(3\)/ }))
+    await userEvent.click(await screen.findByRole('button', { name: /Bulk summarize \(3\)/ }))
+    await resolveConfirm('confirm')
 
     const alert = await screen.findByRole('alert')
     expect(alert).toHaveTextContent('Model not found')
@@ -201,7 +223,8 @@ describe('SummarizeAllButton — running the batch', () => {
     vi.spyOn(api, 'summarize').mockRejectedValue(new Error('Backend down'))
     seed([makeCourse({ id: 'c1', description: { no: 'A' } })])
     render(<SummarizeAllButton section="courses" />)
-    await userEvent.click(await screen.findByRole('button', { name: /Summarize all empty \(1\)/ }))
+    await userEvent.click(await screen.findByRole('button', { name: /Bulk summarize \(1\)/ }))
+    await resolveConfirm('confirm')
 
     const alert = await screen.findByRole('alert')
     expect(alert).toHaveTextContent('Backend down')
@@ -220,7 +243,8 @@ describe('SummarizeAllButton — running the batch', () => {
       makeCourse({ id: 'c2', description: { no: 'B' } }),
     ])
     render(<SummarizeAllButton section="courses" />)
-    await userEvent.click(await screen.findByRole('button', { name: /Summarize all empty \(2\)/ }))
+    await userEvent.click(await screen.findByRole('button', { name: /Bulk summarize \(2\)/ }))
+    await resolveConfirm('confirm')
 
     const progress = await screen.findByRole('button', { name: /Summarizing 1 of 2/ })
     await userEvent.click(progress) // stop
@@ -238,8 +262,8 @@ describe('SortBar integration', () => {
   it('sits next to Bulk add in the section bar', async () => {
     backend(true)
     seed([makeCourse({ id: 'c1', description: { no: 'Tekst' } })])
-    render(<SortBar section="courses" count={1} />)
-    expect(await screen.findByRole('button', { name: /Summarize all empty \(1\)/ })).toBeInTheDocument()
+    render(<SortBar section="courses" />)
+    expect(await screen.findByRole('button', { name: /Bulk summarize \(1\)/ })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Bulk add/ })).toBeInTheDocument()
   })
 
@@ -249,8 +273,8 @@ describe('SortBar integration', () => {
       data: { ...emptyStore(), resume: makeResume({ id: 'r1' }) },
       hasData: true, primaryLocale: 'no', secondaryLocale: null,
     })
-    render(<SortBar section="references" count={0} />)
+    render(<SortBar section="references" />)
     expect(screen.getByRole('button', { name: /Bulk add/ })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /Summarize all empty/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Bulk summarize/ })).not.toBeInTheDocument()
   })
 })

@@ -97,7 +97,7 @@ export function DualField({ label, value, onChange, multiline, rows = 3, placeho
 
   /**
    * Plain-text summarize source for a locale (rich markup stripped), or ''.
-   * Shares `summarizableSource` with the section-level "Summarize all empty",
+   * Shares `summarizableSource` with the section-level "Bulk summarize",
    * so this button and that button's count always agree on what counts.
    */
   const summarizeSrc = (locale: string): string =>

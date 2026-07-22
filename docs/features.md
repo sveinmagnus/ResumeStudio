@@ -88,7 +88,8 @@ whatever AI you already use and paste the answer back — so nothing requires
 an API key.
 
 - **One-line summaries.** Draft a short description from a long one — per
-  field, or "Summarize all empty" for a whole section at once.
+  field, or "Bulk summarize" for a whole section at once (with a confirmation
+  that explains what will run).
 - **Job-posting tailoring.** Paste a posting and get a proposed view:
   section detail levels, item exclusions, a drafted intro, and a gap list.
 - **Skill suggestions.** Propose the skills a project's prose demonstrates,

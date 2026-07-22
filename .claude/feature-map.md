@@ -300,7 +300,7 @@ prescriptive.
   - **Per column** — a Summarize button on `DualField`'s short-description
     input, shown when that column has source text. Same-locale: the model
     writes in the language it reads.
-  - **Whole section** — "Summarize all empty (N)" in the section bar next to
+  - **Whole section** — "Bulk summarize (N)" (with a confirm dialog) in the section bar next to
     Bulk add, shown only when a backend is configured AND N > 0. The work list
     is every (item, *visible* locale) whose summary is empty and whose long
     description has text — `SUMMARY_FIELDS` maps source→target per section

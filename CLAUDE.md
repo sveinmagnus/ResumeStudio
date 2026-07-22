@@ -42,7 +42,7 @@ The full catalog with per-feature design detail is in
 - **AI assist (BYO backend)** — server-proxied summarize (Docker-managed local
   Ollama / OpenAI / any OpenAI-compatible endpoint) drafts a one-line short
   description from a long one: per-column in `DualField`, or the whole section
-  via "Summarize all empty" in the section bar (`lib/summarizeBatch.ts`).
+  via "Bulk summarize" (confirmation-gated) in the section bar (`lib/summarizeBatch.ts`).
   Drafts are always review-required. Hidden entirely when nothing is
   configured. The Ollama model field is a datalist over
   `lib/ollamaCatalog.ts` (curated open-weight shortlist + sizes) merged with

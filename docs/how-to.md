@@ -174,7 +174,7 @@ you chose — there is no Resume Studio backend in the loop.
 
 ## AI assist
 
-The AI features — one-line summaries, "Summarize all empty", job-posting
+The AI features — one-line summaries, "Bulk summarize", job-posting
 tailoring, AI import, bulk add, skill suggestions, drafted highlights, the
 anonymization check, and page-fit advice — all run on **one model you
 configure** in **Settings → AI assist**:

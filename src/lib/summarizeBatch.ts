@@ -1,5 +1,5 @@
 /**
- * Resume Studio — "Summarize all empty" work list.
+ * Resume Studio — "Bulk summarize" work list.
  *
  * The section-level sibling of `DualField`'s per-column Summarize button: it
  * finds every short-description field that is empty but COULD be filled, so the
