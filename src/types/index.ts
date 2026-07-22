@@ -262,6 +262,15 @@ export interface KeyQualification {
   summary_short?: LocalizedString
   key_points: KeyPoint[]
   skill_tags: string[]
+  /**
+   * The competencies that belong to this profile, as an ordered list of
+   * `KeyCompetency` ids — the profile's "bundle". A view that presents this
+   * profile shows exactly these competencies, in this order (see
+   * `viewFilter.applyView`). A competency id may appear on more than one profile
+   * (reuse across bundles). Editing lives in the Profile editor (add / reorder /
+   * remove / add-existing) and the standalone Key Competencies library.
+   */
+  competency_ids: string[]
   sort_order: number
   starred: boolean
   disabled: boolean
@@ -271,8 +280,11 @@ export interface KeyQualification {
 /**
  * A single key-competency entry — a short title plus a longer description,
  * summarising one facet of the consultant's skillset. Lives in its own
- * top-level collection, edited under the Personal Details → Key Competencies
- * tab, and rendered as a section in views (by default just below the profile).
+ * top-level collection (a shared library) and is rendered as a section in
+ * views (by default just below the profile). Which competencies a view shows —
+ * and in what order — comes from the selected profile's bundle
+ * (`KeyQualification.competency_ids`), not the competency itself; a competency
+ * may belong to several bundles (reuse).
  */
 export interface KeyCompetency {
   id: string
@@ -282,13 +294,6 @@ export interface KeyCompetency {
   /** Single-line summary shown in a view's SUMMARY mode (in place of the long
    *  description used in FULL mode). Additive/optional. */
   short_description?: LocalizedString
-  /**
-   * Editor-only link to a `KeyQualification` (Profile) this competency belongs
-   * to — used as a "type" to group competencies and to quick-select the ones
-   * relevant to a view's chosen profile. NEVER exported (item stays selectable
-   * in any view regardless). Additive/optional — `null`/absent = unassigned.
-   */
-  profile_id?: string | null
   sort_order: number
   starred: boolean
   disabled: boolean

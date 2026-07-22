@@ -60,7 +60,7 @@ describe('<SortBar> + reorder guard (via WorkEditor)', () => {
 
     // Move the first card (NewCo) down → confirm fires, order becomes OldCo,NewCo,
     // baked into sort_order, and the mode flips back to custom.
-    await userEvent.click(screen.getAllByTitle('Move down')[0])
+    await userEvent.click(screen.getAllByTitle('Move down in this section')[0])
     await resolveConfirm('confirm')
 
     expect(useStore.getState().sectionSort.work_experiences).toBe('custom')
@@ -73,7 +73,7 @@ describe('<SortBar> + reorder guard (via WorkEditor)', () => {
     render(<WorkEditor />)
     await userEvent.selectOptions(screen.getByLabelText('Sort'), 'start')
 
-    await userEvent.click(screen.getAllByTitle('Move down')[0])
+    await userEvent.click(screen.getAllByTitle('Move down in this section')[0])
     await resolveConfirm('cancel')
 
     // Still in start mode; sort_order untouched (OldCo=0, NewCo=1).
@@ -86,7 +86,7 @@ describe('<SortBar> + reorder guard (via WorkEditor)', () => {
     seedTwoWork()
     render(<WorkEditor />)
     // Default custom mode — move down without any prompt.
-    await userEvent.click(screen.getAllByTitle('Move down')[0])
+    await userEvent.click(screen.getAllByTitle('Move down in this section')[0])
     expect(confirmDialogVisible()).toBe(false)
     const ordered = [...useStore.getState().data.work_experiences].sort((a, b) => a.sort_order - b.sort_order)
     expect(ordered.map((w) => w.id)).toEqual(['new', 'old'])

@@ -215,6 +215,7 @@ export function makeKQ(over: Partial<KeyQualification> = {}): KeyQualification {
     summary: { en: 'Summary here' },
     key_points: [],
     skill_tags: [],
+    competency_ids: [],
     sort_order: 0,
     starred: false,
     disabled: false,

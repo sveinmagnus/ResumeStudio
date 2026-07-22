@@ -23,7 +23,7 @@ import type {
   Presentation, HonorAward, Publication, SpokenLanguage, KeyQualification,
   KeyCompetency, Recommendation, Role, LocalizedString, CefrCategory, CefrLevel,
 } from '../../types'
-import { X } from 'lucide-react'
+import { X, ChevronUp, ChevronDown, Plus } from 'lucide-react'
 
 /** Current year+month as a YearMonth — the default "To" date for a new course. */
 function thisMonth(): { year: number; month: number } {
@@ -607,6 +607,27 @@ export function SpokenLanguagesEditor() {
 
 // ── Key competencies ───────────────────────────────────────────────────────
 
+/**
+ * The three competency inputs (title, description, short summary). Shared by the
+ * Key Competencies library editor AND the per-profile bundle editor so both
+ * surfaces edit the exact same fields (one source of truth).
+ */
+function CompetencyFields({ competency: k }: { competency: KeyCompetency }) {
+  const updateItem = useStore((s) => s.updateItem)
+  return (
+    <>
+      <DualField label="Competency" value={k.title} onChange={(v) => updateItem('key_competencies', k.id, { title: v })} placeholder="e.g. Solution architecture" />
+      <RichField label="Description" value={k.description} onChange={(v) => updateItem('key_competencies', k.id, { description: v })} />
+      <DualField label="Short description (summary mode)" value={k.short_description ?? {}} onChange={(v) => updateItem('key_competencies', k.id, { short_description: v })} summarizeFrom={k.description} placeholder="One concise line shown in summary mode" />
+    </>
+  )
+}
+
+/** Profiles (bundles) that include competency `id`, in profile order. */
+function bundlesContaining(quals: KeyQualification[], id: string): KeyQualification[] {
+  return quals.filter((q) => (q.competency_ids ?? []).includes(id))
+}
+
 export function KeyCompetenciesEditor() {
   const { data, primaryLocale, addItem, updateItem } = useStore()
   const items = useSortedItems('key_competencies')
@@ -621,35 +642,37 @@ export function KeyCompetenciesEditor() {
     <div className="section-pane">
       <SectionIntro>
         Your headline strengths — each a short heading with a supporting
-        description. They export as their own section, by default just below
-        your profile.
+        description. Group them into profiles on the Profile page: a Resume View
+        shows exactly the competencies of the profile it presents. This page is
+        the full library of every competency.
       </SectionIntro>
       <SortBar section="key_competencies" count={items.length} />
       <SortableList section="key_competencies" ids={items.map((x) => x.id)} addLabel="Add competency" onAdd={add}>
       {items.map((k) => {
-        const profile = data.key_qualifications.find((q) => q.id === k.profile_id)
+        const bundles = bundlesContaining(data.key_qualifications, k.id)
+        const inLabel = bundles.length
+          ? `In: ${bundles.map((q) => resolve(q.tag_line, primaryLocale) || '(unnamed profile)').join(', ')}`
+          : 'Not in any profile'
         return (
         <EditorCard key={k.id} section="key_competencies" id={k.id}
           title={resolve(k.title, primaryLocale) || 'Competency'}
-          subtitle={profile ? resolve(profile.tag_line, primaryLocale) : ''}
+          subtitle={inLabel}
           preview={richToPlain(resolve(k.description, primaryLocale))}
           starred={k.starred} disabled={k.disabled}>
-          <DualField label="Competency" value={k.title} onChange={(v) => updateItem('key_competencies', k.id, { title: v })} placeholder="e.g. Solution architecture" />
-          <RichField label="Description" value={k.description} onChange={(v) => updateItem('key_competencies', k.id, { description: v })} />
-          <DualField label="Short description (summary mode)" value={k.short_description ?? {}} onChange={(v) => updateItem('key_competencies', k.id, { short_description: v })} summarizeFrom={k.description} placeholder="One concise line shown in summary mode" />
-          <label className="pf-wrap">
-            <span className="pf-label">Profile <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>— editor-only grouping, never exported</span></span>
-            <select className="pf-input" value={k.profile_id ?? ''} onChange={(e) => updateItem('key_competencies', k.id, { profile_id: e.target.value || null })}>
-              <option value="">—</option>
-              {data.key_qualifications.filter((q) => !q.disabled).map((q) => (
-                <option key={q.id} value={q.id}>{resolve(q.tag_line, primaryLocale) || '(unnamed profile)'}</option>
-              ))}
-            </select>
-          </label>
+          <CompetencyFields competency={k} />
+          <p className="kc-bundles" role="note">
+            {bundles.length
+              ? <>Belongs to {bundles.length === 1 ? 'profile' : 'profiles'}: <strong>{bundles.map((q) => resolve(q.tag_line, primaryLocale) || '(unnamed profile)').join(', ')}</strong>. Manage membership on the Profile page.</>
+              : <>Not yet in any profile — add it from a profile on the Profile page to have it appear in a view.</>}
+          </p>
         </EditorCard>
         )
       })}
       </SortableList>
+      <style>{`
+        .kc-bundles { margin: 4px 2px 0; font-size: 12px; color: var(--ink-soft); }
+        .kc-bundles strong { color: var(--ink); font-weight: 600; }
+      `}</style>
     </div>
   )
 }
@@ -743,13 +766,143 @@ function RelationshipField({ label, value, primaryLocale, onChange }: {
 
 // ── Profile / key qualifications ──────────────────────────────────────────────
 
+/**
+ * The "bundle" editor inside a profile card: the ordered set of competencies
+ * this profile presents. A view showing this profile shows exactly these, in
+ * this order. Create new competencies, pull in existing ones (reuse across
+ * profiles), reorder, or remove (removing only unlinks — the competency stays
+ * in the library). Membership lives on the profile (`competency_ids`).
+ */
+function ProfileBundleEditor({ kq }: { kq: KeyQualification }) {
+  const { data, primaryLocale, addItem, updateItem } = useStore()
+  const [expanded, setExpanded] = useState<string | null>(null)
+  const [addingExisting, setAddingExisting] = useState(false)
+
+  const ids = kq.competency_ids ?? []
+  const byId = new Map(data.key_competencies.map((c) => [c.id, c]))
+  const members = ids.map((id) => byId.get(id)).filter((c): c is KeyCompetency => !!c)
+  const available = data.key_competencies.filter((c) => !c.disabled && !ids.includes(c.id))
+
+  const setIds = (next: string[]) => updateItem('key_qualifications', kq.id, { competency_ids: next })
+
+  const addNew = () => {
+    const c: KeyCompetency = {
+      id: newId(), resume_id: data.resume!.id, title: {}, description: {},
+      sort_order: data.key_competencies.length, starred: false, disabled: false,
+    }
+    // Create the competency without stealing focus from this profile card, then
+    // append it to the bundle and open it inline for editing.
+    addItem('key_competencies', c, { open: false })
+    setIds([...ids, c.id])
+    setExpanded(c.id)
+  }
+
+  const move = (id: string, dir: -1 | 1) => {
+    const i = ids.indexOf(id)
+    const j = i + dir
+    if (i < 0 || j < 0 || j >= ids.length) return
+    const next = [...ids]
+    ;[next[i], next[j]] = [next[j], next[i]]
+    setIds(next)
+  }
+
+  return (
+    <div className="pcb">
+      <div className="pcb-head">
+        <span className="pf-label" style={{ margin: 0 }}>Competencies in this profile</span>
+        <span className="pcb-hint">Shown, in this order, by any view that presents this profile.</span>
+      </div>
+
+      {members.length === 0 && <p className="pcb-empty">No competencies yet — add one below.</p>}
+
+      <ul className="pcb-list">
+        {members.map((c, i) => {
+          const isOpen = expanded === c.id
+          const otherBundles = bundlesContaining(data.key_qualifications, c.id).filter((q) => q.id !== kq.id)
+          return (
+            <li key={c.id} className="pcb-item">
+              <div className="pcb-row">
+                <button type="button" className="pcb-title" aria-expanded={isOpen}
+                  onClick={() => setExpanded(isOpen ? null : c.id)}>
+                  {isOpen ? <ChevronDown size={14} /> : <ChevronUp size={14} style={{ transform: 'rotate(90deg)' }} />}
+                  <span>{resolve(c.title, primaryLocale) || 'Untitled competency'}</span>
+                </button>
+                <div className="pcb-actions">
+                  <button type="button" className="pcb-icon" aria-label="Move up" disabled={i === 0} onClick={() => move(c.id, -1)}><ChevronUp size={15} /></button>
+                  <button type="button" className="pcb-icon" aria-label="Move down" disabled={i === members.length - 1} onClick={() => move(c.id, 1)}><ChevronDown size={15} /></button>
+                  <button type="button" className="pcb-icon pcb-remove" aria-label="Remove from profile" onClick={() => setIds(ids.filter((x) => x !== c.id))}><X size={15} /></button>
+                </div>
+              </div>
+              {isOpen && (
+                <div className="pcb-fields">
+                  <CompetencyFields competency={c} />
+                  {otherBundles.length > 0 && (
+                    <p className="pcb-shared" role="note">
+                      Also used by: {otherBundles.map((q) => resolve(q.tag_line, primaryLocale) || '(unnamed profile)').join(', ')}. Edits apply everywhere.
+                    </p>
+                  )}
+                </div>
+              )}
+            </li>
+          )
+        })}
+      </ul>
+
+      <div className="pcb-add">
+        <button type="button" className="pcb-addbtn" onClick={addNew}><Plus size={14} /> Add competency</button>
+        {available.length > 0 && (addingExisting ? (
+          <span className="pcb-pick">
+            <select className="pf-input pcb-select" defaultValue="" aria-label="Add an existing competency"
+              onChange={(e) => { if (e.target.value) { setIds([...ids, e.target.value]); setAddingExisting(false) } }}>
+              <option value="" disabled>Choose a competency…</option>
+              {available.map((c) => (
+                <option key={c.id} value={c.id}>{resolve(c.title, primaryLocale) || 'Untitled competency'}</option>
+              ))}
+            </select>
+            <button type="button" className="pcb-cancel" onClick={() => setAddingExisting(false)}>Cancel</button>
+          </span>
+        ) : (
+          <button type="button" className="pcb-addbtn pcb-addbtn-alt" onClick={() => setAddingExisting(true)}>Add existing…</button>
+        ))}
+      </div>
+
+      <style>{`
+        .pcb { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+        .pcb-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+        .pcb-hint { font-size: 12px; color: var(--ink-faint); }
+        .pcb-empty { margin: 8px 2px; font-size: 13px; color: var(--ink-soft); }
+        .pcb-list { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+        .pcb-item { border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--paper-raised); }
+        .pcb-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; }
+        .pcb-title { flex: 1; display: flex; align-items: center; gap: 6px; background: none; border: none; padding: 2px; text-align: left; cursor: pointer; color: var(--ink); font: inherit; font-size: 13px; }
+        .pcb-title:hover { color: var(--accent); }
+        .pcb-actions { display: flex; gap: 2px; }
+        .pcb-icon { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border: 1px solid transparent; border-radius: var(--r-sm); background: none; color: var(--ink-soft); cursor: pointer; }
+        .pcb-icon:hover:not(:disabled) { background: var(--paper-sunken); color: var(--ink); }
+        .pcb-icon:disabled { opacity: 0.35; cursor: default; }
+        .pcb-remove:hover:not(:disabled) { color: var(--err-ink); background: var(--err-wash); }
+        .pcb-fields { padding: 4px 10px 12px; border-top: 1px solid var(--line); }
+        .pcb-shared { margin: 8px 0 0; font-size: 12px; color: var(--ink-soft); }
+        .pcb-add { display: flex; align-items: center; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+        .pcb-addbtn { display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; border: 1px solid var(--accent); border-radius: var(--r-sm); background: var(--accent-wash); color: var(--accent); font-size: 13px; font-weight: 600; cursor: pointer; }
+        .pcb-addbtn:hover { background: var(--accent); color: #fff; }
+        .pcb-addbtn-alt { border-color: var(--line-strong); background: none; color: var(--ink-soft); font-weight: 500; }
+        .pcb-addbtn-alt:hover { background: var(--paper-sunken); color: var(--ink); }
+        .pcb-pick { display: inline-flex; align-items: center; gap: 6px; }
+        .pcb-select { max-width: 260px; }
+        .pcb-cancel { background: none; border: none; color: var(--ink-soft); font-size: 12px; cursor: pointer; text-decoration: underline; }
+      `}</style>
+    </div>
+  )
+}
+
 export function ProfileEditor() {
   const { data, primaryLocale, addItem, updateItem } = useStore()
   const items = useSortedItems('key_qualifications')
   const add = () => {
     const k: KeyQualification = {
       id: newId(), resume_id: data.resume!.id, label: {}, tag_line: {}, summary: {},
-      key_points: [], skill_tags: [], sort_order: items.length, starred: false, disabled: false, internal_notes: null,
+      key_points: [], skill_tags: [], competency_ids: [], sort_order: items.length, starred: false, disabled: false, internal_notes: null,
     }
     addItem('key_qualifications', k)
     // A view shows exactly ONE profile. So a new profile must not silently
@@ -771,10 +924,12 @@ export function ProfileEditor() {
     <div className="section-pane">
       <SectionIntro>
         The opening statement of your CV — a tag line plus a short and a long
-        summary. The tag line names the profile and, by default, becomes the
-        resume title in each view. Each Resume View chooses which parts to show,
-        so a compact view can lead with the short version and a detailed one with
-        the long. Add several profiles and pick one per view.
+        summary, together with the <strong>key competencies</strong> this
+        profile presents. The tag line names the profile and, by default,
+        becomes the resume title in each view. Each Resume View picks one
+        profile and shows exactly its competencies, in the order set here, so a
+        compact view can lead with the short summary and a detailed one with the
+        long. Add several profiles and pick one per view.
       </SectionIntro>
       <SortBar section="key_qualifications" count={items.length} />
       <SortableList section="key_qualifications" ids={items.map((x) => x.id)} addLabel="Add profile" onAdd={add}>
@@ -786,6 +941,7 @@ export function ProfileEditor() {
           <DualField label="Tag line" value={kq.tag_line} onChange={(v) => updateItem('key_qualifications', kq.id, { tag_line: v })} placeholder="e.g. Senior Cloud Architect" />
           <RichField label="Short summary (summary mode)" value={kq.summary_short ?? {}} onChange={(v) => updateItem('key_qualifications', kq.id, { summary_short: v })} />
           <RichField label="Full profile (full mode)" value={kq.summary} onChange={(v) => updateItem('key_qualifications', kq.id, { summary: v })} />
+          <ProfileBundleEditor kq={kq} />
         </EditorCard>
       ))}
       </SortableList>

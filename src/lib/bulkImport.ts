@@ -663,6 +663,7 @@ export const BULK_SPECS: readonly BulkSectionSpec[] = [
         summary_short: toLocalized(raw['summary_short'], ctx.defaultLocale),
         key_points: [],
         skill_tags: [],
+        competency_ids: [],
         sort_order: 0,
         starred: false,
         disabled: false,

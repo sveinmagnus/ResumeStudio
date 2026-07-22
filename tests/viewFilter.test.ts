@@ -1393,14 +1393,44 @@ describe('isDataImage()', () => {
 // ─── New sections + promoted projects (follow-up features) ────────────────────
 
 describe('key_competencies & recommendations rendering', () => {
-  it('renders key_competencies (title + description) as a section', () => {
+  it('renders the selected profile bundle\'s key_competencies (title + description)', () => {
     const store = emptyStore()
     store.key_competencies.push(makeKeyCompetency({
-      title: { en: 'Architecture' }, description: { en: 'Designs scalable systems' },
+      id: 'c1', title: { en: 'Architecture' }, description: { en: 'Designs scalable systems' },
     }))
+    // Shape v12: a competency only renders when it's in the selected profile's bundle.
+    store.key_qualifications.push(makeKQ({ id: 'p1', tag_line: { en: 'Architect' }, competency_ids: ['c1'] }))
     const html = buildViewHtml(store, makeView({ sections: buildViewSections() }), 'en')
     expect(html).toContain('Architecture')
     expect(html).toContain('Designs scalable systems')
+  })
+
+  it('shows exactly the selected profile\'s bundle, in bundle order, and hides others', () => {
+    const store = emptyStore()
+    store.key_competencies.push(
+      makeKeyCompetency({ id: 'c1', title: { en: 'Alpha' } }),
+      makeKeyCompetency({ id: 'c2', title: { en: 'Beta' } }),
+      makeKeyCompetency({ id: 'c3', title: { en: 'Gamma' } }),
+    )
+    // p1 (the first, selected) bundles c3 then c1 — c2 belongs to p2 only.
+    store.key_qualifications.push(
+      makeKQ({ id: 'p1', tag_line: { en: 'One' }, competency_ids: ['c3', 'c1'] }),
+      makeKQ({ id: 'p2', tag_line: { en: 'Two' }, competency_ids: ['c2'] }),
+    )
+    const html = buildViewHtml(store, makeView({ sections: buildViewSections() }), 'en')
+    expect(html).toContain('Gamma')
+    expect(html).toContain('Alpha')
+    expect(html).not.toContain('Beta') // c2 is in p2's bundle, not the selected p1
+    // Bundle order: Gamma (c3) precedes Alpha (c1).
+    expect(html.indexOf('Gamma')).toBeLessThan(html.indexOf('Alpha'))
+  })
+
+  it('renders no competencies when the view selects a profile whose bundle is empty', () => {
+    const store = emptyStore()
+    store.key_competencies.push(makeKeyCompetency({ id: 'c1', title: { en: 'Orphan' } }))
+    store.key_qualifications.push(makeKQ({ id: 'p1', tag_line: { en: 'Empty' }, competency_ids: [] }))
+    const html = buildViewHtml(store, makeView({ sections: buildViewSections() }), 'en')
+    expect(html).not.toContain('Orphan')
   })
 
   it('renders recommendations with the quote and recommender name', () => {

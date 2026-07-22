@@ -190,9 +190,8 @@ describe('typeGroups() — project roles', () => {
   })
 })
 
-describe('typeGroups() — course/certification category + competency profile', () => {
+describe('typeGroups() — course/certification category', () => {
   const course = (id: string, category?: string | null): SelectableItem => ({ id, category })
-  const comp = (id: string, profile_id?: string | null): SelectableItem => ({ id, profile_id })
 
   it('groups courses by their editor category', () => {
     const sets = typeGroups('courses', [
@@ -209,18 +208,13 @@ describe('typeGroups() — course/certification category + competency profile', 
     expect(facet(sets, 'Category')!.groups.find((x) => x.label === 'Medical')!.ids.sort()).toEqual(['a', 'b'])
   })
 
-  it('groups key competencies by their linked profile, named by tag line', () => {
-    const keyQualifications = [
-      { id: 'p1', tag_line: { en: 'Architect' } },
-      { id: 'p2', tag_line: { en: 'Leader' } },
-    ] as never
+  it('offers no facet for key competencies (bundle scoping replaced the Profile facet)', () => {
+    // Competencies are no longer picked per-item in a view — a view shows the
+    // selected profile's bundle (shape v12), so the section carries no facet.
     const sets = typeGroups('key_competencies', [
-      comp('a', 'p1'), comp('b', 'p2'), comp('c', 'p1'), comp('d', null),
-    ], 'en', { roles: [], keyQualifications })
-    const g = facet(sets, 'Profile')!.groups
-    expect(g.find((x) => x.label === 'Architect')!.ids.sort()).toEqual(['a', 'c'])
-    expect(g.find((x) => x.label === 'Leader')!.ids).toEqual(['b'])
-    expect(g.find((x) => x.value === '')!.ids).toEqual(['d'])
+      { id: 'a' }, { id: 'b' }, { id: 'c' },
+    ], 'en', { roles: [] })
+    expect(sets).toEqual([])
   })
 })
 

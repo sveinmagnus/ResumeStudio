@@ -128,7 +128,7 @@ export function importFromEuropassJson(json: unknown): ResumeStore {
     store.key_qualifications.push({
       id: uuidv4(), resume_id: resumeId,
       label: {}, tag_line: {}, summary: { [loc]: about },
-      key_points: [], skill_tags: [], sort_order: 0,
+      key_points: [], skill_tags: [], competency_ids: [], sort_order: 0,
       starred: false, disabled: false, internal_notes: null,
     })
   }

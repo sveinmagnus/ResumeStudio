@@ -3,9 +3,9 @@ import {
   appendLocalized, buildRoleParagraph, foldRoleDescriptions,
   extractKeyPointsToCompetencies, migrateEmploymentShape, internProjectIndustries,
   internSkillCategories, unifyShowcaseCategories, localizeRecommenderTitles,
-  unpinLegacyHeadingFont, ensureCoverLetters, migrateCourseDates, migrateStore, isNewerShape, CURRENT_SHAPE_VERSION,
+  unpinLegacyHeadingFont, ensureCoverLetters, migrateCourseDates, migrateBundleMembership, migrateStore, isNewerShape, CURRENT_SHAPE_VERSION,
 } from '../src/lib/migrate'
-import { emptyStore, makeProject, makeWork, makeSkill, makeSkillCategory, makeView, makeCoverLetter, makeRecommendation, makeCourse } from './fixtures'
+import { emptyStore, makeProject, makeWork, makeSkill, makeSkillCategory, makeView, makeCoverLetter, makeRecommendation, makeCourse, makeKQ, makeKeyCompetency } from './fixtures'
 import type { ProjectRole, KeyQualification, KeyPoint, WorkExperience, Project, LocalizedString, Skill, ResumeStore } from '../src/types'
 
 /** A project carrying the pre-v4 single `industry`/`industry_id` pair. */
@@ -665,5 +665,75 @@ describe('migrateCourseDates (v11)', () => {
     const out = migrateCourseDates(store)
     expect(out.courses[0].start).toBeNull()
     expect(out.courses[0].end).toBeNull()
+  })
+})
+
+describe('migrateBundleMembership (v12)', () => {
+  // A competency as pre-v12 data had it: an editor-only `profile_id` grouping link.
+  const legacyComp = (id: string, profile_id: string | null, sort_order = 0) =>
+    ({ ...makeKeyCompetency({ id, sort_order }), profile_id }) as Record<string, unknown>
+  // A profile as pre-v12 data had it: no `competency_ids` array yet.
+  const preV12KQ = (id: string) => {
+    const kq = { ...makeKQ({ id }) } as Record<string, unknown>
+    delete kq.competency_ids
+    return kq
+  }
+
+  it('collects each profile\'s competencies into competency_ids, ordered by sort_order', () => {
+    const store = emptyStore()
+    store.key_qualifications = [preV12KQ('p1'), preV12KQ('p2')] as never
+    store.key_competencies = [
+      legacyComp('c1', 'p1', 2),
+      legacyComp('c2', 'p2', 0),
+      legacyComp('c3', 'p1', 1),
+      legacyComp('c4', null, 3), // unassigned — belongs to no bundle
+    ] as never
+    const out = migrateBundleMembership(store)
+    const byId = Object.fromEntries(out.key_qualifications.map((q) => [q.id, q]))
+    // p1 gets c3 (sort 1) before c1 (sort 2); p2 gets c2; unassigned c4 goes nowhere.
+    expect(byId.p1.competency_ids).toEqual(['c3', 'c1'])
+    expect(byId.p2.competency_ids).toEqual(['c2'])
+    // The legacy link is stripped off every competency.
+    expect(out.key_competencies.every((c) => !('profile_id' in (c as object)))).toBe(true)
+  })
+
+  it('guarantees a competency_ids array on every profile', () => {
+    const store = emptyStore()
+    store.key_qualifications = [preV12KQ('p1')] as never
+    const out = migrateBundleMembership(store)
+    expect(out.key_qualifications[0].competency_ids).toEqual([])
+  })
+
+  it('drops a competency whose profile_id names no existing profile', () => {
+    const store = emptyStore()
+    store.key_qualifications = [makeKQ({ id: 'p1' })]
+    store.key_competencies = [legacyComp('c1', 'ghost')] as never
+    const out = migrateBundleMembership(store)
+    expect(out.key_qualifications[0].competency_ids).toEqual([])
+  })
+
+  it('unions onto any competency_ids already present, without duplicating', () => {
+    const store = emptyStore()
+    store.key_qualifications = [makeKQ({ id: 'p1', competency_ids: ['c1'] })]
+    store.key_competencies = [legacyComp('c1', 'p1', 0), legacyComp('c2', 'p1', 1)] as never
+    const out = migrateBundleMembership(store)
+    expect(out.key_qualifications[0].competency_ids).toEqual(['c1', 'c2'])
+  })
+
+  it('is idempotent — bundles present and no profile_id yields the same reference', () => {
+    const store = emptyStore()
+    store.key_qualifications = [makeKQ({ id: 'p1', competency_ids: ['c1'] })]
+    store.key_competencies = [makeKeyCompetency({ id: 'c1' })]
+    expect(migrateBundleMembership(store)).toBe(store)
+  })
+
+  it('migrateStore runs it end-to-end and stamps the current shape', () => {
+    const store = emptyStore()
+    store.key_qualifications = [preV12KQ('p1')] as never
+    store.key_competencies = [legacyComp('c1', 'p1')] as never
+    delete (store as { shape_version?: number }).shape_version
+    const out = migrateStore(store)
+    expect(out.shape_version).toBe(CURRENT_SHAPE_VERSION)
+    expect(out.key_qualifications[0].competency_ids).toEqual(['c1'])
   })
 })

@@ -21,7 +21,7 @@
  * selection inherits it rather than inventing a second, contradictory rule.
  */
 
-import type { Role, KeyQualification } from '../types'
+import type { Role } from '../types'
 import { resolve } from './locales'
 import { POSITION_TYPES, positionTypeLabel } from './positionTypes'
 import { PUBLICATION_TYPES, publicationTypeLabel } from './publicationTypes'
@@ -86,13 +86,11 @@ export function isSingleSelectSection(sectionKey: string): boolean {
 // ─── Facets ──────────────────────────────────────────────────────────────────
 
 /**
- * Context a facet may need beyond the items themselves — the role registry (so
- * a role facet can name a role id) and the profiles (so a competency's
- * profile_id facet can name its profile by tag line).
+ * Context a facet may need beyond the items themselves — the role registry, so
+ * a role facet can name a role id by its registry name.
  */
 export interface FacetCtx {
   roles: readonly Role[]
-  keyQualifications?: readonly KeyQualification[]
 }
 
 /**
@@ -156,23 +154,6 @@ function roleFacet(getIds: (item: SelectableItem) => string[], locale: string): 
 }
 
 /**
- * Profile facet for Key Competencies: a competency's `profile_id` links it to a
- * Profile (key_qualification), used as a "type" so a view can quick-select the
- * competencies relevant to the profile it shows. Values are ordered by the
- * resume's profiles and labelled by their tag line; a stale link falls into
- * "No type".
- */
-function profileFacet(locale: string): FacetSpec {
-  return {
-    name: 'Profile',
-    extract: strField('profile_id'),
-    ordered: (ctx) => (ctx.keyQualifications ?? []).map((q) => ({
-      value: q.id, label: resolve(q.tag_line, locale) || '(unnamed profile)',
-    })),
-  }
-}
-
-/**
  * The facets each section offers, in dropdown order. `locale` localizes the
  * enum labels (position/publication) and the role names; employment type is
  * English-only (editor metadata, not exported — see lib/employmentTypes.ts).
@@ -204,8 +185,6 @@ function sectionFacets(sectionKey: string, locale: string): FacetSpec[] {
     case 'certifications':
       return [enumFacet('Category', 'category',
         COURSE_CATEGORIES.map((t) => t.value), (v) => courseCategoryLabel(v))]
-    case 'key_competencies':
-      return [profileFacet(locale)]
     default:
       return []
   }

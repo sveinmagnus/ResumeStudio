@@ -31,7 +31,6 @@ export function SortBar({ section, count }: { section: ArraySection; count: numb
   const items = useStore((s) => s.data[section]) as unknown as SelectableItem[]
   const locale = useStore((s) => s.primaryLocale)
   const roles = useStore((s) => s.data.roles)
-  const keyQualifications = useStore((s) => s.data.key_qualifications)
   const filterKey = useStore((s) => s.sectionTypeFilter[section] ?? '')
   const setSectionTypeFilter = useStore((s) => s.setSectionTypeFilter)
   const [bulkOpen, setBulkOpen] = useState(false)
@@ -42,7 +41,7 @@ export function SortBar({ section, count }: { section: ArraySection; count: numb
 
   // Facet groups for the type filter (only those with actual values). Built off
   // the UNFILTERED items so options don't vanish once a filter is applied.
-  const facetSets = (count >= 2 ? typeGroups(section, items, locale, { roles, keyQualifications }) : [])
+  const facetSets = (count >= 2 ? typeGroups(section, items, locale, { roles }) : [])
     .filter((s) => s.groups.length > 0)
   const showFilter = facetSets.length > 0
 

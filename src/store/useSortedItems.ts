@@ -26,7 +26,6 @@ export function useSortedItems<K extends ArraySection>(section: K): ItemOf<K>[] 
   // profile registries to name/resolve facet values.
   const filterKey = useStore((s) => s.sectionTypeFilter[section] ?? '')
   const roles = useStore((s) => s.data.roles)
-  const keyQualifications = useStore((s) => s.data.key_qualifications)
   const sorted = sortItems(
     section,
     items as unknown as Array<{ id: string; sort_order: number }>,
@@ -36,7 +35,7 @@ export function useSortedItems<K extends ArraySection>(section: K): ItemOf<K>[] 
   let filtered = sorted
   if (filterKey) {
     const match = itemsMatchingTypeFilter(
-      section, sorted as unknown as SelectableItem[], locale, { roles, keyQualifications }, filterKey,
+      section, sorted as unknown as SelectableItem[], locale, { roles }, filterKey,
     )
     if (match) filtered = sorted.filter((it) => match.has((it as unknown as { id: string }).id))
   }

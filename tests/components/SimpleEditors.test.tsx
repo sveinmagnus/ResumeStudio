@@ -89,17 +89,28 @@ describe('SimpleEditors — editing seeded items', () => {
 describe('ProfileEditor', () => {
   beforeEach(() => resetStore())
 
-  it('adds a new profile block but does NOT expose the legacy per-KQ key_points sub-list', async () => {
-    // The per-KQ "Key competency points" sub-list moved to the standalone
-    // Key Competencies section (see KeyCompetenciesEditor). Profile blocks
-    // now carry only the label / tag line / summary — adding a block must
-    // not surface an "Add competency" affordance here.
+  it('adds a new profile block with an empty competency bundle (no legacy key_points sub-list)', async () => {
+    // The legacy per-KQ `key_points` array stays gone; a profile now owns an
+    // ordered competency BUNDLE (shape v12) instead — `competency_ids`.
     seed()
     render(<ProfileEditor />)
     await userEvent.click(screen.getByRole('button', { name: /add profile/i }))
-    expect(useStore.getState().data.key_qualifications).toHaveLength(1)
-    expect(useStore.getState().data.key_qualifications[0].key_points).toEqual([])
-    expect(screen.queryByRole('button', { name: /add competency/i })).toBeNull()
+    const kqs = useStore.getState().data.key_qualifications
+    expect(kqs).toHaveLength(1)
+    expect(kqs[0].key_points).toEqual([])
+    expect(kqs[0].competency_ids).toEqual([])
+  })
+
+  it('adds a competency to the profile bundle via the card affordance', async () => {
+    seed()
+    render(<ProfileEditor />)
+    await userEvent.click(screen.getByRole('button', { name: /add profile/i }))
+    // The open profile card exposes the bundle "Add competency" affordance.
+    await userEvent.click(screen.getByRole('button', { name: /add competency/i }))
+    const state = useStore.getState().data
+    expect(state.key_competencies).toHaveLength(1)
+    // The new competency is linked into this profile's bundle, in order.
+    expect(state.key_qualifications[0].competency_ids).toEqual([state.key_competencies[0].id])
   })
 })
 

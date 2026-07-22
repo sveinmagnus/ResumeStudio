@@ -16,7 +16,7 @@ import {
   groupState, includeIds, excludeIds, toggleIds, typeGroups, isSingleSelectSection,
   type SelectableItem, type FacetGroupSet,
 } from '../../../lib/viewItemSelect'
-import type { Role, KeyQualification } from '../../../types'
+import type { Role } from '../../../types'
 
 interface Props {
   sectionKey: string
@@ -28,8 +28,6 @@ interface Props {
   locale: string
   /** Role registry, so a role facet can name its values. */
   roles: readonly Role[]
-  /** Profiles, so the key-competency "Profile" facet can name its values. */
-  keyQualifications?: readonly KeyQualification[]
   /** Section name, for accessible labels. */
   sectionLabel: string
   onChange: (nextExcluded: string[]) => void
@@ -42,7 +40,7 @@ function includedCount(excludedIds: readonly string[], ids: readonly string[]): 
 }
 
 export function ItemSelectTools({
-  sectionKey, items, excludedIds, locale, roles, keyQualifications, sectionLabel, onChange,
+  sectionKey, items, excludedIds, locale, roles, sectionLabel, onChange,
 }: Props) {
   const labelId = useId()
   const [open, setOpen] = useState(false)
@@ -64,7 +62,7 @@ export function ItemSelectTools({
   if (isSingleSelectSection(sectionKey) || ids.length < 2) return null
 
   const state = groupState(excludedIds, ids)
-  const facetSets: FacetGroupSet[] = typeGroups(sectionKey, items, locale, { roles, keyQualifications })
+  const facetSets: FacetGroupSet[] = typeGroups(sectionKey, items, locale, { roles })
   // A facet with a single group is just a second "All" — not worth a dropdown.
   const usefulSets = facetSets.filter((s) => s.groups.length > 1)
   const hasFacets = usefulSets.length > 0

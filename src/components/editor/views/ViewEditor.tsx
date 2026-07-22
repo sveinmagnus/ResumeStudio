@@ -10,7 +10,7 @@ import { LOCALE_LABELS } from '../../../lib/locales'
 import {
   reorderViewSections, isExportableSection,
   getItemTitle, getItemSubtitle, buildViewHtml, normalizeViewSections,
-  defaultViewDetail,
+  defaultViewDetail, selectedViewProfile,
 } from '../../../lib/viewFilter'
 import { DEFAULT_VIEW_STYLE, normalizeFullLayout } from '../../../lib/viewStyle'
 import { getDefaultFonts, onDefaultFontsChanged } from '../../../lib/appPrefs'
@@ -728,12 +728,22 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
             // Virtual technology_categories (Skills Showcase) excludes whole
             // CATEGORIES, not individual skills — its storeKey ('skills') would
             // otherwise list every skill here. Promoted Projects only lists the
-            // starred projects (its source set).
+            // starred projects (its source set). Key Competencies are scoped to
+            // the view's SELECTED profile bundle, in bundle order — not the whole
+            // library (see selectedViewProfile / applyView).
             // Honour the section's chosen sort mode so this list matches the
             // editor's order (and, for date modes, the export order). The
             // Skills Showcase AND the Skill Matrix are toggled by CATEGORY.
             const storeItems = (vs.key === 'technology_categories' || vs.key === 'skill_matrix')
               ? skillCategoryList(data).map((c) => ({ id: c.id, name: c.name, disabled: false, starred: false }))
+              : vs.key === 'key_competencies'
+              ? ((): Array<{ id: string; sort_order: number; disabled?: boolean; starred?: boolean }> => {
+                  const bundleProfile = selectedViewProfile(data, view)
+                  const compById = new Map(data.key_competencies.map((c) => [c.id, c]))
+                  return (bundleProfile?.competency_ids ?? [])
+                    .map((cid) => compById.get(cid))
+                    .filter((c): c is (typeof data.key_competencies)[number] => !!c && !c.disabled)
+                })()
               : sortItems(
                   vs.key,
                   data[def.storeKey] as unknown as Array<{ id: string; sort_order: number; disabled?: boolean; starred?: boolean }>,
@@ -861,7 +871,6 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
                           excludedIds={view.excluded_item_ids}
                           locale={primaryLocale}
                           roles={data.roles}
-                          keyQualifications={data.key_qualifications}
                           sectionLabel={def.label}
                           onChange={(excluded_item_ids) => onUpdate({ excluded_item_ids })}
                         />
@@ -900,6 +909,12 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
                           })()}
                         </div>
                         </>
+                      ) : vs.key === 'key_competencies' ? (
+                        <div className="rv-item-empty">
+                          {selectedViewProfile(data, view)
+                            ? 'This profile has no competencies yet — add them on the Profile page.'
+                            : 'Pick a profile for this view to show its competencies.'}
+                        </div>
                       ) : (
                         <div className="rv-item-empty">No items in master CV</div>
                       )}

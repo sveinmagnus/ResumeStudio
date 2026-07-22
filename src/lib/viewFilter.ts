@@ -1,5 +1,6 @@
 import type {
   ResumeStore, ResumeView, ViewSection, LocalizedString, SectionDetail,
+  KeyQualification, KeyCompetency,
 } from '../types'
 import { SECTIONS, localizedSectionHeading } from './sections'
 import { resolve, bcp47 } from './locales'
@@ -152,16 +153,27 @@ function sectionDetail(view: ResumeView, key: string): SectionDetail {
 }
 
 /**
- * The tag line of the profile a view shows — the FIRST non-disabled,
- * non-excluded `key_qualification` (the one the single-select profile section
- * renders). This is the default resume title/headline for the view: with many
- * profiles there is no single master title, so each view's title follows the
- * profile it presents. Empty when the view shows no profile. Used by every
- * header render path + the editor Overview.
+ * The single profile a view presents — the FIRST non-disabled, non-excluded
+ * `key_qualification` (the one the single-select profile section renders). This
+ * is THE bundle for the view: its `competency_ids` decide which competencies
+ * the view shows (see `applyView`), and its tag line is the default resume
+ * title. Undefined when the view has no profile to show. Computed from the
+ * store's profiles (not the filtered copy) so it holds even when the profile
+ * SECTION itself is turned off but competencies are still wanted.
+ */
+export function selectedViewProfile(store: ResumeStore, view: ResumeView): KeyQualification | undefined {
+  const excluded = new Set(view.excluded_item_ids)
+  return store.key_qualifications.find((k) => !k.disabled && !excluded.has(k.id))
+}
+
+/**
+ * The tag line of the profile a view shows. This is the default resume
+ * title/headline for the view: with many profiles there is no single master
+ * title, so each view's title follows the profile it presents. Empty when the
+ * view shows no profile. Used by every header render path + the editor Overview.
  */
 export function viewProfileTagLine(store: ResumeStore, view: ResumeView, locale: string): string {
-  const excluded = new Set(view.excluded_item_ids)
-  const kq = store.key_qualifications.find((k) => !k.disabled && !excluded.has(k.id))
+  const kq = selectedViewProfile(store, view)
   return kq ? resolve(kq.tag_line, locale) : ''
 }
 
@@ -192,6 +204,9 @@ export function applyView(store: ResumeStore, view: ResumeView): ResumeStore {
     // derived at render time, so skip them here to avoid clobbering the real
     // section that shares their storeKey.
     if (sec.virtual) continue
+    // Key competencies aren't picked per-item: a view shows the SELECTED
+    // profile's bundle, in bundle order. Handled explicitly below.
+    if (sec.key === 'key_competencies') continue
     const detail = sectionDetail(view, sec.key)
     const starredOnly = sectionStarredOnly(view, sec.key)
     const items = store[sec.storeKey] as Array<{ id: string; disabled?: boolean; starred?: boolean }>
@@ -215,6 +230,25 @@ export function applyView(store: ResumeStore, view: ResumeView): ResumeStore {
   // first surviving profile, matching the editor radio's `includedIds[0]`.
   if (filtered.key_qualifications.length > 1) {
     filtered.key_qualifications = filtered.key_qualifications.slice(0, 1)
+  }
+
+  // Key Competencies are scoped to the selected profile's bundle (shape v12):
+  // the view shows exactly that profile's `competency_ids`, IN BUNDLE ORDER,
+  // minus any individually excluded / disabled / (when starred-only) unstarred
+  // members. No selected profile — or the section turned off — shows none.
+  // Computed from the store's profiles so it holds even with the profile
+  // section off.
+  const compDetail = sectionDetail(view, 'key_competencies')
+  const bundleProfile = selectedViewProfile(store, view)
+  if (compDetail === 'off' || !bundleProfile) {
+    filtered.key_competencies = []
+  } else {
+    const compById = new Map<string, KeyCompetency>(store.key_competencies.map((c) => [c.id, c]))
+    const starredOnly = sectionStarredOnly(view, 'key_competencies')
+    filtered.key_competencies = (bundleProfile.competency_ids ?? [])
+      .map((id) => compById.get(id))
+      .filter((c): c is KeyCompetency =>
+        !!c && !c.disabled && !excluded.has(c.id) && (!starredOnly || !!c.starred))
   }
 
   // View-wide anonymization (F5): rewrite the filtered COPIES so both render

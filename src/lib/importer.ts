@@ -286,6 +286,7 @@ export function importFromCVPartner(raw: Record<string, unknown>): ResumeStore {
       summary: localized(kq.long_description),
       key_points: [],
       skill_tags: [],
+      competency_ids: [],
       sort_order: (kq.order as number) || 0,
       starred: (kq.starred as boolean) || false,
       disabled: (kq.disabled as boolean) || false,

@@ -449,6 +449,7 @@ export function importFromAIDraft(input: AIImportV1): ResumeStore {
       summary: L(p.summary),
       key_points: [],
       skill_tags: [],
+      competency_ids: [],
       sort_order: key_qualifications.length,
       starred: false,
       disabled: false,
@@ -458,9 +459,14 @@ export function importFromAIDraft(input: AIImportV1): ResumeStore {
   for (const kq of input.key_qualifications ?? []) {
     const bullets = (kq.bullets ?? []).map(str).filter(Boolean)
     if (!str(kq.label) && !str(kq.summary) && bullets.length === 0) continue
+    // The bullets belong to THIS profile's bundle — collect their ids so the
+    // imported competencies stay linked to the profile they came from.
+    const bundleIds: string[] = []
     for (const b of bullets) {
+      const cid = uuidv4()
+      bundleIds.push(cid)
       key_competencies.push({
-        id: uuidv4(),
+        id: cid,
         resume_id: resumeId,
         title: { [loc]: b },
         description: {},
@@ -477,6 +483,7 @@ export function importFromAIDraft(input: AIImportV1): ResumeStore {
       summary: L(kq.summary),
       key_points: [],
       skill_tags: [],
+      competency_ids: bundleIds,
       sort_order: key_qualifications.length,
       starred: false,
       disabled: false,

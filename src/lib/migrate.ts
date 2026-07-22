@@ -68,6 +68,14 @@ import { v4 as uuidv4 } from 'uuid'
  *                 the single `completed` date (`migrateCourseDates`): `end` is
  *                 seeded from `completed`, `start` starts blank, and an empty
  *                 `end` now means ongoing (like every other date range).
+ *  - 12         — Profile "bundles" (`migrateBundleMembership`): a
+ *                 competency's editor-only `profile_id` link becomes the owning
+ *                 profile's ordered `KeyQualification.competency_ids`. Each
+ *                 profile collects the competencies that pointed at it (ordered
+ *                 by competency `sort_order`); the legacy `profile_id` is
+ *                 stripped and every profile is guaranteed a `competency_ids`
+ *                 array. A view now shows exactly the selected profile's bundle
+ *                 (see `viewFilter`).
  *
  * Bump this ONLY for structural changes that need a migration (moving or
  * reshaping data). Additive optional fields are handled by render-boundary
@@ -76,7 +84,7 @@ import { v4 as uuidv4 } from 'uuid'
  * (like `industries`) is NOT a tolerable "optional field" — it must be
  * guaranteed present, hence the bump + migration.
  */
-export const CURRENT_SHAPE_VERSION = 11
+export const CURRENT_SHAPE_VERSION = 12
 
 /**
  * True when `store` was written by a build with a NEWER shape than this one
@@ -104,15 +112,17 @@ export function isNewerShape(store: ResumeStore): boolean {
 export function migrateStore(store: ResumeStore): ResumeStore {
   const stored = store.shape_version ?? 1
   if (stored >= CURRENT_SHAPE_VERSION) return store
-  const migrated = migrateCourseDates(
-    ensureCoverLetters(
-      unpinLegacyHeadingFont(
-        localizeRecommenderTitles(
-          unifyShowcaseCategories(
-            internSkillCategories(
-              internProjectIndustries(
-                migrateEmploymentShape(
-                  extractKeyPointsToCompetencies(foldRoleDescriptions(store)),
+  const migrated = migrateBundleMembership(
+    migrateCourseDates(
+      ensureCoverLetters(
+        unpinLegacyHeadingFont(
+          localizeRecommenderTitles(
+            unifyShowcaseCategories(
+              internSkillCategories(
+                internProjectIndustries(
+                  migrateEmploymentShape(
+                    extractKeyPointsToCompetencies(foldRoleDescriptions(store)),
+                  ),
                 ),
               ),
             ),
@@ -652,4 +662,63 @@ export function extractKeyPointsToCompetencies(store: ResumeStore): ResumeStore 
   })
 
   return { ...store, key_qualifications, key_competencies: competencies }
+}
+
+// ─── Profile bundles (shape v12) ─────────────────────────────────────────────
+//
+// A competency used to carry an editor-only `profile_id` linking it to a
+// Profile purely for grouping (never exported). v12 turns that into a real
+// relationship the exporter honours: each Profile owns an ORDERED
+// `competency_ids` bundle, and a view shows exactly the selected profile's
+// bundle (see `viewFilter.applyView`). This migration collects, per profile,
+// the competencies that pointed at it (ordered by the competency's
+// `sort_order`), unions them onto any `competency_ids` already present, strips
+// the legacy `profile_id`, and guarantees every profile has the array.
+//
+// A competency whose `profile_id` names no existing profile is simply left
+// unbundled (its id is dropped) — matching the old behaviour where a stale link
+// fell into the facet's "No type" group. Idempotent: once every profile has a
+// `competency_ids` array and no competency carries a `profile_id`, the same
+// store reference is returned.
+
+/** A KeyCompetency as it may exist pre-v12: still carries the grouping link. */
+type PreV12Competency = KeyCompetency & { profile_id?: string | null }
+
+export function migrateBundleMembership(store: ResumeStore): ResumeStore {
+  const anyProfileId = store.key_competencies.some(
+    (c) => (c as PreV12Competency).profile_id != null,
+  )
+  const allHaveBundles = store.key_qualifications.every((kq) => Array.isArray(kq.competency_ids))
+  if (!anyProfileId && allHaveBundles) return store
+
+  // Competency ids grouped by the profile they pointed at, in `sort_order`.
+  const byProfile = new Map<string, string[]>()
+  const ordered = [...store.key_competencies].sort((a, b) => a.sort_order - b.sort_order)
+  for (const c of ordered) {
+    const pid = (c as PreV12Competency).profile_id
+    if (!pid) continue
+    const bucket = byProfile.get(pid)
+    if (bucket) bucket.push(c.id)
+    else byProfile.set(pid, [c.id])
+  }
+
+  const key_qualifications = store.key_qualifications.map((kq) => {
+    const existing = Array.isArray(kq.competency_ids) ? kq.competency_ids : []
+    const linked = byProfile.get(kq.id) ?? []
+    // Union: keep the existing order, append newly-linked ids not already present.
+    const seen = new Set(existing)
+    const competency_ids = [...existing]
+    for (const id of linked) if (!seen.has(id)) { seen.add(id); competency_ids.push(id) }
+    return { ...kq, competency_ids }
+  })
+
+  // Strip the legacy `profile_id` off every competency.
+  const key_competencies = store.key_competencies.map((c) => {
+    if (!('profile_id' in (c as PreV12Competency))) return c
+    const clean = { ...c } as Record<string, unknown>
+    delete clean.profile_id
+    return clean as unknown as KeyCompetency
+  })
+
+  return { ...store, key_qualifications, key_competencies }
 }
