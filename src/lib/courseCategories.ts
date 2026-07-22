@@ -11,7 +11,7 @@
  * editor chrome isn't localized, and CLAUDE.md §12).
  */
 
-export const COURSE_CATEGORIES: ReadonlyArray<{ value: string; label: string }> = [
+const RAW_COURSE_CATEGORIES: ReadonlyArray<{ value: string; label: string }> = [
   { value: 'technical_expertise', label: 'Technical expertise' },
   { value: 'non_technical_expertise', label: 'Non-technical expertise' },
   { value: 'entrepreneurship', label: 'Entrepreneurship' },
@@ -30,6 +30,16 @@ export const COURSE_CATEGORIES: ReadonlyArray<{ value: string; label: string }> 
   { value: 'vehicles', label: 'Vehicles' },
   { value: 'medical', label: 'Medical' },
 ]
+
+/**
+ * The vocabulary, sorted alphabetically by label — the ORDER every consumer
+ * (editor dropdown, card subtitle, editor Filter, view "By type" facet) shows.
+ * Sorting here (not per consumer) keeps them consistent and stays correct when
+ * a new category is added to the raw list above. `value` is what's stored, so
+ * reordering is display-only and safe.
+ */
+export const COURSE_CATEGORIES: ReadonlyArray<{ value: string; label: string }> =
+  [...RAW_COURSE_CATEGORIES].sort((a, b) => a.label.localeCompare(b.label))
 
 const LABELS: Record<string, string> = Object.fromEntries(
   COURSE_CATEGORIES.map((t) => [t.value, t.label]),
