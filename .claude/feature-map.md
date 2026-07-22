@@ -182,13 +182,17 @@ prescriptive.
   it as an id-array); `wipeLocale` clears its localized fields.
 - **Bulk item selection** in a section's expanded item list
   (`ItemSelectTools` over pure `lib/viewItemSelect.ts`): **All / None** for
-  long sections, plus **tri-state type chips** for sections whose items carry a
-  classification field (Other roles → `position_type`, Publications →
-  `publication_type`) — "include every board seat, drop the rest" in one click.
-  Facets are data-driven (one entry in `TYPE_FACETS`); registry links (a
-  project's roles) are deliberately excluded — many-per-item makes "select all
-  with role X" ambiguous. Operations are set-math over the view's flat
-  `excluded_item_ids`, so they never touch another section's exclusions.
+  long sections, plus a **"By type"** popover of **tri-state facet chips** for
+  sections whose items carry a classification — enum fields (Other roles →
+  `position_type`, Publications → `publication_type`, Employment → type,
+  Courses/Certifications → `category`) AND **registry role links** (a project's
+  roles, an employment's `role_ids`): "include every board seat / every project
+  where I was PM, drop the rest" in one click. A multi-valued item simply lands
+  in every group its values name (the confirmed "toggle affects all items with
+  that role" behaviour). Facets are data-driven (one `sectionFacets` entry).
+  Operations are set-math over the view's flat `excluded_item_ids`, so they never
+  touch another section's exclusions. **Key Competencies have no facet** — a view
+  shows the selected profile's bundle (below), not a per-item pick.
 - **View power features** — named **export templates** seeding
   style/header/footer (`lib/viewTemplates.ts`), **BYO-LLM tailoring** from a
   pasted job posting (`lib/viewTailor.ts`, no API key), a per-view
@@ -208,6 +212,25 @@ prescriptive.
   company logo (canvas-downscaled to data URLs, `lib/image.ts`), and additional
   sections: **Key Competencies**, **Recommendations**, and a synthetic
   **Promoted Projects** view section (the starred projects).
+- **Profiles & competency bundles** — the resume can hold several **Profiles**
+  (`key_qualifications`: tag line + long/short summary). A view presents exactly
+  ONE (`viewFilter.selectedViewProfile`); the presented profile's **tag line is
+  the resume title** in that view (header/DOCX/PDF/Europass/text + Overview all
+  resolve it, falling back to the legacy master title), with a per-view "Hide tag
+  line" toggle (default on). Each profile **owns an ordered bundle** of
+  competencies — `KeyQualification.competency_ids` (shape v12) — and a view
+  renders **exactly that bundle, in bundle order** (strict scoping in
+  `applyView`). Key Competencies themselves are a **shared library** (title +
+  description + short); one competency can sit in several bundles (reuse).
+  Membership is edited on the Profile card (add / add-existing / reorder / remove,
+  sharing a `CompetencyFields` component) and mirrored, read-only, in the Key
+  Competencies library. This replaced the inert `KeyCompetency.profile_id`
+  grouping + "By profile" facet that shipped in v11 (`migrateBundleMembership`).
+- **Courses & Certifications** carry a shared **editor-only Category** vocabulary
+  (`lib/courseCategories.ts`, English-only, never exported) that drives the
+  per-section type Filter; Courses use a **from/to date range** (shape v11,
+  `start`/`end`; a new course defaults `end` to today) and sort like the other
+  ranged sections.
 - **CVpartner JSON import** and **portable JSON backup** (export + load) with
   a versioned format and a migration scaffold. Loading either kind of file
   from the picker creates a new resume (the in-editor "load file" button is
@@ -462,10 +485,26 @@ deriving from highlighted+categorized skills (`lib/showcase.ts`), and
 By-category header **rename + ↑/↓ reorder** (see
 `plans/unify-showcase-into-categories.md`).
 
+**v0.8.x–v0.9.0 wave:** **cross-resume shared registries** (Stage-3 additive
+`canonical_id` links so a rename in one resume propagates to all; portable in
+backups + carried in the desktop sync — `server/registryDb.ts`,
+`lib/registrySync.ts`). The **Profiles rework** — a view renders exactly one
+profile, its **tag line is the resume title** (the Personal Details "Title" was
+removed), a new per-view "Hide tag line" toggle, and a newly-added profile is
+excluded from existing views so it can't surface as a surprise second block.
+**Courses & Certifications categories** + Course **from/to date ranges** (shape
+v11), a display-only per-section **type Filter** beside Sort, a **"Side venture"**
+Other-roles type (position type is now editor-only), a **global per-view sort**
+(`ViewStyle.sort`, overridden per section), and **renamable Role categories**.
+**Cover letters** shipped as their own view-referencing entity (shape v10; see
+the Cover letters bullet above). Finally **profile bundles** (v0.9.0): a profile
+owns an ordered competency bundle (`competency_ids`, shape v12) and a view shows
+exactly that bundle — `migrateBundleMembership`.
+
 **Deferred / dropped:** **A4 Phase 2** (content-addressed asset table) was
 deliberately deferred — measurement infra shipped; build the table only when
-real data warrants. **F4/F8** (application log, cover letter) were dropped as
-out of scope.
+real data warrants. **F4** (application log) was dropped as out of scope.
+(**F8 cover letter** was later un-dropped and shipped — see above.)
 
 The **v0.3.1 UX/accessibility wave** (12 `ux/*` branches) shipped: programmatic
 labels + per-locale `lang` everywhere (`bcp47()`), live regions for save

@@ -25,6 +25,17 @@ you open the app — nothing here is buried behind config files.
 - **Re-detect languages.** A refresh button in the language switcher scans
   your content and adds any locale it finds to your supported list — handy
   after importing a CV.
+- **Profiles with their own competencies.** Write several **profiles** — each a
+  tag line plus a short and a long summary — and let every Resume View present
+  one. The profile's tag line becomes that view's resume title. Each profile
+  owns an ordered set of **key competencies** that travel with it: a view shows
+  exactly the competencies of the profile it presents, in the order you set on
+  the Profile page. Competencies live in a shared library, so the same one can
+  belong to several profiles when you want to reuse it.
+- **Course and certification categories, with dates.** Group courses and
+  certifications with a shared set of categories (an editor-only organizing aid,
+  never exported) and filter by them while editing. Courses take a from/to date
+  range like your other timeline sections.
 - **Rich text where it matters.** Project and role descriptions support
   bold, italic, underline, and bullet/numbered lists.
 - **Profile photo and company logo.** Uploaded, downscaled in-browser,

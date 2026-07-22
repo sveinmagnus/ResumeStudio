@@ -24,7 +24,14 @@ The full catalog with per-feature design detail is in
 
 - **Core editing** — multi-resume (`/` picker, `/r/:uuid` editor), debounced
   auto-save to Express+SQLite with per-id localStorage fallback, undo/redo,
-  drag-and-drop reordering, global content search (Ctrl/Cmd+K).
+  drag-and-drop reordering, global content search (Ctrl/Cmd+K), per-section sort
+  modes + a display-only editor **type Filter** (editor-only Category
+  vocabularies for courses/certifications; never exported).
+- **Profiles & competencies** — several **Profiles** (`key_qualifications`); a
+  view presents exactly one, whose tag line is the default resume title. Each
+  profile owns an **ordered competency bundle** (`competency_ids`, shape v12): a
+  view shows exactly that bundle. Competencies are a shared library reusable
+  across profiles. See §4.
 - **Multi-language** — dual-view editing (§5), translation assist (Copy +
   server-proxied LibreTranslate/DeepL/etc. Draft), locale re-detection.
   **15 offered locales** (`LOCALE_LABELS`), all Latin/Cyrillic-script European:
@@ -44,12 +51,16 @@ The full catalog with per-feature design detail is in
   **translation** (`translate_provider: 'llm'`) instead of a separate engine —
   `summarize.ts → chatComplete()` is the one shared chat round-trip.
 - **Registries** — shared Skill / Role / Industry registries with merge,
-  usage counts, and a "By category" view; `SkillCategory` entities drive skill
-  grouping + the Skills Showcase; Quadim skill-taxonomy autocomplete,
-  normalization, related-skills, and offline auto-categorization.
+  usage counts, and a "By category" view (renamable Skill **and** Role
+  categories); `SkillCategory` entities drive skill grouping + the Skills
+  Showcase; Quadim skill-taxonomy autocomplete, normalization, related-skills,
+  and offline auto-categorization. Shared registries also propagate across
+  resumes and ride the desktop sync (§14).
 - **Resume Views & export** — targeted section/item selection, per-view style +
   header/footer, export templates, BYO-LLM tailoring, anonymization, skill
-  matrix; export to PDF / DOCX (lazy) / ATS text+Markdown; live preview pane.
+  matrix, per-view sort; export to PDF / DOCX (lazy) / ATS text+Markdown; live
+  preview pane. **Cover Letters** are their own entity referencing a view, with
+  PDF/DOCX/text export (`CoverLettersEditor`, `lib/coverLetter.ts`).
 - **Import** — CVpartner JSON, LinkedIn (.zip), Europass XML, AI-assisted
   PDF/Word (BYO-LLM), per-section bulk add (BYO-LLM, `lib/bulkImport.ts`), and
   portable JSON backup.
@@ -216,6 +227,20 @@ Every translatable field is a `LocalizedString = Record<string, string>` keyed b
 ### Dates
 - `YearMonth = { year: number, month: number | null }` — month-precision. `month: null` means only year is known.
 - `end: null` on date ranges means ongoing.
+- **Courses use a `start`/`end` range** (shape v11) like the other ranged
+  sections — the pre-v11 single `completed` date migrated to `end` (a new course
+  defaults `end` to today). `end: null` = ongoing, as everywhere.
+
+### Editor-only organizing fields (never exported)
+Some fields exist purely to organize the editor and are stripped from every
+export (like the anonymization/internal-notes fields):
+- **`Course.category` / `Certification.category`** (shape v11) — a shared,
+  English-only vocabulary (`lib/courseCategories.ts`), mirroring employment/
+  position types. Drives the per-section **type Filter** (`lib/viewItemSelect.ts`),
+  never a heading.
+- Every section with a type/facet (course/cert category, position/publication/
+  employment type, project/employment role) offers a display-only **Filter**
+  control beside Sort — it hides rows in the editor only, never in views/exports.
 
 ### Shared registries
 - **`Skill`** — global registry (`data.skills`), referenced by `ProjectSkill` via `skill_id`. `countSkillReferences()`.
@@ -223,13 +248,38 @@ Every translatable field is a `LocalizedString = Record<string, string>` keyed b
 - **`Industry`** — `data.industries`; a project references one or more via `Project.industries[]` (`ProjectIndustry` links; shape v4 — single `industry_id` pre-v4). `countIndustryReferences()`. All three merge through the generic `mergeRegistry` / `countRegistryReferences`.
 - **`SkillCategory`** (shape v6) — `data.skill_categories`; a skill links to at most one via `Skill.category_id`. Lighter than the other three: no `mergeRegistry` yet (delete + reassign covers it), but has `renameSkillCategory` + curated `moveSkillCategory` reorder (drives both the By-category editor header order AND the Skills Showcase group order).
 - **Snapshot names**: `ProjectSkill.name`, `ProjectRole.name`, `ProjectIndustry.name` are denormalized copies of the registry name at link time, so a rename doesn't rewrite history. `merge.ts` updates these when it rewrites references. (`SkillCategory` has no per-link snapshot — `category_id` resolves live via `categoryNameIndex()`.)
+- **Role registry categories** are renamable (plain-string rename in
+  `RegistryCategoryView`), matching `SkillCategory`.
+
+### Profiles & competencies — the bundle model
+- **`KeyQualification`** (a "Profile", `data.key_qualifications`) is the opening
+  statement: `tag_line` (the profile's identity, and the **default resume title**
+  in each view), plus a long `summary` and a short `summary_short`. Multiple
+  profiles are allowed, but **a view presents exactly ONE** — the first
+  non-disabled, non-excluded one (`viewFilter.ts → selectedViewProfile`, enforced
+  in `applyView`). Its tag line flows through every header/export path + Overview,
+  falling back to the legacy master title. A per-view "Hide tag line" toggle
+  (default on, since it doubles as the title) controls whether it also shows in
+  the profile body.
+- **`KeyCompetency`** (`data.key_competencies`) is a **shared library** of
+  headline strengths (title + description + optional `short_description`).
+- **A profile OWNS an ordered bundle** of competencies:
+  `KeyQualification.competency_ids: string[]` (shape v12). A view renders
+  **exactly the selected profile's bundle, in bundle order** (strict scoping) —
+  minus any individually excluded / disabled / (starred-only) members. A
+  competency id may appear on **several** profiles' bundles (reuse). Membership
+  lives only on the profile (single source of truth); it's edited from the
+  Profile card (add / add-existing / reorder / remove) and viewed in the Key
+  Competencies library (which shows each competency's bundle membership). This
+  replaced the inert, editor-only `KeyCompetency.profile_id` grouping + "By
+  profile" facet that shipped in v11 — see `migrate.ts → migrateBundleMembership`.
 
 ### Resume Views
 `ResumeView` (in `data.views`) is the "targeted resume" config: name, localized intro, enabled sections in display order, excluded-items list, starred-only toggle, optional page limit. `lib/viewFilter.ts → applyView()` produces a filtered `ResumeStore`; the exporter and HTML renderer consume it.
 
 ### What's an entity vs. an embedded array
 - Tables (`projects`, `educations`, `courses`, …) live as top-level arrays in `ResumeStore`.
-- Sub-collections tightly bound to a parent (a project's roles/skills, a key qualification's bullets) are **embedded arrays** on the parent. Don't promote these to top-level tables.
+- Sub-collections tightly bound to a parent (a project's roles/skills) are **embedded arrays** on the parent. Don't promote these to top-level tables. (Profile competencies are the deliberate exception: they're a *shared* top-level library referenced by id from `KeyQualification.competency_ids`, so one competency can be reused across profiles — see the bundle model above.)
 
 ### Disabled vs. starred
 - `disabled: true` excludes from all exports and overview lists. Soft-delete.
@@ -355,12 +405,16 @@ Navigation: `setActiveSection(key)` / `setExpandedItem(id)`. Undo/redo: `useUndo
   `stripSnapshotImages`; restore re-attaches current images). The History modal
   restores via **`replaceData`** so a restore is undoable + re-saved.
 - **Data-shape versioning** (`lib/migrate.ts`): `shape_version` (absent = 1;
-  `CURRENT_SHAPE_VERSION` = 10). `migrateStore()` is the single choke point for
+  `CURRENT_SHAPE_VERSION` = 12). `migrateStore()` is the single choke point for
   data entering from outside (`loadStore` + snapshot restore; `replaceData`
   never migrates). Migrations are **idempotent shape-sniffers**. Newer-build
   data loads best-effort (stamp never downgraded; `NewerDataNotice`). **Bump
   only for structural migrations** — additive optional fields stay covered by
-  `with*Defaults` render tolerance.
+  `with*Defaults` render tolerance. The two most recent bumps: **v11**
+  (`migrateCourseDates` — Course `completed` → `start`/`end` range) and **v12**
+  (`migrateBundleMembership` — competency `profile_id` → the owning profile's
+  ordered `competency_ids` bundle; see §4). The full version history lives in the
+  header comment of `lib/migrate.ts`.
 - **Translation assist**: the client never calls a translation backend directly
   — `POST /api/translate` proxies to the configured provider
   (`TRANSLATE_PROVIDER` ∈ `off|libretranslate|deepl|google|azure|llm`; unset +
@@ -502,7 +556,12 @@ conflict safety, desktop build + JSON sync + auto-update, the section-descriptor
 catalog + export templates + BYO-LLM tailoring + ATS text/Markdown, LinkedIn +
 Europass + AI import, Quadim skill-taxonomy integration, the showcase→category
 unification (shape v6), Industry registry + generic `mergeRegistry`, career
-timeline, global search, and the v0.3.1 UX/accessibility wave.
+timeline, global search, and the v0.3.1 UX/accessibility wave. **v0.8.x–v0.9.0:**
+cross-resume shared registries (rename propagation + portable links + desktop
+sync), the **Profiles rework** (tag line as resume title, one profile per view,
+per-view "Hide tag line"), Course from/to date ranges + Course/Cert **categories**
++ a per-section editor **type Filter**, a global per-view **sort**, cover letters,
+and **profile bundles** (a profile owns its competencies — shape v12, §4).
 
 ### Watchlist (deferred until forced)
 - **Cross-tab coordination** — two tabs editing one resume share a localStorage pending slot. The server `version` check makes it *safe* (second flush 409s into the conflict modal), just not tidy; a `BroadcastChannel` lock would stop the local thrash. Low priority.
