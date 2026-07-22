@@ -15,12 +15,13 @@ describe('availableSortModes()', () => {
     expect(availableSortModes('work_experiences')).toEqual(['custom', 'alpha', 'start', 'start_asc', 'end', 'end_asc'])
     // Courses gained a from/to range (shape v11), so they sort like the other ranged sections.
     expect(availableSortModes('courses')).toEqual(['custom', 'alpha', 'start', 'start_asc', 'end', 'end_asc'])
+    // Presentations gained a from/to range (shape v13) — same as courses.
+    expect(availableSortModes('presentations')).toEqual(['custom', 'alpha', 'start', 'start_asc', 'end', 'end_asc'])
   })
 
   it('adds both single date directions for single-date sections', () => {
     expect(availableSortModes('certifications')).toEqual(['custom', 'alpha', 'date', 'date_asc'])
     expect(availableSortModes('honor_awards')).toEqual(['custom', 'alpha', 'date', 'date_asc'])
-    expect(availableSortModes('presentations')).toEqual(['custom', 'alpha', 'date', 'date_asc'])
     expect(availableSortModes('publications')).toEqual(['custom', 'alpha', 'date', 'date_asc'])
     // recommendations carry a date too — they must offer date sorting.
     expect(availableSortModes('recommendations')).toEqual(['custom', 'alpha', 'date', 'date_asc'])

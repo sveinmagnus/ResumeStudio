@@ -294,6 +294,8 @@ export function makePresentation(over: Partial<Presentation> = {}): Presentation
     description: {},
     url: null,
     date: null,
+    start: null,
+    end: null,
     skill_tags: [],
     sort_order: 0,
     starred: false,

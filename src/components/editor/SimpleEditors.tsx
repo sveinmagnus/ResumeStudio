@@ -411,7 +411,10 @@ export function PresentationsEditor() {
   const add = () => {
     const p: Presentation = {
       id: newId(), resume_id: data.resume!.id, title: {}, event: {}, description: {},
-      url: null, date: null, skill_tags: [], sort_order: items.length, starred: false, disabled: false,
+      // New presentations default the "To" date to today and leave "From" blank;
+      // a talk given once needs only "To", a recurring one carries both.
+      url: null, date: null, start: null, end: thisMonth(),
+      skill_tags: [], sort_order: items.length, starred: false, disabled: false,
     }
     addItem('presentations', p)
   }
@@ -419,21 +422,23 @@ export function PresentationsEditor() {
     <div className="section-pane">
       <SectionIntro>
         Talks, conference sessions and workshops you have delivered — internal or
-        public. Record the event, date and an optional abstract or link.
+        public. Give a single date under "To", or a From/To range for a talk
+        held regularly over a period.
       </SectionIntro>
       <SortBar section="presentations" />
       <SortableList section="presentations" ids={items.map((x) => x.id)} addLabel="Add presentation" onAdd={add}>
       {items.map((p) => (
         <EditorCard key={p.id} section="presentations" id={p.id}
           title={resolve(p.title, primaryLocale)} subtitle={resolve(p.event, primaryLocale)}
-          meta={fmtDate(p.date)} preview={richToPlain(resolve(p.description, primaryLocale))}
+          meta={fmtRange(p.start, p.end)} preview={richToPlain(resolve(p.description, primaryLocale))}
           starred={p.starred} disabled={p.disabled}>
           <DualField label="Title" value={p.title} onChange={(v) => updateItem('presentations', p.id, { title: v })} />
           <DualField label="Event / venue" value={p.event} onChange={(v) => updateItem('presentations', p.id, { event: v })} />
           <RichField label="Abstract" value={p.description} onChange={(v) => updateItem('presentations', p.id, { description: v })} />
           <DualField label="Short description (summary mode)" value={p.short_description ?? {}} onChange={(v) => updateItem('presentations', p.id, { short_description: v })} summarizeFrom={p.description} placeholder="One concise line shown in summary mode" />
           <FieldRow>
-            <DateField label="Date" value={p.date} onChange={(v) => updateItem('presentations', p.id, { date: v })} />
+            <DateField label="From" value={p.start} onChange={(v) => updateItem('presentations', p.id, { start: v })} />
+            <DateField label="To" value={p.end} onChange={(v) => updateItem('presentations', p.id, { end: v })} allowOngoing />
             <TextField label="URL" value={p.url || ''} onChange={(v) => updateItem('presentations', p.id, { url: v })} />
           </FieldRow>
         </EditorCard>

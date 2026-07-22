@@ -611,21 +611,23 @@ export const SECTION_CATALOG: Record<string, SectionDescriptor> = {
   presentations: {
     title: (it, locale) => ls(it, 'title', locale) || 'Untitled',
     subtitle: (it, locale) => ls(it, 'event', locale),
-    summary: (it, ctx) =>
-      summaryOf({
+    summary(it, ctx) {
+      const { start, end } = rangeParts(it, ctx)
+      return summaryOf({
         title: ls(it, 'title', ctx.locale) || 'Presentation',
         org: ls(it, 'event', ctx.locale),
-        date: dateAt(it, 'date', ctx),
-      }),
+        start, end,
+      })
+    },
     full(it, ctx) {
       const { locale } = ctx
       const common = { title: ls(it, 'title', locale), body: ls(it, 'description', locale) }
       if (ctx.target === 'html') {
-        return view({ ...common, date: dateAt(it, 'date', ctx), meta: [ls(it, 'event', locale)].filter(Boolean) })
+        return view({ ...common, date: range(it, ctx), meta: [ls(it, 'event', locale)].filter(Boolean) })
       }
       return view({
         ...common,
-        date: dateAt(it, 'date', ctx),
+        date: range(it, ctx),
         meta: [ls(it, 'event', locale)].filter(Boolean),
         extraLines: it.url ? [it.url as string] : [],
       })

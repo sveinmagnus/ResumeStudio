@@ -20,7 +20,7 @@
 
 import type {
   ResumeStore, LocalizedString, ProjectRole, ProjectIndustry, KeyCompetency, KeyPoint,
-  WorkExperience, Industry, Project, Skill, SkillCategory, ViewStyle, Course, YearMonth,
+  WorkExperience, Industry, Project, Skill, SkillCategory, ViewStyle, Course, Presentation, YearMonth,
 } from '../types'
 import { v4 as uuidv4 } from 'uuid'
 
@@ -76,6 +76,10 @@ import { v4 as uuidv4 } from 'uuid'
  *                 stripped and every profile is guaranteed a `competency_ids`
  *                 array. A view now shows exactly the selected profile's bundle
  *                 (see `viewFilter`).
+ *  - 13         — Presentations gain a from/to date RANGE (`start`/`end`) in
+ *                 place of the single `date` (`migratePresentationDates`),
+ *                 mirroring Courses v11: `end` is seeded from `date`, `start`
+ *                 starts blank, and an empty `end` means ongoing.
  *
  * Bump this ONLY for structural changes that need a migration (moving or
  * reshaping data). Additive optional fields are handled by render-boundary
@@ -84,7 +88,7 @@ import { v4 as uuidv4 } from 'uuid'
  * (like `industries`) is NOT a tolerable "optional field" — it must be
  * guaranteed present, hence the bump + migration.
  */
-export const CURRENT_SHAPE_VERSION = 12
+export const CURRENT_SHAPE_VERSION = 13
 
 /**
  * True when `store` was written by a build with a NEWER shape than this one
@@ -112,16 +116,18 @@ export function isNewerShape(store: ResumeStore): boolean {
 export function migrateStore(store: ResumeStore): ResumeStore {
   const stored = store.shape_version ?? 1
   if (stored >= CURRENT_SHAPE_VERSION) return store
-  const migrated = migrateBundleMembership(
-    migrateCourseDates(
-      ensureCoverLetters(
-        unpinLegacyHeadingFont(
-          localizeRecommenderTitles(
-            unifyShowcaseCategories(
-              internSkillCategories(
-                internProjectIndustries(
-                  migrateEmploymentShape(
-                    extractKeyPointsToCompetencies(foldRoleDescriptions(store)),
+  const migrated = migratePresentationDates(
+    migrateBundleMembership(
+      migrateCourseDates(
+        ensureCoverLetters(
+          unpinLegacyHeadingFont(
+            localizeRecommenderTitles(
+              unifyShowcaseCategories(
+                internSkillCategories(
+                  internProjectIndustries(
+                    migrateEmploymentShape(
+                      extractKeyPointsToCompetencies(foldRoleDescriptions(store)),
+                    ),
                   ),
                 ),
               ),
@@ -170,6 +176,32 @@ export function migrateCourseDates(store: ResumeStore): ResumeStore {
   })
   if (!changed) return store
   return { ...store, courses }
+}
+
+/**
+ * Shape v13: Presentations gain a from/to date RANGE, mirroring Courses (v11).
+ * The single `date` becomes the range's `end` (when the talk was last given),
+ * `start` begins blank, and an empty `end` signals ongoing. The deprecated
+ * `date` is left in place (round-trips harmlessly, keeps importers unchanged).
+ * Idempotent shape-sniff: a presentation already carrying `start`/`end` is left
+ * untouched.
+ */
+type PreV13Presentation = Omit<Presentation, 'start' | 'end'> & {
+  start?: YearMonth | null
+  end?: YearMonth | null
+  date?: YearMonth | null
+}
+
+export function migratePresentationDates(store: ResumeStore): ResumeStore {
+  let changed = false
+  const presentations = store.presentations.map((p): Presentation => {
+    const legacy = p as unknown as PreV13Presentation
+    if ('start' in legacy && 'end' in legacy) return p
+    changed = true
+    return { ...legacy, start: legacy.start ?? null, end: legacy.end ?? legacy.date ?? null }
+  })
+  if (!changed) return store
+  return { ...store, presentations }
 }
 
 /**

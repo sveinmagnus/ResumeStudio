@@ -50,7 +50,7 @@ const DATE_CAPS: Record<string, { start?: boolean; end?: boolean; single?: strin
   positions:        { start: true, end: true },
   courses:          { start: true, end: true },
   certifications:   { single: 'issued' },
-  presentations:    { single: 'date' },
+  presentations:    { start: true, end: true },
   publications:     { single: 'date' },
   honor_awards:     { single: 'date' },
   recommendations:  { single: 'date' },

@@ -511,6 +511,8 @@ export function importFromCVPartner(raw: Record<string, unknown>): ResumeStore {
       description: localized(p.long_description),
       url: null,
       date: yearMonth(p.year as string, p.month as string),
+      start: null,
+      end: yearMonth(p.year as string, p.month as string),
       skill_tags: [],
       sort_order: (p.order as number) || 0,
       starred: (p.starred as boolean) || false,

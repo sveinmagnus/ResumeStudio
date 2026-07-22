@@ -529,7 +529,17 @@ export interface Presentation {
   /** Single-line summary shown in SUMMARY mode. Additive/optional. */
   short_description?: LocalizedString
   url: string | null
+  /**
+   * @deprecated Superseded by the `start`/`end` range (shape v13). Kept so
+   * pre-v13 data + importers round-trip; `migrate.ts` seeds `end` from it.
+   */
   date: YearMonth | null
+  /** When the talk was first given (shape v13). `null` = unknown/blank. A
+   *  presentation held once has only an `end`; one given regularly over a
+   *  period carries both. */
+  start: YearMonth | null
+  /** When it was last given (shape v13). `null` = ongoing (like other ranges). */
+  end: YearMonth | null
   skill_tags: string[]
   sort_order: number
   starred: boolean

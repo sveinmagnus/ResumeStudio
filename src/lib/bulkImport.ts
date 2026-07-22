@@ -477,6 +477,9 @@ export const BULK_SPECS: readonly BulkSectionSpec[] = [
       { name: 'date', kind: 'date', doc: 'When it was given.' },
     ],
     make: (raw, ctx): Record<string, unknown> => {
+      // The paste schema still takes a single "date"; it maps to the range's
+      // end (start left blank), mirroring Courses — see the from/to change (v13).
+      const when = toYearMonth(raw['date'])
       const presentation: Presentation = {
         id: uuidv4(),
         resume_id: ctx.resumeId,
@@ -485,7 +488,9 @@ export const BULK_SPECS: readonly BulkSectionSpec[] = [
         description: toLocalized(raw['description'], ctx.defaultLocale),
         short_description: toLocalized(raw['short_description'], ctx.defaultLocale),
         url: strOrNull(raw['url']),
-        date: toYearMonth(raw['date']),
+        date: when,
+        start: null,
+        end: when,
         skill_tags: [],
         sort_order: 0,
         starred: false,

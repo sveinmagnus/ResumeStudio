@@ -3,9 +3,9 @@ import {
   appendLocalized, buildRoleParagraph, foldRoleDescriptions,
   extractKeyPointsToCompetencies, migrateEmploymentShape, internProjectIndustries,
   internSkillCategories, unifyShowcaseCategories, localizeRecommenderTitles,
-  unpinLegacyHeadingFont, ensureCoverLetters, migrateCourseDates, migrateBundleMembership, migrateStore, isNewerShape, CURRENT_SHAPE_VERSION,
+  unpinLegacyHeadingFont, ensureCoverLetters, migrateCourseDates, migrateBundleMembership, migratePresentationDates, migrateStore, isNewerShape, CURRENT_SHAPE_VERSION,
 } from '../src/lib/migrate'
-import { emptyStore, makeProject, makeWork, makeSkill, makeSkillCategory, makeView, makeCoverLetter, makeRecommendation, makeCourse, makeKQ, makeKeyCompetency } from './fixtures'
+import { emptyStore, makeProject, makeWork, makeSkill, makeSkillCategory, makeView, makeCoverLetter, makeRecommendation, makeCourse, makeKQ, makeKeyCompetency, makePresentation } from './fixtures'
 import type { ProjectRole, KeyQualification, KeyPoint, WorkExperience, Project, LocalizedString, Skill, ResumeStore } from '../src/types'
 
 /** A project carrying the pre-v4 single `industry`/`industry_id` pair. */
@@ -665,6 +665,39 @@ describe('migrateCourseDates (v11)', () => {
     const out = migrateCourseDates(store)
     expect(out.courses[0].start).toBeNull()
     expect(out.courses[0].end).toBeNull()
+  })
+})
+
+describe('migratePresentationDates (v13)', () => {
+  it('seeds end from the legacy single date and leaves start blank', () => {
+    const store = emptyStore()
+    const legacy = { ...makePresentation({ id: 'p1' }) } as Record<string, unknown>
+    delete legacy.start
+    delete legacy.end
+    legacy.date = { year: 2021, month: 9 }
+    store.presentations = [legacy as never]
+    const out = migratePresentationDates(store)
+    expect(out.presentations[0].start).toBeNull()
+    expect(out.presentations[0].end).toEqual({ year: 2021, month: 9 })
+  })
+
+  it('is idempotent — a presentation already carrying a range is untouched', () => {
+    const store = emptyStore()
+    store.presentations = [makePresentation({ id: 'p1', start: { year: 2019, month: 1 }, end: { year: 2022, month: 6 } })]
+    const out = migratePresentationDates(store)
+    expect(out).toBe(store)
+  })
+
+  it('handles a legacy presentation with no date (both range ends null)', () => {
+    const store = emptyStore()
+    const legacy = { ...makePresentation({ id: 'p1' }) } as Record<string, unknown>
+    delete legacy.start
+    delete legacy.end
+    delete legacy.date
+    store.presentations = [legacy as never]
+    const out = migratePresentationDates(store)
+    expect(out.presentations[0].start).toBeNull()
+    expect(out.presentations[0].end).toBeNull()
   })
 })
 
