@@ -222,15 +222,21 @@ prescriptive.
   renders **exactly that bundle, in bundle order** (strict scoping in
   `applyView`). Key Competencies themselves are a **shared library** (title +
   description + short); one competency can sit in several bundles (reuse).
-  Membership is edited on the Profile card (add / add-existing / reorder / remove,
-  sharing a `CompetencyFields` component) and mirrored, read-only, in the Key
-  Competencies library. This replaced the inert `KeyCompetency.profile_id`
-  grouping + "By profile" facet that shipped in v11 (`migrateBundleMembership`).
+  Membership is edited on the Profile card — add / **add-existing (checkbox
+  multi-select** with All/None, for pulling a range in after a bulk add) /
+  reorder (**drag handle** + up/down) / remove, sharing a `CompetencyFields`
+  component. The Key Competencies library mirrors membership read-only and offers
+  a **List / By profile** toggle: the by-profile view groups each profile's
+  bundle under its tag line (a competency in several profiles shows once per
+  profile) with a lightbox to edit — like the registries' "By category". This
+  replaced the inert `KeyCompetency.profile_id` grouping + "By profile" facet
+  that shipped in v11 (`migrateBundleMembership`).
 - **Courses & Certifications** carry a shared **editor-only Category** vocabulary
   (`lib/courseCategories.ts`, English-only, never exported) that drives the
   per-section type Filter; Courses use a **from/to date range** (shape v11,
   `start`/`end`; a new course defaults `end` to today) and sort like the other
-  ranged sections.
+  ranged sections. **Presentations** gained the same from/to range (shape v13,
+  `migratePresentationDates`) for talks given regularly over a period.
 - **CVpartner JSON import** and **portable JSON backup** (export + load) with
   a versioned format and a migration scaffold. Loading either kind of file
   from the picker creates a new resume (the in-editor "load file" button is
@@ -497,9 +503,14 @@ v11), a display-only per-section **type Filter** beside Sort, a **"Side venture"
 Other-roles type (position type is now editor-only), a **global per-view sort**
 (`ViewStyle.sort`, overridden per section), and **renamable Role categories**.
 **Cover letters** shipped as their own view-referencing entity (shape v10; see
-the Cover letters bullet above). Finally **profile bundles** (v0.9.0): a profile
-owns an ordered competency bundle (`competency_ids`, shape v12) and a view shows
-exactly that bundle — `migrateBundleMembership`.
+the Cover letters bullet above). **Profile bundles** (v0.9.0): a profile owns an
+ordered competency bundle (`competency_ids`, shape v12) and a view shows exactly
+that bundle — `migrateBundleMembership`. **v0.9.1+ follow-ups:** competency-bundle
+**drag reorder** + **checkbox multi-select** add-existing, a **By profile** view
+in the Key Competencies library, **Presentations from/to range** (shape v13),
+category-vocabulary revisions, a fix so a hidden section heading keeps its **top
+margin**, a fix so the editor **type Filter can't trap** the user on one item,
+and **"Bulk summarize"** (renamed from "Summarize all empty", now confirm-gated).
 
 **Deferred / dropped:** **A4 Phase 2** (content-addressed asset table) was
 deliberately deferred — measurement infra shipped; build the table only when

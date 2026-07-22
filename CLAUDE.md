@@ -230,6 +230,8 @@ Every translatable field is a `LocalizedString = Record<string, string>` keyed b
 - **Courses use a `start`/`end` range** (shape v11) like the other ranged
   sections — the pre-v11 single `completed` date migrated to `end` (a new course
   defaults `end` to today). `end: null` = ongoing, as everywhere.
+- **Presentations use a `start`/`end` range too** (shape v13), for talks given
+  regularly over a period — same shape/migration as Courses (`date` → `end`).
 
 ### Editor-only organizing fields (never exported)
 Some fields exist purely to organize the editor and are stripped from every
@@ -405,16 +407,17 @@ Navigation: `setActiveSection(key)` / `setExpandedItem(id)`. Undo/redo: `useUndo
   `stripSnapshotImages`; restore re-attaches current images). The History modal
   restores via **`replaceData`** so a restore is undoable + re-saved.
 - **Data-shape versioning** (`lib/migrate.ts`): `shape_version` (absent = 1;
-  `CURRENT_SHAPE_VERSION` = 12). `migrateStore()` is the single choke point for
+  `CURRENT_SHAPE_VERSION` = 13). `migrateStore()` is the single choke point for
   data entering from outside (`loadStore` + snapshot restore; `replaceData`
   never migrates). Migrations are **idempotent shape-sniffers**. Newer-build
   data loads best-effort (stamp never downgraded; `NewerDataNotice`). **Bump
   only for structural migrations** — additive optional fields stay covered by
-  `with*Defaults` render tolerance. The two most recent bumps: **v11**
-  (`migrateCourseDates` — Course `completed` → `start`/`end` range) and **v12**
+  `with*Defaults` render tolerance. The three most recent bumps: **v11**
+  (`migrateCourseDates` — Course `completed` → `start`/`end` range), **v12**
   (`migrateBundleMembership` — competency `profile_id` → the owning profile's
-  ordered `competency_ids` bundle; see §4). The full version history lives in the
-  header comment of `lib/migrate.ts`.
+  ordered `competency_ids` bundle; see §4), and **v13** (`migratePresentationDates`
+  — Presentation `date` → `start`/`end` range, mirroring v11). The full version
+  history lives in the header comment of `lib/migrate.ts`.
 - **Translation assist**: the client never calls a translation backend directly
   — `POST /api/translate` proxies to the configured provider
   (`TRANSLATE_PROVIDER` ∈ `off|libretranslate|deepl|google|azure|llm`; unset +

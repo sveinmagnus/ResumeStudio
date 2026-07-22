@@ -17,7 +17,7 @@ units:
     intent: "How must an agent work in this codebase? Architecture map, data model, store patterns, conventions (incl. the v0.3.1 accessibility invariants + the version source-of-truth rule), and what not to change. Holds invariants only — the exhaustive feature catalog is in feature-map."
     scope: global
     audience: [agent, developer]
-    validated: "2026-07-22"
+    validated: "2026-07-23"
     update_frequency: weekly
     triggers: [conventions, architecture, data-model, store, persistence, sections, accessibility, routing]
     content_structure:
@@ -34,7 +34,7 @@ units:
     intent: "What features exist and how does each hang together? The exhaustive per-feature design catalog + the recently-shipped changelog, extracted from CLAUDE.md §1 to keep the instruction file lean."
     scope: global
     audience: [agent, developer]
-    validated: "2026-07-22"
+    validated: "2026-07-23"
     update_frequency: weekly
     depends_on: [claude-instructions]
     triggers: [features, changelog, skills-showcase, skill-category, registry, resume-views, import, what-exists]
@@ -81,7 +81,7 @@ units:
     format: text
     scope: global
     audience: [developer, agent]
-    validated: "2026-07-22"
+    validated: "2026-07-23"
     update_frequency: monthly
     triggers: [types, entities, LocalizedString, ResumeStore, ResumeView, schema]
     not_for: ["runtime behavior", "business logic", "how a feature works"]
