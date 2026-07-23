@@ -42,7 +42,36 @@ describe('numberDiff()', () => {
     expect(numberDiff(en, no)).toEqual({ onlyA: ['2027'], onlyB: [] })
   })
   it('is multiset-aware — a duplicated number counts', () => {
-    expect(numberDiff('3 and 3', 'bare 3')).toEqual({ onlyA: ['3'], onlyB: [] })
+    // Salient values (3+ digits) so the count mechanism is what's under test,
+    // not the one-sided small-integer suppression added below.
+    expect(numberDiff('100 and 100', 'bare 100')).toEqual({ onlyA: ['100'], onlyB: [] })
+  })
+
+  it('does NOT flag a bare small number spelled out as a word on the other side', () => {
+    // The reported false positive: "6" ⇄ "seks"/"six" is the same content in a
+    // different notation. A one-sided bare 1–2 digit integer is suppressed.
+    expect(numberDiff('Led 6 people', 'Ledet seks personer')).toEqual({ onlyA: [], onlyB: [] })
+    expect(numberDiff('3 teams', 'tre team')).toEqual({ onlyA: [], onlyB: [] })
+    // Ordinal-as-word too: "6." (numeric) ⇄ "sixth" (word).
+    expect(numberDiff('6. plass', 'sixth place')).toEqual({ onlyA: [], onlyB: [] })
+  })
+
+  it('does NOT flag a one-sided number embedded in a name/token (S3, 3D)', () => {
+    // The digit is part of a product name, not a metric — suppress when it only
+    // appears on one side (both-sided "3D" ⇄ "3D" already matched).
+    expect(numberDiff('Hosted on AWS S3', 'Lagret i skyen')).toEqual({ onlyA: [], onlyB: [] })
+  })
+
+  it('STILL flags salient one-sided numbers (percent, decimal, 3+ digit, year)', () => {
+    expect(numberDiff('cut costs 40%', 'kuttet kostnader')).toEqual({ onlyA: ['40'], onlyB: [] })
+    expect(numberDiff('grew 3.5x', 'vokste')).toEqual({ onlyA: ['35'], onlyB: [] })
+    expect(numberDiff('1200 users', 'brukere')).toEqual({ onlyA: ['1200'], onlyB: [] })
+    expect(numberDiff('shipped in 2024', 'levert')).toEqual({ onlyA: ['2024'], onlyB: [] })
+  })
+
+  it('STILL flags numbers that genuinely differ, even when small (both sides)', () => {
+    // Both sides carry a number and they disagree → a real discrepancy.
+    expect(numberDiff('Led 5 people', 'Ledet 3 personer')).toEqual({ onlyA: ['5'], onlyB: ['3'] })
   })
 })
 

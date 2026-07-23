@@ -51,38 +51,86 @@ export interface DriftReport {
   findings: DriftFinding[]
 }
 
-/**
- * Every maximal run of digits in the text, normalized so formatting alone
- * isn't drift: thousands separators and decimal commas/points are dropped to a
- * canonical form, and leading zeros are stripped. "1,000" and "1.000" and
- * "1000" all read as `1000`; "40%" contributes `40`. Returned as a multiset
- * (sorted array) so "3 and 3" ≠ "3".
- */
-export function extractNumbers(text: string): string[] {
-  const plain = richToPlain(text)
-  // Grab number-ish tokens including internal separators, then canonicalize.
-  const tokens = plain.match(/\d[\d.,]*/g) ?? []
-  return tokens
-    .map((t) => t.replace(/[.,]/g, ''))       // 1,000 / 1.000 → 1000
-    .map((t) => t.replace(/^0+(?=\d)/, ''))    // 007 → 7 (keep a lone 0)
-    .filter(Boolean)
-    .sort()
+interface NumberToken {
+  /** Canonical numeric value: separators dropped, leading zeros stripped. */
+  value: string
+  /**
+   * "Salient" = reliably written as a numeral in every language, so its
+   * presence on only ONE side is a real omission rather than a notation
+   * choice: a percentage, a decimal/grouped value, or a 3+ digit number
+   * (counts, years, amounts). A bare 1–2 digit integer is NOT salient — it's
+   * exactly what one language spells out as a word ("six" ⇄ "6").
+   */
+  salient: boolean
 }
 
 /**
- * The multiset difference between two number lists: values present in `a` but
+ * Every maximal run of digits in the text as a {@link NumberToken}, normalized
+ * so formatting alone isn't drift: thousands separators and decimal
+ * commas/points are dropped to a canonical form, and leading zeros are
+ * stripped. "1,000" and "1.000" and "1000" all read as `1000`; "40%"
+ * contributes a salient `40`.
+ */
+function extractNumberTokens(text: string): NumberToken[] {
+  const plain = richToPlain(text)
+  const out: NumberToken[] = []
+  const re = /\d[\d.,]*/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(plain)) !== null) {
+    const raw = m[0]
+    const value = raw.replace(/[.,]/g, '').replace(/^0+(?=\d)/, '')
+    if (!value) continue
+    const grouped = /\d[.,]\d/.test(raw)               // 1,000 / 3.5 — decimal or grouped
+    const percent = /^\s*%/.test(plain.slice(m.index + raw.length))
+    const salient = value.length >= 3 || grouped || percent
+    out.push({ value, salient })
+  }
+  return out
+}
+
+/**
+ * Every number in the text as a canonical multiset (sorted array) so
+ * "3 and 3" ≠ "3". Kept for callers/tests that only need the values.
+ */
+export function extractNumbers(text: string): string[] {
+  return extractNumberTokens(text).map((t) => t.value).sort()
+}
+
+/**
+ * The multiset difference between two texts' numbers: values present in `a` but
  * not `b` (`onlyA`) and vice versa (`onlyB`). Multiset-aware, so `[3,3]` vs
  * `[3]` reports one extra `3`. Empty-and-empty means the numbers match.
+ *
+ * When numbers are left over on BOTH sides the values genuinely DIFFER (5 ⇄ 3,
+ * 40% ⇄ 30%) — a real discrepancy, reported in full. When they're left over on
+ * ONLY ONE side, that's the ambiguous "a number here, nothing there" case which
+ * is usually just notation — the other language spelled it as a word ("six") or
+ * it was part of a name ("S3") — so only SALIENT one-sided numbers (percentages,
+ * decimals, 3+ digit values / years) are reported. This is what stops "6" ⇄
+ * "seks" and "6." ⇄ "sixth" from being flagged.
  */
 export function numberDiff(a: string, b: string): { onlyA: string[]; onlyB: string[] } {
-  const count = (xs: string[]) => xs.reduce((m, x) => m.set(x, (m.get(x) ?? 0) + 1), new Map<string, number>())
-  const ca = count(extractNumbers(a))
-  const cb = count(extractNumbers(b))
+  const ta = extractNumberTokens(a)
+  const tb = extractNumberTokens(b)
+  const count = (xs: NumberToken[]) => xs.reduce((m, x) => m.set(x.value, (m.get(x.value) ?? 0) + 1), new Map<string, number>())
+  const ca = count(ta)
+  const cb = count(tb)
   const onlyA: string[] = []
   const onlyB: string[] = []
   for (const [v, n] of ca) { const extra = n - (cb.get(v) ?? 0); for (let i = 0; i < extra; i++) onlyA.push(v) }
   for (const [v, n] of cb) { const extra = n - (ca.get(v) ?? 0); for (let i = 0; i < extra; i++) onlyB.push(v) }
-  return { onlyA: onlyA.sort(), onlyB: onlyB.sort() }
+
+  // Both sides have leftovers → the numbers differ → report everything.
+  if (onlyA.length && onlyB.length) return { onlyA: onlyA.sort(), onlyB: onlyB.sort() }
+
+  // One-sided → keep only salient values (a bare small integer is likely just
+  // spelled out as a word on the other side, not real drift).
+  const salientA = new Set(ta.filter((t) => t.salient).map((t) => t.value))
+  const salientB = new Set(tb.filter((t) => t.salient).map((t) => t.value))
+  return {
+    onlyA: onlyA.filter((v) => salientA.has(v)).sort(),
+    onlyB: onlyB.filter((v) => salientB.has(v)).sort(),
+  }
 }
 
 /** Word count of the plain-text form — a fairer length proxy across languages than characters. */
