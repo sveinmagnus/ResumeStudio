@@ -43,6 +43,15 @@ export interface LocaleCompleteness {
 export interface TrackedField {
   ls: LocalizedString
   meta: MissingField
+  /**
+   * True for genuinely PROSE fields (multi-sentence descriptions/summaries),
+   * false for short structured ones (school, degree, title, names…). Only
+   * drift's LENGTH heuristic reads it: a large length gap signals a stale/stub
+   * translation only in prose — a terse compound word or abbreviation in one
+   * language (Norwegian "Sivilingeniør"/"NTNU" ⇄ a multi-word English phrase)
+   * is normal, not drift. Completeness ignores this flag.
+   */
+  prose?: boolean
 }
 
 /**
@@ -112,9 +121,10 @@ export function collectTrackedFields(data: ResumeStore): TrackedField[] {
     itemId: string | null,
     itemLabel: string,
     fieldLabel: string,
+    prose = false,
   ) => {
     if (ls && Object.keys(ls).length) {
-      fields.push({ ls, meta: { section, itemId, itemLabel, fieldLabel } })
+      fields.push({ ls, meta: { section, itemId, itemLabel, fieldLabel }, prose })
     }
   }
 
@@ -130,7 +140,7 @@ export function collectTrackedFields(data: ResumeStore): TrackedField[] {
   data.key_qualifications.forEach((k) => {
     if (k.disabled) return
     const label = getItemTitle('key_qualifications', k, LABEL_LOCALE)
-    track(k.summary,  'key_qualifications', k.id, label, 'Summary')
+    track(k.summary,  'key_qualifications', k.id, label, 'Summary', true)
     track(k.tag_line, 'key_qualifications', k.id, label, 'Tagline')
   })
   data.projects.forEach((p) => {
@@ -138,13 +148,13 @@ export function collectTrackedFields(data: ResumeStore): TrackedField[] {
     const label = getItemTitle('projects', p, LABEL_LOCALE)
     track(p.customer,         'projects', p.id, label, 'Customer')
     track(p.description,      'projects', p.id, label, 'Description')
-    track(p.long_description, 'projects', p.id, label, 'Long description')
+    track(p.long_description, 'projects', p.id, label, 'Long description', true)
   })
   data.work_experiences.forEach((w) => {
     if (w.disabled) return
     const label = getItemTitle('work_experiences', w, LABEL_LOCALE)
     track(w.employer,         'work_experiences', w.id, label, 'Employer')
-    track(w.long_description, 'work_experiences', w.id, label, 'Long description')
+    track(w.long_description, 'work_experiences', w.id, label, 'Long description', true)
   })
   data.educations.forEach((e) => {
     if (e.disabled) return

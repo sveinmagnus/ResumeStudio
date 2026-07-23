@@ -6,7 +6,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { computeDrift, extractNumbers, wordCount, numberDiff } from '../src/lib/drift'
-import { emptyStore, makeProject, makeResume } from './fixtures'
+import { emptyStore, makeProject, makeResume, makeEducation } from './fixtures'
 import type { ResumeStore } from '../src/types'
 
 describe('extractNumbers()', () => {
@@ -54,16 +54,24 @@ describe('wordCount()', () => {
 })
 
 /**
- * A store whose ONLY bilingual field is one project's description — the
- * fixtures otherwise default several fields (resume.title, project.customer) to
- * both locales, which would pad comparedFields. Overriding them to a single
- * locale keeps each case about exactly the description under test.
+ * A store whose ONLY bilingual field is one project's text field — the fixtures
+ * otherwise default several fields (resume.title, project.customer) to both
+ * locales, which would pad comparedFields. Overriding them to a single locale
+ * keeps each case about exactly the field under test.
+ *
+ * `prose` picks WHICH field: `long_description` (a PROSE field, the only kind
+ * the LENGTH heuristic applies to) when true, else the short one-line
+ * `description`. Number/metadata cases don't care (numbers fire on any field);
+ * length cases must use prose.
  */
-function storeWith(en: string, no: string): ResumeStore {
+function storeWith(en: string, no: string, prose = false): ResumeStore {
+  const text = prose
+    ? { long_description: { en, no }, description: {} }
+    : { long_description: {}, description: { en, no } }
   return {
     ...emptyStore(),
     resume: makeResume({ title: { en: 'Consultant' }, nationality: {}, place_of_residence: {} }),
-    projects: [makeProject({ customer: { en: 'Acme' }, long_description: {}, description: { en, no } })],
+    projects: [makeProject({ customer: { en: 'Acme' }, ...text })],
   }
 }
 
@@ -103,25 +111,41 @@ describe('computeDrift()', () => {
     expect(rep.findings).toHaveLength(0)
   })
 
-  it('flags a large length divergence as low severity', () => {
+  it('flags a large length divergence as low severity (prose only)', () => {
     const long = 'Architected and delivered the entire platform rebuild across many teams and quarters'
     const short = 'Bygde plattformen'
-    const rep = computeDrift(storeWith(long, short), 'en', 'no')
+    const rep = computeDrift(storeWith(long, short, true), 'en', 'no')
     expect(rep.findings).toHaveLength(1)
     expect(rep.findings[0].kind).toBe('length')
     expect(rep.findings[0].severity).toBe('low')
   })
 
-  it('does not flag short fields for length (title-like content)', () => {
-    // "Lead Architect" vs "Ledende arkitekt" — below the min-words floor.
-    const rep = computeDrift(storeWith('Lead Architect', 'Ledende arkitekt'), 'en', 'no')
+  it('does not flag short PROSE for length (below the min-words floor)', () => {
+    // "Lead Architect" vs "Ledende arkitekt" — prose field, but below the floor.
+    const rep = computeDrift(storeWith('Lead Architect', 'Ledende arkitekt', true), 'en', 'no')
     expect(rep.findings).toHaveLength(0)
+  })
+
+  it('never flags length on SHORT STRUCTURED fields, even when word counts diverge wildly', () => {
+    // The reported bug: a Norwegian degree/school is a terse compound word or
+    // abbreviation while English spells it out — a 6× word-count gap that is not
+    // drift. School/degree are non-prose, so length is skipped entirely.
+    const data: ResumeStore = {
+      ...emptyStore(),
+      resume: makeResume({ title: { en: 'Consultant' }, nationality: {}, place_of_residence: {} }),
+      educations: [makeEducation({
+        school: { en: 'Norwegian University of Science and Technology', no: 'NTNU' },
+        degree: { en: 'Master of Science in Computer Engineering', no: 'Sivilingeniør' },
+      })],
+    }
+    const rep = computeDrift(data, 'en', 'no')
+    expect(rep.findings.filter((f) => f.kind === 'length')).toHaveLength(0)
   })
 
   it('prefers the number signal over length when both would fire', () => {
     const long = 'Managed 5 people delivering many features across the platform every single quarter'
     const short = 'Ledet 3 personer'
-    const rep = computeDrift(storeWith(long, short), 'en', 'no')
+    const rep = computeDrift(storeWith(long, short, true), 'en', 'no')
     expect(rep.findings).toHaveLength(1)
     expect(rep.findings[0].kind).toBe('numbers')
   })
@@ -147,16 +171,17 @@ describe('computeDrift()', () => {
   })
 
   it('sorts high-severity findings ahead of low', () => {
-    const single = { customer: { en: 'Acme' }, long_description: {} }
     const data: ResumeStore = {
       ...emptyStore(),
       resume: makeResume({ title: { en: 'Consultant' } }),
       projects: [
-        makeProject({ id: 'p1', ...single, description: { en: 'Grew revenue 30%', no: 'Økte inntekten' } }), // numbers → high
-        makeProject({ id: 'p2', ...single, description: {
+        // numbers → high (on the short description field)
+        makeProject({ id: 'p1', customer: { en: 'Acme' }, long_description: {}, description: { en: 'Grew revenue 30%', no: 'Økte inntekten' } }),
+        // length → low (must be a PROSE field, so long_description)
+        makeProject({ id: 'p2', customer: { en: 'Acme' }, description: {}, long_description: {
           en: 'Delivered the platform rebuild across every team over many quarters of work',
           no: 'Bygde plattformen',
-        } }), // length → low
+        } }),
       ],
     }
     const rep = computeDrift(data, 'en', 'no')

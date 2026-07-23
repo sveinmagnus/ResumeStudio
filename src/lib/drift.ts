@@ -145,7 +145,11 @@ export function computeDrift(data: ResumeStore, a: string, b: string): DriftRepo
       })
       continue
     }
-    const ratio = lengthDrift(va, vb)
+    // Length disparity only signals staleness in PROSE. On short structured
+    // fields (school, degree, title, names) a big word-count gap is normal
+    // cross-language variation — Norwegian "Sivilingeniør" (1 word) ⇄ "Master
+    // of Science in Engineering" (6) is a 6× ratio but not drift — so skip them.
+    const ratio = f.prose ? lengthDrift(va, vb) : null
     if (ratio != null) {
       findings.push({
         meta: f.meta,
