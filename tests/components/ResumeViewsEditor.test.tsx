@@ -1,8 +1,8 @@
 /**
  * @vitest-environment jsdom
  */
-import { describe, it, expect, beforeEach } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { render, screen, within, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ResumeViewsEditor } from '../../src/components/editor/ResumeViewsEditor'
 import { useStore } from '../../src/store/useStore'
@@ -358,6 +358,75 @@ describe('<ResumeViewsEditor>', () => {
       'Targeted for boards',
     )
     expect(useStore.getState().data.views[0].introduction.en).toBe('Targeted for boards')
+  })
+
+  describe('preview pop-out / pop-in', () => {
+    // A stand-in for the popped-out window: jsdom doesn't implement window.open.
+    function fakeWindow() {
+      return {
+        document: { open: vi.fn(), write: vi.fn(), close: vi.fn() },
+        focus: vi.fn(), close: vi.fn(), closed: false,
+      }
+    }
+
+    afterEach(() => vi.restoreAllMocks())
+
+    async function openViewEditor() {
+      seed()
+      render(<ResumeViewsEditor />)
+      await userEvent.click(screen.getByRole('button', { name: /new view/i }))
+    }
+
+    it('pops out to a window (hiding the inline pane) and pops back in, killing the window', async () => {
+      const win = fakeWindow()
+      const openSpy = vi.spyOn(window, 'open').mockReturnValue(win as unknown as Window)
+      await openViewEditor()
+
+      // Inline preview visible to start.
+      expect(screen.getByTitle('Resume View preview')).toBeInTheDocument()
+
+      // Pop out: opens a window, writes the HTML, hides the inline pane, and the
+      // button flips to "Pop in". (The pane unmounts a tick after the click, so
+      // wait for the button flip / iframe removal rather than asserting sync.)
+      await userEvent.click(screen.getByRole('button', { name: /^pop out$/i }))
+      expect(openSpy).toHaveBeenCalledTimes(1)
+      expect(win.document.write).toHaveBeenCalled()
+      await screen.findByRole('button', { name: /^pop in$/i })
+      await waitFor(() => expect(screen.queryByTitle('Resume View preview')).not.toBeInTheDocument())
+
+      // Pop in: closes the window and restores the inline pane.
+      await userEvent.click(screen.getByRole('button', { name: /^pop in$/i }))
+      expect(win.close).toHaveBeenCalledTimes(1)
+      expect(await screen.findByTitle('Resume View preview')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /^pop out$/i })).toBeInTheDocument()
+    })
+
+    it('can re-show the inline preview while the pop-out window is still active', async () => {
+      const win = fakeWindow()
+      vi.spyOn(window, 'open').mockReturnValue(win as unknown as Window)
+      await openViewEditor()
+
+      await userEvent.click(screen.getByRole('button', { name: /^pop out$/i }))
+      // Inline hidden, but the window is still open (still showing "Pop in").
+      await screen.findByRole('button', { name: /^pop in$/i })
+      await waitFor(() => expect(screen.queryByTitle('Resume View preview')).not.toBeInTheDocument())
+
+      // Show preview brings the inline pane back WITHOUT closing the window.
+      await userEvent.click(screen.getByRole('button', { name: /show preview/i }))
+      expect(await screen.findByTitle('Resume View preview')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /^pop in$/i })).toBeInTheDocument()
+      expect(win.close).not.toHaveBeenCalled()
+    })
+
+    it('surfaces a clear error when the browser blocks the pop-up', async () => {
+      vi.spyOn(window, 'open').mockReturnValue(null)
+      await openViewEditor()
+      await userEvent.click(screen.getByRole('button', { name: /^pop out$/i }))
+      expect(screen.getByRole('alert')).toHaveTextContent(/allow pop-ups/i)
+      // The inline preview stays put when the window couldn't open.
+      expect(screen.getByTitle('Resume View preview')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /^pop out$/i })).toBeInTheDocument()
+    })
   })
 
   it('exposes export actions via the top "Export view" dropdown', async () => {

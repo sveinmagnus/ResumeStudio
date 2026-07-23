@@ -31,7 +31,7 @@ import type {
 import {
   Trash2, ChevronUp, ChevronDown, ChevronRight, GripVertical, Pencil,
   ArrowLeft, Star, FileText, FileDown, FileType, FileCode,
-  PanelRight, PanelRightClose, ExternalLink,
+  PanelRight, PanelRightClose, PanelRightOpen, ExternalLink,
 } from 'lucide-react'
 import {
   DetailToggle, SectionStylePanel, sectionModes, type SectionMode,
@@ -254,6 +254,11 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
   const [pageEstimate, setPageEstimate] = useState<number | null>(null)
   const [exactPages, setExactPages] = useState<number | null>(null)
   const [showPreview, setShowPreview] = useState(true)
+  // Whether a separate preview window is currently open. Kept as STATE (not just
+  // the ref) so the toolbar can flip Pop out ⇄ Pop in and so an externally-closed
+  // window re-enables popping out. Independent of `showPreview`: the inline
+  // preview can be shown or hidden regardless of whether a window is open.
+  const [poppedOut, setPoppedOut] = useState(false)
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const popoutRef = useRef<Window | null>(null)
   // Last known preview scroll offset, preserved across rebuilds so tweaking a
@@ -280,6 +285,20 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
   // Close the pop-out when leaving the view editor.
   useEffect(() => () => { popoutRef.current?.close() }, [])
 
+  // A window closed from its own title bar fires no event in the opener, so poll
+  // while popped out: once it's gone, drop back to the "Pop out" affordance so the
+  // button never lies and popping out again works.
+  useEffect(() => {
+    if (!poppedOut) return
+    const id = window.setInterval(() => {
+      if (!popoutRef.current || popoutRef.current.closed) {
+        popoutRef.current = null
+        setPoppedOut(false)
+      }
+    }, 800)
+    return () => window.clearInterval(id)
+  }, [poppedOut])
+
   const popOut = () => {
     const win = window.open('', 'rs-view-preview', 'width=900,height=1200')
     if (!win) { setExportError('Please allow pop-ups to open the preview window.'); return }
@@ -288,6 +307,18 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
     win.document.write(previewHtml)
     win.document.close()
     win.focus()
+    setPoppedOut(true)
+    // Popping out reclaims the editor width by default; the inline preview can be
+    // brought back at any time with Show preview, even while the window is open.
+    setShowPreview(false)
+  }
+
+  // Bring the preview back inside: close the window and re-show the inline pane.
+  const popIn = () => {
+    popoutRef.current?.close()
+    popoutRef.current = null
+    setPoppedOut(false)
+    setShowPreview(true)
   }
 
   useEffect(() => {
@@ -584,8 +615,15 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
             {showPreview ? <PanelRightClose size={15} /> : <PanelRight size={15} />}
             {showPreview ? 'Hide preview' : 'Show preview'}
           </button>
-          <button className="rv-prev-ctrl" onClick={popOut} title="Open the preview in a separate window">
-            <ExternalLink size={14} /> Pop out
+          <button
+            className="rv-prev-ctrl"
+            onClick={poppedOut ? popIn : popOut}
+            title={poppedOut
+              ? 'Close the separate preview window and bring the preview back inside'
+              : 'Open the preview in a separate window'}
+          >
+            {poppedOut ? <PanelRightOpen size={14} /> : <ExternalLink size={14} />}
+            {poppedOut ? 'Pop in' : 'Pop out'}
           </button>
         </div>
         <button className="rv-btn-del rv-del-view" onClick={onDelete} title="Delete this view">
@@ -1021,8 +1059,13 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
               </span>
             )}
             <div className="rv-preview-head-actions">
-              <button className="rv-preview-iconbtn" onClick={popOut} title="Open in a separate window" aria-label="Pop out preview">
-                <ExternalLink size={14} />
+              <button
+                className="rv-preview-iconbtn"
+                onClick={poppedOut ? popIn : popOut}
+                title={poppedOut ? 'Close the separate preview window' : 'Open in a separate window'}
+                aria-label={poppedOut ? 'Pop in preview' : 'Pop out preview'}
+              >
+                {poppedOut ? <PanelRightOpen size={14} /> : <ExternalLink size={14} />}
               </button>
               <button className="rv-preview-iconbtn" onClick={() => setShowPreview(false)} title="Hide preview" aria-label="Hide preview">
                 <PanelRightClose size={15} />
