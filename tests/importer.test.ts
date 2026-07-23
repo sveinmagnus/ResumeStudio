@@ -1,5 +1,32 @@
 import { describe, it, expect } from 'vitest'
-import { importFromCVPartner } from '../src/lib/importer'
+import { importFromCVPartner, isCVPartnerFormat } from '../src/lib/importer'
+
+describe('isCVPartnerFormat()', () => {
+  it('detects the CVpartner-signature fields', () => {
+    expect(isCVPartnerFormat({ project_experiences: [] })).toBe(true)
+    expect(isCVPartnerFormat({ cv_roles: [] })).toBe(true)
+    expect(isCVPartnerFormat({ language_codes: ['no'] })).toBe(true)
+    expect(isCVPartnerFormat({ technologies: [] })).toBe(true)
+    expect(isCVPartnerFormat({ default_cv: true })).toBe(true)
+    expect(isCVPartnerFormat({ born_year: '1980' })).toBe(true)
+    expect(isCVPartnerFormat({ navn: 'Sigrid' })).toBe(true)
+  })
+
+  it('does NOT misfire on a Resume Studio store (shared field names are excluded)', () => {
+    // A raw ResumeStore has key_qualifications/work_experiences/educations too —
+    // the detector must not treat those as CVpartner markers.
+    expect(isCVPartnerFormat({
+      resume: null, key_qualifications: [], work_experiences: [], educations: [],
+      projects: [], skills: [], views: [],
+    })).toBe(false)
+  })
+
+  it('rejects non-objects and arrays', () => {
+    expect(isCVPartnerFormat(null)).toBe(false)
+    expect(isCVPartnerFormat('x')).toBe(false)
+    expect(isCVPartnerFormat([1, 2, 3])).toBe(false)
+  })
+})
 
 // CVpartner export uses idiosyncratic locale encodings and field names.
 // These tests pin the known edge cases from CLAUDE.md §8.

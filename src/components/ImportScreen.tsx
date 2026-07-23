@@ -2,11 +2,12 @@ import { useRef, useState } from 'react'
 import { Upload, FileJson, Sparkles, FilePlus, Wand2 } from 'lucide-react'
 import {
   isBackupFormat, importFromBackup, isStoreBackupFormat, resumesFromStoreBackup,
+  normalizeStoreShape, looksLikeResumeStore,
   UnsupportedBackupVersionError, InvalidBackupError,
 } from '../lib/backup'
 import { reinternBackupLinks, collectReferencedCanonical } from '../lib/registryReintern'
 import { api } from '../lib/api'
-import { importFromCVPartner } from '../lib/importer'
+import { importFromCVPartner, isCVPartnerFormat } from '../lib/importer'
 import {
   isAIImportFormat, validateAIImport, importFromAIDraft, InvalidAIImportError,
 } from '../lib/aiImport'
@@ -52,6 +53,55 @@ function deriveName(store: ResumeStore, fallback: string): string {
   return full ? `${full} — CV` : fallback
 }
 
+/**
+ * Import Resume Studio's OWN content — the dispatcher's default target. Handles
+ * every self-export shape, current or older:
+ *   - a whole-store desktop-sync backup (`resumestudio-store/…`, every resume);
+ *   - a per-resume backup envelope (`resumestudio/…`);
+ *   - a bare/legacy `ResumeStore` object (an older self-export without an
+ *     envelope).
+ * Shared-registry links are re-interned against THIS instance (store backups
+ * carry a top-level `registry`; per-resume backups embed `canonical_registry`
+ * snapshots). Anything that isn't recognisable as our content throws a clear
+ * error — we never silently create an empty resume.
+ */
+async function importResumeStudio(
+  json: unknown,
+  onImported: (store: ResumeStore, name: string) => void | Promise<void>,
+): Promise<void> {
+  if (isStoreBackupFormat(json)) {
+    const registry = (json as { registry?: RegistryEntry[] }).registry
+    for (const { name, store } of resumesFromStoreBackup(json)) {
+      const embedded = registry?.length ? collectReferencedCanonical(store, registry) : undefined
+      const reinterned = await reinternBackupLinks(store, embedded, api).catch(() => store)
+      await onImported(reinterned, name || deriveName(reinterned, 'Imported resume'))
+    }
+    return
+  }
+  if (isBackupFormat(json)) {
+    // importFromBackup validates the structure and throws InvalidBackupError
+    // (with a field path) on anything malformed.
+    const store = importFromBackup(json)
+    const embedded = (json as { canonical_registry?: CanonicalSnapshot[] }).canonical_registry
+    const reinterned = await reinternBackupLinks(store, embedded, api).catch(() => store)
+    await onImported(reinterned, deriveName(reinterned, 'Imported resume'))
+    return
+  }
+  if (looksLikeResumeStore(json)) {
+    // Older self-export dumped as the raw internal store (no envelope). Normalize
+    // the shape so a previous-version store restores fully; migrateStore finishes
+    // the upgrade at load.
+    const store = normalizeStoreShape(json as Record<string, unknown>)
+    const reinterned = await reinternBackupLinks(store, undefined, api).catch(() => store)
+    await onImported(reinterned, deriveName(reinterned, 'Imported resume'))
+    return
+  }
+  throw new Error(
+    'this file is not a recognised resume format (expected a Resume Studio backup, ' +
+    'or a CVpartner, LinkedIn, Europass, or AI-import file).',
+  )
+}
+
 export function ImportScreen({ compact = false, onStartFresh, onImported }: ImportScreenProps) {
   const [error, setError]       = useState<string | null>(null)
   const [dragging, setDragging] = useState(false)
@@ -90,6 +140,13 @@ export function ImportScreen({ compact = false, onStartFresh, onImported }: Impo
 
       const json = JSON.parse(text) as unknown
 
+      // Third-party formats each have a POSITIVE detector that routes to their
+      // own importer. Anything NOT matched here defaults to the Resume Studio
+      // path (`importResumeStudio`) — so a self-created backup, current OR older
+      // version, is the safe fallback and is never misrouted into a foreign
+      // importer (which is how a whole-store backup used to come back empty).
+      // Importing our own content is the priority; third-party formats are the
+      // value-add layered on top.
       if (isEuropassJson(json)) {
         const store = await normalizeImported(importFromEuropassJson(json))
         await onImported(store, deriveName(store, 'Europass import'))
@@ -99,42 +156,12 @@ export function ImportScreen({ compact = false, onStartFresh, onImported }: Impo
         // shows the full issue list — here we surface the first problem.)
         const store = await normalizeImported(importFromAIDraft(validateAIImport(json)))
         await onImported(store, deriveName(store, 'AI-imported resume'))
-      } else if (isBackupFormat(json)) {
-        // Backups carry intentional existing names — restore verbatim, no
-        // normalization. importFromBackup validates the structure and throws
-        // InvalidBackupError (with a field path) on anything malformed.
-        const store = importFromBackup(json)
-        // Re-intern shared-registry links against THIS instance's registry (a
-        // backup from another instance carries foreign canonical ids). Embedded
-        // snapshots match by key → reuse or create; missing ones are cleared.
-        // Best-effort: a registry failure leaves the store's links as-imported.
-        const embedded = (json as { canonical_registry?: CanonicalSnapshot[] }).canonical_registry
-        const reinterned = await reinternBackupLinks(store, embedded, api).catch(() => store)
-        await onImported(reinterned, deriveName(reinterned, 'Imported resume'))
-      } else if (isStoreBackupFormat(json)) {
-        // Whole-store desktop-sync backup (resumestudio-store/v1): ONE file, EVERY
-        // resume. This is the file users grab from their cloud sync folder — read
-        // it here so it never falls through to the CVpartner importer and restores
-        // an empty resume (the bug this guards against). Restore each contained
-        // resume; re-intern its shared-registry links against this instance using
-        // the backup's own top-level registry snapshot.
-        const registry = (json as { registry?: RegistryEntry[] }).registry
-        const restored = resumesFromStoreBackup(json)
-        for (const { name, store } of restored) {
-          const embedded = registry?.length ? collectReferencedCanonical(store, registry) : undefined
-          const reinterned = await reinternBackupLinks(store, embedded, api).catch(() => store)
-          await onImported(reinterned, name || deriveName(reinterned, 'Imported resume'))
-        }
-      } else {
-        // Everything unrecognised falls through to the CVpartner importer, which
-        // maps a large, real-world-messy object. Guard the one thing its cast
-        // assumes — that we have an object at all — so a stray array/string/
-        // number gets a clear message instead of a confusing internal failure.
-        if (!json || typeof json !== 'object' || Array.isArray(json)) {
-          throw new Error('this file is not a recognised resume format (expected a CVpartner export, a Resume Studio backup, Europass, or an AI-import file).')
-        }
+      } else if (isCVPartnerFormat(json)) {
+        // CVpartner export — a large, real-world-messy third-party object.
         const store = await normalizeImported(importFromCVPartner(json as Record<string, unknown>))
         await onImported(store, deriveName(store, 'Imported CV'))
+      } else {
+        await importResumeStudio(json, onImported)
       }
     } catch (e) {
       const msg = e instanceof UnsupportedBackupVersionError

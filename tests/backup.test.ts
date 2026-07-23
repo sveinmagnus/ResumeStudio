@@ -3,7 +3,7 @@ import {
   isBackupFormat, exportToBackup, importFromBackup,
   migrateBackup, UnsupportedBackupVersionError, CURRENT_FORMAT_VERSION,
   validateBackup, InvalidBackupError,
-  isStoreBackupFormat, resumesFromStoreBackup, normalizeStoreShape,
+  isStoreBackupFormat, resumesFromStoreBackup, normalizeStoreShape, looksLikeResumeStore,
   type AnyBackup,
 } from '../src/lib/backup'
 import { CURRENT_SHAPE_VERSION } from '../src/lib/migrate'
@@ -429,5 +429,27 @@ describe('normalizeStoreShape()', () => {
   it('keeps a current-version store at CURRENT (round-trips cleanly)', () => {
     const store = normalizeStoreShape({ ...emptyStore() })
     expect(store.shape_version).toBe(CURRENT_SHAPE_VERSION)
+  })
+})
+
+describe('looksLikeResumeStore()', () => {
+  it('accepts a bare/legacy ResumeStore (resume slot + its own collections)', () => {
+    expect(looksLikeResumeStore(emptyStore())).toBe(true)
+    expect(looksLikeResumeStore({ resume: null, projects: [], skills: [] })).toBe(true)
+  })
+
+  it('rejects a per-resume backup envelope (profile/sections, not a raw store)', () => {
+    expect(looksLikeResumeStore(exportToBackup(emptyStore()))).toBe(false)
+  })
+
+  it('rejects a CVpartner-shaped object (no resume wrapper)', () => {
+    expect(looksLikeResumeStore({ project_experiences: [], work_experiences: [], educations: [] })).toBe(false)
+  })
+
+  it('rejects a random object and non-objects', () => {
+    expect(looksLikeResumeStore({ resume: null })).toBe(false) // resume but no collections
+    expect(looksLikeResumeStore({ foo: 1 })).toBe(false)
+    expect(looksLikeResumeStore(null)).toBe(false)
+    expect(looksLikeResumeStore([1, 2, 3])).toBe(false)
   })
 })

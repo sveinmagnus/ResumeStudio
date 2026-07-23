@@ -134,4 +134,47 @@ describe('<ImportScreen>', () => {
     expect(await screen.findByText(/not a recognised resume format/i)).toBeInTheDocument()
     expect(onImported).not.toHaveBeenCalled()
   })
+
+  it('routes a CVpartner export via its own detector (not as a fallback)', async () => {
+    const onImported = vi.fn()
+    const { container } = render(<ImportScreen onStartFresh={() => {}} onImported={onImported} />)
+    const file = new File(
+      [JSON.stringify({
+        navn: 'Sigrid Test',
+        project_experiences: [{ _id: 'p1', customer: { no: 'Acme' } }],
+      })],
+      'cvpartner.json',
+      { type: 'application/json' },
+    )
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement
+    await userEvent.upload(input, file)
+    await waitFor(() => expect(onImported).toHaveBeenCalledTimes(1))
+    const [store] = onImported.mock.calls[0]
+    expect(store.projects).toHaveLength(1)
+  })
+
+  it('DEFAULTS an unrecognised-but-ours raw ResumeStore to the Resume Studio path', async () => {
+    // No backup envelope, no third-party signature — an older self-export dumped
+    // as the raw internal store. Must import with content intact, not error and
+    // not fall into a foreign importer.
+    const onImported = vi.fn()
+    const { container } = render(<ImportScreen onStartFresh={() => {}} onImported={onImported} />)
+    const file = new File(
+      [JSON.stringify({
+        resume: { id: 'p1', full_name: 'Grace Hopper' },
+        projects: [{ id: 'proj1', customer: { en: 'Navy' } }],
+        skills: [{ id: 's1', name: 'COBOL' }],
+        work_experiences: [], views: [],
+      })],
+      'store.json',
+      { type: 'application/json' },
+    )
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement
+    await userEvent.upload(input, file)
+    await waitFor(() => expect(onImported).toHaveBeenCalledTimes(1))
+    const [store, name] = onImported.mock.calls[0]
+    expect(name).toBe('Grace Hopper — CV')
+    expect(store.projects).toHaveLength(1)
+    expect(store.cover_letters).toEqual([]) // backfilled by normalizeStoreShape
+  })
 })

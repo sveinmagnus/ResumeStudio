@@ -99,6 +99,32 @@ interface CVProjectSkill {
   order?: number
 }
 
+// ─── Detection ────────────────────────────────────────────────────────────────
+
+/**
+ * Positive detector for a CVpartner export (a third-party format), so the import
+ * dispatcher can route it to `importFromCVPartner` explicitly rather than as a
+ * catch-all fallback. Keyed on fields CVpartner uses that Resume Studio's OWN
+ * formats never do — `project_experiences`/`cv_roles` (Resume Studio uses
+ * `projects` and never has `cv_roles`), the Norwegian personal fields (`navn`,
+ * `born_year`), or `language_codes`. Deliberately does NOT key on
+ * `key_qualifications`/`work_experiences`/`educations`, whose names a
+ * Resume Studio store shares.
+ */
+export function isCVPartnerFormat(json: unknown): boolean {
+  if (!json || typeof json !== 'object' || Array.isArray(json)) return false
+  const o = json as Record<string, unknown>
+  return (
+    Array.isArray(o['project_experiences']) ||
+    Array.isArray(o['cv_roles']) ||
+    Array.isArray(o['language_codes']) ||
+    Array.isArray(o['technologies']) ||
+    'default_cv' in o ||
+    'born_year' in o ||
+    'navn' in o
+  )
+}
+
 // ─── Main import function ─────────────────────────────────────────────────────
 
 export function importFromCVPartner(raw: Record<string, unknown>): ResumeStore {

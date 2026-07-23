@@ -477,6 +477,23 @@ export function normalizeStoreShape(data: Record<string, unknown>): ResumeStore 
   return merged
 }
 
+/**
+ * Does this parsed JSON look like a bare/legacy `ResumeStore` — the internal
+ * store shape WITHOUT the `resumestudio/` backup envelope? A self-export from an
+ * older build (or a hand-extracted store) can arrive this way. Recognising it
+ * lets the import dispatcher default such files to the Resume Studio path instead
+ * of misrouting them. Requires the `resume` slot PLUS a couple of the store's own
+ * top-level collections together, so a random object (or a CVpartner export,
+ * which has no `resume` wrapper) doesn't masquerade as one.
+ */
+export function looksLikeResumeStore(json: unknown): boolean {
+  if (!isObj(json)) return false
+  if (!('resume' in json)) return false
+  const collections = ['projects', 'skills', 'work_experiences', 'educations', 'views']
+  const hits = collections.filter((k) => Array.isArray(json[k])).length
+  return hits >= 2
+}
+
 /** One restored resume from a store backup: its saved name + a shape-normalized store. */
 export interface RestoredResume {
   /** The resume's saved name, or '' if the backup entry had none (caller derives one). */
