@@ -116,29 +116,34 @@ export function isNewerShape(store: ResumeStore): boolean {
 export function migrateStore(store: ResumeStore): ResumeStore {
   const stored = store.shape_version ?? 1
   if (stored >= CURRENT_SHAPE_VERSION) return store
-  const migrated = migratePresentationDates(
-    migrateBundleMembership(
-      migrateCourseDates(
-        ensureCoverLetters(
-          unpinLegacyHeadingFont(
-            localizeRecommenderTitles(
-              unifyShowcaseCategories(
-                internSkillCategories(
-                  internProjectIndustries(
-                    migrateEmploymentShape(
-                      extractKeyPointsToCompetencies(foldRoleDescriptions(store)),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    ),
-  )
+  const migrated = MIGRATIONS.reduce((s, step) => step(s), store)
   return { ...migrated, shape_version: CURRENT_SHAPE_VERSION }
 }
+
+/**
+ * The migration chain, in application order — oldest first. Each step is an
+ * idempotent shape-sniffer that returns the SAME reference when it has nothing
+ * to do, so running the whole chain over already-current data is nearly free
+ * and re-running it is harmless.
+ *
+ * Adding a migration is appending one line here (plus a CURRENT_SHAPE_VERSION
+ * bump and a note in the header comment above). Order is load-bearing: a step
+ * may depend on an earlier one having normalised the shape it reads.
+ */
+const MIGRATIONS: ReadonlyArray<(store: ResumeStore) => ResumeStore> = [
+  foldRoleDescriptions,
+  extractKeyPointsToCompetencies,
+  migrateEmploymentShape,
+  internProjectIndustries,
+  internSkillCategories,
+  unifyShowcaseCategories,
+  localizeRecommenderTitles,
+  unpinLegacyHeadingFont,
+  ensureCoverLetters,
+  migrateCourseDates,      // v11
+  migrateBundleMembership, // v12
+  migratePresentationDates, // v13
+]
 
 /**
  * Shape v10: guarantee `cover_letters[]` exists. Idempotent shape-sniffer like
