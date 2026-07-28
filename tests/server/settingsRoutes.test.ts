@@ -160,21 +160,21 @@ describe('POST /api/settings/docker', () => {
   })
 })
 
-describe('PUT /api/settings — hosted summarize providers', () => {
-  it('saves anthropic + key, masking the key and reflecting summarize.configured', async () => {
+describe('PUT /api/settings — hosted LLM providers', () => {
+  it('saves anthropic + key, masking the key and reflecting llm.configured', async () => {
     const put = await request(app).put('/api/settings').send({
-      summarize_provider: 'anthropic', summarize_anthropic_api_key: 'sk-ant-xxx',
+      llm_provider: 'anthropic', llm_anthropic_api_key: 'sk-ant-xxx',
     })
     expect(put.status).toBe(200)
-    expect(put.body.settings.summarize_provider).toBe('anthropic')
-    expect(put.body.settings.summarize_anthropic_api_key_set).toBe(true)
-    expect(put.body.settings).not.toHaveProperty('summarize_anthropic_api_key')
+    expect(put.body.settings.llm_provider).toBe('anthropic')
+    expect(put.body.settings.llm_anthropic_api_key_set).toBe(true)
+    expect(put.body.settings).not.toHaveProperty('llm_anthropic_api_key')
     // A key alone is enough — the default model kicks in.
-    expect(put.body.summarize.configured).toBe(true)
+    expect(put.body.llm.configured).toBe(true)
   })
 
-  it('rejects an unknown summarize provider', async () => {
-    const res = await request(app).put('/api/settings').send({ summarize_provider: 'bogus' })
+  it('rejects an unknown LLM provider', async () => {
+    const res = await request(app).put('/api/settings').send({ llm_provider: 'bogus' })
     expect(res.status).toBe(400)
   })
 })

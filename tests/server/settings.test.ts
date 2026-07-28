@@ -8,7 +8,7 @@ import {
   validateSettingsPatch,
 } from '../../server/settings'
 import { TRANSLATE_PROVIDERS } from '../../server/translate'
-import { SUMMARIZE_PROVIDERS } from '../../server/summarize'
+import { LLM_PROVIDERS } from '../../server/llm'
 
 const ENV_KEYS = [
   'RESUME_DATA_DIR', 'RESUME_DESKTOP', 'LIBRETRANSLATE_URL', 'LIBRETRANSLATE_API_KEY',
@@ -159,15 +159,15 @@ describe('validateSettingsPatch', () => {
       expect(validateSettingsPatch({ translate_provider: p }), `translate_provider=${p}`)
         .toEqual({ patch: { translate_provider: p } })
     }
-    for (const p of SUMMARIZE_PROVIDERS) {
-      expect(validateSettingsPatch({ summarize_provider: p }), `summarize_provider=${p}`)
-        .toEqual({ patch: { summarize_provider: p } })
+    for (const p of LLM_PROVIDERS) {
+      expect(validateSettingsPatch({ llm_provider: p }), `llm_provider=${p}`)
+        .toEqual({ patch: { llm_provider: p } })
     }
   })
 
   it('rejects a provider outside the list', () => {
     expect(validateSettingsPatch({ translate_provider: 'bogus' })).toHaveProperty('error')
-    expect(validateSettingsPatch({ summarize_provider: 'bogus' })).toHaveProperty('error')
+    expect(validateSettingsPatch({ llm_provider: 'bogus' })).toHaveProperty('error')
   })
 
   it('only touches keys actually present (a masked key must not be cleared)', () => {
@@ -182,7 +182,7 @@ describe('validateSettingsPatch', () => {
     expect(validateSettingsPatch({ backup_interval_ms: 60000 })).toEqual({ patch: { backup_interval_ms: 60000 } })
     expect(validateSettingsPatch({ libretranslate_url: 'ftp://x' })).toHaveProperty('error')
     expect(validateSettingsPatch({ libretranslate_url: 'https://x' })).toEqual({ patch: { libretranslate_url: 'https://x' } })
-    expect(validateSettingsPatch({ summarize_model: 42 })).toHaveProperty('error')
+    expect(validateSettingsPatch({ llm_model: 42 })).toHaveProperty('error')
   })
 
   it('constrains translate_languages to locale-shaped codes', () => {
@@ -191,6 +191,36 @@ describe('validateSettingsPatch', () => {
       .toEqual({ patch: { translate_languages: ['en', 'no'] } })
     expect(validateSettingsPatch({ translate_languages: ['en; rm -rf /'] })).toHaveProperty('error')
     expect(validateSettingsPatch({ translate_languages: 'en' })).toHaveProperty('error')
+  })
+
+  /**
+   * The summarize_* → llm_* rename is only safe because `coerce` falls back to
+   * each field's `legacyKey`. Without it, every existing desktop settings.json
+   * would silently reset to the defaults on upgrade — a missing key coerces to
+   * "off", so a configured provider, model and API key would just vanish with
+   * no error. Worth pinning rather than trusting.
+   */
+  it('reads a pre-rename settings.json through legacyKey', () => {
+    process.env.RESUME_DESKTOP = '1'
+    fs.writeFileSync(settingsFilePath(), JSON.stringify({
+      summarize_provider: 'anthropic',
+      summarize_model: 'claude-opus-4-5',
+      summarize_openai_api_key: 'sk-old',
+      summarize_docker: true,
+    }))
+    const s = loadSettings()
+    expect(s.llm_provider).toBe('anthropic')
+    expect(s.llm_model).toBe('claude-opus-4-5')
+    expect(s.llm_openai_api_key).toBe('sk-old')
+    expect(s.llm_docker).toBe(true)
+  })
+
+  it('prefers the current key when a file carries both', () => {
+    process.env.RESUME_DESKTOP = '1'
+    fs.writeFileSync(settingsFilePath(), JSON.stringify({
+      summarize_model: 'stale', llm_model: 'current',
+    }))
+    expect(loadSettings().llm_model).toBe('current')
   })
 
   it('never echoes a secret back through toView', () => {
