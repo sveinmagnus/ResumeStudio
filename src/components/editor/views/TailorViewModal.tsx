@@ -8,6 +8,7 @@ import {
 import { useDialog } from '../../ui/useDialog'
 import { AssistRun } from '../../ui/AssistRun'
 import { extractJson } from '../../../lib/llmAssist'
+import { downloadText } from '../../../lib/download'
 
 interface TailorViewModalProps {
   /** Add the tailored view to the store and open it. */
@@ -39,11 +40,7 @@ export function TailorViewModal({ onApply, onClose }: TailorViewModalProps) {
       setTimeout(() => setCopied(false), 1800)
     } catch {
       // Clipboard blocked (e.g. no permission) — fall back to a download.
-      const a = document.createElement('a')
-      a.href = URL.createObjectURL(new Blob([prompt], { type: 'text/plain' }))
-      a.download = 'tailor-prompt.txt'
-      a.click()
-      setTimeout(() => URL.revokeObjectURL(a.href), 100)
+      downloadText(prompt, 'tailor-prompt.txt', 'text/plain;charset=utf-8')
     }
   }, [data, posting, primaryLocale])
 

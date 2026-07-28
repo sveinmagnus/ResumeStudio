@@ -11,6 +11,7 @@ import { useStore } from '../../store/useStore'
 import { useDialog } from './useDialog'
 import { AssistRun } from './AssistRun'
 import { extractJson } from '../../lib/llmAssist'
+import { downloadText } from '../../lib/download'
 
 interface BulkImportModalProps {
   spec: BulkSectionSpec
@@ -72,13 +73,7 @@ export function BulkImportModal({ spec, onClose }: BulkImportModalProps) {
   }, [instructions])
 
   const downloadInstructions = useCallback(() => {
-    const blob = new Blob([instructions], { type: 'text/markdown' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `resume-studio-bulk-${spec.key}.md`
-    a.click()
-    URL.revokeObjectURL(url)
+    downloadText(instructions, `resume-studio-bulk-${spec.key}.md`, 'text/markdown')
   }, [instructions, spec.key])
 
   // ── Step 2: validate + stage the pasted JSON ──────────────────────────────

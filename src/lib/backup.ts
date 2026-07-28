@@ -21,6 +21,7 @@ import type {
 import { collectReferencedCanonical } from './registryReintern'
 import { emptyStore } from './freshStore'
 import { api } from './api'
+import { downloadText } from './download'
 
 // ─── Backup format types ──────────────────────────────────────────────────────
 
@@ -539,13 +540,7 @@ export function resumesFromStoreBackup(json: unknown): RestoredResume[] {
 export async function downloadBackup(store: ResumeStore): Promise<void> {
   const canonical = await api.listRegistry().catch(() => undefined)
   const backup = exportToBackup(store, canonical)
-  const json   = JSON.stringify(backup, null, 2)
-  const blob   = new Blob([json], { type: 'application/json' })
-  const url    = URL.createObjectURL(blob)
-  const a      = document.createElement('a')
-  const name   = store.resume?.full_name?.replace(/\s+/g, '_') ?? 'resume'
-  a.href     = url
-  a.download = `${name}_backup.json`
-  a.click()
-  URL.revokeObjectURL(url)
+  const json = JSON.stringify(backup, null, 2)
+  const name = store.resume?.full_name?.replace(/\s+/g, '_') ?? 'resume'
+  downloadText(json, `${name}_backup.json`, 'application/json')
 }

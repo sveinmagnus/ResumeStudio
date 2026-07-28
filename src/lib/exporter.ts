@@ -41,6 +41,7 @@ import type { GlobalFonts } from './fonts'
 import { withHeaderDefaults, withFooterDefaults, buildHeaderLines, buildCopyrightLine, footerLines } from './viewHeader'
 import { imageInfoFromDataUrl, applyShapeMaskToDataUrl, type ImageInfo } from './image'
 import { exportFilename } from './exportFilename'
+import { downloadBlob } from './download'
 
 const SUBTLE_HEX = '666666'
 const FAINT_HEX  = '888888'
@@ -704,15 +705,3 @@ function skillMatrixTable(
   })
 }
 
-// ─── Misc ─────────────────────────────────────────────────────────────────────
-
-function downloadBlob(blob: Blob, filename: string): void {
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-  setTimeout(() => URL.revokeObjectURL(url), 100)
-}

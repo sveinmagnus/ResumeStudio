@@ -24,6 +24,7 @@ import { VIEW_TEMPLATES, getTemplate, applyTemplate } from '../../../lib/viewTem
 import { buildViewText, buildViewMarkdown } from '../../../lib/viewText'
 import { exportEuropassXml } from '../../../lib/exporterEuropass'
 import { exportFilename } from '../../../lib/exportFilename'
+import { downloadText } from '../../../lib/download'
 import type {
   ResumeView, ViewStyle, SectionStyle, ViewSection,
   ViewHeaderConfig, ViewFooterConfig, SortMode,
@@ -521,15 +522,9 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
   }
 
   // Download a synchronously-built string export (the ATS text/Markdown paths
-  // and Europass XML). One blob-download dance for all of them.
-  const downloadText = (content: string, ext: string, mime: string) => {
-    const blob = new Blob([content], { type: mime })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = exportFilename(data.resume?.full_name, view.name, ext)
-    a.click()
-    setTimeout(() => URL.revokeObjectURL(url), 100)
+  // and Europass XML), stamping the export time.
+  const exportAsFile = (content: string, ext: string, mime: string) => {
+    downloadText(content, exportFilename(data.resume?.full_name, view.name, ext), mime)
     onUpdate({ last_exported_at: new Date().toISOString() })
   }
 
@@ -538,12 +533,12 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
     const content = ext === 'txt'
       ? buildViewText(data, view, exportLocale)
       : buildViewMarkdown(data, view, exportLocale)
-    downloadText(content, ext, 'text/plain;charset=utf-8')
+    exportAsFile(content, ext, 'text/plain;charset=utf-8')
   }
 
   // Europass SkillsPassport XML — the round-trip partner of the Europass import.
   const handleExportEuropass = () => {
-    downloadText(exportEuropassXml(data, view, exportLocale), 'xml', 'application/xml;charset=utf-8')
+    exportAsFile(exportEuropassXml(data, view, exportLocale), 'xml', 'application/xml;charset=utf-8')
   }
 
   // The docx library is ~400 kB — lazy-load only when the user clicks Export DOCX.

@@ -5,13 +5,20 @@
  * control in isolation — the interesting risk is the wiring (does a click land
  * on the store, does it collapse the section it lives in), not the markup.
  */
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ResumeViewsEditor } from '../../src/components/editor/ResumeViewsEditor'
 import { useStore } from '../../src/store/useStore'
 import { resetStore } from '../helpers/store-reset'
 import { emptyStore, makePosition, makeProject, makeEducation, makeRole, makeKQ } from '../fixtures'
+
+// This file also mounts the real view editor — see the note in
+// ResumeViewsEditor.test.tsx for why pdfmake must not load here.
+vi.mock('../../src/lib/pdfExporter', () => ({
+  countPdfPages: vi.fn().mockResolvedValue(1),
+  exportPdf: vi.fn().mockResolvedValue(undefined),
+}))
 
 /** Seed a resume, then create a view and expand `section`'s panel. */
 async function openSection(section: RegExp) {

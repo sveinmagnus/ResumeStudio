@@ -10,6 +10,25 @@ import { resetStore } from '../helpers/store-reset'
 import { emptyStore, makeView } from '../fixtures'
 import { buildViewHtml, buildViewSections } from '../../src/lib/viewFilter'
 
+/**
+ * Stub the lazily-imported PDF module.
+ *
+ * ViewEditor runs a 700 ms debounced `import('lib/pdfExporter')` to get the
+ * exact page count. Unmocked, every test that mounts the editor pulls in
+ * pdfmake (~1.2 MB plus ~0.9 MB of font vfs) and lays out a real PDF —
+ * synchronous CPU work that starves the timer queue `waitFor`/`findBy` poll
+ * on. Under a full 143-file parallel run that was enough to blow the whole
+ * 15 s test budget, which is why the pop-out tests failed intermittently here
+ * while passing in isolation on identical code.
+ *
+ * Nothing in this file asserts on the page count, so stubbing it removes the
+ * work rather than hiding a behaviour.
+ */
+vi.mock('../../src/lib/pdfExporter', () => ({
+  countPdfPages: vi.fn().mockResolvedValue(1),
+  exportPdf: vi.fn().mockResolvedValue(undefined),
+}))
+
 function seed() {
   useStore.setState({
     data: emptyStore(), hasData: true, primaryLocale: 'en', secondaryLocale: null,

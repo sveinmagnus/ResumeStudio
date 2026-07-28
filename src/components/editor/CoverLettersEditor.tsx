@@ -7,6 +7,7 @@ import { AssistRun } from '../ui/AssistRun'
 import { buildCoverLetterPrompt, buildCoverLetterText } from '../../lib/coverLetter'
 import { getDefaultFonts } from '../../lib/appPrefs'
 import { exportFilename } from '../../lib/exportFilename'
+import { downloadText } from '../../lib/download'
 
 /**
  * Cover Letters — the document-builder sibling of Resume Views. A letter is its
@@ -120,13 +121,7 @@ function LetterEditor({ letter, onBack, onDelete, onUpdate, primaryLocale }: {
   const globalFonts = getDefaultFonts()
 
   const download = (content: string, ext: string, mime: string) => {
-    const blob = new Blob([content], { type: mime })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = exportFilename(data.resume?.full_name, letter.name || 'cover-letter', ext)
-    a.click()
-    setTimeout(() => URL.revokeObjectURL(url), 100)
+    downloadText(content, exportFilename(data.resume?.full_name, letter.name || 'cover-letter', ext), mime)
   }
 
   const onExport = async (kind: 'pdf' | 'docx' | 'txt') => {
