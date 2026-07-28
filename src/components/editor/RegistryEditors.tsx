@@ -20,6 +20,8 @@ import { SortBar } from '../ui/SortBar'
 import { Autocomplete } from '../ui/Autocomplete'
 import { confirmDialog } from '../ui/ConfirmDialog'
 import { RegistryCategoryView, RegistryLightbox, categoriesOf } from './RegistryCategoryView'
+import { useRegistryFilter, isMissingTranslation, type RegistryFilter, type NamedItem } from './useRegistryFilter'
+import { UsagePanel, projectGroup, employmentGroup, positionGroup } from './UsagePanel'
 import { TranslationPopover } from '../ui/TranslationPopover'
 import { resolve, fmtRange } from '../../lib/locales'
 import {
@@ -41,9 +43,6 @@ import { X, Plus, Sparkles, Combine, Filter as FilterIcon, Briefcase, FolderKanb
 const UNCATEGORIZED_FILTER = '__uncategorized__'
 
 // ── Shared registry-filter bar ──────────────────────────────────────────────
-
-type RegistryFilter = 'all' | 'unused' | 'missing-translation'
-
 function FilterBar({
   filter, onChange, counts, extra,
 }: {
@@ -99,42 +98,6 @@ function FilterBar({
   )
 }
 
-/**
- * "Missing translation" = the registry entry has content in the primary
- * locale but not in the active secondary locale. When no secondary is set
- * we treat nothing as missing (the user has explicitly hidden the second
- * column, so there's no translation goal to chase).
- */
-function isMissingTranslation(
-  ls: LocalizedString,
-  primary: string,
-  secondary: string | null,
-): boolean {
-  if (!secondary) return false
-  const p = (ls[primary] ?? '').trim()
-  const s = (ls[secondary] ?? '').trim()
-  return !!p && !s
-}
-
-interface NamedItem { id: string; name: LocalizedString }
-
-/**
- * Freeze the list of rows shown in the batch "Missing translation" view. Once
- * you fill a row it's no longer "missing", but yanking it out mid-keystroke
- * would be jarring — so while the filter is active we keep the rows captured on
- * entry (resolved to live data, so the text updates and a ✓ appears). Switching
- * filters re-snapshots. Ref-during-render is intentional and idempotent.
- */
-function useFrozenMissing<T extends NamedItem>(active: boolean, missing: T[], allItems: T[]): T[] {
-  const frozen = useRef<string[] | null>(null)
-  if (active) { if (!frozen.current) frozen.current = missing.map((i) => i.id) }
-  else if (frozen.current) frozen.current = null
-  const byId = useMemo(() => new Map(allItems.map((i) => [i.id, i])), [allItems])
-  if (!active || !frozen.current) return missing
-  const out: T[] = []
-  for (const id of frozen.current) { const it = byId.get(id); if (it) out.push(it) }
-  return out
-}
 
 /**
  * Batch translation surface for the "Missing translation" filter: a compact
@@ -578,7 +541,8 @@ function SkillEditBody({ skill, allSkills, categories, catNamesById, onMerge }: 
         <input type="checkbox" checked={skill.is_highlighted} onChange={(e) => updateItem('skills', skill.id, { is_highlighted: e.target.checked })} />
         Highlight in the Skills Showcase &amp; compact skill summaries
       </label>
-      <SkillUsagePanel projects={u.projects} />
+      <UsagePanel groups={[projectGroup(u.projects, primaryLocale)]}
+        emptyNote="no projects reference this skill yet." />
       <MergeRow
         kind="skill"
         sourceId={skill.id}
@@ -625,43 +589,13 @@ export function SkillsEditor() {
     return entries
   }, [knownCats, allItems, catNamesById])
 
-  // Usage spans projects only — countSkillReferences already enumerates every
-  // reference site.
-  const usage = useMemo(
-    () => new Map(allItems.map((s) => [s.id, countSkillReferences(data, s.id)])),
-    [allItems, data],
+  // Skills layers its category dropdown on top of the shared all/unused/
+  // missing-translation filter; the counts and batch rows stay whole-registry.
+  const { counts, displayItems, batchRows } = useRegistryFilter(
+    'skills', allItems, countSkillReferences, filter,
+    (sk) => categoryFilter === 'all'
+      || (categoryFilter === UNCATEGORIZED_FILTER ? !sk.category_id : sk.category_id === categoryFilter),
   )
-
-  const counts = useMemo(() => {
-    let unused = 0
-    let missing = 0
-    for (const s of allItems) {
-      if ((usage.get(s.id) ?? 0) === 0) unused++
-      if (isMissingTranslation(s.name, primaryLocale, secondaryLocale)) missing++
-    }
-    return { all: allItems.length, unused, missing }
-  }, [allItems, usage, primaryLocale, secondaryLocale])
-
-  const items = useMemo(() => {
-    let base = allItems
-    if (filter === 'unused') base = base.filter((s) => (usage.get(s.id) ?? 0) === 0)
-    else if (filter === 'missing-translation') {
-      base = base.filter((s) => isMissingTranslation(s.name, primaryLocale, secondaryLocale))
-    }
-    if (categoryFilter === UNCATEGORIZED_FILTER) base = base.filter((s) => !s.category_id)
-    else if (categoryFilter !== 'all') base = base.filter((s) => s.category_id === categoryFilter)
-    return base
-  }, [allItems, usage, filter, categoryFilter, primaryLocale, secondaryLocale])
-  // Keep the item being edited present even once its translation is complete
-  // (the missing-translation filter would otherwise drop it mid-typing).
-  const displayItems = useStableExpanded('skills', items)
-
-  // Batch translation view (frozen so completing a row doesn't yank it).
-  const missingItems = useMemo(
-    () => allItems.filter((s) => isMissingTranslation(s.name, primaryLocale, secondaryLocale)),
-    [allItems, primaryLocale, secondaryLocale],
-  )
-  const batchRows = useFrozenMissing(filter === 'missing-translation', missingItems, allItems)
 
   // A real (non-Uncategorized) category is selected → offer to DELETE it.
   const canDeleteFilteredCat = categoryFilter !== 'all' && categoryFilter !== UNCATEGORIZED_FILTER
@@ -862,7 +796,13 @@ function RoleEditBody({ role, allRoles, categories, onMerge }: {
           />
         </div>
       </FieldRow>
-      <RoleUsagePanel projects={u.projects} employments={u.work_experiences} positions={u.positions} />
+      <UsagePanel
+        groups={[
+          projectGroup(u.projects, primaryLocale),
+          employmentGroup(u.work_experiences, primaryLocale),
+          positionGroup(u.positions, primaryLocale),
+        ]}
+        emptyNote="no projects, employments or other roles reference this role yet." />
       <MergeRow
         kind="role"
         sourceId={role.id}
@@ -883,36 +823,9 @@ export function RolesEditor() {
   const sortedItems = useSortedItems('roles')
   const categories = useMemo(() => categoriesOf(sortedItems), [sortedItems])
 
-  const usage = useMemo(
-    () => new Map(sortedItems.map((r) => [r.id, countRoleReferences(data, r.id)])),
-    [sortedItems, data],
+  const { counts, displayItems, batchRows } = useRegistryFilter(
+    'roles', sortedItems, countRoleReferences, filter,
   )
-
-  const counts = useMemo(() => {
-    let unused = 0
-    let missing = 0
-    for (const r of sortedItems) {
-      if ((usage.get(r.id) ?? 0) === 0) unused++
-      if (isMissingTranslation(r.name, primaryLocale, secondaryLocale)) missing++
-    }
-    return { all: sortedItems.length, unused, missing }
-  }, [sortedItems, usage, primaryLocale, secondaryLocale])
-
-  const items = useMemo(() => {
-    if (filter === 'unused') return sortedItems.filter((r) => (usage.get(r.id) ?? 0) === 0)
-    if (filter === 'missing-translation') {
-      return sortedItems.filter((r) => isMissingTranslation(r.name, primaryLocale, secondaryLocale))
-    }
-    return sortedItems
-  }, [sortedItems, usage, filter, primaryLocale, secondaryLocale])
-  // Keep the item being edited present past the live filter (see SkillsEditor).
-  const displayItems = useStableExpanded('roles', items)
-
-  const missingItems = useMemo(
-    () => sortedItems.filter((r) => isMissingTranslation(r.name, primaryLocale, secondaryLocale)),
-    [sortedItems, primaryLocale, secondaryLocale],
-  )
-  const batchRows = useFrozenMissing(filter === 'missing-translation', missingItems, sortedItems)
 
   const makeRole = (): Role => ({
     id: newId(), resume_id: data.resume!.id, name: {}, years_of_experience: 0,
@@ -976,19 +889,19 @@ export function RolesEditor() {
         </button>
       </div>
 
+      {/* The filter bar belongs to the list view in either of its two states,
+          so it sits above the branch rather than being repeated inside both. */}
+      {view === 'list' && <FilterBar filter={filter} onChange={setFilter} counts={counts} />}
+
       {view === 'list' && filter === 'missing-translation' ? (
-        <>
-          <FilterBar filter={filter} onChange={setFilter} counts={counts} />
-          <MissingTranslationList label="Role name" missing={batchRows} all={sortedItems}
-            onSet={(id, name) => updateItem('roles', id, { name })}
-            renderEditor={(id) => {
-              const r = sortedItems.find((x) => x.id === id)
-              return r ? <RoleEditBody role={r} allRoles={sortedItems} categories={categories} onMerge={onMerge} /> : null
-            }} />
-        </>
+        <MissingTranslationList label="Role name" missing={batchRows} all={sortedItems}
+          onSet={(id, name) => updateItem('roles', id, { name })}
+          renderEditor={(id) => {
+            const r = sortedItems.find((x) => x.id === id)
+            return r ? <RoleEditBody role={r} allRoles={sortedItems} categories={categories} onMerge={onMerge} /> : null
+          }} />
       ) : view === 'list' ? (
         <>
-          <FilterBar filter={filter} onChange={setFilter} counts={counts} />
           <SortBar section="roles" />
           {/* SortableList only wraps the rendered slice; reordering with a filter
               active still bakes into sort_order against the visible items, which
@@ -1056,36 +969,9 @@ export function IndustriesEditor() {
 
   const sortedItems = useSortedItems('industries')
 
-  const usage = useMemo(
-    () => new Map(sortedItems.map((i) => [i.id, countIndustryReferences(data, i.id)])),
-    [sortedItems, data],
+  const { counts, displayItems, batchRows } = useRegistryFilter(
+    'industries', sortedItems, countIndustryReferences, filter,
   )
-
-  const counts = useMemo(() => {
-    let unused = 0
-    let missing = 0
-    for (const ind of sortedItems) {
-      if ((usage.get(ind.id) ?? 0) === 0) unused++
-      if (isMissingTranslation(ind.name, primaryLocale, secondaryLocale)) missing++
-    }
-    return { all: sortedItems.length, unused, missing }
-  }, [sortedItems, usage, primaryLocale, secondaryLocale])
-
-  const items = useMemo(() => {
-    if (filter === 'unused') return sortedItems.filter((i) => (usage.get(i.id) ?? 0) === 0)
-    if (filter === 'missing-translation') {
-      return sortedItems.filter((i) => isMissingTranslation(i.name, primaryLocale, secondaryLocale))
-    }
-    return sortedItems
-  }, [sortedItems, usage, filter, primaryLocale, secondaryLocale])
-  // Keep the item being edited present past the live filter (see SkillsEditor).
-  const displayItems = useStableExpanded('industries', items)
-
-  const missingItems = useMemo(
-    () => sortedItems.filter((i) => isMissingTranslation(i.name, primaryLocale, secondaryLocale)),
-    [sortedItems, primaryLocale, secondaryLocale],
-  )
-  const batchRows = useFrozenMissing(filter === 'missing-translation', missingItems, sortedItems)
 
   const add = () => {
     const ind: Industry = {
@@ -1117,7 +1003,8 @@ export function IndustriesEditor() {
             return (
               <>
                 <DualField label="Industry name" value={ind.name} onChange={(v) => updateItem('industries', ind.id, { name: v })} />
-                <IndustryUsagePanel projects={u.projects} />
+                <UsagePanel groups={[projectGroup(u.projects, primaryLocale)]}
+                  emptyNote="no projects reference this industry yet." />
                 <MergeRow
                   kind="industry"
                   sourceId={ind.id}
@@ -1147,7 +1034,8 @@ export function IndustriesEditor() {
             meta={`${projectCount} project${projectCount === 1 ? '' : 's'}`}
             disabled={ind.disabled} canStar={false}>
             <DualField label="Industry name" value={ind.name} onChange={(v) => updateItem('industries', ind.id, { name: v })} />
-            <IndustryUsagePanel projects={u.projects} />
+            <UsagePanel groups={[projectGroup(u.projects, primaryLocale)]}
+              emptyNote="no projects reference this industry yet." />
             <MergeRow
               kind="industry"
               sourceId={ind.id}
@@ -1161,139 +1049,6 @@ export function IndustriesEditor() {
       </>
       )}
       <RegistryStyles />
-    </div>
-  )
-}
-
-// ── Usage panels ────────────────────────────────────────────────────────────
-
-/**
- * Shared "where is this used" panel embedded inside a registry card. Clicking
- * a usage row navigates the editor to that section and expands the item.
- */
-function UsageRow({
-  icon, label, onClick,
-}: { icon: React.ReactNode; label: string; onClick: () => void }) {
-  return (
-    <button type="button" className="ur-row" onClick={onClick}>
-      <span className="ur-icon">{icon}</span>
-      <span className="ur-label">{label}</span>
-    </button>
-  )
-}
-
-function SkillUsagePanel({ projects }: { projects: Project[] }) {
-  const { primaryLocale, setActiveSection, setExpandedItem } = useStore()
-  const goto = (section: string, id: string) => {
-    setActiveSection(section)
-    setExpandedItem(id)
-  }
-  if (projects.length === 0) {
-    return (
-      <div className="usage-block usage-empty">
-        <strong>Unused</strong> — no projects reference this skill yet.
-      </div>
-    )
-  }
-  return (
-    <div className="usage-block">
-      <div className="usage-head">Used in</div>
-      <div className="usage-sub">{projects.length} project{projects.length === 1 ? '' : 's'}</div>
-      {projects.map((p) => (
-        <UsageRow
-          key={p.id}
-          icon={<FolderKanban size={13} />}
-          label={`${resolve(p.customer, primaryLocale) || resolve(p.description, primaryLocale) || 'Untitled project'} ${fmtRange(p.start, p.end) ? '· ' + fmtRange(p.start, p.end) : ''}`.trim()}
-          onClick={() => goto('projects', p.id)}
-        />
-      ))}
-    </div>
-  )
-}
-
-function RoleUsagePanel({
-  projects, employments, positions,
-}: { projects: Project[]; employments: WorkExperience[]; positions: Position[] }) {
-  const { primaryLocale, setActiveSection, setExpandedItem } = useStore()
-  const goto = (section: string, id: string) => {
-    setActiveSection(section)
-    setExpandedItem(id)
-  }
-  if (projects.length === 0 && employments.length === 0 && positions.length === 0) {
-    return (
-      <div className="usage-block usage-empty">
-        <strong>Unused</strong> — no projects, employments or other roles reference this role yet.
-      </div>
-    )
-  }
-  return (
-    <div className="usage-block">
-      <div className="usage-head">Used in</div>
-      {projects.length > 0 && (
-        <>
-          <div className="usage-sub">{projects.length} project{projects.length === 1 ? '' : 's'}</div>
-          {projects.map((p) => (
-            <UsageRow
-              key={p.id}
-              icon={<FolderKanban size={13} />}
-              label={`${resolve(p.customer, primaryLocale) || resolve(p.description, primaryLocale) || 'Untitled project'} ${fmtRange(p.start, p.end) ? '· ' + fmtRange(p.start, p.end) : ''}`.trim()}
-              onClick={() => goto('projects', p.id)}
-            />
-          ))}
-        </>
-      )}
-      {employments.length > 0 && (
-        <>
-          <div className="usage-sub">{employments.length} employment{employments.length === 1 ? '' : 's'}</div>
-          {employments.map((w) => (
-            <UsageRow
-              key={w.id}
-              icon={<Briefcase size={13} />}
-              label={`${resolve(w.employer, primaryLocale) || 'Untitled employer'} ${fmtRange(w.start, w.end) ? '· ' + fmtRange(w.start, w.end) : ''}`.trim()}
-              onClick={() => goto('work_experiences', w.id)}
-            />
-          ))}
-        </>
-      )}
-      {positions.length > 0 && (
-        <>
-          <div className="usage-sub">{positions.length} other role{positions.length === 1 ? '' : 's'}</div>
-          {positions.map((pos) => (
-            <UsageRow
-              key={pos.id}
-              icon={<Users size={13} />}
-              label={`${resolve(pos.name, primaryLocale) || resolve(pos.organisation, primaryLocale) || 'Untitled role'} ${fmtRange(pos.start, pos.end) ? '· ' + fmtRange(pos.start, pos.end) : ''}`.trim()}
-              onClick={() => goto('positions', pos.id)}
-            />
-          ))}
-        </>
-      )}
-    </div>
-  )
-}
-
-/** "Where is this industry used" panel — projects only. */
-function IndustryUsagePanel({ projects }: { projects: Project[] }) {
-  const { primaryLocale, setActiveSection, setExpandedItem } = useStore()
-  if (projects.length === 0) {
-    return (
-      <div className="usage-block usage-empty">
-        <strong>Unused</strong> — no projects reference this industry yet.
-      </div>
-    )
-  }
-  return (
-    <div className="usage-block">
-      <div className="usage-head">Used in</div>
-      <div className="usage-sub">{projects.length} project{projects.length === 1 ? '' : 's'}</div>
-      {projects.map((p) => (
-        <UsageRow
-          key={p.id}
-          icon={<FolderKanban size={13} />}
-          label={`${resolve(p.customer, primaryLocale) || resolve(p.description, primaryLocale) || 'Untitled project'} ${fmtRange(p.start, p.end) ? '· ' + fmtRange(p.start, p.end) : ''}`.trim()}
-          onClick={() => { setActiveSection('projects'); setExpandedItem(p.id) }}
-        />
-      ))}
     </div>
   )
 }
