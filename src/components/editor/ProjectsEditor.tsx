@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useStore, newId } from '../../store/useStore'
 import { useSortedItems } from '../../store/useSortedItems'
 import { suggestSkillNames } from '../../lib/skillTaxonomy'
@@ -213,14 +213,40 @@ function ProjectIndustriesEditor({ project }: { project: Project }) {
 }
 
 /**
- * A ProjectIndustry chip mirroring ProjectRoleChip. Clicking opens a
- * dual-language popover editing the registry Industry name (propagates to every
- * reference); for a stale link with no registry entry it edits the local
- * snapshot name.
+ * A registry-link chip on a project: the linked entry's name, a × to unlink,
+ * and a click-to-open translation popover.
+ *
+ * The skill, role and industry chips were three copies of this — same markup,
+ * same open/remove behaviour, differing only in which popover they open. That
+ * difference stays with the caller, as `renderPopover`.
+ */
+function RegistryLinkChip({ label, onRemove, renderPopover }: {
+  label: string
+  onRemove: () => void
+  /** The popover shown while the chip is open, or null for an unlinked chip. */
+  renderPopover: (close: () => void) => ReactNode
+}) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="skill-chip-w">
+      <button type="button" className="skill-chip" onClick={() => setOpen((o) => !o)} title="Edit translation">
+        <span>{label}</span>
+      </button>
+      <button type="button" className="skill-chip-x" onClick={(e) => { e.stopPropagation(); onRemove() }} title="Remove from this project">
+        <X size={12} />
+      </button>
+      {open && renderPopover(() => setOpen(false))}
+    </div>
+  )
+}
+
+/**
+ * A ProjectIndustry chip. The popover edits the registry Industry name so the
+ * change propagates to every reference; for a stale link with no registry
+ * entry it edits the project's local snapshot instead.
  */
 function ProjectIndustryChip({ project, pi, onRemove }: { project: Project; pi: ProjectIndustry; onRemove: () => void }) {
   const { data, primaryLocale, updateItem } = useStore()
-  const [open, setOpen] = useState(false)
   const industry = data.industries.find((i) => i.id === pi.industry_id)
   const label = resolve(industry?.name ?? pi.name, primaryLocale) || '(unnamed industry)'
 
@@ -230,24 +256,16 @@ function ProjectIndustryChip({ project, pi, onRemove }: { project: Project; pi: 
   }
 
   return (
-    <div className="skill-chip-w">
-      <button type="button" className="skill-chip" onClick={() => setOpen((o) => !o)} title="Edit translation">
-        <span>{label}</span>
-      </button>
-      <button type="button" className="skill-chip-x" onClick={(e) => { e.stopPropagation(); onRemove() }} title="Remove from this project">
-        <X size={12} />
-      </button>
-      {open && (
-        <TranslationPopover
-          title={`Edit “${label}” translation`}
-          fieldLabel="Industry name"
-          value={industry?.name ?? pi.name}
-          footnote={industry ? 'Changes the registry — all references update.' : 'Not linked to the registry.'}
-          onClose={() => setOpen(false)}
-          onChange={onChangeName}
-        />
-      )}
-    </div>
+    <RegistryLinkChip label={label} onRemove={onRemove} renderPopover={(close) => (
+      <TranslationPopover
+        title={`Edit “${label}” translation`}
+        fieldLabel="Industry name"
+        value={industry?.name ?? pi.name}
+        footnote={industry ? 'Changes the registry — all references update.' : 'Not linked to the registry.'}
+        onClose={close}
+        onChange={onChangeName}
+      />
+    )} />
   )
 }
 
@@ -306,14 +324,12 @@ function ProjectRolesEditor({ project }: { project: Project }) {
 }
 
 /**
- * A ProjectRole chip mirroring ProjectSkillChip. Clicking opens a dual-language
- * popover: when linked to a registry Role it edits the registry name (so the
- * change propagates to every reference); for a legacy free-text role (no
- * registry link) it edits the project's local snapshot name.
+ * A ProjectRole chip. When linked to a registry Role the popover edits the
+ * registry name (propagating everywhere); a legacy free-text role with no
+ * registry link edits the project's local snapshot instead.
  */
 function ProjectRoleChip({ project, pr, onRemove }: { project: Project; pr: ProjectRole; onRemove: () => void }) {
   const { data, primaryLocale, updateItem } = useStore()
-  const [open, setOpen] = useState(false)
   const role = pr.role_id ? data.roles.find((x) => x.id === pr.role_id) : null
   const label = resolve(role?.name ?? pr.name, primaryLocale) || '(unnamed role)'
 
@@ -323,24 +339,16 @@ function ProjectRoleChip({ project, pr, onRemove }: { project: Project; pr: Proj
   }
 
   return (
-    <div className="skill-chip-w">
-      <button type="button" className="skill-chip" onClick={() => setOpen((o) => !o)} title="Edit translation">
-        <span>{label}</span>
-      </button>
-      <button type="button" className="skill-chip-x" onClick={(e) => { e.stopPropagation(); onRemove() }} title="Remove from this project">
-        <X size={12} />
-      </button>
-      {open && (
-        <TranslationPopover
-          title={`Edit “${label}” translation`}
-          fieldLabel="Role name"
-          value={role?.name ?? pr.name}
-          footnote={role ? 'Changes the registry — all references update.' : 'Free-text role — not linked to the registry.'}
-          onClose={() => setOpen(false)}
-          onChange={onChangeName}
-        />
-      )}
-    </div>
+    <RegistryLinkChip label={label} onRemove={onRemove} renderPopover={(close) => (
+      <TranslationPopover
+        title={`Edit “${label}” translation`}
+        fieldLabel="Role name"
+        value={role?.name ?? pr.name}
+        footnote={role ? 'Changes the registry — all references update.' : 'Free-text role — not linked to the registry.'}
+        onClose={close}
+        onChange={onChangeName}
+      />
+    )} />
   )
 }
 
@@ -545,36 +553,20 @@ function SkillSuggestPanel({ project, onLink, onCreate }: {
  */
 function ProjectSkillChip({ ps, onRemove }: { ps: ProjectSkill; onRemove: () => void }) {
   const { data, primaryLocale, updateItem } = useStore()
-  const [open, setOpen] = useState(false)
   const skill = data.skills.find((x) => x.id === ps.skill_id)
   const label = resolve(skill?.name ?? ps.name, primaryLocale) || '(unlinked)'
 
   return (
-    <div className="skill-chip-w">
-      <button
-        type="button"
-        className="skill-chip"
-        onClick={() => setOpen((o) => !o)}
-        title="Edit translation"
-      >
-        <span>{label}</span>
-      </button>
-      <button
-        type="button"
-        className="skill-chip-x"
-        onClick={(e) => { e.stopPropagation(); onRemove() }}
-        title="Remove from this project"
-      >
-        <X size={12} />
-      </button>
-      {open && skill && (
+    <RegistryLinkChip label={label} onRemove={onRemove} renderPopover={(close) => (
+      // A dangling link (registry entry deleted) has nothing to edit.
+      skill ? (
         <SkillTranslationPopover
           skill={skill}
-          onClose={() => setOpen(false)}
+          onClose={close}
           onChange={(name) => updateItem('skills', skill.id, { name })}
         />
-      )}
-    </div>
+      ) : null
+    )} />
   )
 }
 
