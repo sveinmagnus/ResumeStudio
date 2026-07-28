@@ -171,6 +171,22 @@ export const useStore = create<AppState>((set, get) => {
     return { ...patch, mutationCount: st.mutationCount + 1 }
   })
 
+  /**
+   * Shorthand for the six actions that patch `data.resume`: returns the state
+   * patch, or null (a no-op) when there's no loaded resume. `derive` gets the
+   * current resume and returns the fields to merge onto it, or null to skip —
+   * which is how each action expresses "nothing actually changed".
+   */
+  const patchResume = (
+    st: AppState,
+    derive: (resume: Resume) => Partial<Resume> | null,
+  ): Partial<AppState> | null => {
+    if (!st.data.resume) return null
+    const fields = derive(st.data.resume)
+    if (!fields) return null
+    return { data: { ...st.data, resume: { ...st.data.resume, ...fields } } }
+  }
+
   return {
     data: emptyStore,
     currentResumeId: null,
@@ -262,84 +278,49 @@ export const useStore = create<AppState>((set, get) => {
 
     // ── Resume / locale ────────────────────────────────────────────────────
 
-    updateResume: (patch) => mutate((st) => {
-      if (!st.data.resume) return null
-      return {
-        data: {
-          ...st.data,
-          resume: { ...st.data.resume, ...patch, updated_at: new Date().toISOString() },
-        },
-      }
-    }),
+    updateResume: (patch) => mutate((st) =>
+      patchResume(st, () => ({ ...patch, updated_at: new Date().toISOString() }))),
 
     // Acknowledge / un-acknowledge a freshness warning. These touch the
     // dismissals map only (not updated_at) — dismissing a flag isn't "editing
     // content", but it IS a user-visible change that should auto-save, so it
     // goes through `mutate()`.
-    dismissAttention: (key, until) => mutate((st) => {
-      if (!st.data.resume) return null
-      const current = st.data.resume.attention_dismissals ?? {}
+    dismissAttention: (key, until) => mutate((st) => patchResume(st, (r) => {
+      const current = r.attention_dismissals ?? {}
       if (current[key] === until) return null // no-op: already set to this value
-      return {
-        data: {
-          ...st.data,
-          resume: { ...st.data.resume, attention_dismissals: { ...current, [key]: until } },
-        },
-      }
-    }),
+      return { attention_dismissals: { ...current, [key]: until } }
+    })),
 
-    clearAttentionDismissal: (key) => mutate((st) => {
-      if (!st.data.resume) return null
-      const current = st.data.resume.attention_dismissals ?? {}
+    clearAttentionDismissal: (key) => mutate((st) => patchResume(st, (r) => {
+      const current = r.attention_dismissals ?? {}
       if (!(key in current)) return null // no-op: nothing to clear
       const next = { ...current }
       delete next[key]
-      return {
-        data: {
-          ...st.data,
-          resume: { ...st.data.resume, attention_dismissals: next },
-        },
-      }
-    }),
+      return { attention_dismissals: next }
+    })),
 
-    dismissDrift: (key) => mutate((st) => {
-      if (!st.data.resume) return null
-      const current = st.data.resume.drift_dismissals ?? []
+    dismissDrift: (key) => mutate((st) => patchResume(st, (r) => {
+      const current = r.drift_dismissals ?? []
       if (current.includes(key)) return null // no-op: already ignored
-      return {
-        data: {
-          ...st.data,
-          resume: { ...st.data.resume, drift_dismissals: [...current, key] },
-        },
-      }
-    }),
+      return { drift_dismissals: [...current, key] }
+    })),
 
-    detectAndSetLocales: () => mutate((st) => {
-      if (!st.data.resume) return null
+    detectAndSetLocales: () => mutate((st) => patchResume(st, (r) => {
       const detected = detectLocalesInData(st.data)
-      const merged   = sortLocales([...st.data.resume.supported_locales, ...detected, 'en'])
-      const current  = st.data.resume.supported_locales
+      const merged   = sortLocales([...r.supported_locales, ...detected, 'en'])
+      const current  = r.supported_locales
       if (merged.length === current.length && merged.every((l, i) => l === current[i])) return null
-      return {
-        data: {
-          ...st.data,
-          resume: { ...st.data.resume, supported_locales: merged, updated_at: new Date().toISOString() },
-        },
-      }
-    }),
+      return { supported_locales: merged, updated_at: new Date().toISOString() }
+    })),
 
-    addSupportedLocale: (code) => mutate((st) => {
+    addSupportedLocale: (code) => mutate((st) => patchResume(st, (r) => {
       const c = code.trim().toLowerCase()
-      if (!c || !st.data.resume) return null
-      if (st.data.resume.supported_locales.includes(c)) return null // no-op: already present
-      const next = sortLocales([...st.data.resume.supported_locales, c])
+      if (!c || r.supported_locales.includes(c)) return null // no-op: empty or already present
       return {
-        data: {
-          ...st.data,
-          resume: { ...st.data.resume, supported_locales: next, updated_at: new Date().toISOString() },
-        },
+        supported_locales: sortLocales([...r.supported_locales, c]),
+        updated_at: new Date().toISOString(),
       }
-    }),
+    })),
 
     // ── Generic array ops ──────────────────────────────────────────────────
 

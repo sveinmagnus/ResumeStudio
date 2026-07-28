@@ -139,6 +139,26 @@ export function useResumePersistence(resumeId: string): ResumePersistence {
   // via the ref so each mutation re-check sees the current value).
   const conflictPaused = useRef(false)
 
+  /**
+   * Adopt a server copy as the editor's new baseline: load it, take its
+   * version as the concurrency base, and drop any queued local record.
+   *
+   * `loadStore` resets mutationCount, so `lastSavedMutation` must be reset to
+   * match — otherwise the save effect sees a difference and fires a spurious
+   * PUT. Getting that pairing wrong is silent, which is why the four call
+   * sites (boot, reload, discard-conflict, re-auth) share one helper.
+   */
+  const adoptServerCopy = useCallback((
+    data: ResumeStore,
+    meta: { version: number; primary_locale: string; secondary_locale: string | null },
+  ) => {
+    loadStore(data, { primary: meta.primary_locale, secondary: meta.secondary_locale })
+    baseVersion.current = meta.version
+    lastSavedMutation.current = 0
+    clearPending(resumeId)
+    setCacheSavedAt(null)
+  }, [loadStore, resumeId])
+
   const flushToServer = useCallback(async () => {
     const st = useStore.getState()
     const snapshot = st.data
@@ -230,10 +250,7 @@ export function useResumePersistence(resumeId: string): ResumePersistence {
           setLoadState('not-found')
           return
         case 'load-server':
-          loadStore(res!.data, { primary: res!.meta.primary_locale, secondary: res!.meta.secondary_locale })
-          baseVersion.current = res!.meta.version
-          clearPending(resumeId) // drop any clean local snapshot
-          setCacheSavedAt(null)
+          adoptServerCopy(res!.data, res!.meta) // also drops any clean local snapshot
           setLoadState('ready')
           return
         case 'flush-local':
@@ -390,14 +407,7 @@ export function useResumePersistence(resumeId: string): ResumePersistence {
     try {
       const res = await api.loadResume(resumeId)
       if (!res) { navigate('/', { replace: true }); return } // deleted under us
-      loadStore(res.data, {
-        primary: res.meta.primary_locale,
-        secondary: res.meta.secondary_locale,
-      })
-      baseVersion.current = res.meta.version
-      lastSavedMutation.current = 0 // loadStore reset mutationCount → no spurious save
-      clearPending(resumeId)
-      setCacheSavedAt(null)
+      adoptServerCopy(res.data, res.meta)
       setRemoteUpdate(false)
       setSaveState('idle')
     } catch (err) {
@@ -405,7 +415,7 @@ export function useResumePersistence(resumeId: string): ResumePersistence {
       // A failed reload just leaves the notice up to try again.
       console.warn('Reload from server failed:', err)
     }
-  }, [resumeId, loadStore])
+  }, [resumeId, adoptServerCopy])
 
   // ── Unsaved-work guard: warn before a tab close while edits are unsynced.
   //    Reads listDirty() at event time so it reflects the live queue.
@@ -430,13 +440,7 @@ export function useResumePersistence(resumeId: string): ResumePersistence {
     conflictPaused.current = false
     if (choice === 'discard') {
       // Take the server copy; drop the local edits and the queued record.
-      loadStore(conflict.data, {
-        primary: conflict.meta.primary_locale,
-        secondary: conflict.meta.secondary_locale,
-      })
-      baseVersion.current = conflict.meta.version
-      lastSavedMutation.current = 0 // loadStore reset mutationCount → no spurious save
-      clearPending(resumeId)
+      adoptServerCopy(conflict.data, conflict.meta)
       setConflict(null)
       setSaveState('idle')
     } else {
@@ -446,7 +450,7 @@ export function useResumePersistence(resumeId: string): ResumePersistence {
       setConflict(null)
       void flushToServer()
     }
-  }, [conflict, loadStore, resumeId, flushToServer])
+  }, [conflict, adoptServerCopy, flushToServer])
 
   const submitToken = useCallback(async (token: string) => {
     // Exchange the token for the HttpOnly session cookie first; a wrong token
@@ -454,16 +458,12 @@ export function useResumePersistence(resumeId: string): ResumePersistence {
     await api.login(token)
     const res = await api.loadResume(resumeId)
     if (res) {
-      loadStore(res.data, {
-        primary: res.meta.primary_locale,
-        secondary: res.meta.secondary_locale,
-      })
-      baseVersion.current = res.meta.version
+      adoptServerCopy(res.data, res.meta)
       setLoadState('ready')
     } else {
       setLoadState('not-found')
     }
-  }, [loadStore, resumeId])
+  }, [adoptServerCopy, resumeId])
 
   return {
     loadState, saveState, cacheSavedAt, unsyncedCount, conflict, resolveConflict,
