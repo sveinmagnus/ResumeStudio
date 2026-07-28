@@ -39,6 +39,13 @@ import type {
   Recommendation, Reference, KeyQualification, KeyCompetency,
 } from '../types'
 import { LOCALE_LABELS } from './locales'
+import {
+  isPlainObject, str, strOrNull, norm, toNames, toYearMonth, checkDate,
+  type ImportIssue,
+} from './coerce'
+
+// Re-exported: callers (and tests) import the date coercion from here.
+export { toYearMonth }
 
 // ─── Format marker ──────────────────────────────────────────────────────────
 
@@ -109,22 +116,6 @@ export interface BulkSectionSpec {
 
 // ─── Coercion helpers ────────────────────────────────────────────────────────
 
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return !!v && typeof v === 'object' && !Array.isArray(v)
-}
-
-/** Coerce an incoming scalar to a trimmed string (numbers/booleans stringified). */
-function str(v: unknown): string {
-  if (typeof v === 'string') return v.trim()
-  if (typeof v === 'number' || typeof v === 'boolean') return String(v)
-  return ''
-}
-
-function strOrNull(v: unknown): string | null {
-  const s = str(v)
-  return s || null
-}
-
 /**
  * Coerce a localizable input to a `LocalizedString`.
  *
@@ -146,28 +137,6 @@ export function toLocalized(v: unknown, defaultLocale: string): LocalizedString 
 }
 
 /** Coerce a date-ish value (year number, `{year, month}`, or null) to `YearMonth | null`. */
-export function toYearMonth(val: unknown): YearMonth | null {
-  if (val == null) return null
-  if (typeof val === 'number' || typeof val === 'string') {
-    const y = Number(val)
-    return Number.isFinite(y) ? { year: Math.trunc(y), month: null } : null
-  }
-  if (isPlainObject(val)) {
-    const y = Number(val['year'])
-    if (!Number.isFinite(y)) return null
-    const m = val['month'] == null ? null : Number(val['month'])
-    return { year: Math.trunc(y), month: m && Number.isInteger(m) && m >= 1 && m <= 12 ? m : null }
-  }
-  return null
-}
-
-/** Coerce a list-ish value to trimmed non-empty strings. */
-function toNames(v: unknown): string[] {
-  if (!Array.isArray(v)) return []
-  return v.map(str).filter(Boolean)
-}
-
-const norm = (s: string): string => s.trim().toLowerCase()
 
 /** First non-empty value of a LocalizedString, preferring `locale`. */
 function pick(ls: unknown, locale: string): string {
@@ -722,10 +691,8 @@ export function isBulkSection(section: string): section is BulkSectionKey {
 
 // ─── Detection + validation ──────────────────────────────────────────────────
 
-export interface BulkImportIssue {
-  path: string
-  reason: string
-}
+/** @see ImportIssue — kept as a named alias for the public error type. */
+export type BulkImportIssue = ImportIssue
 
 /**
  * Thrown when a bulk file is structurally unusable. Carries every issue found
@@ -773,31 +740,6 @@ function checkLocalized(val: unknown, path: string, issues: BulkImportIssue[]): 
   issues.push({ path, reason: 'expected a string, or an object of locale → string' })
 }
 
-function checkDate(val: unknown, path: string, issues: BulkImportIssue[]): void {
-  if (val == null) return
-  if (typeof val === 'number' || typeof val === 'string') {
-    const y = Number(val)
-    if (!Number.isFinite(y) || y < 1000 || y > 3000) {
-      issues.push({ path, reason: `expected a 4-digit year, got ${JSON.stringify(val)}` })
-    }
-    return
-  }
-  if (isPlainObject(val)) {
-    const y = Number(val['year'])
-    if (!Number.isFinite(y) || y < 1000 || y > 3000) {
-      issues.push({ path: `${path}.year`, reason: `expected a 4-digit year, got ${JSON.stringify(val['year'])}` })
-    }
-    const m = val['month']
-    if (m != null) {
-      const mn = Number(m)
-      if (!Number.isInteger(mn) || mn < 1 || mn > 12) {
-        issues.push({ path: `${path}.month`, reason: `expected a month 1–12 or null, got ${JSON.stringify(m)}` })
-      }
-    }
-    return
-  }
-  issues.push({ path, reason: 'expected a year number or a { year, month } object' })
-}
 
 /**
  * Structurally validate parsed JSON as a bulk import for `expectedSection`.

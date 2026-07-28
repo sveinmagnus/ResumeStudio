@@ -30,9 +30,13 @@ import type {
   ResumeStore, Resume, Skill, Role, KeyQualification, KeyCompetency,
   Project, ProjectRole, ProjectSkill, WorkExperience, Education,
   Course, Certification, SpokenLanguage, SkillCategory,
-  Recommendation, LocalizedString, YearMonth,
+  Recommendation, LocalizedString,
 } from '../types'
 import { LOCALE_LABELS } from './locales'
+import {
+  isPlainObject, str, strOrNull, norm, toYearMonth, checkDate,
+  type ImportIssue,
+} from './coerce'
 
 // ─── Format marker ──────────────────────────────────────────────────────────
 
@@ -154,11 +158,8 @@ export function isAIImportFormat(json: unknown): json is AIImportV1 {
 
 // ─── Validation ─────────────────────────────────────────────────────────────
 
-export interface AIImportIssue {
-  /** Dotted path to the offending field, e.g. `projects[0].start.year`. */
-  path: string
-  reason: string
-}
+/** @see ImportIssue — kept as a named alias for the public error type. */
+export type AIImportIssue = ImportIssue
 
 /**
  * Thrown when an AI-import file is structurally unusable. Carries every issue
@@ -183,9 +184,6 @@ const ARRAY_SECTIONS = [
   'recommendations',
 ] as const
 
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return !!v && typeof v === 'object' && !Array.isArray(v)
-}
 
 /** A value usable as a scalar text field (string/number/boolean/null/undefined). Objects/arrays are not. */
 function isScalarish(v: unknown): boolean {
@@ -197,31 +195,6 @@ function isScalarish(v: unknown): boolean {
  * (number or numeric string), or an object `{ year, month? }`. Pushes issues
  * for anything else or out-of-range values.
  */
-function checkDate(val: unknown, path: string, issues: AIImportIssue[]): void {
-  if (val == null) return
-  if (typeof val === 'number' || typeof val === 'string') {
-    const y = Number(val)
-    if (!Number.isFinite(y) || y < 1000 || y > 3000) {
-      issues.push({ path, reason: `expected a 4-digit year, got ${JSON.stringify(val)}` })
-    }
-    return
-  }
-  if (isPlainObject(val)) {
-    const y = Number(val['year'])
-    if (!Number.isFinite(y) || y < 1000 || y > 3000) {
-      issues.push({ path: `${path}.year`, reason: `expected a 4-digit year, got ${JSON.stringify(val['year'])}` })
-    }
-    const m = val['month']
-    if (m != null) {
-      const mn = Number(m)
-      if (!Number.isInteger(mn) || mn < 1 || mn > 12) {
-        issues.push({ path: `${path}.month`, reason: `expected a month 1–12 or null, got ${JSON.stringify(m)}` })
-      }
-    }
-    return
-  }
-  issues.push({ path, reason: 'expected a year number or a { year, month } object' })
-}
 
 /**
  * Structurally validate parsed JSON as an AI import. Throws
@@ -317,34 +290,9 @@ export function normalizeImportLocale(raw: unknown): string {
 // ─── Mapping → ResumeStore ────────────────────────────────────────────────────
 
 /** Coerce an incoming scalar to a trimmed string (numbers/booleans stringified). */
-function str(v: unknown): string {
-  if (typeof v === 'string') return v.trim()
-  if (typeof v === 'number' || typeof v === 'boolean') return String(v)
-  return ''
-}
 
-function strOrNull(v: unknown): string | null {
-  const s = str(v)
-  return s || null
-}
 
-/** Coerce a validated date-ish value to a `YearMonth | null`. */
-function toYearMonth(val: unknown): YearMonth | null {
-  if (val == null) return null
-  if (typeof val === 'number' || typeof val === 'string') {
-    const y = Number(val)
-    return Number.isFinite(y) ? { year: Math.trunc(y), month: null } : null
-  }
-  if (isPlainObject(val)) {
-    const y = Number(val['year'])
-    if (!Number.isFinite(y)) return null
-    const m = val['month'] == null ? null : Number(val['month'])
-    return { year: Math.trunc(y), month: m && Number.isInteger(m) ? m : null }
-  }
-  return null
-}
 
-const norm = (s: string): string => s.trim().toLowerCase()
 
 /**
  * Map a validated AI-import object into a fresh `ResumeStore`.
