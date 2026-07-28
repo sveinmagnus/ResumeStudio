@@ -13,6 +13,8 @@
     "start": "NODE_ENV=production tsx server/index.ts",
     "desktop": "npm run build && tsx server/desktop/launcher.ts",
     "build:desktop": "npm run build && node scripts/build-desktop.mjs",
+    "gen:icons": "node scripts/gen-section-icons.mjs",
+    "gen:taxonomy": "node scripts/build-skill-taxonomy.mjs",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.server.json --noEmit",
     "test": "vitest run",

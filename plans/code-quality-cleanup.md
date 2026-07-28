@@ -203,13 +203,38 @@ plan module, not a 6th copy).
 
 ### Tier 4 — small / dead
 
-**F12 · Dead code.** Verified unreferenced in `src`, `server` *and* `tests`:
-`countRegistryReferences` (merge.ts), `cefrCategoryLabel`, `DEFAULT_FULL_LAYOUT`,
-`defaultDateline`, `tailorableSectionKeys`, `safeProfileImageShape`,
-`defaultFieldLabels`, `SNOOZE_MONTHS`, `startConnectivity`, and the unused
-`promoteFromResumes` re-export wrapper in `server/db.ts` (the underlying
-`registryDb` implementation *is* used and tested — only the wrapper is dead).
-*Removes:* ~60 lines. *Risk:* very low.
+**F12 · ~~Dead code.~~ WITHDRAWN — there is no meaningful dead code.**
+*Retracted during step 3, after re-verification. The original claim was wrong.*
+
+The nine symbols listed here (`countRegistryReferences`, `cefrCategoryLabel`,
+`DEFAULT_FULL_LAYOUT`, `defaultDateline`, `tailorableSectionKeys`,
+`safeProfileImageShape`, `defaultFieldLabels`, `SNOOZE_MONTHS`,
+`startConnectivity`) are all **used inside their own module**. My check
+(`grep -rl <name> | wc -l` → 1) counted *files*, and a function used only
+within its own file naturally matches one file. That is evidence of a
+redundant `export` keyword, not of dead code — I read it as the latter.
+
+Re-examined properly, even the redundant-`export` framing doesn't hold up:
+
+- `countRegistryReferences` is **named in CLAUDE.md §4** as the documented
+  generic behind the three `count*References` wrappers. Public on purpose.
+- `DEFAULT_FULL_LAYOUT` is the documented twin of `DEFAULT_SUMMARY_LAYOUT`,
+  which *is* imported by `ViewStyleControls`. De-exporting one of a symmetric
+  documented pair is worse than leaving both.
+- `SNOOZE_MONTHS` sits in the same exported policy-constant group as
+  `DEFAULT_FRESHNESS` (used by `tests/freshness.test.ts`).
+- `promoteFromResumes` in `server/db.ts` is one of **six** symmetric singleton
+  wrappers over `RegistryStore`. Only it is currently uncalled; deleting one
+  member would break a deliberate facade for no gain.
+
+*Action taken: none.* Stripping these would be churn that fights the codebase's
+own documentation. The absence of dead code in 46k lines is a positive finding
+and is recorded as such.
+
+**Lesson for the rest of this series:** a static-analysis "unused" list is a
+question, not an answer. Both F12 items it produced were wrong in opposite
+directions — the scripts it called unused are load-bearing (F12b), and the
+exports it called unused are all live.
 
 **F12b · Two codegen scripts are undiscoverable — keep them, don't delete them.**
 `scripts/gen-section-icons.mjs` and `scripts/build-skill-taxonomy.mjs` are
@@ -244,7 +269,7 @@ Each step is one commit, `npm run typecheck && npm test && npm run build` betwee
 |---|------|----------|------|------|
 | 1 | Shared CSS classes → `index.css` | F3 | XS | very low |
 | 2 | `migrateStore` pyramid → `MIGRATIONS` array | F8 | XS | very low |
-| 3 | Delete dead exports; wire the 2 codegen scripts into npm | F12, F12b | XS | very low |
+| 3 | ~~Delete dead exports~~ (withdrawn); wire codegen scripts into npm | ~~F12~~, F12b | XS | very low |
 | 4 | `lib/download.ts` | F7 | S | very low |
 | 5 | `api.ts` error/safe helpers | F4 | S | low |
 | 6 | `lib/coerce.ts` for the importers | F6 | S | low |
