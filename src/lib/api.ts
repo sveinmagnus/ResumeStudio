@@ -87,6 +87,41 @@ export function isAbortError(err: unknown): boolean {
   return err instanceof DOMException && err.name === 'AbortError'
 }
 
+/**
+ * The server's `{ error }` message for a failed response, or `fallback` when
+ * the body is missing/unparseable/has no message.
+ *
+ * Every failing endpoint below wants this exact "prefer the server's wording,
+ * else say something sensible" behaviour; it was hand-inlined eleven times.
+ */
+async function serverMessage(res: Response, fallback: string): Promise<string> {
+  try {
+    const json = await res.json() as { error?: string }
+    if (json.error) return json.error
+  } catch { /* no/!json body — use the fallback */ }
+  return fallback
+}
+
+/** Throw a ServerError carrying the server's message (or `fallback`). */
+async function fail(res: Response, fallback: string): Promise<never> {
+  throw new ServerError(res.status, await serverMessage(res, `${fallback} (${res.status})`))
+}
+
+/**
+ * Run a request that must never throw, returning `fallback` on any failure.
+ *
+ * Used by the status/probe endpoints: an unreachable or unhappy server should
+ * make a feature quietly hide, not break the page. Deliberately swallows
+ * everything — callers that need to distinguish failures don't use this.
+ */
+async function safe<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
+  try {
+    return await fn()
+  } catch {
+    return fallback
+  }
+}
+
 // ─── Shared types ─────────────────────────────────────────────────────────────
 
 export interface ResumeMeta {
@@ -279,12 +314,10 @@ export const api = {
    * No auth required (health endpoint is always public).
    */
   async health(): Promise<boolean> {
-    try {
+    return safe(async () => {
       const res = await fetch('/api/health')
       return res.ok
-    } catch {
-      return false
-    }
+    }, false)
   },
 
   // ── Auth (cookie session) ─────────────────────────────────────────────────
@@ -302,11 +335,9 @@ export const api = {
 
   /** Clear the session cookie. Best-effort — never throws. */
   async logout(): Promise<void> {
-    try {
+    return safe(async () => {
       await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' })
-    } catch {
-      /* best-effort */
-    }
+    }, undefined)
   },
 
   // ── Resume collection ────────────────────────────────────────────────────
@@ -399,13 +430,11 @@ export const api = {
    * throwing, so a stats hiccup never blocks listing resumes.
    */
   async storageStats(): Promise<StorageStats | null> {
-    try {
+    return safe(async () => {
       const res = await request('GET', '/api/resumes/storage')
       if (!res.ok) return null
       return await res.json() as StorageStats
-    } catch {
-      return null
-    }
+    }, null)
   },
 
   // ── Snapshot history (per resume) ────────────────────────────────────────
@@ -482,14 +511,12 @@ export const api = {
    * throws — returns false on any error so the UI just hides the feature.
    */
   async translateStatus(): Promise<boolean> {
-    try {
+    return safe(async () => {
       const res = await request('GET', '/api/translate/status')
       if (!res.ok) return false
       const json = await res.json() as { configured?: boolean }
       return json.configured === true
-    } catch {
-      return false
-    }
+    }, false)
   },
 
   /**
@@ -499,12 +526,7 @@ export const api = {
   async translate(text: string, source: string, target: string): Promise<string> {
     const res = await request('POST', '/api/translate', { text, source, target })
     if (!res.ok) {
-      let message = `Translation failed (${res.status})`
-      try {
-        const json = await res.json() as { error?: string }
-        if (json.error) message = json.error
-      } catch { /* keep default */ }
-      throw new ServerError(res.status, message)
+      await fail(res, 'Translation failed')
     }
     const json = await res.json() as { translation: string }
     return json.translation
@@ -518,25 +540,18 @@ export const api = {
    * web/VPS deployment (no sync folder) simply hides the feature.
    */
   async backupStatus(): Promise<BackupStatus> {
-    try {
+    return safe(async () => {
       const res = await request('GET', '/api/backup/status')
       if (!res.ok) return { configured: false }
       return await res.json() as BackupStatus
-    } catch {
-      return { configured: false }
-    }
+    }, { configured: false })
   },
 
   /** Write the whole store to the sync folder now. Throws ServerError on failure. */
   async backupNow(): Promise<{ file: string; bytes: number; resumeCount: number }> {
     const res = await request('POST', '/api/backup/now')
     if (!res.ok) {
-      let message = `Backup failed (${res.status})`
-      try {
-        const json = await res.json() as { error?: string }
-        if (json.error) message = json.error
-      } catch { /* keep default */ }
-      throw new ServerError(res.status, message)
+      await fail(res, 'Backup failed')
     }
     return await res.json() as { file: string; bytes: number; resumeCount: number }
   },
@@ -549,12 +564,7 @@ export const api = {
   async restoreBackup(mode: 'merge' | 'replace' = 'merge'): Promise<RestoreSummary> {
     const res = await request('POST', '/api/backup/restore', { mode })
     if (!res.ok) {
-      let message = `Restore failed (${res.status})`
-      try {
-        const json = await res.json() as { error?: string }
-        if (json.error) message = json.error
-      } catch { /* keep default */ }
-      throw new ServerError(res.status, message)
+      await fail(res, 'Restore failed')
     }
     return await res.json() as RestoreSummary
   },
@@ -577,12 +587,7 @@ export const api = {
     const res = await request('POST', '/api/settings/folders', { path: path ?? '' })
     if (!res.ok) {
       if (res.status === 401) throw new UnauthorizedError()
-      let message = `Could not list that folder (${res.status})`
-      try {
-        const json = await res.json() as { error?: string }
-        if (json.error) message = json.error
-      } catch { /* keep default */ }
-      throw new ServerError(res.status, message)
+      await fail(res, 'Could not list that folder')
     }
     return await res.json() as FolderListing
   },
@@ -591,12 +596,7 @@ export const api = {
   async saveSettings(update: SettingsUpdate): Promise<SettingsStatus> {
     const res = await request('PUT', '/api/settings', update)
     if (!res.ok) {
-      let message = `Could not save settings (${res.status})`
-      try {
-        const json = await res.json() as { error?: string }
-        if (json.error) message = json.error
-      } catch { /* keep default */ }
-      throw new ServerError(res.status, message)
+      await fail(res, 'Could not save settings')
     }
     return await res.json() as SettingsStatus
   },
@@ -608,31 +608,22 @@ export const api = {
    * works. Never throws.
    */
   async testTranslate(input?: SettingsUpdate): Promise<TranslateTestResult> {
-    try {
+    return safe(async () => {
       const res = await request('POST', '/api/settings/translate/test', input ?? {})
       if (!res.ok) return { reachable: false, message: `Test failed (${res.status})` }
       return await res.json() as TranslateTestResult
-    } catch {
-      return { reachable: false, message: 'Test request failed.' }
-    }
+    }, { reachable: false, message: 'Test request failed.' })
   },
 
   /** Start/stop/status the managed Docker LibreTranslate. Never throws. */
   async translateDocker(action: 'start' | 'stop' | 'status'): Promise<DockerActionResult> {
-    try {
+    return safe(async () => {
       const res = await request('POST', '/api/settings/docker', { action })
       if (!res.ok) {
-        let message = `Docker ${action} failed (${res.status})`
-        try {
-          const json = await res.json() as { error?: string }
-          if (json.error) message = json.error
-        } catch { /* keep default */ }
-        return { available: false, message }
+        return { available: false, message: await serverMessage(res, `Docker ${action} failed (${res.status})`) }
       }
       return await res.json() as DockerActionResult
-    } catch {
-      return { available: false, message: `Docker ${action} request failed.` }
-    }
+    }, { available: false, message: `Docker ${action} request failed.` })
   },
 
   // ── Summarize (AI short descriptions) ─────────────────────────────────────
@@ -644,7 +635,7 @@ export const api = {
    * rather than showing broken ones.
    */
   async summarizeStatus(): Promise<AssistStatus> {
-    try {
+    return safe(async () => {
       const res = await request('GET', '/api/summarize/status')
       if (!res.ok) return ASSIST_OFF
       const json = await res.json() as Partial<AssistStatus>
@@ -657,9 +648,7 @@ export const api = {
         // Getting this wrong the other way would promise privacy we don't have.
         local: json.local === true,
       }
-    } catch {
-      return ASSIST_OFF
-    }
+    }, ASSIST_OFF)
   },
 
   /** Run one assist prompt against the configured model. Throws on failure. */
@@ -667,12 +656,9 @@ export const api = {
     const res = await request('POST', '/api/llm/complete', { prompt, max_tokens: maxTokens })
     if (!res.ok) {
       if (res.status === 401) throw new UnauthorizedError()
-      let message = `The AI model could not complete that request (${res.status})`
-      try {
-        const json = await res.json() as { error?: string }
-        if (json.error) message = json.error
-      } catch { /* keep default */ }
-      throw new Error(message)
+      // A plain Error, not ServerError: the assist UIs surface `.message`
+      // directly and don't branch on the status.
+      throw new Error(await serverMessage(res, `The AI model could not complete that request (${res.status})`))
     }
     const json = await res.json() as { text?: string }
     if (typeof json.text !== 'string' || !json.text.trim()) throw new Error('The AI model returned no text')
@@ -683,12 +669,7 @@ export const api = {
   async summarize(text: string, locale: string): Promise<string> {
     const res = await request('POST', '/api/summarize', { text, locale })
     if (!res.ok) {
-      let message = `Summarize failed (${res.status})`
-      try {
-        const json = await res.json() as { error?: string }
-        if (json.error) message = json.error
-      } catch { /* keep default */ }
-      throw new ServerError(res.status, message)
+      await fail(res, 'Summarize failed')
     }
     const json = await res.json() as { summary: string }
     return json.summary
@@ -696,31 +677,22 @@ export const api = {
 
   /** Test a summarize config with one tiny request. Never throws. */
   async testSummarize(input?: SettingsUpdate): Promise<TranslateTestResult> {
-    try {
+    return safe(async () => {
       const res = await request('POST', '/api/settings/summarize/test', input ?? {})
       if (!res.ok) return { reachable: false, message: `Test failed (${res.status})` }
       return await res.json() as TranslateTestResult
-    } catch {
-      return { reachable: false, message: 'Test request failed.' }
-    }
+    }, { reachable: false, message: 'Test request failed.' })
   },
 
   /** Start/stop/status the managed Docker Ollama. `model` used on start. Never throws. */
   async summarizeDocker(action: 'start' | 'stop' | 'status', model?: string): Promise<DockerActionResult> {
-    try {
+    return safe(async () => {
       const res = await request('POST', '/api/settings/summarize/docker', { action, model })
       if (!res.ok) {
-        let message = `Docker ${action} failed (${res.status})`
-        try {
-          const json = await res.json() as { error?: string }
-          if (json.error) message = json.error
-        } catch { /* keep default */ }
-        return { available: false, message }
+        return { available: false, message: await serverMessage(res, `Docker ${action} failed (${res.status})`) }
       }
       return await res.json() as DockerActionResult
-    } catch {
-      return { available: false, message: `Docker ${action} request failed.` }
-    }
+    }, { available: false, message: `Docker ${action} request failed.` })
   },
 
   /**
@@ -729,14 +701,12 @@ export const api = {
    * catalog" (instance down, or a provider we can't enumerate).
    */
   async summarizeModels(): Promise<InstalledModel[]> {
-    try {
+    return safe(async () => {
       const res = await request('GET', '/api/summarize/models')
       if (!res.ok) return []
       const json = await res.json() as { models?: InstalledModel[] }
       return Array.isArray(json.models) ? json.models : []
-    } catch {
-      return []
-    }
+    }, [])
   },
 
   // ── Auto-update (desktop build) ──────────────────────────────────────────
@@ -746,25 +716,18 @@ export const api = {
    * any error, so web/VPS builds (and an unreachable server) simply hide the UI.
    */
   async updateStatus(): Promise<UpdateStatus> {
-    try {
+    return safe(async () => {
       const res = await request('GET', '/api/update/status')
       if (!res.ok) return UPDATE_UNSUPPORTED
       return await res.json() as UpdateStatus
-    } catch {
-      return UPDATE_UNSUPPORTED
-    }
+    }, UPDATE_UNSUPPORTED)
   },
 
   /** Force a GitHub check now; returns the refreshed status. Throws on failure. */
   async checkForUpdate(): Promise<UpdateStatus> {
     const res = await request('POST', '/api/update/check')
     if (!res.ok) {
-      let message = `Update check failed (${res.status})`
-      try {
-        const json = await res.json() as { error?: string }
-        if (json.error) message = json.error
-      } catch { /* keep default */ }
-      throw new ServerError(res.status, message)
+      await fail(res, 'Update check failed')
     }
     return await res.json() as UpdateStatus
   },
@@ -777,12 +740,7 @@ export const api = {
   async installUpdate(): Promise<void> {
     const res = await request('POST', '/api/update/install')
     if (!res.ok) {
-      let message = `Could not start the update (${res.status})`
-      try {
-        const json = await res.json() as { error?: string }
-        if (json.error) message = json.error
-      } catch { /* keep default */ }
-      throw new ServerError(res.status, message)
+      await fail(res, 'Could not start the update')
     }
   },
 }
