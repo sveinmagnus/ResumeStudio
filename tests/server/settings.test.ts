@@ -5,7 +5,10 @@ import path from 'path'
 import {
   loadOrInitSettings, loadSettings, saveSettings, applyToEnv, toView,
   isDesktop, settingsFilePath, DOCKER_TRANSLATE_URL, DEFAULT_SETTINGS,
+  validateSettingsPatch,
 } from '../../server/settings'
+import { TRANSLATE_PROVIDERS } from '../../server/translate'
+import { SUMMARIZE_PROVIDERS } from '../../server/summarize'
 
 const ENV_KEYS = [
   'RESUME_DATA_DIR', 'RESUME_DESKTOP', 'LIBRETRANSLATE_URL', 'LIBRETRANSLATE_API_KEY',
@@ -137,5 +140,66 @@ describe('applyToEnv directly', () => {
     applyToEnv(DEFAULT_SETTINGS)
     expect(process.env.LIBRETRANSLATE_URL).toBeUndefined()
     expect(process.env.RESUME_BACKUP_DIR).toBeUndefined()
+  })
+})
+
+/**
+ * The contract that used to be maintained by hand in seven places, now driven
+ * by the FIELDS table in server/settings.ts.
+ */
+describe('validateSettingsPatch', () => {
+  /**
+   * Regression: the `llm` translate provider shipped unusable because the PUT
+   * route carried its own inline copy of the provider list — the UI offered
+   * `llm`, the route 400'd it. The validator now reads the same canonical
+   * lists the providers are defined by, so this cannot recur silently.
+   */
+  it('accepts every provider the canonical lists offer', () => {
+    for (const p of TRANSLATE_PROVIDERS) {
+      expect(validateSettingsPatch({ translate_provider: p }), `translate_provider=${p}`)
+        .toEqual({ patch: { translate_provider: p } })
+    }
+    for (const p of SUMMARIZE_PROVIDERS) {
+      expect(validateSettingsPatch({ summarize_provider: p }), `summarize_provider=${p}`)
+        .toEqual({ patch: { summarize_provider: p } })
+    }
+  })
+
+  it('rejects a provider outside the list', () => {
+    expect(validateSettingsPatch({ translate_provider: 'bogus' })).toHaveProperty('error')
+    expect(validateSettingsPatch({ summarize_provider: 'bogus' })).toHaveProperty('error')
+  })
+
+  it('only touches keys actually present (a masked key must not be cleared)', () => {
+    // The GET masks secrets, so an unchanged form omits them entirely.
+    expect(validateSettingsPatch({ backup_dir: '/tmp/x' }))
+      .toEqual({ patch: { backup_dir: '/tmp/x' } })
+  })
+
+  it('enforces each kind', () => {
+    expect(validateSettingsPatch({ translate_docker: 'yes' })).toHaveProperty('error')
+    expect(validateSettingsPatch({ backup_interval_ms: 1000 })).toHaveProperty('error')
+    expect(validateSettingsPatch({ backup_interval_ms: 60000 })).toEqual({ patch: { backup_interval_ms: 60000 } })
+    expect(validateSettingsPatch({ libretranslate_url: 'ftp://x' })).toHaveProperty('error')
+    expect(validateSettingsPatch({ libretranslate_url: 'https://x' })).toEqual({ patch: { libretranslate_url: 'https://x' } })
+    expect(validateSettingsPatch({ summarize_model: 42 })).toHaveProperty('error')
+  })
+
+  it('constrains translate_languages to locale-shaped codes', () => {
+    // These reach `docker compose` as LT_LOAD_ONLY.
+    expect(validateSettingsPatch({ translate_languages: ['en', 'NO'] }))
+      .toEqual({ patch: { translate_languages: ['en', 'no'] } })
+    expect(validateSettingsPatch({ translate_languages: ['en; rm -rf /'] })).toHaveProperty('error')
+    expect(validateSettingsPatch({ translate_languages: 'en' })).toHaveProperty('error')
+  })
+
+  it('never echoes a secret back through toView', () => {
+    const s = { ...DEFAULT_SETTINGS, deepl_api_key: 'super-secret', azure_region: 'westeurope' }
+    const view = toView(s) as unknown as Record<string, unknown>
+    expect(JSON.stringify(view)).not.toContain('super-secret')
+    expect(view.deepl_api_key_set).toBe(true)
+    expect(view.deepl_api_key).toBeUndefined()
+    // Non-secrets still pass through by value.
+    expect(view.azure_region).toBe('westeurope')
   })
 })

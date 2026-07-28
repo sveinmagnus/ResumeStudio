@@ -12,11 +12,11 @@ import { Router, type Request, type Response } from 'express'
 import {
   type AppSettings,
   isDesktop, saveSettings, toView, currentSettings, settingsToTranslateConfig,
-  settingsToSummarizeConfig, DOCKER_OLLAMA_URL,
+  settingsToSummarizeConfig, validateSettingsPatch, DOCKER_OLLAMA_URL,
 } from '../settings.js'
-import { isTranslationConfigured, translate, TranslateError, TRANSLATE_PROVIDERS } from '../translate.js'
+import { isTranslationConfigured, translate, TranslateError } from '../translate.js'
 import { startTranslate, stopTranslate, translateReachable, dockerAvailable, DOCKER_TRANSLATE_URL } from '../translateDocker.js'
-import { isSummarizeConfigured, summarize, SummarizeError, SUMMARIZE_PROVIDERS } from '../summarize.js'
+import { isSummarizeConfigured, summarize, SummarizeError } from '../summarize.js'
 import { startSummarize, stopSummarize, ollamaReachable, dockerAvailable as ollamaDockerAvailable } from '../summarizeDocker.js'
 import { reconfigureBackup } from '../backupRuntime.js'
 import { listFolders, FolderError } from '../folders.js'
@@ -43,98 +43,16 @@ router.put('/', (req: Request, res: Response): void => {
     res.status(403).json({ error: 'Settings are managed by the server environment on this deployment.' })
     return
   }
-  const body = (req.body ?? {}) as Record<string, unknown>
-  const patch: Partial<AppSettings> = {}
-
-  if ('translate_provider' in body) {
-    const v = body.translate_provider
-    // Validate against the canonical list — an inline copy here is how the
-    // 'llm' provider shipped rejectable (the UI offered it, this 400'd it).
-    if (!(TRANSLATE_PROVIDERS as string[]).includes(String(v))) {
-      res.status(400).json({ error: `translate_provider must be one of ${TRANSLATE_PROVIDERS.join('/')}` })
-      return
-    }
-    patch.translate_provider = v as AppSettings['translate_provider']
+  // Validation is driven by the field table in server/settings.ts — see
+  // validateSettingsPatch. Keeping it there rather than inline here is the
+  // point: this route's own copy of the provider list is what made the `llm`
+  // translate provider unusable (offered by the UI, 400'd here).
+  const result = validateSettingsPatch((req.body ?? {}) as Record<string, unknown>)
+  if ('error' in result) {
+    res.status(400).json({ error: result.error })
+    return
   }
-  if ('libretranslate_url' in body) {
-    const v = body.libretranslate_url
-    if (typeof v !== 'string') { res.status(400).json({ error: 'libretranslate_url must be a string' }); return }
-    const trimmed = v.trim()
-    if (trimmed && !/^https?:\/\//i.test(trimmed)) {
-      res.status(400).json({ error: 'libretranslate_url must start with http:// or https://' })
-      return
-    }
-    patch.libretranslate_url = trimmed
-  }
-  if ('translate_docker' in body) {
-    if (typeof body.translate_docker !== 'boolean') { res.status(400).json({ error: 'translate_docker must be a boolean' }); return }
-    patch.translate_docker = body.translate_docker
-  }
-  // API keys + region: only touched when the client explicitly sends them (the
-  // GET masks keys, so an unchanged form omits them and the stored key stands).
-  for (const key of ['libretranslate_api_key', 'deepl_api_key', 'google_api_key', 'azure_api_key', 'azure_region'] as const) {
-    if (key in body) {
-      if (typeof body[key] !== 'string') { res.status(400).json({ error: `${key} must be a string` }); return }
-      patch[key] = body[key] as string
-    }
-  }
-  if ('translate_languages' in body) {
-    const v = body.translate_languages
-    if (!Array.isArray(v) || v.some((x) => typeof x !== 'string')) {
-      res.status(400).json({ error: 'translate_languages must be an array of strings' })
-      return
-    }
-    // The values land in LT_LOAD_ONLY, which reaches `docker compose` as an env
-    // var — constrain them to locale-shaped tokens rather than trusting input.
-    const codes = (v as string[]).map((x) => x.trim().toLowerCase())
-    if (codes.some((x) => !/^[a-z]{2,8}(-[a-z]{2,8})?$/.test(x))) {
-      res.status(400).json({ error: 'translate_languages must contain locale codes' })
-      return
-    }
-    patch.translate_languages = [...new Set(codes)]
-  }
-  if ('backup_dir' in body) {
-    if (typeof body.backup_dir !== 'string') { res.status(400).json({ error: 'backup_dir must be a string' }); return }
-    patch.backup_dir = body.backup_dir.trim()
-  }
-  if ('backup_interval_ms' in body) {
-    const n = body.backup_interval_ms
-    if (typeof n !== 'number' || !Number.isFinite(n) || n < 5_000) {
-      res.status(400).json({ error: 'backup_interval_ms must be a number >= 5000' })
-      return
-    }
-    patch.backup_interval_ms = n
-  }
-  // ── Summarize ──
-  if ('summarize_provider' in body) {
-    if (!(SUMMARIZE_PROVIDERS as string[]).includes(String(body.summarize_provider))) {
-      res.status(400).json({ error: `summarize_provider must be one of ${SUMMARIZE_PROVIDERS.join('/')}` })
-      return
-    }
-    patch.summarize_provider = body.summarize_provider as AppSettings['summarize_provider']
-  }
-  for (const key of ['summarize_ollama_url', 'summarize_compat_url'] as const) {
-    if (key in body) {
-      const v = body[key]
-      if (typeof v !== 'string') { res.status(400).json({ error: `${key} must be a string` }); return }
-      const trimmed = v.trim()
-      if (trimmed && !/^https?:\/\//i.test(trimmed)) { res.status(400).json({ error: `${key} must start with http:// or https://` }); return }
-      patch[key] = trimmed
-    }
-  }
-  if ('summarize_docker' in body) {
-    if (typeof body.summarize_docker !== 'boolean') { res.status(400).json({ error: 'summarize_docker must be a boolean' }); return }
-    patch.summarize_docker = body.summarize_docker
-  }
-  for (const key of [
-    'summarize_openai_api_key', 'summarize_compat_api_key', 'summarize_model',
-    'summarize_anthropic_api_key', 'summarize_gemini_api_key', 'summarize_mistral_api_key',
-  ] as const) {
-    if (key in body) {
-      if (typeof body[key] !== 'string') { res.status(400).json({ error: `${key} must be a string` }); return }
-      patch[key] = body[key] as string
-    }
-  }
+  const { patch } = result
 
   const updated = saveSettings(patch)
   // Apply the (possibly) new sync folder/interval to the running scheduler live.

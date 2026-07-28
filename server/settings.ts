@@ -118,55 +118,190 @@ export function settingsFilePath(): string {
   return path.join(resolvePaths().dataDir, SETTINGS_FILENAME)
 }
 
+// ─── The field table ─────────────────────────────────────────────────────────
+
+/**
+ * ONE descriptor per setting, and everything else is a walk over this table:
+ * coercion from disk, the env projection, the env seed, the masked client view,
+ * and the PUT validator in routes/settings.ts.
+ *
+ * This list used to be spelled out seven times (the interface, DEFAULT_SETTINGS,
+ * coerce, applyToEnv, settingsFromEnv, toView, and the route validator), so
+ * adding a provider meant editing all of them in lockstep. That is not
+ * hypothetical: the `llm` translate provider shipped rejectable because the
+ * route carried an inline copy of the provider list the UI already offered.
+ *
+ * `kind` drives behaviour:
+ *   enum   — must be one of `values`
+ *   url    — trimmed string; if non-empty must start http:// or https://
+ *   secret — string, never echoed back (toView emits `<key>_set: boolean`)
+ *   text   — trimmed string
+ *   bool   — boolean
+ *   num    — finite number, floored at `min`
+ *   locales— array of locale-shaped codes (reaches docker as LT_LOAD_ONLY)
+ *
+ * `env` is the variable applyToEnv projects onto. `alwaysSet` writes even when
+ * empty (a provider must always be present); the rest clear the var instead.
+ */
+type FieldKind = 'enum' | 'url' | 'secret' | 'text' | 'bool' | 'num' | 'locales'
+
+interface FieldSpec {
+  key: keyof AppSettings
+  kind: FieldKind
+  /** Env var applyToEnv projects onto (absent = derived//not projected). */
+  env?: string
+  /** Allowed values for `kind: 'enum'`. */
+  values?: readonly string[]
+  /** Lower bound for `kind: 'num'`. */
+  min?: number
+  /** Write the env var even when the value is empty. */
+  alwaysSet?: boolean
+}
+
+const FIELDS: readonly FieldSpec[] = [
+  // ── Translate ──
+  { key: 'translate_provider',     kind: 'enum',   env: 'TRANSLATE_PROVIDER', values: TRANSLATE_PROVIDERS, alwaysSet: true },
+  // Projected by applyToEnv's docker override, not the generic walk.
+  { key: 'libretranslate_url',     kind: 'url' },
+  { key: 'libretranslate_api_key', kind: 'secret', env: 'LIBRETRANSLATE_API_KEY' },
+  { key: 'translate_docker',       kind: 'bool' },
+  { key: 'deepl_api_key',          kind: 'secret', env: 'DEEPL_API_KEY' },
+  { key: 'google_api_key',         kind: 'secret', env: 'GOOGLE_TRANSLATE_API_KEY' },
+  { key: 'azure_api_key',          kind: 'secret', env: 'AZURE_TRANSLATOR_KEY' },
+  { key: 'azure_region',           kind: 'text',   env: 'AZURE_TRANSLATOR_REGION' },
+  { key: 'translate_languages',    kind: 'locales' },
+  // ── Backup / sync ──
+  { key: 'backup_dir',             kind: 'text',   env: 'RESUME_BACKUP_DIR' },
+  { key: 'backup_interval_ms',     kind: 'num',    env: 'RESUME_BACKUP_INTERVAL_MS', min: 5_000, alwaysSet: true },
+  // ── Summarize ──
+  { key: 'summarize_provider',     kind: 'enum',   env: 'SUMMARIZE_PROVIDER', values: SUMMARIZE_PROVIDERS, alwaysSet: true },
+  { key: 'summarize_ollama_url',   kind: 'url' }, // docker override, see applyToEnv
+  { key: 'summarize_docker',       kind: 'bool' },
+  { key: 'summarize_openai_api_key',    kind: 'secret', env: 'SUMMARIZE_OPENAI_API_KEY' },
+  { key: 'summarize_compat_url',        kind: 'url',    env: 'SUMMARIZE_COMPAT_URL' },
+  { key: 'summarize_compat_api_key',    kind: 'secret', env: 'SUMMARIZE_COMPAT_API_KEY' },
+  { key: 'summarize_anthropic_api_key', kind: 'secret', env: 'SUMMARIZE_ANTHROPIC_API_KEY' },
+  { key: 'summarize_gemini_api_key',    kind: 'secret', env: 'SUMMARIZE_GEMINI_API_KEY' },
+  { key: 'summarize_mistral_api_key',   kind: 'secret', env: 'SUMMARIZE_MISTRAL_API_KEY' },
+  { key: 'summarize_model',             kind: 'text',   env: 'SUMMARIZE_MODEL' },
+]
+
+/**
+ * Validate an untrusted PATCH body against the field table.
+ *
+ * Only keys actually PRESENT in the body are touched: the GET masks secrets, so
+ * an unchanged form omits them and the stored value must stand. Returns the
+ * typed patch, or the first error for a 400.
+ *
+ * This lives here rather than in routes/settings.ts on purpose — the route's
+ * own inline copy of the provider list is how the `llm` translate provider
+ * shipped rejectable (the UI offered it, the route 400'd it).
+ */
+export function validateSettingsPatch(
+  body: Record<string, unknown>,
+): { patch: Partial<AppSettings> } | { error: string } {
+  const patch: Record<string, unknown> = {}
+  for (const f of FIELDS) {
+    if (!(f.key in body)) continue
+    const v = body[f.key]
+    switch (f.kind) {
+      case 'enum':
+        if (!(f.values as string[]).includes(String(v))) {
+          return { error: `${f.key} must be one of ${(f.values ?? []).join('/')}` }
+        }
+        patch[f.key] = v
+        break
+      case 'bool':
+        if (typeof v !== 'boolean') return { error: `${f.key} must be a boolean` }
+        patch[f.key] = v
+        break
+      case 'num':
+        if (typeof v !== 'number' || !Number.isFinite(v) || (f.min !== undefined && v < f.min)) {
+          return { error: `${f.key} must be a number >= ${f.min ?? 0}` }
+        }
+        patch[f.key] = v
+        break
+      case 'url': {
+        if (typeof v !== 'string') return { error: `${f.key} must be a string` }
+        const trimmed = v.trim()
+        if (trimmed && !/^https?:\/\//i.test(trimmed)) {
+          return { error: `${f.key} must start with http:// or https://` }
+        }
+        patch[f.key] = trimmed
+        break
+      }
+      case 'locales': {
+        if (!Array.isArray(v) || v.some((x) => typeof x !== 'string')) {
+          return { error: `${f.key} must be an array of strings` }
+        }
+        // These land in LT_LOAD_ONLY, which reaches `docker compose` as an env
+        // var — constrain them rather than trusting input.
+        const codes = (v as string[]).map((x) => x.trim().toLowerCase())
+        if (codes.some((x) => !LOCALE_RE.test(x))) {
+          return { error: `${f.key} must contain locale codes` }
+        }
+        patch[f.key] = [...new Set(codes)]
+        break
+      }
+      default: // secret | text
+        if (typeof v !== 'string') return { error: `${f.key} must be a string` }
+        patch[f.key] = f.kind === 'text' ? v.trim() : v
+        break
+    }
+  }
+  return { patch: patch as Partial<AppSettings> }
+}
+
+/** A locale-shaped token, the only thing allowed into LT_LOAD_ONLY. */
+const LOCALE_RE = /^[a-z]{2,8}(-[a-z]{2,8})?$/
+
+/**
+ * Locale codes for the Docker translate install. Untrusted-file surface: this
+ * value reaches `docker compose` as an env var, so it is constrained to short
+ * a-z/dash codes rather than passed through. A non-array (or one with nothing
+ * usable left) falls back to the default rather than installing nothing.
+ */
+function coerceLocales(v: unknown): string[] {
+  if (!Array.isArray(v)) return [...DEFAULT_SETTINGS.translate_languages]
+  const out = [...new Set(
+    v.filter((x): x is string => typeof x === 'string')
+      .map((x) => x.trim().toLowerCase())
+      .filter((x) => LOCALE_RE.test(x)),
+  )]
+  return out.length ? out : [...DEFAULT_SETTINGS.translate_languages]
+}
+
+/** Coerce one field's raw value per its `kind`, falling back to the default. */
+function coerceField(f: FieldSpec, raw: unknown): AppSettings[keyof AppSettings] {
+  const dflt = DEFAULT_SETTINGS[f.key]
+  switch (f.kind) {
+    case 'enum':
+      return (f.values as string[]).includes(String(raw)) ? (raw as string) : dflt
+    case 'bool':
+      return raw === true
+    case 'num': {
+      const n = typeof raw === 'number' && Number.isFinite(raw) ? raw : (dflt as number)
+      return f.min !== undefined ? Math.max(f.min, n) : n
+    }
+    case 'locales':
+      return coerceLocales(raw)
+    // url / secret / text are all trimmed strings. Trimming a key is safe and
+    // was already the rule for every secret except libretranslate_api_key,
+    // whose copy simply omitted it.
+    default:
+      return typeof raw === 'string' ? raw.trim() : (dflt as string)
+  }
+}
+
 /** Coerce an arbitrary parsed object into a complete, typed settings record. */
 function coerce(raw: unknown): AppSettings {
   const o = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
-  const str = (v: unknown, d: string) => (typeof v === 'string' ? v : d)
-  const num = (v: unknown, d: number) => (typeof v === 'number' && Number.isFinite(v) ? v : d)
-  /**
-   * Locale codes for the Docker translate install. Untrusted-file surface: this
-   * value reaches `docker compose` as an env var, so it's constrained to short
-   * a-z/dash codes rather than passed through. A non-array (or one with nothing
-   * usable left) falls back to the default rather than installing nothing.
-   */
-  const langs = (v: unknown): string[] => {
-    if (!Array.isArray(v)) return [...DEFAULT_SETTINGS.translate_languages]
-    const out = [...new Set(
-      v.filter((x): x is string => typeof x === 'string')
-        .map((x) => x.trim().toLowerCase())
-        .filter((x) => /^[a-z]{2,8}(-[a-z]{2,8})?$/.test(x)),
-    )]
-    return out.length ? out : [...DEFAULT_SETTINGS.translate_languages]
+  const out = { ...DEFAULT_SETTINGS }
+  for (const f of FIELDS) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (out as any)[f.key] = coerceField(f, o[f.key])
   }
-  const provider = (TRANSLATE_PROVIDERS as string[]).includes(String(o.translate_provider))
-    ? (o.translate_provider as TranslateProvider)
-    : DEFAULT_SETTINGS.translate_provider
-  const summarizeProvider = (SUMMARIZE_PROVIDERS as string[]).includes(String(o.summarize_provider))
-    ? (o.summarize_provider as SummarizeProvider)
-    : DEFAULT_SETTINGS.summarize_provider
-  return {
-    translate_provider: provider,
-    libretranslate_url: str(o.libretranslate_url, DEFAULT_SETTINGS.libretranslate_url).trim(),
-    libretranslate_api_key: str(o.libretranslate_api_key, DEFAULT_SETTINGS.libretranslate_api_key),
-    translate_docker: o.translate_docker === true,
-    deepl_api_key: str(o.deepl_api_key, DEFAULT_SETTINGS.deepl_api_key).trim(),
-    google_api_key: str(o.google_api_key, DEFAULT_SETTINGS.google_api_key).trim(),
-    azure_api_key: str(o.azure_api_key, DEFAULT_SETTINGS.azure_api_key).trim(),
-    azure_region: str(o.azure_region, DEFAULT_SETTINGS.azure_region).trim(),
-    translate_languages: langs(o.translate_languages),
-    backup_dir: str(o.backup_dir, DEFAULT_SETTINGS.backup_dir).trim(),
-    backup_interval_ms: Math.max(5_000, num(o.backup_interval_ms, DEFAULT_SETTINGS.backup_interval_ms)),
-    summarize_provider: summarizeProvider,
-    summarize_ollama_url: str(o.summarize_ollama_url, DEFAULT_SETTINGS.summarize_ollama_url).trim(),
-    summarize_docker: o.summarize_docker === true,
-    summarize_openai_api_key: str(o.summarize_openai_api_key, DEFAULT_SETTINGS.summarize_openai_api_key).trim(),
-    summarize_compat_url: str(o.summarize_compat_url, DEFAULT_SETTINGS.summarize_compat_url).trim(),
-    summarize_compat_api_key: str(o.summarize_compat_api_key, DEFAULT_SETTINGS.summarize_compat_api_key).trim(),
-    summarize_anthropic_api_key: str(o.summarize_anthropic_api_key, DEFAULT_SETTINGS.summarize_anthropic_api_key).trim(),
-    summarize_gemini_api_key: str(o.summarize_gemini_api_key, DEFAULT_SETTINGS.summarize_gemini_api_key).trim(),
-    summarize_mistral_api_key: str(o.summarize_mistral_api_key, DEFAULT_SETTINGS.summarize_mistral_api_key).trim(),
-    summarize_model: str(o.summarize_model, DEFAULT_SETTINGS.summarize_model).trim(),
-  }
+  return out
 }
 
 /** Read settings.json (coerced); returns defaults if the file is absent/garbage. */
@@ -191,37 +326,43 @@ function writeSettings(settings: AppSettings): void {
 }
 
 /**
- * Push settings onto process.env so the lazily-env-reading translate + backup
- * code sees them. For libretranslate the effective URL is the Docker URL when
- * managed, else the explicit URL. Empty values clear the corresponding env var.
+ * The effective LibreTranslate / Ollama base URL: the app-managed Docker URL
+ * when this provider is Docker-managed, else whatever the user configured.
+ * Shared by applyToEnv and the settingsTo*Config mappers so they can't drift.
  */
-export function applyToEnv(s: AppSettings): void {
-  process.env.TRANSLATE_PROVIDER = s.translate_provider
-  const libreUrl = (s.translate_provider === 'libretranslate' && s.translate_docker)
+function effectiveLibreUrl(s: AppSettings): string {
+  return s.translate_provider === 'libretranslate' && s.translate_docker
     ? DOCKER_TRANSLATE_URL
     : s.libretranslate_url
-  setOrClear('LIBRETRANSLATE_URL', libreUrl)
-  setOrClear('LIBRETRANSLATE_API_KEY', s.libretranslate_api_key)
-  setOrClear('DEEPL_API_KEY', s.deepl_api_key)
-  setOrClear('GOOGLE_TRANSLATE_API_KEY', s.google_api_key)
-  setOrClear('AZURE_TRANSLATOR_KEY', s.azure_api_key)
-  setOrClear('AZURE_TRANSLATOR_REGION', s.azure_region)
-  // Which Argos models the Docker LibreTranslate installs. docker-compose.yml
-  // reads LT_LOAD_ONLY, so this must be on the env before the container starts.
+}
+
+function effectiveOllamaUrl(s: AppSettings): string {
+  return s.summarize_provider === 'ollama' && s.summarize_docker
+    ? DOCKER_OLLAMA_URL
+    : s.summarize_ollama_url
+}
+
+/**
+ * Push settings onto process.env so the lazily-env-reading translate + backup
+ * code sees them, with no restart. Empty values clear their variable unless the
+ * field is `alwaysSet`.
+ *
+ * Three fields aren't a straight projection and are handled explicitly: the two
+ * base URLs (whose effective value depends on the docker toggle) and the Argos
+ * language list (which is rendered by `ltLoadOnly`).
+ */
+export function applyToEnv(s: AppSettings): void {
+  for (const f of FIELDS) {
+    if (!f.env) continue
+    const v = s[f.key]
+    if (f.alwaysSet) process.env[f.env] = String(v)
+    else setOrClear(f.env, typeof v === 'string' ? v : String(v))
+  }
+  setOrClear('LIBRETRANSLATE_URL', effectiveLibreUrl(s))
+  setOrClear('SUMMARIZE_OLLAMA_URL', effectiveOllamaUrl(s))
+  // docker-compose.yml reads LT_LOAD_ONLY, so this must be on the env before
+  // the container starts.
   process.env.LT_LOAD_ONLY = ltLoadOnly(s.translate_languages)
-  setOrClear('RESUME_BACKUP_DIR', s.backup_dir)
-  process.env.RESUME_BACKUP_INTERVAL_MS = String(s.backup_interval_ms)
-  // Summarize — the effective Ollama URL is the Docker URL when managed.
-  process.env.SUMMARIZE_PROVIDER = s.summarize_provider
-  const ollamaUrl = (s.summarize_provider === 'ollama' && s.summarize_docker) ? DOCKER_OLLAMA_URL : s.summarize_ollama_url
-  setOrClear('SUMMARIZE_OLLAMA_URL', ollamaUrl)
-  setOrClear('SUMMARIZE_OPENAI_API_KEY', s.summarize_openai_api_key)
-  setOrClear('SUMMARIZE_COMPAT_URL', s.summarize_compat_url)
-  setOrClear('SUMMARIZE_COMPAT_API_KEY', s.summarize_compat_api_key)
-  setOrClear('SUMMARIZE_ANTHROPIC_API_KEY', s.summarize_anthropic_api_key)
-  setOrClear('SUMMARIZE_GEMINI_API_KEY', s.summarize_gemini_api_key)
-  setOrClear('SUMMARIZE_MISTRAL_API_KEY', s.summarize_mistral_api_key)
-  setOrClear('SUMMARIZE_MODEL', s.summarize_model)
 }
 
 /** Map persisted settings to a SummarizeConfig (mirrors settingsToTranslateConfig). */
@@ -263,23 +404,30 @@ function setOrClear(key: string, value: string): void {
 /**
  * A settings record synthesised from the current env — the first-run seed on
  * the desktop build, and the read-only view on a server build. ONE builder for
- * both so the two can't drift (they used to be near-identical copies).
+ * both so the two can't drift.
+ *
+ * Read straight off the field table: a field with an `env` var takes its value
+ * from there. The three fields with no plain projection are seeded explicitly
+ * below.
  */
 function settingsFromEnv(): AppSettings {
-  return coerce({
-    translate_provider: process.env.TRANSLATE_PROVIDER?.trim()
-      || (process.env.LIBRETRANSLATE_URL?.trim() ? 'libretranslate' : 'off'),
-    libretranslate_url: process.env.LIBRETRANSLATE_URL ?? '',
-    libretranslate_api_key: process.env.LIBRETRANSLATE_API_KEY ?? '',
-    translate_docker: false,
-    deepl_api_key: process.env.DEEPL_API_KEY ?? '',
-    google_api_key: process.env.GOOGLE_TRANSLATE_API_KEY ?? '',
-    azure_api_key: process.env.AZURE_TRANSLATOR_KEY ?? '',
-    azure_region: process.env.AZURE_TRANSLATOR_REGION ?? '',
-    backup_dir: process.env.RESUME_BACKUP_DIR ?? '',
-    backup_interval_ms: Number(process.env.RESUME_BACKUP_INTERVAL_MS) || DEFAULT_SETTINGS.backup_interval_ms,
-    ...summarizeFromEnv(),
-  })
+  const raw: Record<string, unknown> = {}
+  for (const f of FIELDS) {
+    if (!f.env) continue
+    const v = process.env[f.env]
+    if (v === undefined) continue
+    raw[f.key] = f.kind === 'num' ? Number(v) : v
+  }
+  // Back-compat: an instance that only ever set LIBRETRANSLATE_URL (before the
+  // provider setting existed) still means "use libretranslate".
+  raw.translate_provider = process.env.TRANSLATE_PROVIDER?.trim()
+    || (process.env.LIBRETRANSLATE_URL?.trim() ? 'libretranslate' : 'off')
+  raw.libretranslate_url = process.env.LIBRETRANSLATE_URL ?? ''
+  raw.summarize_ollama_url = process.env.SUMMARIZE_OLLAMA_URL ?? ''
+  // Docker management is a desktop-only choice, never inherited from env.
+  raw.translate_docker = false
+  raw.summarize_docker = false
+  return coerce(raw)
 }
 
 /**
@@ -318,21 +466,6 @@ export function currentSettings(): AppSettings {
   return isDesktop() ? loadSettings() : settingsFromEnv()
 }
 
-/** Summarize settings synthesised from env (VPS snapshot + first-run seed). */
-function summarizeFromEnv(): Partial<AppSettings> {
-  return {
-    summarize_provider: process.env.SUMMARIZE_PROVIDER?.trim() as SummarizeProvider | undefined,
-    summarize_ollama_url: process.env.SUMMARIZE_OLLAMA_URL ?? '',
-    summarize_openai_api_key: process.env.SUMMARIZE_OPENAI_API_KEY ?? '',
-    summarize_compat_url: process.env.SUMMARIZE_COMPAT_URL ?? '',
-    summarize_compat_api_key: process.env.SUMMARIZE_COMPAT_API_KEY ?? '',
-    summarize_anthropic_api_key: process.env.SUMMARIZE_ANTHROPIC_API_KEY ?? '',
-    summarize_gemini_api_key: process.env.SUMMARIZE_GEMINI_API_KEY ?? '',
-    summarize_mistral_api_key: process.env.SUMMARIZE_MISTRAL_API_KEY ?? '',
-    summarize_model: process.env.SUMMARIZE_MODEL ?? '',
-  }
-}
-
 /**
  * The shape returned to the client — API keys are never echoed back, only
  * whether each one is set.
@@ -362,27 +495,11 @@ export interface SettingsView {
 }
 
 export function toView(s: AppSettings): SettingsView {
-  return {
-    translate_provider: s.translate_provider,
-    libretranslate_url: s.libretranslate_url,
-    libretranslate_api_key_set: s.libretranslate_api_key.trim().length > 0,
-    translate_docker: s.translate_docker,
-    deepl_api_key_set: s.deepl_api_key.trim().length > 0,
-    google_api_key_set: s.google_api_key.trim().length > 0,
-    azure_api_key_set: s.azure_api_key.trim().length > 0,
-    azure_region: s.azure_region,
-    translate_languages: s.translate_languages,
-    backup_dir: s.backup_dir,
-    backup_interval_ms: s.backup_interval_ms,
-    summarize_provider: s.summarize_provider,
-    summarize_ollama_url: s.summarize_ollama_url,
-    summarize_docker: s.summarize_docker,
-    summarize_openai_api_key_set: s.summarize_openai_api_key.trim().length > 0,
-    summarize_compat_url: s.summarize_compat_url,
-    summarize_compat_api_key_set: s.summarize_compat_api_key.trim().length > 0,
-    summarize_anthropic_api_key_set: s.summarize_anthropic_api_key.trim().length > 0,
-    summarize_gemini_api_key_set: s.summarize_gemini_api_key.trim().length > 0,
-    summarize_mistral_api_key_set: s.summarize_mistral_api_key.trim().length > 0,
-    summarize_model: s.summarize_model,
+  const out: Record<string, unknown> = {}
+  for (const f of FIELDS) {
+    // A secret is reported only as "is it set", never echoed back.
+    if (f.kind === 'secret') out[`${f.key}_set`] = String(s[f.key]).trim().length > 0
+    else out[f.key] = s[f.key]
   }
+  return out as unknown as SettingsView
 }
