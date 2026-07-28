@@ -13,9 +13,8 @@
 
 import type { ResumeStore, ResumeView, LocalizedString } from '../types'
 import { SECTIONS, localizedSectionHeading } from './sections'
-import {
-  applyView, isExportableSection, defaultViewDetail, promotedProjectItems, viewProfileTagLine,
-} from './viewFilter'
+import { applyView, viewProfileTagLine } from './viewFilter'
+import { planViewSections, sectionItems, renderKeyFor } from './viewSectionPlan'
 import { SECTION_CATALOG, summaryTitleMeta, type CatalogCtx, type ItemView } from './sectionCatalog'
 import { skillMatrixRows, fmtLastUsed, fmtProficiency } from './skillMatrix'
 import { xs, fmtYears } from './exportStrings'
@@ -123,21 +122,7 @@ function buildViewDoc(store: ResumeStore, view: ResumeView, locale: string, fmt:
   if (intro) { out.push(intro); out.push('') }
 
   // ── Sections in the view's order (same walk as the HTML/DOCX adapters) ────
-  const enabled = SECTIONS.filter(isExportableSection)
-    .map((s) => {
-      const vs = view.sections.find((v) => v.key === s.key)
-      return {
-        ...s,
-        sort_order: vs?.sort_order ?? 999,
-        detail: vs?.detail ?? defaultViewDetail(s.key),
-        sectionStyle: vs?.style,
-        sort: vs?.sort ?? view.style?.sort ?? 'custom',
-      }
-    })
-    .filter((s) => s.detail !== 'off')
-    .sort((a, b) => a.sort_order - b.sort_order)
-
-  for (const s of enabled) {
+  for (const s of planViewSections(view)) {
     if (!s.storeKey) continue
     // Synthetic skill matrix: rows, not items. Markdown gets a real table;
     // plain text gets dash lines (ATS parsers dislike column art).
@@ -173,16 +158,10 @@ function buildViewDoc(store: ResumeStore, view: ResumeView, locale: string, fmt:
       out.push('')
       continue
     }
-    const rawItems = s.key === 'promoted_projects'
-      ? promotedProjectItems(store, view)
-      : s.key === 'technology_categories'
-        ? showcaseGroups(store, view, locale)
-        : (filtered[s.storeKey] as unknown[])
-    if (!rawItems.length) continue
-    const renderKey = s.key === 'promoted_projects' ? 'projects' : s.key
-    const items = s.key === 'technology_categories'
-      ? rawItems
-      : sortItems(renderKey, rawItems as Array<{ id: string; sort_order: number }>, s.sort, locale)
+    // Item source + the view's per-section sort — see lib/viewSectionPlan.
+    const items = sectionItems(store, view, filtered, s, locale)
+    if (!items.length) continue
+    const renderKey = renderKeyFor(s.key)
     const desc = SECTION_CATALOG[renderKey]
     if (!desc || (!desc.full && !desc.summary)) continue
     const resolved = resolveSectionStyle(viewStyle, s.sectionStyle)

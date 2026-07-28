@@ -15,6 +15,10 @@ import type { GlobalFonts } from './fonts'
 import { sortItems } from './sectionSort'
 import { SECTION_ICON_INNER } from '../generated/sectionIcons'
 import { withHeaderDefaults, withFooterDefaults, buildHeaderLines, buildCopyrightLine, footerLines } from './viewHeader'
+import {
+  planViewSections, sectionItems, renderKeyFor,
+  isExportableSection, defaultViewDetail,
+} from './viewSectionPlan'
 
 /**
  * Build a section's `<h2>` heading, optionally prefixed with the section's
@@ -32,56 +36,16 @@ function sectionHeadingHtml(resolved: ResolvedSectionStyle, key: string, iconNam
 }
 
 // ─── Section helpers ──────────────────────────────────────────────────────────
-
-/**
- * Sections that can appear in an exported view. Excludes:
- *  - 'views' (the export config itself), and
- *  - the reusable registries 'skills' / 'roles' — these are structural data
- *    referenced by other sections, never rendered as a section of their own.
- */
-// Sections that are NOT resume content and must never appear inside a view's
-// section list: the registries (skills/roles) and the document-builder sections
-// (views, cover_letters) — a cover letter accompanies a CV, it isn't part of one.
-const NON_EXPORT_KEYS = new Set(['views', 'skills', 'roles', 'cover_letters'])
-
-export function isExportableSection(s: { key: string; storeKey?: unknown }): boolean {
-  return !!s.storeKey && !NON_EXPORT_KEYS.has(s.key)
-}
-
-/**
- * Default detail for a section when a view doesn't explicitly list it. Most
- * sections default to 'full'; the synthetic sections (`promoted_projects`,
- * `skill_matrix`) default to 'off' so existing and new views aren't changed
- * until the user enables them.
- */
-export function defaultViewDetail(key: string): SectionDetail {
-  return key === 'promoted_projects' || key === 'skill_matrix' ? 'off' : 'full'
-}
-
-/** The renderer/title key a section uses — synthetics reuse their source registry's titles. */
-function renderKeyFor(key: string): string {
-  if (key === 'promoted_projects') return 'projects'
-  // The Skill Matrix is toggled by CATEGORY in the view editor (not individual
-  // skills), so its item list titles resolve through the category descriptor.
-  if (key === 'skill_matrix') return 'technology_categories'
-  return key
-}
-
-/**
- * Source items for the synthetic "Promoted Projects" view section: the starred,
- * enabled, non-excluded projects. Independent of the regular Projects section's
- * detail, so a view can show Projects='off' + Promoted='full' for a clean,
- * promoted-only CV. Shared by both render paths and the view editor's item list.
- */
-export function promotedProjectItems(store: ResumeStore, view: ResumeView): unknown[] {
-  const excluded = new Set(view.excluded_item_ids)
-  const items = store.projects.filter(
-    (p) => !p.disabled && !excluded.has(p.id) && p.starred,
-  )
-  // Promoted projects bypass applyView (they derive from the raw store), so
-  // the view-wide anonymization must be applied here too.
-  return view.force_anonymized ? items.map((p) => ({ ...p, use_anonymized: true })) : items
-}
+//
+// The section PLAN (which sections a view renders, in what order, with which
+// items) lives in lib/viewSectionPlan.ts so all four render adapters share one
+// copy. Re-exported here because these were part of viewFilter's public API
+// long before the split, and a great many call sites and tests import them
+// from this module.
+export {
+  isExportableSection, defaultViewDetail, promotedProjectItems,
+  buildViewSections, normalizeViewSections, reorderViewSections,
+} from './viewSectionPlan'
 
 /**
  * Redact a person's name to initials: "Kari Nordmann" → "K. N.". Used for
@@ -95,39 +59,6 @@ export function redactPersonName(name: string | null | undefined): string {
     .split(/\s+/)
     .map((part) => `${part.charAt(0).toUpperCase()}.`)
     .join(' ')
-}
-
-/** Build default ViewSection[] for a new view — exportable sections in master order. */
-export function buildViewSections(): ViewSection[] {
-  return SECTIONS
-    .filter(isExportableSection)
-    .map((s, i) => ({ key: s.key, detail: defaultViewDetail(s.key), sort_order: i }))
-}
-
-/**
- * Ensure a view's section list covers every exportable section. Views created
- * before a section existed won't list it; this fills the gaps (preserving the
- * user's existing order, appending new sections at the end with their default
- * detail) so the view editor can configure them. Pure — returns a new array.
- */
-export function normalizeViewSections(stored: ViewSection[]): ViewSection[] {
-  const present = new Set(stored.map((s) => s.key))
-  const ordered = [...stored].sort((a, b) => a.sort_order - b.sort_order)
-  const missing = SECTIONS
-    .filter(isExportableSection)
-    .filter((s) => !present.has(s.key))
-    .map((s) => ({ key: s.key, detail: defaultViewDetail(s.key), sort_order: 0 }))
-  return [...ordered, ...missing].map((s, i) => ({ ...s, sort_order: i }))
-}
-
-/** Reorder sections within a view, swapping the target up or down. */
-export function reorderViewSections(sections: ViewSection[], key: string, dir: 'up' | 'down'): ViewSection[] {
-  const sorted = [...sections].sort((a, b) => a.sort_order - b.sort_order)
-  const idx = sorted.findIndex((s) => s.key === key)
-  const swap = dir === 'up' ? idx - 1 : idx + 1
-  if (idx === -1 || swap < 0 || swap >= sorted.length) return sections
-  ;[sorted[idx], sorted[swap]] = [sorted[swap], sorted[idx]]
-  return sorted.map((s, i) => ({ ...s, sort_order: i }))
 }
 
 // ─── Item display helpers ─────────────────────────────────────────────────────
@@ -596,25 +527,8 @@ export function buildViewHtml(store: ResumeStore, view: ResumeView, locale: stri
   const filtered = applyView(store, view)
   const lc = (ls_: LocalizedString | undefined) => resolve(ls_, locale)
 
-  const contentSections = SECTIONS.filter(isExportableSection)
-
-  const enabledSections = contentSections
-    .map((s) => {
-      const vs = view.sections.find((v) => v.key === s.key)
-      return {
-        ...s,
-        sort_order: vs?.sort_order ?? 999,
-        detail: vs?.detail ?? defaultViewDetail(s.key),
-        sectionStyle: vs?.style,
-        // Per-section sort override wins; else the view-wide global sort; else custom.
-        sort: vs?.sort ?? view.style?.sort ?? 'custom',
-      }
-    })
-    .filter((s) => s.detail !== 'off')
-    .sort((a, b) => a.sort_order - b.sort_order)
-
   const perSectionCss: string[] = []
-  const sectionsHtml = enabledSections
+  const sectionsHtml = planViewSections(view)
     .map((s) => {
       if (!s.storeKey) return ''
       // Synthetic skill matrix: a table over the registry, not item markup.
@@ -636,27 +550,9 @@ export function buildViewHtml(store: ResumeStore, view: ResumeView, locale: stri
   <table class="ve-matrix"><thead>${head}</thead><tbody>${body}</tbody></table>
 </section>`
       }
-      // Virtual promoted_projects derives its items from the starred projects;
-      // virtual technology_categories (Skills Showcase) derives its groups
-      // from the skill-category system; every other section reads its
-      // filtered store array.
-      const rawItems = s.key === 'promoted_projects'
-        ? promotedProjectItems(store, view)
-        : s.key === 'technology_categories'
-          ? showcaseGroups(store, view, locale)
-          : (filtered[s.storeKey] as unknown[])
-      if (!rawItems.length) return ''
-      // Order by the view's per-section sort (default 'custom' = the resume's
-      // arranged sort_order) so the export matches the chosen order. The Skills
-      // Showcase groups arrive pre-ordered (by category), so leave them be.
-      const items = s.key === 'technology_categories'
-        ? rawItems
-        : sortItems(
-            renderKeyFor(s.key),
-            rawItems as Array<{ id: string; sort_order: number }>,
-            s.sort,
-            locale,
-          )
+      // Item source + the view's per-section sort — see lib/viewSectionPlan.
+      const items = sectionItems(store, view, filtered, s, locale)
+      if (!items.length) return ''
       const resolved = resolveSectionStyle(viewStyle, s.sectionStyle)
       const ctx: RenderCtx = { locale, detail: s.detail, style: resolved }
       const renderKey = renderKeyFor(s.key)

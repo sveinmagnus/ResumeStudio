@@ -8,10 +8,11 @@ import { SortableContext, sortableKeyboardCoordinates, verticalListSortingStrate
 import { CSS } from '@dnd-kit/utilities'
 import { LOCALE_LABELS } from '../../../lib/locales'
 import {
-  reorderViewSections, isExportableSection,
-  getItemTitle, getItemSubtitle, buildViewHtml, normalizeViewSections,
-  defaultViewDetail, selectedViewProfile,
+  getItemTitle, getItemSubtitle, buildViewHtml, selectedViewProfile,
 } from '../../../lib/viewFilter'
+import {
+  planViewSections, reorderViewSections, normalizeViewSections, isExportableSection,
+} from '../../../lib/viewSectionPlan'
 import { DEFAULT_VIEW_STYLE, normalizeFullLayout } from '../../../lib/viewStyle'
 import { getDefaultFonts, onDefaultFontsChanged } from '../../../lib/appPrefs'
 import { skillCategoryList } from '../../../lib/skillCategorize'
@@ -557,11 +558,11 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
   }
 
   const locales = data.resume?.supported_locales ?? [primaryLocale]
-  const totalItems = CONTENT_SECTIONS.reduce((acc, s) => {
-    if (!s.storeKey || s.virtual) return acc // skip the synthetic promoted_projects (shares projects)
-    const vs = view.sections.find((v) => v.key === s.key)
-    const detail = vs?.detail ?? defaultViewDetail(s.key)
-    if (detail === 'off') return acc
+  // planViewSections already drops the 'off' sections and resolves each
+  // section's detail, so this only has to skip the synthetics (which share
+  // another section's storeKey and would double-count).
+  const totalItems = planViewSections(view).reduce((acc, s) => {
+    if (!s.storeKey || s.virtual) return acc
     return acc + (data[s.storeKey] as unknown[]).filter(
       (it) => !(it as { disabled?: boolean }).disabled
     ).length

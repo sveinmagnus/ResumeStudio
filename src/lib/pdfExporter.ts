@@ -31,8 +31,8 @@ import { resolve, type DateFormat } from './locales'
 import { xs, fmtYears } from './exportStrings'
 import { SECTION_CATALOG, summaryTitleMeta, type AnyItem as CatalogItem, type CatalogCtx, type ItemView } from './sectionCatalog'
 import { skillMatrixRows, fmtLastUsed, fmtProficiency, type SkillMatrixRow } from './skillMatrix'
-import { applyView, isExportableSection, defaultViewDetail, promotedProjectItems } from './viewFilter'
-import { showcaseGroups } from './showcase'
+import { applyView } from './viewFilter'
+import { planViewSections, sectionItems, renderKeyFor } from './viewSectionPlan'
 import { parseRichBlocks } from './richText'
 import { sortItems } from './sectionSort'
 import {
@@ -406,22 +406,7 @@ export async function buildPdfDocDefinition(
   }
 
   // ── Content sections in the view's chosen order ─────────────────────────
-  const contentSections = SECTIONS.filter(isExportableSection)
-  const enabledSections = contentSections
-    .map((s) => {
-      const vs = view.sections.find((v) => v.key === s.key)
-      return {
-        ...s,
-        sort_order: vs?.sort_order ?? 999,
-        detail: vs?.detail ?? defaultViewDetail(s.key),
-        sectionStyle: vs?.style as SectionStyle | undefined,
-        sort: vs?.sort ?? view.style?.sort ?? 'custom',
-      }
-    })
-    .filter((s) => s.detail !== 'off')
-    .sort((a, b) => a.sort_order - b.sort_order)
-
-  for (const def of enabledSections) {
+  for (const def of planViewSections(view)) {
     if (!def.storeKey) continue
     if (def.key === 'skill_matrix') {
       const resolved = resolveSectionStyle(viewStyle, def.sectionStyle)
@@ -433,18 +418,12 @@ export async function buildPdfDocDefinition(
       content.push(resolved.hide_heading ? withTopMargin(matrix, twip(tokens.itemGapTwips)) : matrix)
       continue
     }
-    const rawItems = def.key === 'promoted_projects'
-      ? promotedProjectItems(store, view)
-      : def.key === 'technology_categories'
-        ? showcaseGroups(store, view, locale)
-        : (filtered[def.storeKey] as unknown[])
-    if (!rawItems.length) continue
+    // Item source + the view's per-section sort — see lib/viewSectionPlan.
+    const items = sectionItems(store, view, filtered, def, locale)
+    if (!items.length) continue
     const resolved = resolveSectionStyle(viewStyle, def.sectionStyle)
     const ctx: ExportCtx = { locale, detail: def.detail, resolved, tokens: deriveTokens(resolved) }
-    const renderKey = def.key === 'promoted_projects' ? 'projects' : def.key
-    const items = def.key === 'technology_categories'
-      ? rawItems
-      : sortItems(renderKey, rawItems as Array<{ id: string; sort_order: number }>, def.sort, locale)
+    const renderKey = renderKeyFor(def.key)
     content.push(...renderSection(renderKey, sectionHeadingText(resolved, localizedSectionHeading(def.key, locale), locale), items, ctx))
   }
 

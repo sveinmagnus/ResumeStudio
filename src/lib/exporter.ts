@@ -32,9 +32,8 @@ import { resolve, type DateFormat } from './locales'
 import { SECTION_CATALOG, summaryTitleMeta, type AnyItem as CatalogItem, type CatalogCtx, type ItemView } from './sectionCatalog'
 import { skillMatrixRows, fmtLastUsed, fmtProficiency, type SkillMatrixRow } from './skillMatrix'
 import { xs, fmtYears } from './exportStrings'
-import { applyView, isExportableSection, defaultViewDetail, promotedProjectItems, viewProfileTagLine } from './viewFilter'
-import { sortItems } from './sectionSort'
-import { showcaseGroups } from './showcase'
+import { applyView, viewProfileTagLine } from './viewFilter'
+import { planViewSections, sectionItems, renderKeyFor } from './viewSectionPlan'
 import { parseRichBlocks, type RichRun } from './richText'
 import { deriveTokens, resolveSectionStyle, sectionHeadingText, kqVisibility, bulletGlyph, withDefaults, withResolvedFonts, resolveFontDocx, type ResolvedSectionStyle, type StyleTokens } from './viewStyle'
 import type { GlobalFonts } from './fonts'
@@ -363,22 +362,7 @@ export async function exportDocx(store: ResumeStore, view: ResumeView, locale: s
   }
 
   // ── Content sections in the view's chosen order ─────────────────────────
-  const contentSections = SECTIONS.filter(isExportableSection)
-  const enabledSections = contentSections
-    .map((s) => {
-      const vs = view.sections.find((v) => v.key === s.key)
-      return {
-        ...s,
-        sort_order: vs?.sort_order ?? 999,
-        detail: vs?.detail ?? defaultViewDetail(s.key),
-        sectionStyle: vs?.style as SectionStyle | undefined,
-        sort: vs?.sort ?? view.style?.sort ?? 'custom',
-      }
-    })
-    .filter((s) => s.detail !== 'off')
-    .sort((a, b) => a.sort_order - b.sort_order)
-
-  for (const def of enabledSections) {
+  for (const def of planViewSections(view)) {
     if (!def.storeKey) continue
     // Synthetic skill matrix: a real Word table over the registry.
     if (def.key === 'skill_matrix') {
@@ -391,15 +375,9 @@ export async function exportDocx(store: ResumeStore, view: ResumeView, locale: s
       children.push(skillMatrixTable(rows, !resolved.hide_dates, tokens, locale, resolved.date_format))
       continue
     }
-    // Virtual promoted_projects derives from the starred projects; virtual
-    // technology_categories (Skills Showcase) derives its groups from the
-    // skill-category system; everything else reads its filtered store array.
-    const rawItems = def.key === 'promoted_projects'
-      ? promotedProjectItems(store, view)
-      : def.key === 'technology_categories'
-        ? showcaseGroups(store, view, locale)
-        : (filtered[def.storeKey] as unknown[])
-    if (!rawItems.length) continue
+    // Item source + the view's per-section sort — see lib/viewSectionPlan.
+    const items = sectionItems(store, view, filtered, def, locale)
+    if (!items.length) continue
     const resolved = resolveSectionStyle(viewStyle, def.sectionStyle)
     const ctx: ExportCtx = {
       locale,
@@ -407,11 +385,7 @@ export async function exportDocx(store: ResumeStore, view: ResumeView, locale: s
       resolved,
       tokens: deriveTokens(resolved),
     }
-    const renderKey = def.key === 'promoted_projects' ? 'projects' : def.key
-    // Order by the view's per-section sort (default 'custom' = arranged order).
-    const items = def.key === 'technology_categories'
-      ? rawItems
-      : sortItems(renderKey, rawItems as Array<{ id: string; sort_order: number }>, def.sort, locale)
+    const renderKey = renderKeyFor(def.key)
     const block = renderSection(renderKey, sectionHeadingText(resolved, localizedSectionHeading(def.key, locale), locale), items, ctx)
     if (block.length) children.push(...block)
   }

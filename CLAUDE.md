@@ -161,6 +161,9 @@ src/
 │   │ — render/export: exportStrings (localized EXPORT chrome + xs/xt/fmtYears;
 │   │   export-only by design — see §12), sectionCatalog (one descriptor feeds ALL render adapters),
 │   │   viewFilter (applyView + buildViewHtml; escapeHtml; SECURITY-CRITICAL),
+│   │   viewSectionPlan (planViewSections + sectionItems + renderKeyFor — the
+│   │     section PLAN all four render adapters share; owns isExportableSection/
+│   │     defaultViewDetail/promotedProjectItems, re-exported by viewFilter),
 │   │   exporter (LAZY-LOADED docx; SECURITY: TextRun escapes), viewText (ATS text/MD),
 │   │   exporterEuropass (SkillsPassport XML; DOM+XMLSerializer, NOT string XML; round-trips importerEuropass),
 │   │   coverLetter (letter prompt + resolveLetterParts + text export; PDF/DOCX letter builders ride the lazy exporter/pdfmake chunks),
@@ -386,7 +389,7 @@ Navigation: `setActiveSection(key)` / `setExpandedItem(id)`. Undo/redo: `useUndo
 4. Add the icon import to `Sidebar.tsx`'s `ICON_MAP`.
 5. Create the editor component and wire it into `App.tsx`'s `EditorRoute` switch (the key is auto a valid URL segment; EditorRoute validates against SECTIONS).
 6. If sortable by `sort_order`, wrap `<EditorCard>`s in `<SortableList section="…" ids={…}>`. Else pass `sortable={false}` to each card.
-7. If it should appear in Resume View exports: add **one descriptor** to `lib/sectionCatalog.ts` (title/subtitle + `summary()`/`full()` data views). Every render path (HTML/PDF, DOCX, text/Markdown) consumes the catalog through its generic adapter. Descriptors return **data only** — adapters own escaping; never build markup in a descriptor. Per-path differences go behind `ctx.target`. Views pick it up via `isExportableSection` + `normalizeViewSections`; give it a `defaultViewDetail` if not `full`. See the **export-pipeline** and **security** skills.
+7. If it should appear in Resume View exports: add **one descriptor** to `lib/sectionCatalog.ts` (title/subtitle + `summary()`/`full()` data views). Every render path (HTML/PDF, DOCX, text/Markdown) consumes the catalog through its generic adapter. Descriptors return **data only** — adapters own escaping; never build markup in a descriptor. Per-path differences go behind `ctx.target`. Views pick it up via `isExportableSection` + `normalizeViewSections`; give it a `defaultViewDetail` if not `full`. A **synthetic** section (derives its items instead of owning a store array, like `promoted_projects`) is declared once in `lib/viewSectionPlan.ts` — add its `RENDER_KEY` entry and a `sectionItems` branch there, never a `key === '…'` check in a renderer. See the **export-pipeline** and **security** skills.
 8. If you add a configurable **style/header field** to a view, it is untrusted-import surface — sanitise at the render boundary (`viewStyle.ts → deriveTokens` / `viewHeader.ts → withHeaderDefaults`) and add a breakout regression test. See the security skill.
 9. If sortable by something other than `sort_order`, wire it into `lib/sectionSort.ts`.
 
