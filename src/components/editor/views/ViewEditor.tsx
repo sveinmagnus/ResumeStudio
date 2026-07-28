@@ -8,7 +8,7 @@ import { SortableContext, sortableKeyboardCoordinates, verticalListSortingStrate
 import { CSS } from '@dnd-kit/utilities'
 import { LOCALE_LABELS } from '../../../lib/locales'
 import {
-  getItemTitle, getItemSubtitle, buildViewHtml, selectedViewProfile,
+  getItemTitle, getItemSubtitle, selectedViewProfile,
 } from '../../../lib/viewFilter'
 import {
   planViewSections, reorderViewSections, normalizeViewSections, isExportableSection,
@@ -22,10 +22,8 @@ import { AnonCheckPanel } from './AnonCheckPanel'
 import { PageFitPanel } from './PageFitPanel'
 import { selectOnly, isSingleSelectSection } from '../../../lib/viewItemSelect'
 import { VIEW_TEMPLATES, getTemplate, applyTemplate } from '../../../lib/viewTemplates'
-import { buildViewText, buildViewMarkdown } from '../../../lib/viewText'
-import { exportEuropassXml } from '../../../lib/exporterEuropass'
-import { exportFilename } from '../../../lib/exportFilename'
-import { downloadText } from '../../../lib/download'
+import { useViewPreview } from './useViewPreview'
+import { useViewExport } from './useViewExport'
 import type {
   ResumeView, ViewStyle, SectionStyle, ViewSection,
   ViewHeaderConfig, ViewFooterConfig, SortMode,
@@ -241,145 +239,13 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
   const [globalFonts, setGlobalFonts] = useState(getDefaultFonts)
   useEffect(() => onDefaultFontsChanged(() => setGlobalFonts(getDefaultFonts())), [])
 
-  // ── Live preview: rebuild HTML on view/data/locale/font changes, debounced ──
-  const [previewHtml, setPreviewHtml] = useState(() =>
-    buildViewHtml(data, view, exportLocale, globalFonts)
-  )
-  // Two page counts, deliberately:
-  //   estimate — the preview iframe's height / an A4 page. Instant and free,
-  //              but it measures the HTML render, not the PDF, so it is only a
-  //              ballpark (13 vs a true 10 on a real CV — see countPdfPages).
-  //   exact    — pdfmake's real pagination (lazy, debounced, ~2 MB the first
-  //              time). The truth, and what the limit + AI advice run on.
-  // The estimate paints immediately and is labelled "≈"; the exact count
-  // replaces it when it lands and drops the "≈".
-  const [pageEstimate, setPageEstimate] = useState<number | null>(null)
-  const [exactPages, setExactPages] = useState<number | null>(null)
-  const [showPreview, setShowPreview] = useState(true)
-  // Whether a separate preview window is currently open. Kept as STATE (not just
-  // the ref) so the toolbar can flip Pop out ⇄ Pop in and so an externally-closed
-  // window re-enables popping out. Independent of `showPreview`: the inline
-  // preview can be shown or hidden regardless of whether a window is open.
-  const [poppedOut, setPoppedOut] = useState(false)
-  const iframeRef = useRef<HTMLIFrameElement>(null)
-  const popoutRef = useRef<Window | null>(null)
-  // Last known preview scroll offset, preserved across rebuilds so tweaking a
-  // control doesn't fling the preview back to the top of the résumé (#5).
-  const previewScrollRef = useRef(0)
+  // ── Live preview, pop-out and page counts (see useViewPreview) ────────────
+  const {
+    html: previewHtml, iframeRef, pageCount, exactPages,
+    showPreview, setShowPreview, poppedOut, popOut, popIn,
+  } = useViewPreview(data, view, exportLocale, globalFonts)
 
-  useEffect(() => {
-    const t = window.setTimeout(() => {
-      setPreviewHtml(buildViewHtml(data, view, exportLocale, globalFonts))
-    }, 250)
-    return () => window.clearTimeout(t)
-  }, [data, view, exportLocale, globalFonts])
-
-  // Keep a popped-out preview window in sync with the live HTML.
-  useEffect(() => {
-    const win = popoutRef.current
-    if (win && !win.closed) {
-      win.document.open()
-      win.document.write(previewHtml)
-      win.document.close()
-    }
-  }, [previewHtml])
-
-  // Close the pop-out when leaving the view editor.
-  useEffect(() => () => { popoutRef.current?.close() }, [])
-
-  // A window closed from its own title bar fires no event in the opener, so poll
-  // while popped out: once it's gone, drop back to the "Pop out" affordance so the
-  // button never lies and popping out again works.
-  useEffect(() => {
-    if (!poppedOut) return
-    const id = window.setInterval(() => {
-      if (!popoutRef.current || popoutRef.current.closed) {
-        popoutRef.current = null
-        setPoppedOut(false)
-      }
-    }, 800)
-    return () => window.clearInterval(id)
-  }, [poppedOut])
-
-  const popOut = () => {
-    const win = window.open('', 'rs-view-preview', 'width=900,height=1200')
-    if (!win) { setExportError('Please allow pop-ups to open the preview window.'); return }
-    popoutRef.current = win
-    win.document.open()
-    win.document.write(previewHtml)
-    win.document.close()
-    win.focus()
-    setPoppedOut(true)
-    // Popping out reclaims the editor width by default; the inline preview can be
-    // brought back at any time with Show preview, even while the window is open.
-    setShowPreview(false)
-  }
-
-  // Bring the preview back inside: close the window and re-show the inline pane.
-  const popIn = () => {
-    popoutRef.current?.close()
-    popoutRef.current = null
-    setPoppedOut(false)
-    setShowPreview(true)
-  }
-
-  useEffect(() => {
-    const iframe = iframeRef.current
-    if (!iframe) return
-    let refine: number | undefined
-    const A4_PX = 1123 // A4 height at 96 dpi — rough; web fonts shift things slightly
-    const measure = () => {
-      const body = iframe.contentDocument?.body
-      if (!body) return
-      setPageEstimate(Math.max(1, Math.ceil(body.scrollHeight / A4_PX)))
-    }
-    const restoreScroll = () => {
-      const win = iframe.contentWindow
-      try { win?.scrollTo(0, previewScrollRef.current) } catch { /* jsdom / cross-origin */ }
-    }
-    const onLoad = () => {
-      const win = iframe.contentWindow
-      if (win) {
-        // Reapply the saved offset, then keep tracking the user's scrolling on
-        // the freshly-loaded document (the old window's listeners died with it).
-        restoreScroll()
-        win.addEventListener('scroll', () => { previewScrollRef.current = win.scrollY }, { passive: true })
-      }
-      measure()
-      // Web fonts settle a little after load and shift the layout; re-measure
-      // and re-pin the scroll so the position holds once heights are final.
-      refine = window.setTimeout(() => { measure(); restoreScroll() }, 400)
-    }
-    iframe.addEventListener('load', onLoad)
-    return () => {
-      iframe.removeEventListener('load', onLoad)
-      if (refine !== undefined) window.clearTimeout(refine)
-    }
-  }, [previewHtml])
-
-  // The real pagination, debounced well behind the preview: it lazy-loads
-  // pdfmake and lays the whole document out, so it must never run per keystroke.
-  // Stale replies are dropped — a fast edit after a slow layout would otherwise
-  // show the previous view's count.
-  useEffect(() => {
-    let alive = true
-    const t = window.setTimeout(() => {
-      // Dynamic import: pdfExporter pulls in pdfmake, which must never join the
-      // always-loaded bundle (CLAUDE.md §11). The chunk is fetched once and the
-      // module caches the configured library.
-      void import('../../../lib/pdfExporter')
-        .then(({ countPdfPages }) => countPdfPages(data, view, exportLocale, globalFonts))
-        .then((n) => { if (alive) setExactPages(n) })
-        // A failed count is not worth an error in the user's face — the
-        // estimate stays on screen and the export button is unaffected.
-        .catch(() => { if (alive) setExactPages(null) })
-    }, 700)
-    return () => { alive = false; window.clearTimeout(t) }
-  }, [data, view, exportLocale, globalFonts])
-
-  // Prefer the truth; fall back to the estimate until it arrives.
-  const pageCount = exactPages ?? pageEstimate
-  // But only the EXACT count may say you're over. The estimate is a different
+  // Only the EXACT count may say you're over. The estimate is a different
   // render engine's height and runs ~30% high on a real CV — driving the
   // warning (and the AI's cut advice) off it would tell you to cut a document
   // that already fits, then quietly retract. Better to say nothing for a second.
@@ -487,15 +353,30 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
     onUpdate({ footer: { ...footer, ...patch } })
   }
 
-  const [docxBusy, setDocxBusy] = useState(false)
-  const [pdfBusy, setPdfBusy] = useState(false)
-  const [exportError, setExportError] = useState<string | null>(null)
+  // ── Exports (see useViewExport) ───────────────────────────────────────────
+  const stampExported = () => onUpdate({ last_exported_at: new Date().toISOString() })
+  const {
+    pdfBusy, docxBusy, error: exportError, clearError,
+    exportPdf, exportDocx, exportTextual,
+  } = useViewExport(data, view, exportLocale, globalFonts, stampExported)
+
+  // A blocked pop-up is reported through the same banner as an export failure:
+  // both are "the thing you just clicked didn't happen", and one dismissible
+  // alert is less noisy than two.
+  const [popupBlocked, setPopupBlocked] = useState(false)
+  const togglePopOut = () => {
+    if (poppedOut) { popIn(); return }
+    setPopupBlocked(!popOut())
+  }
+  const notice = exportError ?? (popupBlocked ? 'Please allow pop-ups to open the preview window.' : null)
+  const dismissNotice = () => { clearError(); setPopupBlocked(false) }
+
   // The view name and purpose are display-only until opened with the pencil —
   // both are "note to self" identity, not editable-every-time config.
   const [editingName, setEditingName] = useState(false)
   const [editingPurpose, setEditingPurpose] = useState(false)
   // Which section rows are expanded (item list + style overrides shown). All
-  // collapsed by default so the list reads as a sortable overview (#3).
+  // collapsed by default so the list reads as a sortable overview.
   const [openSections, setOpenSections] = useState<Set<string>>(() => new Set())
   const toggleSection = (key: string) => setOpenSections((prev) => {
     const next = new Set(prev)
@@ -503,59 +384,6 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
     else next.add(key)
     return next
   })
-
-  // Vector PDF straight to a download (no print dialog). pdfmake is ~1.5 MB, so
-  // it's lazy-loaded only when the user actually exports — like the DOCX path.
-  const handleExport = () => {
-    setExportError(null)
-    setPdfBusy(true)
-    void (async () => {
-      try {
-        const { exportPdf } = await import('../../../lib/pdfExporter')
-        await exportPdf(data, view, exportLocale, globalFonts)
-        onUpdate({ last_exported_at: new Date().toISOString() })
-      } catch (e) {
-        setExportError(`Could not export PDF: ${(e as Error).message}`)
-      } finally {
-        setPdfBusy(false)
-      }
-    })()
-  }
-
-  // Download a synchronously-built string export (the ATS text/Markdown paths
-  // and Europass XML), stamping the export time.
-  const exportAsFile = (content: string, ext: string, mime: string) => {
-    downloadText(content, exportFilename(data.resume?.full_name, view.name, ext), mime)
-    onUpdate({ last_exported_at: new Date().toISOString() })
-  }
-
-  // ATS-friendly exports (F6): pure string builders, downloaded as files.
-  const handleExportTextual = (ext: 'txt' | 'md') => {
-    const content = ext === 'txt'
-      ? buildViewText(data, view, exportLocale)
-      : buildViewMarkdown(data, view, exportLocale)
-    exportAsFile(content, ext, 'text/plain;charset=utf-8')
-  }
-
-  // Europass SkillsPassport XML — the round-trip partner of the Europass import.
-  const handleExportEuropass = () => {
-    exportAsFile(exportEuropassXml(data, view, exportLocale), 'xml', 'application/xml;charset=utf-8')
-  }
-
-  // The docx library is ~400 kB — lazy-load only when the user clicks Export DOCX.
-  const handleExportDocx = async () => {
-    setDocxBusy(true)
-    setExportError(null)
-    try {
-      const { exportDocx } = await import('../../../lib/exporter')
-      await exportDocx(data, view, exportLocale, globalFonts)
-      onUpdate({ last_exported_at: new Date().toISOString() })
-    } catch (e) {
-      setExportError(`Could not export DOCX: ${(e as Error).message}`)
-    } finally {
-      setDocxBusy(false)
-    }
-  }
 
   const locales = data.resume?.supported_locales ?? [primaryLocale]
   // planViewSections already drops the 'off' sections and resolves each
@@ -596,11 +424,11 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
             ))}
           </select>
           <ExportMenu
-            onPdf={handleExport}
-            onDocx={() => void handleExportDocx()}
-            onText={() => handleExportTextual('txt')}
-            onMarkdown={() => handleExportTextual('md')}
-            onEuropass={handleExportEuropass}
+            onPdf={exportPdf}
+            onDocx={exportDocx}
+            onText={() => exportTextual('txt')}
+            onMarkdown={() => exportTextual('md')}
+            onEuropass={() => exportTextual('xml')}
             pdfBusy={pdfBusy}
             docxBusy={docxBusy}
             lastExportedAt={view.last_exported_at}
@@ -615,7 +443,7 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
           </button>
           <button
             className="rv-prev-ctrl"
-            onClick={poppedOut ? popIn : popOut}
+            onClick={togglePopOut}
             title={poppedOut
               ? 'Close the separate preview window and bring the preview back inside'
               : 'Open the preview in a separate window'}
@@ -629,10 +457,10 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
         </button>
       </div>
 
-      {exportError && (
+      {notice && (
         <div className="rv-export-error rv-export-error-top" role="alert">
-          {exportError}
-          <button className="rv-export-error-x" onClick={() => setExportError(null)} aria-label="Dismiss">×</button>
+          {notice}
+          <button className="rv-export-error-x" onClick={dismissNotice} aria-label="Dismiss">×</button>
         </div>
       )}
 
@@ -1088,7 +916,7 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
             <div className="rv-preview-head-actions">
               <button
                 className="rv-preview-iconbtn"
-                onClick={poppedOut ? popIn : popOut}
+                onClick={togglePopOut}
                 title={poppedOut ? 'Close the separate preview window' : 'Open in a separate window'}
                 aria-label={poppedOut ? 'Pop in preview' : 'Pop out preview'}
               >
