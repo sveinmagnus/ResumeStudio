@@ -6,10 +6,10 @@ import {
 import { useStore } from '../../store/useStore'
 import type { LocalizedString } from '../../types'
 import { LOCALE_LABELS, bcp47 } from '../../lib/locales'
-import { api } from '../../lib/api'
 import { canDraftBetween } from '../../lib/translateClient'
 import { useTranslationAvailable } from '../../store/useTranslation'
 import { sanitizeRich, cleanPastedHtml, plainToRichHtml } from '../../lib/richText'
+import { useTranslationAssist } from './useTranslationAssist'
 
 interface RichFieldProps {
   label: string
@@ -38,12 +38,6 @@ export function RichField({ label, value, onChange, placeholder }: RichFieldProp
   const secondary = useStore((s) => s.secondaryLocale)
   const translationAvailable = useTranslationAvailable()
 
-  // Assist state keys off the TARGET locale so Copy/Draft can run in either
-  // direction (primary→secondary or secondary→primary) — see DualField.
-  const [busyLocale, setBusyLocale] = useState<string | null>(null)
-  const [draftedLocale, setDraftedLocale] = useState<string | null>(null)
-  const [error, setError] = useState<{ locale: string; msg: string } | null>(null)
-
   const set = (locale: string, html: string) => {
     const next = { ...value }
     const clean = sanitizeRich(html)
@@ -52,38 +46,21 @@ export function RichField({ label, value, onChange, placeholder }: RichFieldProp
     onChange(next)
   }
 
+  // The plain-text projection: what "empty" means here, and what gets sent to
+  // the translator (the backend doesn't preserve markup, so we don't pretend
+  // to round-trip it). Copy still moves the raw HTML.
   const textOf = (locale: string) => stripTags(value[locale] || '').trim()
+
+  // The Copy/Draft state machine — shared with DualField.
+  const {
+    busyLocale, draftedLocale, error,
+    copyBetween, draftBetween, clearAnnotations,
+  } = useTranslationAssist(value, set, textOf)
 
   const commit = (locale: string, html: string) => {
     set(locale, html)
     // Editing a column clears its own draft/error annotation.
-    if (draftedLocale === locale) setDraftedLocale(null)
-    if (error?.locale === locale) setError(null)
-  }
-
-  const copyBetween = (from: string, to: string) => {
-    if (!textOf(from)) return
-    set(to, value[from] || '')
-    if (draftedLocale === to) setDraftedLocale(null)
-    if (error?.locale === to) setError(null)
-  }
-
-  const draftBetween = async (from: string, to: string) => {
-    const sourcePlain = textOf(from)
-    if (!sourcePlain || busyLocale) return
-    setBusyLocale(to)
-    setError(null)
-    try {
-      // Translate the plain-text projection — the backend doesn't preserve
-      // markup, so we don't pretend to round-trip it.
-      const translated = await api.translate(sourcePlain, from, to)
-      set(to, translated)
-      setDraftedLocale(to)
-    } catch (e) {
-      setError({ locale: to, msg: (e as Error).message || 'Translation failed' })
-    } finally {
-      setBusyLocale(null)
-    }
+    clearAnnotations(locale)
   }
 
   const fieldId = useId()

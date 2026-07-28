@@ -1,10 +1,10 @@
-import { useId, useState, useLayoutEffect, useRef } from 'react'
+import { useId, useLayoutEffect, useRef } from 'react'
 import { Copy, Languages, Loader2, Sparkles } from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import type { LocalizedString } from '../../types'
 import { LOCALE_LABELS, bcp47 } from '../../lib/locales'
-import { api } from '../../lib/api'
 import { summarizableSource } from '../../lib/summarizeBatch'
+import { useTranslationAssist } from './useTranslationAssist'
 import { canDraftBetween } from '../../lib/translateClient'
 import { useTranslationAvailable, useSummarizeAvailable } from '../../store/useTranslation'
 
@@ -88,13 +88,6 @@ export function DualField({ label, value, onChange, multiline, rows = 3, placeho
   const summarizeAvailable = useSummarizeAvailable()
   const fieldId = useId()
 
-  // State keys off the TARGET locale so the assist can run in either direction
-  // (primary→secondary or secondary→primary) without cross-talk.
-  const [busyLocale, setBusyLocale] = useState<string | null>(null)
-  const [draftedLocale, setDraftedLocale] = useState<string | null>(null)
-  const [summarizedLocale, setSummarizedLocale] = useState<string | null>(null)
-  const [error, setError] = useState<{ locale: string; msg: string } | null>(null)
-
   /**
    * Plain-text summarize source for a locale (rich markup stripped), or ''.
    * Shares `summarizableSource` with the section-level "Bulk summarize",
@@ -112,53 +105,17 @@ export function DualField({ label, value, onChange, multiline, rows = 3, placeho
 
   const textOf = (locale: string) => (value[locale] || '').trim()
 
-  const copyBetween = (from: string, to: string) => {
-    const incoming = value[from] || ''
-    if (!incoming.trim()) return
-    set(to, incoming)
-    if (draftedLocale === to) setDraftedLocale(null)
-    if (summarizedLocale === to) setSummarizedLocale(null)
-    if (error?.locale === to) setError(null)
-  }
-
-  const summarizeInto = async (locale: string) => {
-    const src = summarizeSrc(locale)
-    if (!src || busyLocale) return
-    setBusyLocale(locale)
-    setError(null)
-    try {
-      const short = await api.summarize(src, locale)
-      set(locale, short)
-      setSummarizedLocale(locale)
-    } catch (e) {
-      setError({ locale, msg: (e as Error).message || 'Summarize failed' })
-    } finally {
-      setBusyLocale(null)
-    }
-  }
-
-  const draftBetween = async (from: string, to: string) => {
-    if (!(value[from] || '').trim() || busyLocale) return
-    setBusyLocale(to)
-    setError(null)
-    try {
-      const translated = await api.translate(value[from] || '', from, to)
-      set(to, translated)
-      setDraftedLocale(to)
-    } catch (e) {
-      setError({ locale: to, msg: (e as Error).message || 'Translation failed' })
-    } finally {
-      setBusyLocale(null)
-    }
-  }
+  // The Copy/Draft/Summarize state machine — shared with RichField.
+  const {
+    busyLocale, draftedLocale, summarizedLocale, error,
+    copyBetween, draftBetween, summarizeInto, clearAnnotations,
+  } = useTranslationAssist(value, set, textOf)
 
   const handleChange = (locale: string, text: string) => {
     set(locale, text)
     // Editing a column clears its own draft/summary/error annotation — the user
     // has taken ownership of the text.
-    if (draftedLocale === locale) setDraftedLocale(null)
-    if (summarizedLocale === locale) setSummarizedLocale(null)
-    if (error?.locale === locale) setError(null)
+    clearAnnotations(locale)
   }
 
   const renderInput = (locale: string, variant: 'primary' | 'secondary') => {
@@ -239,7 +196,7 @@ export function DualField({ label, value, onChange, multiline, rows = 3, placeho
           <button
             type="button"
             className="df-assist-btn df-summ-btn"
-            onClick={() => void summarizeInto(target)}
+            onClick={() => void summarizeInto(target, summarizeSrc(target))}
             disabled={busy}
             title="Draft a one-line summary from the description (review required)"
           >
