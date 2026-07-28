@@ -6,8 +6,11 @@
  * The whole point of this file is that the assists must never overstate what
  * they do with your CV. Two rules follow from that and are load-bearing:
  *  - "nothing leaves this computer" is only ever said when the SERVER reported
- *    a local endpoint (see server/summarize.ts → isLocalEndpoint);
+ *    a local endpoint (see server/llm.ts → isLocalEndpoint);
  *  - anything we can't classify is described as leaving the machine.
+ *
+ * It also owns the ADVANCED gate (`supportsAdvanced`): which assists a model is
+ * trusted with, as declared by whoever configured it.
  */
 
 import type { AssistStatus } from './api'
@@ -42,18 +45,66 @@ export function paramsOf(model: string): number | null {
 }
 
 /**
- * The input budget we assume for a model. A LOCAL model with no parseable size
- * is treated as small — local models are usually small, and the failure we're
- * guarding against (garbled output from an overloaded 3B) is the local one. A
- * REMOTE model with no parseable size is treated as large: hosted endpoints are
- * the ones people point at precisely to get a big context.
+ * The input budget we assume for a model. A model declared HIGH-END gets the
+ * large budget outright: the declaration is a statement about capability, and
+ * it's the only signal that survives a hosted model name (`claude-opus-4-5`
+ * parses to no parameter count at all) or a `compat` endpoint fronting anything.
+ *
+ * Otherwise: a LOCAL model with no parseable size is treated as small — local
+ * models are usually small, and the failure we're guarding against (garbled
+ * output from an overloaded 3B) is the local one. A REMOTE model with no
+ * parseable size is treated as large: hosted endpoints are the ones people point
+ * at precisely to get a big context.
  */
 export function inputBudget(status: AssistStatus): number {
+  if (status.highEnd) return LARGE_MODEL_BUDGET
   const p = paramsOf(status.model)
   if (p == null) return status.local ? SMALL_MODEL_BUDGET : LARGE_MODEL_BUDGET
   if (p <= 4) return SMALL_MODEL_BUDGET
   if (p <= 15) return MEDIUM_MODEL_BUDGET
   return LARGE_MODEL_BUDGET
+}
+
+/**
+ * THE gate on every advanced assist (whole-CV review, consistency pass,
+ * achievement mining, semantic drift, positioning, section advice).
+ *
+ * Why a declaration rather than a guess: these tasks ask a model to judge a
+ * whole document and hand back advice the user will act on. A small model does
+ * not refuse them — it answers fluently and wrongly, which is worse than not
+ * offering the feature, and there is no reliable way to detect that from a model
+ * name. So the person who configured the endpoint states what it is, and the
+ * server enforces the same flag on /api/llm/complete (defence in depth: a stale
+ * tab can't route a whole-CV review to a 3B model).
+ */
+export function supportsAdvanced(status: AssistStatus): boolean {
+  return status.configured && status.highEnd
+}
+
+/**
+ * A SUGGESTION for the "this is a high-end model" checkbox — never a decision.
+ *
+ * Two signals, both conservative: a parsed parameter count at or above
+ * HIGH_END_PARAMS (a 30B+ local model is in the right class), or a name matching
+ * a known frontier family. It exists so the common case (someone pastes an
+ * Opus/GPT-5/Gemini-Pro id) doesn't need explaining; anything it doesn't
+ * recognise stays unticked and the user decides.
+ */
+const HIGH_END_PARAMS = 27
+const HIGH_END_NAMES = [
+  /\bopus\b/i, /\bsonnet\b/i,
+  /\bgpt-[5-9]/i, /\bgpt-4\.[1-9]/i, /\bgpt-4o\b(?!-mini)/i, /\bo[1-9]\b/i,
+  /\bgemini-[0-9.]+-pro\b/i,
+  /\bmistral-large\b/i, /\bdeepseek-(?:r1|v3)/i, /\bqwen[0-9.]*-max\b/i,
+  /\bgrok-[0-9]/i, /\bllama-?[0-9.]*-?405b\b/i,
+]
+
+export function looksHighEnd(model: string): boolean {
+  const name = model.trim()
+  if (!name) return false
+  const p = paramsOf(name)
+  if (p != null && p >= HIGH_END_PARAMS) return true
+  return HIGH_END_NAMES.some((re) => re.test(name))
 }
 
 /** Approximate token count of a prompt. */

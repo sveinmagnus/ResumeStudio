@@ -296,10 +296,10 @@ prescriptive.
   above / below it on its own. Composed once in `footerLines` and consumed by
   all three render paths, so a note can't sit beside the copyright in the PDF
   and above it in the preview. Absent = 'after' (how it always rendered).
-- **AI summarize assist** (`server/summarize.ts`, `server/summarizeDocker.ts`,
-  `lib/summarizeClient.ts`, `lib/summarizeBatch.ts`) — drafts a one-line short
+- **AI summarize assist** (`server/llm.ts` + `server/summarize.ts`, `server/ollamaDocker.ts`,
+  `lib/llmClient.ts`, `lib/summarizeBatch.ts`) — drafts a one-line short
   description from a long one, mirroring the translate architecture: a
-  pluggable server proxy (`SUMMARIZE_PROVIDER` ∈ `off|ollama|openai|compat`)
+  pluggable server proxy (`LLM_PROVIDER` ∈ `off|ollama|openai|anthropic|gemini|mistral|compat`)
   with an app-driven **local Ollama in Docker** as the first-class option, keys
   server-side, availability memoized client-side. **No heuristic fallback** —
   unconfigured means the affordances don't exist. Two surfaces:

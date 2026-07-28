@@ -21,7 +21,7 @@
  * and language pair.
  */
 
-import { chatComplete, isSummarizeConfigured, languageNameOf, SummarizeError } from './summarize.js'
+import { chatComplete, isLlmConfigured, languageNameOf, LlmError } from './llm.js'
 
 /**
  * `llm` reuses whatever model the SUMMARIZE settings already configure (local
@@ -86,9 +86,9 @@ export function isTranslationConfigured(config?: TranslateConfig): boolean {
     case 'deepl':          return c.deepl.apiKey.length > 0
     case 'google':         return c.google.apiKey.length > 0
     case 'azure':          return c.azure.apiKey.length > 0
-    // Borrowed wholesale from the summarize side — if a model is configured
+    // Borrowed wholesale from the AI-assist config — if a model is configured
     // there, translation is configured here.
-    case 'llm':            return isSummarizeConfigured()
+    case 'llm':            return isLlmConfigured()
     default:               return false
   }
 }
@@ -330,13 +330,13 @@ export function tidyTranslation(raw: string): string {
 }
 
 /**
- * Translate via the model configured for Summarize. Same endpoint, same key,
+ * Translate via the app's configured AI model. Same endpoint, same key,
  * same model — so "use my local LLM for translation too" is zero extra config.
  *
  * Both languages must be ones we can NAME: an unknown code would leave the
  * prompt saying "translate to undefined", which a model happily answers with
  * nonsense. Failing loudly is better than silently returning the wrong language.
- * SummarizeError is remapped to TranslateError so the route's error contract
+ * LlmError is remapped to TranslateError so the route's error contract
  * (and its "never leak upstream detail" rule) is unchanged.
  */
 async function translateLlm(text: string, source: string, target: string): Promise<string> {
@@ -363,7 +363,7 @@ async function translateLlm(text: string, source: string, target: string): Promi
     return out
   } catch (err) {
     if (err instanceof TranslateError) throw err
-    if (err instanceof SummarizeError) throw new TranslateError(err.status, err.message)
+    if (err instanceof LlmError) throw new TranslateError(err.status, err.message)
     throw new TranslateError(502, 'The AI model could not translate that text')
   }
 }

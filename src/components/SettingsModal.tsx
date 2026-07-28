@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { X, Loader2, Check, Settings } from 'lucide-react'
-import { resetSummarizeAvailability } from '../lib/summarizeClient'
+import { resetLlmAvailability } from '../lib/llmClient'
+import { looksHighEnd } from '../lib/llmAssist'
 import { resetAssistConsent } from './ui/AssistRun'
 import { modelOptions, type InstalledModel } from '../lib/ollamaCatalog'
 import { forcedLanguages, resolveTranslateLanguages, DEFAULT_TRANSLATE_LANGUAGES } from '../lib/translateLanguages'
@@ -11,8 +12,8 @@ import { resetTranslationAvailability } from '../lib/translateClient'
 import { useDialog } from './ui/useDialog'
 import { useStore } from '../store/useStore'
 import {
-  SettingsFormProvider, type SettingsForm, type UiProvider, type SummUiProvider,
-  type SummKeys, type SummKeyName,
+  SettingsFormProvider, type SettingsForm, type UiProvider, type LlmUiProvider,
+  type LlmKeys, type LlmKeyName,
 } from './settings/context'
 import { SettingsTabs, type TabDef } from './settings/SettingsTabs'
 import { VersionTab } from './settings/VersionTab'
@@ -84,16 +85,25 @@ export function SettingsModal({ onClose, onChanged, onUnauthorized }: SettingsMo
     [primaryLocale, secondaryLocale],
   )
 
-  // Summarize (AI) form state
-  const [summProvider, setSummProvider] = useState<SummUiProvider>('off')
-  const [summOllamaUrl, setSummOllamaUrl] = useState('')
-  const [summCompatUrl, setSummCompatUrl] = useState('')
-  const [summModel, setSummModel] = useState('')
-  const [summKeys, setSummKeys] = useState<SummKeys>({ openai: '', anthropic: '', gemini: '', mistral: '', compat: '' })
-  const [summKeySet, setSummKeySet] = useState<Record<SummKeyName, boolean>>(
+  // AI assist form state
+  const [llmProvider, setLlmProvider] = useState<LlmUiProvider>('off')
+  const [llmOllamaUrl, setLlmOllamaUrl] = useState('')
+  const [llmCompatUrl, setLlmCompatUrl] = useState('')
+  const [llmModel, setLlmModel] = useState('')
+  const [llmKeys, setLlmKeys] = useState<LlmKeys>({ openai: '', anthropic: '', gemini: '', mistral: '', compat: '' })
+  const [llmKeySet, setLlmKeySet] = useState<Record<LlmKeyName, boolean>>(
     { openai: false, anthropic: false, gemini: false, mistral: false, compat: false })
-  const [summTest, setSummTest] = useState<{ busy: boolean; text?: string; ok?: boolean }>({ busy: false })
-  const [summDocker, setSummDocker] = useState<{ busy: boolean; text?: string; ok?: boolean }>({ busy: false })
+  /**
+   * "This model is high-end" — the gate on the advanced assists. `touched`
+   * tracks whether the USER set it: until they do, changing the model re-runs
+   * the `looksHighEnd` suggestion, and once they do it stops second-guessing
+   * them. Without that, ticking the box for an unrecognised model id and then
+   * fixing a typo in that id would silently untick it again.
+   */
+  const [llmHighEnd, setLlmHighEnd] = useState(false)
+  const [highEndTouched, setHighEndTouched] = useState(false)
+  const [llmTest, setLlmTest] = useState<{ busy: boolean; text?: string; ok?: boolean }>({ busy: false })
+  const [llmDocker, setLlmDocker] = useState<{ busy: boolean; text?: string; ok?: boolean }>({ busy: false })
   // Models the running Ollama has pulled, merged with the curated catalog to
   // populate the model datalist. Empty until asked for (or if nothing is up).
   const [installed, setInstalled] = useState<InstalledModel[]>([])
@@ -119,20 +129,27 @@ export function SettingsModal({ onClose, onChanged, onUnauthorized }: SettingsMo
       libre: v.libretranslate_api_key_set, deepl: v.deepl_api_key_set,
       google: v.google_api_key_set, azure: v.azure_api_key_set,
     })
-    const summUi: SummUiProvider =
-      v.summarize_provider === 'ollama' ? (v.summarize_docker ? 'ollama_docker' : 'ollama_remote')
-      : v.summarize_provider // 'off' | 'openai' | 'compat'
-    setSummProvider(summUi || 'off')
-    setSummOllamaUrl(v.summarize_ollama_url ?? '')
-    setSummCompatUrl(v.summarize_compat_url ?? '')
-    setSummModel(v.summarize_model ?? '')
-    setSummKeys({ openai: '', anthropic: '', gemini: '', mistral: '', compat: '' })
-    setSummKeySet({
-      openai: !!v.summarize_openai_api_key_set,
-      anthropic: !!v.summarize_anthropic_api_key_set,
-      gemini: !!v.summarize_gemini_api_key_set,
-      mistral: !!v.summarize_mistral_api_key_set,
-      compat: !!v.summarize_compat_api_key_set,
+    const llmUi: LlmUiProvider =
+      v.llm_provider === 'ollama' ? (v.llm_docker ? 'ollama_docker' : 'ollama_remote')
+      : v.llm_provider // 'off' | 'openai' | 'compat'
+    setLlmProvider(llmUi || 'off')
+    setLlmOllamaUrl(v.llm_ollama_url ?? '')
+    setLlmCompatUrl(v.llm_compat_url ?? '')
+    setLlmModel(v.llm_model ?? '')
+    setLlmHighEnd(v.llm_high_end === true)
+    // Only a stored TICK counts as a decision to protect: it's an explicit
+    // opt-in, and re-suggesting over it could silently untick it when the user
+    // edits the model id. A stored `false` is indistinguishable from "never
+    // decided" (it's the default), so the suggestion stays live — and it can
+    // only ever offer to turn the gate ON, in view, before Save.
+    setHighEndTouched(v.llm_high_end === true)
+    setLlmKeys({ openai: '', anthropic: '', gemini: '', mistral: '', compat: '' })
+    setLlmKeySet({
+      openai: !!v.llm_openai_api_key_set,
+      anthropic: !!v.llm_anthropic_api_key_set,
+      gemini: !!v.llm_gemini_api_key_set,
+      mistral: !!v.llm_mistral_api_key_set,
+      compat: !!v.llm_compat_api_key_set,
     })
   }, [])
 
@@ -197,38 +214,55 @@ export function SettingsModal({ onClose, onChanged, onUnauthorized }: SettingsMo
         if (keys.azure.trim()) u.azure_api_key = keys.azure.trim()
         break
     }
-    u.summarize_model = summModel.trim()
-    switch (summProvider) {
-      case 'off': u.summarize_provider = 'off'; break
-      case 'ollama_docker': u.summarize_provider = 'ollama'; u.summarize_docker = true; break
+    u.llm_model = llmModel.trim()
+    // Off means no assists at all, advanced included — don't persist a stale tick.
+    u.llm_high_end = llmProvider !== 'off' && llmHighEnd
+    switch (llmProvider) {
+      case 'off': u.llm_provider = 'off'; break
+      case 'ollama_docker': u.llm_provider = 'ollama'; u.llm_docker = true; break
       case 'ollama_remote':
-        u.summarize_provider = 'ollama'; u.summarize_docker = false
-        u.summarize_ollama_url = summOllamaUrl.trim()
+        u.llm_provider = 'ollama'; u.llm_docker = false
+        u.llm_ollama_url = llmOllamaUrl.trim()
         break
       case 'openai':
-        u.summarize_provider = 'openai'
-        if (summKeys.openai.trim()) u.summarize_openai_api_key = summKeys.openai.trim()
+        u.llm_provider = 'openai'
+        if (llmKeys.openai.trim()) u.llm_openai_api_key = llmKeys.openai.trim()
         break
       case 'anthropic':
-        u.summarize_provider = 'anthropic'
-        if (summKeys.anthropic.trim()) u.summarize_anthropic_api_key = summKeys.anthropic.trim()
+        u.llm_provider = 'anthropic'
+        if (llmKeys.anthropic.trim()) u.llm_anthropic_api_key = llmKeys.anthropic.trim()
         break
       case 'gemini':
-        u.summarize_provider = 'gemini'
-        if (summKeys.gemini.trim()) u.summarize_gemini_api_key = summKeys.gemini.trim()
+        u.llm_provider = 'gemini'
+        if (llmKeys.gemini.trim()) u.llm_gemini_api_key = llmKeys.gemini.trim()
         break
       case 'mistral':
-        u.summarize_provider = 'mistral'
-        if (summKeys.mistral.trim()) u.summarize_mistral_api_key = summKeys.mistral.trim()
+        u.llm_provider = 'mistral'
+        if (llmKeys.mistral.trim()) u.llm_mistral_api_key = llmKeys.mistral.trim()
         break
       case 'compat':
-        u.summarize_provider = 'compat'; u.summarize_compat_url = summCompatUrl.trim()
-        if (summKeys.compat.trim()) u.summarize_compat_api_key = summKeys.compat.trim()
+        u.llm_provider = 'compat'; u.llm_compat_url = llmCompatUrl.trim()
+        if (llmKeys.compat.trim()) u.llm_compat_api_key = llmKeys.compat.trim()
         break
     }
     return u
-  }, [provider, libreUrl, azureRegion, backupDir, keys, summProvider, summOllamaUrl, summCompatUrl, summModel, summKeys,
-      transLangs, primaryLocale, secondaryLocale])
+  }, [provider, libreUrl, azureRegion, backupDir, keys, llmProvider, llmOllamaUrl, llmCompatUrl, llmModel, llmKeys,
+      llmHighEnd, transLangs, primaryLocale, secondaryLocale])
+
+  /**
+   * Setting the model also SUGGESTS whether it's high-end, until the user
+   * expresses an opinion — see `highEndTouched`. Wrapped here rather than in the
+   * tab so the suggestion can't be bypassed by a second caller.
+   */
+  const onModelChange = useCallback((v: string) => {
+    setLlmModel(v)
+    if (!highEndTouched) setLlmHighEnd(looksHighEnd(v))
+  }, [highEndTouched])
+
+  const onHighEndChange = useCallback((v: boolean) => {
+    setLlmHighEnd(v)
+    setHighEndTouched(true)
+  }, [])
 
   /**
    * Persist the form. Returns an error string, or null on success — shared by
@@ -242,7 +276,7 @@ export function SettingsModal({ onClose, onChanged, onUnauthorized }: SettingsMo
       // The editor memoizes "is translate/summarize configured?" — clear both
       // so the next mount re-probes against the new config.
       resetTranslationAvailability()
-      resetSummarizeAvailability()
+      resetLlmAvailability()
       // Consent to send content to one provider is not consent to send it to
       // the next one — re-ask after any settings change.
       resetAssistConsent()
@@ -286,30 +320,30 @@ export function SettingsModal({ onClose, onChanged, onUnauthorized }: SettingsMo
   }, [])
 
   /** Save, then test — see onTest. */
-  const onTestSummarize = useCallback(async () => {
-    setSummTest({ busy: true })
+  const onTestLlm = useCallback(async () => {
+    setLlmTest({ busy: true })
     const err = await doSave()
-    if (err) { setSummTest({ busy: false, ok: false, text: `Could not save: ${err}` }); return }
-    const r = await api.testSummarize(buildUpdate())
-    setSummTest({ busy: false, ok: r.reachable, text: r.message })
+    if (err) { setLlmTest({ busy: false, ok: false, text: `Could not save: ${err}` }); return }
+    const r = await api.testLlm(buildUpdate())
+    setLlmTest({ busy: false, ok: r.reachable, text: r.message })
   }, [doSave, buildUpdate])
 
-  const onSummarizeDocker = useCallback(async (action: 'start' | 'stop' | 'status') => {
-    setSummDocker({ busy: true })
-    const r = await api.summarizeDocker(action, summModel.trim())
+  const onOllamaDocker = useCallback(async (action: 'start' | 'stop' | 'status') => {
+    setLlmDocker({ busy: true })
+    const r = await api.ollamaDocker(action, llmModel.trim())
     const ok = r.ok ?? r.reachable ?? false
-    setSummDocker({ busy: false, ok, text: r.message })
-  }, [summModel])
+    setLlmDocker({ busy: false, ok, text: r.message })
+  }, [llmModel])
 
   // The model picker only makes sense for Ollama — OpenAI/compat endpoints have
   // no list we can enumerate, so they keep the plain free-text field.
-  const isOllama = summProvider === 'ollama_docker' || summProvider === 'ollama_remote'
+  const isOllama = llmProvider === 'ollama_docker' || llmProvider === 'ollama_remote'
   const modelOpts = useMemo(() => modelOptions(installed), [installed])
   const installedCount = installed.length
 
   const refreshModels = useCallback(async () => {
     setModelsBusy(true)
-    setInstalled(await api.summarizeModels())
+    setInstalled(await api.ollamaModels())
     setModelsBusy(false)
   }, [])
 
@@ -327,10 +361,11 @@ export function SettingsModal({ onClose, onChanged, onUnauthorized }: SettingsMo
     provider, setProvider, libreUrl, setLibreUrl, azureRegion, setAzureRegion,
     keys, setKeys, keySet, docker, onDocker, test, onTest,
     transLangs, setTransLangs, forcedLangs,
-    summProvider, setSummProvider, summOllamaUrl, setSummOllamaUrl,
-    summCompatUrl, setSummCompatUrl, summModel, setSummModel,
-    summKeys, setSummKeys, summKeySet, summTest, onTestSummarize,
-    summDocker, onSummarizeDocker, isOllama, modelOpts, installed, modelsBusy, refreshModels,
+    llmProvider, setLlmProvider, llmOllamaUrl, setLlmOllamaUrl,
+    llmCompatUrl, setLlmCompatUrl, llmModel, setLlmModel: onModelChange,
+    llmHighEnd, setLlmHighEnd: onHighEndChange,
+    llmKeys, setLlmKeys, llmKeySet, llmTest, onTestLlm,
+    llmDocker, onOllamaDocker, isOllama, modelOpts, installed, modelsBusy, refreshModels,
     backupDir, setBackupDir,
     upd, updBusy, onCheckUpdate, onInstallUpdate,
   }

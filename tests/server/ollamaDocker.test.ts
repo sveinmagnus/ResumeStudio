@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { listOllamaModels, isValidModelName } from '../../server/summarizeDocker'
+import { listOllamaModels, isValidModelName } from '../../server/ollamaDocker'
 
 afterEach(() => { vi.unstubAllGlobals() })
 

@@ -137,12 +137,12 @@ immediately.
   - **Google Cloud Translation** — paste an API key.
   - **Microsoft Azure Translator** — paste the key and its **region** (e.g.
     `westeurope`).
-  - **Use the AI model from Summarize** — no config at all: translation drafts
+  - **Use the AI model from the AI assist tab** — no config at all: translation drafts
     run on whatever model the AI assist tab configures.
   - For any provider except "off", **Test connection** drafts one short phrase
     to confirm the key/URL works. CV text only ever travels browser → this
     app → the chosen provider.
-- **AI assist** — the model behind Summarize, every "Run with my AI" button,
+- **AI assist** — the model behind every AI feature: Summarize, the advanced advisors, every "Run with my AI" button,
   and (optionally) translation:
   - **Ollama — local (Docker-managed)** — the app runs an Ollama container and
     pulls your chosen model for you (Docker Desktop required; models are
@@ -297,7 +297,7 @@ first run, then overrides them.
 | `RESUME_BACKUP_INTERVAL_MS` | How often to refresh the backup when changed | `60000` |
 | `LIBRETRANSLATE_URL` | LibreTranslate base URL (usually set via Settings) | unset (translate off) |
 | `LIBRETRANSLATE_API_KEY` | Optional LibreTranslate key | unset |
-| `SUMMARIZE_PROVIDER` / `SUMMARIZE_MODEL` (+ per-provider URL/key vars) | AI-assist backend seed values (usually set via Settings → AI assist; see `.env.example`) | unset (AI assist off) |
+| `LLM_PROVIDER` / `LLM_MODEL` / `LLM_HIGH_END` (+ per-provider URL/key vars) | AI-assist backend seed values (usually set via Settings → AI assist; see `.env.example`). Pre-rename `SUMMARIZE_*` names still read as a fallback. | unset (AI assist off) |
 | `RESUME_DB_PATH` | Exact DB file (overrides data-dir derivation) | `<dataDir>/resume.db` |
 | `RESUME_DB_JOURNAL` | SQLite journal mode | `WAL` |
 | `RESUME_CLIENT_DIR` | Where the built client lives | set by the launcher shim |

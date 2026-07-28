@@ -9,7 +9,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { WritingCoachPanel } from '../../src/components/ui/WritingCoachPanel'
-import { resetSummarizeAvailability } from '../../src/lib/summarizeClient'
+import { resetLlmAvailability } from '../../src/lib/llmClient'
 import { resetAssistConsent } from '../../src/components/ui/AssistRun'
 import { api } from '../../src/lib/api'
 
@@ -17,9 +17,9 @@ const LOCAL = { configured: true, provider: 'ollama', model: 'llama3.2:3b', loca
 const OFF = { configured: false, provider: '', model: '', local: false }
 
 function backend(status: typeof LOCAL | typeof OFF) {
-  resetSummarizeAvailability()
+  resetLlmAvailability()
   resetAssistConsent()
-  vi.spyOn(api, 'summarizeStatus').mockResolvedValue(status)
+  vi.spyOn(api, 'llmStatus').mockResolvedValue(status)
 }
 
 const REPLY = JSON.stringify({

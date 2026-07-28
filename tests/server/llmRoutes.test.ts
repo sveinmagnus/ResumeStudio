@@ -17,52 +17,52 @@ afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals() })
 
 /** Point the server at a fake OpenAI-compatible endpoint. */
 function configureLocal() {
-  vi.stubEnv('SUMMARIZE_PROVIDER', 'ollama')
-  vi.stubEnv('SUMMARIZE_OLLAMA_URL', 'http://localhost:11434')
-  vi.stubEnv('SUMMARIZE_MODEL', 'llama3.2:3b')
+  vi.stubEnv('LLM_PROVIDER', 'ollama')
+  vi.stubEnv('LLM_OLLAMA_URL', 'http://localhost:11434')
+  vi.stubEnv('LLM_MODEL', 'llama3.2:3b')
 }
 const chat = (content: string) => ({ ok: true, json: async () => ({ choices: [{ message: { content } }] }) })
 
-describe('GET /api/summarize/status', () => {
+describe('GET /api/llm/status', () => {
   it('reports the model and that a localhost endpoint is local', async () => {
     configureLocal()
-    const res = await request(app).get('/api/summarize/status')
+    const res = await request(app).get('/api/llm/status')
     expect(res.status).toBe(200)
     expect(res.body).toEqual({
-      configured: true, provider: 'ollama', model: 'llama3.2:3b', local: true,
+      configured: true, provider: 'ollama', model: 'llama3.2:3b', local: true, high_end: false,
     })
   })
 
   it('reports a hosted endpoint as NOT local', async () => {
-    vi.stubEnv('SUMMARIZE_PROVIDER', 'openai')
-    vi.stubEnv('SUMMARIZE_OPENAI_API_KEY', 'sk-test')
-    vi.stubEnv('SUMMARIZE_MODEL', 'gpt-4o-mini')
-    const res = await request(app).get('/api/summarize/status')
+    vi.stubEnv('LLM_PROVIDER', 'openai')
+    vi.stubEnv('LLM_OPENAI_API_KEY', 'sk-test')
+    vi.stubEnv('LLM_MODEL', 'gpt-4o-mini')
+    const res = await request(app).get('/api/llm/status')
     expect(res.body).toMatchObject({ configured: true, provider: 'openai', local: false })
   })
 
   it('treats an OpenAI-compatible endpoint on localhost as local (LM Studio)', async () => {
     // `local` follows the HOST, not the provider name — LM Studio on this
     // machine is as private as Ollama.
-    vi.stubEnv('SUMMARIZE_PROVIDER', 'compat')
-    vi.stubEnv('SUMMARIZE_COMPAT_URL', 'http://localhost:1234/v1')
-    vi.stubEnv('SUMMARIZE_MODEL', 'local-model')
-    const res = await request(app).get('/api/summarize/status')
+    vi.stubEnv('LLM_PROVIDER', 'compat')
+    vi.stubEnv('LLM_COMPAT_URL', 'http://localhost:1234/v1')
+    vi.stubEnv('LLM_MODEL', 'local-model')
+    const res = await request(app).get('/api/llm/status')
     expect(res.body).toMatchObject({ configured: true, local: true })
   })
 
   it('treats a REMOTE ollama as not local', async () => {
-    vi.stubEnv('SUMMARIZE_PROVIDER', 'ollama')
-    vi.stubEnv('SUMMARIZE_OLLAMA_URL', 'http://gpu-box.example.com:11434')
-    vi.stubEnv('SUMMARIZE_MODEL', 'llama3.1:8b')
-    const res = await request(app).get('/api/summarize/status')
+    vi.stubEnv('LLM_PROVIDER', 'ollama')
+    vi.stubEnv('LLM_OLLAMA_URL', 'http://gpu-box.example.com:11434')
+    vi.stubEnv('LLM_MODEL', 'llama3.1:8b')
+    const res = await request(app).get('/api/llm/status')
     expect(res.body).toMatchObject({ local: false })
   })
 
   it('says nothing is configured, and leaks no model name, when off', async () => {
-    vi.stubEnv('SUMMARIZE_PROVIDER', 'off')
-    const res = await request(app).get('/api/summarize/status')
-    expect(res.body).toEqual({ configured: false, provider: '', model: '', local: false })
+    vi.stubEnv('LLM_PROVIDER', 'off')
+    const res = await request(app).get('/api/llm/status')
+    expect(res.body).toEqual({ configured: false, provider: '', model: '', local: false, high_end: false })
   })
 })
 
@@ -109,7 +109,7 @@ describe('POST /api/llm/complete', () => {
   })
 
   it('503s when no model is configured', async () => {
-    vi.stubEnv('SUMMARIZE_PROVIDER', 'off')
+    vi.stubEnv('LLM_PROVIDER', 'off')
     const res = await request(app).post('/api/llm/complete').send({ prompt: 'p' })
     expect(res.status).toBe(503)
   })

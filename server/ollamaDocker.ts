@@ -1,7 +1,7 @@
 /**
- * Optional management of a local Docker **Ollama** for the "Summarize" feature
- * (desktop build) — the first-class local LLM option, mirroring the Docker
- * LibreTranslate used for translation.
+ * Optional management of a local Docker **Ollama** — the app's first-class
+ * local LLM option (desktop build), mirroring the Docker LibreTranslate used
+ * for translation.
  *
  * The model runtime is a multi-GB service we can't bundle into the portable
  * folder, so the managed path drives Docker on the user's machine via the
@@ -15,7 +15,7 @@
  */
 
 import { spawn } from 'child_process'
-import { DEFAULT_OLLAMA_URL } from './summarize.js'
+import { DEFAULT_OLLAMA_URL } from './llm.js'
 
 export const DOCKER_OLLAMA_URL = DEFAULT_OLLAMA_URL
 
@@ -70,7 +70,7 @@ export interface DockerActionResult {
  * `docker compose up -d ollama`, then `ollama pull <model>` inside the
  * container so the chosen model is ready. The pull can take a long time (GBs).
  */
-export async function startSummarize(model: string): Promise<DockerActionResult> {
+export async function startOllama(model: string): Promise<DockerActionResult> {
   const file = composeFile()
   if (!file) return { ok: false, available: false, message: 'No docker-compose file is configured for this build.' }
   const trimmedModel = model.trim()
@@ -80,7 +80,7 @@ export async function startSummarize(model: string): Promise<DockerActionResult>
   if (!(await dockerAvailable())) {
     return {
       ok: false, available: false,
-      message: 'Docker is not available. Install Docker Desktop and start it, or point Summarize at a remote Ollama / OpenAI endpoint instead.',
+      message: 'Docker is not available. Install Docker Desktop and start it, or point the AI assist at a remote Ollama / OpenAI endpoint instead.',
     }
   }
   const up = await run('docker', ['compose', '-f', file, 'up', '-d', SERVICE], 5 * 60_000)
@@ -98,7 +98,7 @@ export async function startSummarize(model: string): Promise<DockerActionResult>
   }
 }
 
-export async function stopSummarize(): Promise<DockerActionResult> {
+export async function stopOllama(): Promise<DockerActionResult> {
   const file = composeFile()
   if (!file) return { ok: false, available: false, message: 'No docker-compose file is configured for this build.' }
   if (!(await dockerAvailable())) return { ok: false, available: false, message: 'Docker is not available.' }

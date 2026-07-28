@@ -12,12 +12,13 @@ import { Router, type Request, type Response } from 'express'
 import {
   type AppSettings,
   isDesktop, saveSettings, toView, currentSettings, settingsToTranslateConfig,
-  settingsToSummarizeConfig, validateSettingsPatch, DOCKER_OLLAMA_URL,
+  settingsToLlmConfig, validateSettingsPatch, DOCKER_OLLAMA_URL,
 } from '../settings.js'
 import { isTranslationConfigured, translate, TranslateError } from '../translate.js'
 import { startTranslate, stopTranslate, translateReachable, dockerAvailable, DOCKER_TRANSLATE_URL } from '../translateDocker.js'
-import { isSummarizeConfigured, summarize, SummarizeError } from '../summarize.js'
-import { startSummarize, stopSummarize, ollamaReachable, dockerAvailable as ollamaDockerAvailable } from '../summarizeDocker.js'
+import { isLlmConfigured, LlmError } from '../llm.js'
+import { summarize } from '../summarize.js'
+import { startOllama, stopOllama, ollamaReachable, dockerAvailable as ollamaDockerAvailable } from '../ollamaDocker.js'
 import { reconfigureBackup } from '../backupRuntime.js'
 import { listFolders, FolderError } from '../folders.js'
 
@@ -28,7 +29,7 @@ function payload() {
     managed: isDesktop(),
     settings: toView(currentSettings()),
     translate: { configured: isTranslationConfigured() },
-    summarize: { configured: isSummarizeConfigured() },
+    llm: { configured: isLlmConfigured() },
   }
 }
 
@@ -154,45 +155,46 @@ router.post('/docker', (req: Request, res: Response): void => {
 })
 
 /**
- * POST /api/settings/summarize/test — verify a summarize config works by asking
- * for one tiny summary. Same SSRF guard as the translate test: pending body
- * values (esp. URLs) are honoured only on the desktop build.
+ * POST /api/settings/llm/test — verify the AI-assist config works by asking for
+ * one tiny summary (the cheapest round-trip that proves the whole path). Same
+ * SSRF guard as the translate test: pending body values (esp. URLs) are honoured
+ * only on the desktop build.
  */
-router.post('/summarize/test', (req: Request, res: Response): void => {
+router.post('/llm/test', (req: Request, res: Response): void => {
   void (async () => {
     const body = (req.body ?? {}) as Record<string, unknown>
     const base = currentSettings()
     const merged: AppSettings = { ...base }
     if (isDesktop()) {
       const str = (k: string) => (typeof body[k] === 'string' ? (body[k] as string) : undefined)
-      if (str('summarize_provider') !== undefined) merged.summarize_provider = body.summarize_provider as AppSettings['summarize_provider']
-      if (str('summarize_ollama_url') !== undefined) merged.summarize_ollama_url = (body.summarize_ollama_url as string).trim()
-      if (typeof body.summarize_docker === 'boolean') merged.summarize_docker = body.summarize_docker
-      if (str('summarize_compat_url') !== undefined) merged.summarize_compat_url = (body.summarize_compat_url as string).trim()
-      if (str('summarize_openai_api_key')) merged.summarize_openai_api_key = body.summarize_openai_api_key as string
-      if (str('summarize_compat_api_key')) merged.summarize_compat_api_key = body.summarize_compat_api_key as string
-      if (str('summarize_anthropic_api_key')) merged.summarize_anthropic_api_key = body.summarize_anthropic_api_key as string
-      if (str('summarize_gemini_api_key')) merged.summarize_gemini_api_key = body.summarize_gemini_api_key as string
-      if (str('summarize_mistral_api_key')) merged.summarize_mistral_api_key = body.summarize_mistral_api_key as string
-      if (str('summarize_model') !== undefined) merged.summarize_model = (body.summarize_model as string).trim()
+      if (str('llm_provider') !== undefined) merged.llm_provider = body.llm_provider as AppSettings['llm_provider']
+      if (str('llm_ollama_url') !== undefined) merged.llm_ollama_url = (body.llm_ollama_url as string).trim()
+      if (typeof body.llm_docker === 'boolean') merged.llm_docker = body.llm_docker
+      if (str('llm_compat_url') !== undefined) merged.llm_compat_url = (body.llm_compat_url as string).trim()
+      if (str('llm_openai_api_key')) merged.llm_openai_api_key = body.llm_openai_api_key as string
+      if (str('llm_compat_api_key')) merged.llm_compat_api_key = body.llm_compat_api_key as string
+      if (str('llm_anthropic_api_key')) merged.llm_anthropic_api_key = body.llm_anthropic_api_key as string
+      if (str('llm_gemini_api_key')) merged.llm_gemini_api_key = body.llm_gemini_api_key as string
+      if (str('llm_mistral_api_key')) merged.llm_mistral_api_key = body.llm_mistral_api_key as string
+      if (str('llm_model') !== undefined) merged.llm_model = (body.llm_model as string).trim()
     }
-    const cfg = settingsToSummarizeConfig(merged)
-    if (cfg.provider === 'off') { res.json({ reachable: false, message: 'No summarize provider is selected.' }); return }
+    const cfg = settingsToLlmConfig(merged)
+    if (cfg.provider === 'off') { res.json({ reachable: false, message: 'No AI provider is selected.' }); return }
     if (!cfg.model) { res.json({ reachable: false, message: 'Set a model name first (e.g. "llama3.2:3b").' }); return }
     try {
       const out = await summarize('Led a small team building a customer-facing web app in React and Node.', 'en', cfg)
       res.json({ reachable: true, message: `Working — e.g. "${out}"` })
     } catch (err) {
-      res.json({ reachable: false, message: err instanceof SummarizeError ? err.message : 'Summarize test failed.' })
+      res.json({ reachable: false, message: err instanceof LlmError ? err.message : 'AI assist test failed.' })
     }
   })()
 })
 
 /**
- * POST /api/settings/summarize/docker — manage the local Docker Ollama (desktop).
+ * POST /api/settings/llm/docker — manage the local Docker Ollama (desktop).
  * Body: { action: 'start' | 'stop' | 'status', model? }.
  */
-router.post('/summarize/docker', (req: Request, res: Response): void => {
+router.post('/llm/docker', (req: Request, res: Response): void => {
   if (!isDesktop()) {
     res.status(403).json({ error: 'Docker management is only available in the desktop build.' })
     return
@@ -201,11 +203,11 @@ router.post('/summarize/docker', (req: Request, res: Response): void => {
     const body = (req.body ?? {}) as Record<string, unknown>
     const action = body.action
     if (action === 'start') {
-      const model = typeof body.model === 'string' && body.model.trim() ? body.model : currentSettings().summarize_model
-      res.json(await startSummarize(model))
+      const model = typeof body.model === 'string' && body.model.trim() ? body.model : currentSettings().llm_model
+      res.json(await startOllama(model))
       return
     }
-    if (action === 'stop') { res.json(await stopSummarize()); return }
+    if (action === 'stop') { res.json(await stopOllama()); return }
     if (action === 'status') {
       const available = await ollamaDockerAvailable()
       const reach = available ? await ollamaReachable(DOCKER_OLLAMA_URL) : { reachable: false, message: 'Docker not available.' }

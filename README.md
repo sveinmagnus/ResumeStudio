@@ -224,7 +224,8 @@ translation, sync, and updates.
 | `DEEPL_API_KEY` | empty | DeepL key (Free vs Pro auto-detected from the `:fx` suffix). |
 | `GOOGLE_TRANSLATE_API_KEY` | empty | Google Cloud Translation v2 key. |
 | `AZURE_TRANSLATOR_KEY` / `AZURE_TRANSLATOR_REGION` | empty | Azure Translator key + resource region. |
-| `SUMMARIZE_PROVIDER` + `SUMMARIZE_MODEL` | empty | AI-assist backend: `off` / `ollama` / `openai` / `compat`, plus the chat model name. Powers Summarize, every "Run with my AI" button, and `TRANSLATE_PROVIDER=llm`. Per-provider URL/key vars in `.env.example`. |
+| `LLM_PROVIDER` + `LLM_MODEL` | empty | AI-assist backend: `off` / `ollama` / `openai` / `anthropic` / `gemini` / `mistral` / `compat`, plus the chat model name. Powers Summarize, every "Run with my AI" button, and `TRANSLATE_PROVIDER=llm`. Per-provider URL/key vars in `.env.example`. Pre-rename `SUMMARIZE_*` names still work. |
+| `LLM_HIGH_END` | empty | Set to `1` to declare the model strong enough for the **advanced assists** (whole-CV review, consistency pass, achievement mining, semantic drift, positioning). Hidden and server-refused otherwise. |
 | `RESUME_RATE_LIMIT_MAX` / `RESUME_RATE_LIMIT_WINDOW_MS` | `50` / `900000` | Failure-focused API rate limiter (only ≥400 responses count, so auto-save is never throttled). |
 | `RESUME_DATA_DIR` | per-user OS folder | Desktop build: where the live SQLite DB + log live. |
 | `RESUME_BACKUP_DIR` | empty | Desktop build: cloud-synced folder for the whole-store JSON backup (cross-computer sync). |

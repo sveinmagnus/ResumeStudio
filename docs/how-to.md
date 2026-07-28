@@ -164,7 +164,7 @@ open **Settings**, then pick a provider:
 | **DeepL** | A DeepL API key | Free and Pro keys both work. Best quality for Norwegian/Swedish/Danish. |
 | **Google Cloud Translation** | A Google Cloud API key | |
 | **Microsoft Azure Translator** | The key + a region (e.g. `westeurope`) | |
-| **Use the AI model from Summarize** | An AI assist backend (next section) | Zero extra config — drafts run on that model. |
+| **Use the AI model from the AI assist tab** | An AI assist backend (next section) | Zero extra config — drafts run on that model. |
 
 After saving, **Test connection** drafts one short phrase to confirm the
 configuration works.

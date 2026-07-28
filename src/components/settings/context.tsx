@@ -17,13 +17,13 @@ import type { InstalledModel } from '../../lib/ollamaCatalog'
 export type UiProvider = 'off' | 'libre_docker' | 'libre_remote' | 'deepl' | 'google' | 'azure' | 'llm'
 /** Same idea for the summarize provider (Ollama's Docker vs remote is one
  *  provider server-side; the hosted ones map 1:1 to SummarizeProvider). */
-export type SummUiProvider =
+export type LlmUiProvider =
   | 'off' | 'ollama_docker' | 'ollama_remote'
   | 'openai' | 'anthropic' | 'gemini' | 'mistral' | 'compat'
 
 /** API-key form fields for the summarize providers that take a key. */
-export interface SummKeys { openai: string; anthropic: string; gemini: string; mistral: string; compat: string }
-export type SummKeyName = keyof SummKeys
+export interface LlmKeys { openai: string; anthropic: string; gemini: string; mistral: string; compat: string }
+export type LlmKeyName = keyof LlmKeys
 
 /** An async action's transient result (Test / Docker / update buttons). */
 export interface ActionState { busy: boolean; text?: string; ok?: boolean }
@@ -52,21 +52,25 @@ export interface SettingsForm {
   forcedLangs: string[]
 
   // ── Summarize (AI assist) ──
-  summProvider: SummUiProvider
-  setSummProvider: (v: SummUiProvider) => void
-  summOllamaUrl: string
-  setSummOllamaUrl: (v: string) => void
-  summCompatUrl: string
-  setSummCompatUrl: (v: string) => void
-  summModel: string
-  setSummModel: (v: string) => void
-  summKeys: SummKeys
-  setSummKeys: React.Dispatch<React.SetStateAction<SummKeys>>
-  summKeySet: Record<SummKeyName, boolean>
-  summTest: ActionState
-  onTestSummarize: () => Promise<void>
-  summDocker: ActionState
-  onSummarizeDocker: (action: 'start' | 'stop' | 'status') => Promise<DockerActionResult | void>
+  llmProvider: LlmUiProvider
+  setLlmProvider: (v: LlmUiProvider) => void
+  llmOllamaUrl: string
+  setLlmOllamaUrl: (v: string) => void
+  llmCompatUrl: string
+  setLlmCompatUrl: (v: string) => void
+  llmModel: string
+  /** Also re-suggests `llmHighEnd` until the user overrides it (SettingsModal). */
+  setLlmModel: (v: string) => void
+  /** "This model is high-end" — the gate on the advanced assists. */
+  llmHighEnd: boolean
+  setLlmHighEnd: (v: boolean) => void
+  llmKeys: LlmKeys
+  setLlmKeys: React.Dispatch<React.SetStateAction<LlmKeys>>
+  llmKeySet: Record<LlmKeyName, boolean>
+  llmTest: ActionState
+  onTestLlm: () => Promise<void>
+  llmDocker: ActionState
+  onOllamaDocker: (action: 'start' | 'stop' | 'status') => Promise<DockerActionResult | void>
   isOllama: boolean
   modelOpts: Array<{ name: string; label: string; installed: boolean }>
   installed: InstalledModel[]

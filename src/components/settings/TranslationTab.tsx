@@ -15,7 +15,7 @@ export function TranslationTab() {
     status, managed, keyPlaceholder,
     provider, setProvider, libreUrl, setLibreUrl, azureRegion, setAzureRegion,
     keys, setKeys, keySet, docker, onDocker, test, onTest,
-    transLangs, setTransLangs, forcedLangs, summProvider,
+    transLangs, setTransLangs, forcedLangs, llmProvider,
   } = useSettingsForm()
 
   if (!managed) {
@@ -60,7 +60,7 @@ export function TranslationTab() {
         onChange={(e) => setProvider(e.target.value as UiProvider)} aria-label="Translation provider"
       >
         <option value="off">Off — no machine translation</option>
-        <option value="llm">Use the AI model from Summarize (AI assist tab)</option>
+        <option value="llm">Use the AI model from the AI assist tab</option>
         <option value="libre_docker">LibreTranslate — local (Docker-managed)</option>
         <option value="libre_remote">LibreTranslate — remote URL</option>
         <option value="deepl">DeepL</option>
@@ -73,11 +73,11 @@ export function TranslationTab() {
           <p className="sm-help">
             Translates with whatever model the <strong>AI assist</strong> tab is set
             to — no second engine to install or key to manage.
-            {summProvider === 'off'
-              ? ' Set a Summarize provider there first, or this stays off.'
+            {llmProvider === 'off'
+              ? ' Set an AI provider there first, or this stays off.'
               : ' Quality depends on the model: a small local one is rougher than DeepL, so review every draft.'}
           </p>
-          {summProvider === 'off' && (
+          {llmProvider === 'off' && (
             <div className="sm-inline sm-warn">
               <AlertCircle size={13} /> No AI model configured — pick one on the “AI assist” tab.
             </div>

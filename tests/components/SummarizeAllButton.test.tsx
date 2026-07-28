@@ -7,7 +7,7 @@ import userEvent from '@testing-library/user-event'
 import { SummarizeAllButton } from '../../src/components/ui/SummarizeAllButton'
 import { SortBar } from '../../src/components/ui/SortBar'
 import { api } from '../../src/lib/api'
-import { resetSummarizeAvailability } from '../../src/lib/summarizeClient'
+import { resetLlmAvailability } from '../../src/lib/llmClient'
 import { useStore } from '../../src/store/useStore'
 import { resetStore } from '../helpers/store-reset'
 import { resolveConfirm } from '../helpers/confirm'
@@ -26,8 +26,8 @@ function seed(courses: ResumeStore['courses'], secondary: string | null = null) 
 
 /** Pretend the server has a summarize backend (or not). */
 function backend(configured: boolean) {
-  resetSummarizeAvailability()
-  vi.spyOn(api, 'summarizeStatus').mockResolvedValue(
+  resetLlmAvailability()
+  vi.spyOn(api, 'llmStatus').mockResolvedValue(
     configured
       ? { configured: true, provider: 'ollama', model: 'llama3.2:3b', local: true }
       : { configured: false, provider: '', model: '', local: false },
@@ -37,7 +37,7 @@ function backend(configured: boolean) {
 beforeEach(() => {
   resetStore()
   vi.restoreAllMocks()
-  resetSummarizeAvailability()
+  resetLlmAvailability()
 })
 
 describe('SummarizeAllButton — when it shows', () => {
@@ -55,7 +55,7 @@ describe('SummarizeAllButton — when it shows', () => {
     backend(false)
     seed([makeCourse({ id: 'c1', description: { no: 'Lang tekst' } })])
     render(<SummarizeAllButton section="courses" />)
-    await waitFor(() => expect(api.summarizeStatus).toHaveBeenCalled())
+    await waitFor(() => expect(api.llmStatus).toHaveBeenCalled())
     expect(screen.queryByRole('button', { name: /Bulk summarize/ })).not.toBeInTheDocument()
   })
 
@@ -63,7 +63,7 @@ describe('SummarizeAllButton — when it shows', () => {
     backend(true)
     seed([makeCourse({ id: 'c1', description: { no: 'Tekst' }, short_description: { no: 'Fylt' } })])
     render(<SummarizeAllButton section="courses" />)
-    await waitFor(() => expect(api.summarizeStatus).toHaveBeenCalled())
+    await waitFor(() => expect(api.llmStatus).toHaveBeenCalled())
     expect(screen.queryByRole('button', { name: /Bulk summarize/ })).not.toBeInTheDocument()
   })
 
@@ -71,7 +71,7 @@ describe('SummarizeAllButton — when it shows', () => {
     backend(true)
     seed([makeCourse({ id: 'c1', description: {} })])
     render(<SummarizeAllButton section="courses" />)
-    await waitFor(() => expect(api.summarizeStatus).toHaveBeenCalled())
+    await waitFor(() => expect(api.llmStatus).toHaveBeenCalled())
     expect(screen.queryByRole('button', { name: /Bulk summarize/ })).not.toBeInTheDocument()
   })
 

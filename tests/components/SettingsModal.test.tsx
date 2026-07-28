@@ -24,20 +24,21 @@ const managedStatus = (over: Partial<SettingsStatus['settings']> = {}): Settings
     azure_region: '',
     backup_dir: '',
     backup_interval_ms: 60000,
-    summarize_provider: 'off',
-    summarize_ollama_url: '',
-    summarize_docker: false,
-    summarize_openai_api_key_set: false,
-    summarize_compat_url: '',
-    summarize_compat_api_key_set: false,
-    summarize_anthropic_api_key_set: false,
-    summarize_gemini_api_key_set: false,
-    summarize_mistral_api_key_set: false,
-    summarize_model: '',
+    llm_provider: 'off',
+    llm_ollama_url: '',
+    llm_docker: false,
+    llm_openai_api_key_set: false,
+    llm_compat_url: '',
+    llm_compat_api_key_set: false,
+    llm_anthropic_api_key_set: false,
+    llm_gemini_api_key_set: false,
+    llm_mistral_api_key_set: false,
+    llm_model: '',
+    llm_high_end: false,
     ...over,
   },
   translate: { configured: false },
-  summarize: { configured: false },
+  llm: { configured: false },
 })
 
 /** The settings screen is tabbed and opens on Version — most fields need a click first. */
@@ -212,7 +213,7 @@ describe('<SettingsModal>', () => {
   it('saves the Anthropic AI-assist provider with its key', async () => {
     vi.spyOn(api, 'getSettings').mockResolvedValue(managedStatus())
     const saveSpy = vi.spyOn(api, 'saveSettings').mockResolvedValue(
-      managedStatus({ summarize_provider: 'anthropic', summarize_anthropic_api_key_set: true }))
+      managedStatus({ llm_provider: 'anthropic', llm_anthropic_api_key_set: true }))
     render(<SettingsModal onClose={() => {}} onChanged={() => {}} onUnauthorized={() => {}} />)
 
     await openTab(/ai assist/i)
@@ -223,8 +224,50 @@ describe('<SettingsModal>', () => {
 
     await waitFor(() => expect(saveSpy).toHaveBeenCalled())
     expect(saveSpy.mock.calls[0][0]).toMatchObject({
-      summarize_provider: 'anthropic', summarize_anthropic_api_key: 'sk-ant-123', summarize_model: 'claude-haiku-4-5',
+      llm_provider: 'anthropic', llm_anthropic_api_key: 'sk-ant-123', llm_model: 'claude-haiku-4-5',
     })
+  })
+
+  /**
+   * The advanced assists are gated on this checkbox, so two things must hold:
+   * a recognised frontier model id pre-ticks it (nobody should have to know the
+   * feature exists to get it), and it reaches the server as `llm_high_end`.
+   */
+  it('suggests the high-end flag from the model name and saves it', async () => {
+    vi.spyOn(api, 'getSettings').mockResolvedValue(managedStatus())
+    const saveSpy = vi.spyOn(api, 'saveSettings').mockResolvedValue(managedStatus())
+    render(<SettingsModal onClose={() => {}} onChanged={() => {}} onUnauthorized={() => {}} />)
+
+    await openTab(/ai assist/i)
+    await userEvent.selectOptions(await screen.findByLabelText(/AI assist provider/i), 'anthropic')
+    const highEnd = screen.getByRole('checkbox', { name: /high-end model/i })
+    expect(highEnd).not.toBeChecked()
+
+    await userEvent.type(screen.getByLabelText(/AI assist model/i), 'claude-opus-4-5')
+    expect(highEnd).toBeChecked()
+
+    await userEvent.click(screen.getByRole('button', { name: /^Save$/i }))
+    await waitFor(() => expect(saveSpy).toHaveBeenCalled())
+    expect(saveSpy.mock.calls[0][0]).toMatchObject({ llm_high_end: true })
+  })
+
+  it('keeps the user\'s high-end choice once they set it', async () => {
+    vi.spyOn(api, 'getSettings').mockResolvedValue(managedStatus())
+    const saveSpy = vi.spyOn(api, 'saveSettings').mockResolvedValue(managedStatus())
+    render(<SettingsModal onClose={() => {}} onChanged={() => {}} onUnauthorized={() => {}} />)
+
+    await openTab(/ai assist/i)
+    await userEvent.selectOptions(await screen.findByLabelText(/AI assist provider/i), 'compat')
+    // Tick it for a model the heuristic can't recognise (a private endpoint),
+    // then keep typing: the suggestion must not undo the explicit choice.
+    const highEnd = screen.getByRole('checkbox', { name: /high-end model/i })
+    await userEvent.click(highEnd)
+    await userEvent.type(screen.getByLabelText(/AI assist model/i), 'internal-model-v2')
+    expect(highEnd).toBeChecked()
+
+    await userEvent.click(screen.getByRole('button', { name: /^Save$/i }))
+    await waitFor(() => expect(saveSpy).toHaveBeenCalled())
+    expect(saveSpy.mock.calls[0][0]).toMatchObject({ llm_high_end: true })
   })
 
   it('picks the backup folder by browsing instead of pasting', async () => {

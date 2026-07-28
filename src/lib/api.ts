@@ -186,22 +186,26 @@ export interface RestoreSummary {
   deleted: number
 }
 
-/** `llm` reuses the model configured for Summarize — see server/translate.ts. */
+/** `llm` reuses the app's configured AI model — see server/translate.ts. */
 export type TranslateProvider = 'off' | 'libretranslate' | 'deepl' | 'google' | 'azure' | 'llm'
 
 /**
- * Whether an LLM is configured and where it runs. `local` is what the UI's
- * privacy line is built on, so it is only ever true when the server said so.
+ * Whether an LLM is configured, where it runs, and what it's rated for.
+ * `local` is what the UI's privacy line is built on and `highEnd` is what the
+ * advanced assists are gated on, so both are only ever true when the server
+ * said so.
  */
 export interface AssistStatus {
   configured: boolean
   provider: string
   model: string
   local: boolean
+  /** The operator declared this model strong enough for the advanced assists. */
+  highEnd: boolean
 }
 
-export const ASSIST_OFF: AssistStatus = { configured: false, provider: '', model: '', local: false }
-export type SummarizeProvider =
+export const ASSIST_OFF: AssistStatus = { configured: false, provider: '', model: '', local: false, highEnd: false }
+export type LlmProvider =
   | 'off' | 'ollama' | 'openai' | 'compat' | 'anthropic' | 'gemini' | 'mistral'
 
 /** Editable settings as returned to the client (API keys masked to booleans). */
@@ -218,16 +222,17 @@ export interface SettingsView {
   translate_languages: string[]
   backup_dir: string
   backup_interval_ms: number
-  summarize_provider: SummarizeProvider
-  summarize_ollama_url: string
-  summarize_docker: boolean
-  summarize_openai_api_key_set: boolean
-  summarize_compat_url: string
-  summarize_compat_api_key_set: boolean
-  summarize_anthropic_api_key_set: boolean
-  summarize_gemini_api_key_set: boolean
-  summarize_mistral_api_key_set: boolean
-  summarize_model: string
+  llm_provider: LlmProvider
+  llm_ollama_url: string
+  llm_docker: boolean
+  llm_openai_api_key_set: boolean
+  llm_compat_url: string
+  llm_compat_api_key_set: boolean
+  llm_anthropic_api_key_set: boolean
+  llm_gemini_api_key_set: boolean
+  llm_mistral_api_key_set: boolean
+  llm_model: string
+  llm_high_end: boolean
 }
 
 /** One subdirectory in the folder-picker listing. */
@@ -247,7 +252,7 @@ export interface SettingsStatus {
   managed: boolean
   settings: SettingsView
   translate: { configured: boolean }
-  summarize: { configured: boolean }
+  llm: { configured: boolean }
 }
 
 /** Partial settings update (only sent keys change; api keys omitted = unchanged). */
@@ -263,16 +268,17 @@ export interface SettingsUpdate {
   translate_languages?: string[]
   backup_dir?: string
   backup_interval_ms?: number
-  summarize_provider?: SummarizeProvider
-  summarize_ollama_url?: string
-  summarize_docker?: boolean
-  summarize_openai_api_key?: string
-  summarize_compat_url?: string
-  summarize_compat_api_key?: string
-  summarize_anthropic_api_key?: string
-  summarize_gemini_api_key?: string
-  summarize_mistral_api_key?: string
-  summarize_model?: string
+  llm_provider?: LlmProvider
+  llm_ollama_url?: string
+  llm_docker?: boolean
+  llm_openai_api_key?: string
+  llm_compat_url?: string
+  llm_compat_api_key?: string
+  llm_anthropic_api_key?: string
+  llm_gemini_api_key?: string
+  llm_mistral_api_key?: string
+  llm_model?: string
+  llm_high_end?: boolean
 }
 
 export interface TranslateTestResult { reachable: boolean; languages?: number; message: string }
@@ -626,34 +632,40 @@ export const api = {
     }, { available: false, message: `Docker ${action} request failed.` })
   },
 
-  // ── Summarize (AI short descriptions) ─────────────────────────────────────
+  // ── The AI model behind every assist ──────────────────────────────────────
 
-  /** Is an LLM summarize backend configured? Never throws. */
   /**
-   * Whether an LLM backend is configured and WHERE it runs. Never throws — an
-   * unreachable server reads as "not configured", which hides the AI affordances
-   * rather than showing broken ones.
+   * Whether an LLM backend is configured, WHERE it runs, and whether it's rated
+   * high-end. Never throws — an unreachable server reads as "not configured",
+   * which hides the AI affordances rather than showing broken ones.
    */
-  async summarizeStatus(): Promise<AssistStatus> {
+  async llmStatus(): Promise<AssistStatus> {
     return safe(async () => {
-      const res = await request('GET', '/api/summarize/status')
+      const res = await request('GET', '/api/llm/status')
       if (!res.ok) return ASSIST_OFF
-      const json = await res.json() as Partial<AssistStatus>
+      const json = await res.json() as Partial<AssistStatus> & { high_end?: boolean }
       if (json.configured !== true) return ASSIST_OFF
       return {
         configured: true,
         provider: json.provider ?? '',
         model: json.model ?? '',
-        // Fail CLOSED: if the server didn't say it's local, assume it isn't.
-        // Getting this wrong the other way would promise privacy we don't have.
+        // Fail CLOSED on both flags: if the server didn't say it's local, assume
+        // it isn't (getting that wrong promises privacy we don't have); if it
+        // didn't say high-end, assume it isn't (getting that wrong runs a
+        // whole-CV review on a 3B model and presents the result as advice).
         local: json.local === true,
+        highEnd: json.high_end === true,
       }
     }, ASSIST_OFF)
   },
 
-  /** Run one assist prompt against the configured model. Throws on failure. */
-  async llmComplete(prompt: string, maxTokens?: number): Promise<string> {
-    const res = await request('POST', '/api/llm/complete', { prompt, max_tokens: maxTokens })
+  /**
+   * Run one assist prompt against the configured model. Throws on failure.
+   * `advanced` asks for the high-end budget (bigger prompt, longer reply and
+   * timeout) and is refused server-side unless the model is declared high-end.
+   */
+  async llmComplete(prompt: string, maxTokens?: number, advanced?: boolean): Promise<string> {
+    const res = await request('POST', '/api/llm/complete', { prompt, max_tokens: maxTokens, advanced })
     if (!res.ok) {
       if (res.status === 401) throw new UnauthorizedError()
       // A plain Error, not ServerError: the assist UIs surface `.message`
@@ -675,19 +687,19 @@ export const api = {
     return json.summary
   },
 
-  /** Test a summarize config with one tiny request. Never throws. */
-  async testSummarize(input?: SettingsUpdate): Promise<TranslateTestResult> {
+  /** Test the AI-assist config with one tiny request. Never throws. */
+  async testLlm(input?: SettingsUpdate): Promise<TranslateTestResult> {
     return safe(async () => {
-      const res = await request('POST', '/api/settings/summarize/test', input ?? {})
+      const res = await request('POST', '/api/settings/llm/test', input ?? {})
       if (!res.ok) return { reachable: false, message: `Test failed (${res.status})` }
       return await res.json() as TranslateTestResult
     }, { reachable: false, message: 'Test request failed.' })
   },
 
   /** Start/stop/status the managed Docker Ollama. `model` used on start. Never throws. */
-  async summarizeDocker(action: 'start' | 'stop' | 'status', model?: string): Promise<DockerActionResult> {
+  async ollamaDocker(action: 'start' | 'stop' | 'status', model?: string): Promise<DockerActionResult> {
     return safe(async () => {
-      const res = await request('POST', '/api/settings/summarize/docker', { action, model })
+      const res = await request('POST', '/api/settings/llm/docker', { action, model })
       if (!res.ok) {
         return { available: false, message: await serverMessage(res, `Docker ${action} failed (${res.status})`) }
       }
@@ -700,9 +712,9 @@ export const api = {
    * Never throws — an empty list just means "nothing to merge with the curated
    * catalog" (instance down, or a provider we can't enumerate).
    */
-  async summarizeModels(): Promise<InstalledModel[]> {
+  async ollamaModels(): Promise<InstalledModel[]> {
     return safe(async () => {
-      const res = await request('GET', '/api/summarize/models')
+      const res = await request('GET', '/api/llm/models')
       if (!res.ok) return []
       const json = await res.json() as { models?: InstalledModel[] }
       return Array.isArray(json.models) ? json.models : []

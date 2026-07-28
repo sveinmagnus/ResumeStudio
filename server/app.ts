@@ -216,12 +216,13 @@ export function createApp(): Express {
   // caps successful (billable) calls too.
   app.use('/api/translate', apiLimiter, translateLimiter, authMiddleware, translateRouter)
 
-  // ── Summarize proxy (auth-gated) — one-line short descriptions via an LLM ───
+  // ── Summarize feature (auth-gated) — one-line short descriptions via the LLM ─
   // Same limiter shape as translate: these calls hit a billable/heavy backend.
   app.use('/api/summarize', apiLimiter, translateLimiter, authMiddleware, summarizeRouter)
 
-  // ── Generic assist completions (auth-gated) — the LLM behind the "Run with
-  // my AI" buttons. Same limiter shape: it hits the same billable/heavy model.
+  // ── The LLM itself (auth-gated) — backend status, model list, and the
+  // completions behind every "Run with my AI" button. Same limiter shape: it
+  // hits the same billable/heavy model.
   app.use('/api/llm', apiLimiter, translateLimiter, authMiddleware, llmRouter)
 
   // ── Store backup / sync (auth-gated) — desktop build's Drive-folder sync ───

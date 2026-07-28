@@ -11,7 +11,7 @@ import userEvent from '@testing-library/user-event'
 import { ProjectsEditor } from '../../src/components/editor/ProjectsEditor'
 import { useStore } from '../../src/store/useStore'
 import { resetStore } from '../helpers/store-reset'
-import { resetSummarizeAvailability } from '../../src/lib/summarizeClient'
+import { resetLlmAvailability } from '../../src/lib/llmClient'
 import { resetAssistConsent } from '../../src/components/ui/AssistRun'
 import { api } from '../../src/lib/api'
 import { emptyStore, makeProject, makeSkill, makeResume } from '../fixtures'
@@ -19,9 +19,9 @@ import { emptyStore, makeProject, makeSkill, makeResume } from '../fixtures'
 const LOCAL = { configured: true, provider: 'ollama', model: 'llama3.2:3b', local: true }
 
 function seed() {
-  resetSummarizeAvailability()
+  resetLlmAvailability()
   resetAssistConsent()
-  vi.spyOn(api, 'summarizeStatus').mockResolvedValue(LOCAL)
+  vi.spyOn(api, 'llmStatus').mockResolvedValue(LOCAL)
   useStore.setState({
     data: {
       ...emptyStore(),

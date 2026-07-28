@@ -8,7 +8,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { AssistRun, resetAssistConsent } from '../../src/components/ui/AssistRun'
-import { resetSummarizeAvailability } from '../../src/lib/summarizeClient'
+import { resetLlmAvailability } from '../../src/lib/llmClient'
 import { api } from '../../src/lib/api'
 
 const LOCAL = { configured: true, provider: 'ollama', model: 'llama3.2:3b', local: true }
@@ -16,9 +16,9 @@ const REMOTE = { configured: true, provider: 'openai', model: 'gpt-4o-mini', loc
 const OFF = { configured: false, provider: '', model: '', local: false }
 
 function backend(status: typeof LOCAL | typeof OFF) {
-  resetSummarizeAvailability()
+  resetLlmAvailability()
   resetAssistConsent()
-  vi.spyOn(api, 'summarizeStatus').mockResolvedValue(status)
+  vi.spyOn(api, 'llmStatus').mockResolvedValue(status)
 }
 
 /** A caller WITH a manual path, rendering its steps as children (tailor modal). */

@@ -45,18 +45,23 @@ The full catalog with per-feature design detail is in
   `DualField`, or the whole section via "Bulk summarize" (confirmation-gated) in
   the section bar (`lib/summarizeBatch.ts`). Drafts are always review-required.
   Hidden entirely when nothing is configured. **Provider wire protocols:**
-  `summarize.ts → endpointFor()` splits on `protocol` — most speak OpenAI **Chat
+  `llm.ts → endpointFor()` splits on `protocol` — most speak OpenAI **Chat
   Completions** (ollama/openai/compat/gemini/mistral; Gemini via Google's
   OpenAI-compat endpoint, both Bearer-auth); **anthropic** is the native
   **Messages** API (`x-api-key`+`anthropic-version`, top-level `system`, no
   `temperature` — current Claude models reject it, `content[].text` reply). The
   Ollama model field is a datalist over `lib/ollamaCatalog.ts` (curated
   open-weight shortlist + sizes) merged with what the instance has pulled (`GET
-  /api/summarize/models`) with a Refresh button; the hosted providers get a
+  /api/llm/models`) with a Refresh button; the hosted providers get a
   static curated shortlist (`lib/cloudModelCatalog.ts`). Both stay free-text, so
   any model id works. The same model can also power **translation**
   (`translate_provider: 'llm'`) and the **writing coach** instead of a separate
-  engine — `summarize.ts → chatComplete()` is the one shared chat round-trip.
+  engine — `llm.ts → chatComplete()` is the one shared chat round-trip.
+  **Config is named `llm_*` / `LLM_*`, never `summarize_*`** — the model powers
+  far more than that one feature now; the old names are still read as a
+  fallback (settings `legacyKey`, env fallback in `llm.ts`) so upgrades don't
+  drop a configured key. A `llm_high_end` flag (declared by the operator, never
+  sniffed) gates the **advanced assists** — see §15.
 - **Registries** — shared Skill / Role / Industry registries with merge,
   usage counts, and a "By category" view (renamable Skill **and** Role
   categories); `SkillCategory` entities drive skill grouping + the Skills
@@ -173,7 +178,7 @@ src/
 │   │ — skills/taxonomy: skillTaxonomy (Quadim lazy JSON), skillNormalize (imports only),
 │   │   skillMatch (exact/token/fuzzy/semantic tiers), skillCategorize (SkillCategory
 │   │   CRUD + auto-categorization; effectiveSkillCategory)
-│   │ — AI assist: translateClient + summarizeClient (memoized availability probes),
+│   │ — AI assist: translateClient + llmClient (memoized availability + high-end probe),
 │   │   summarizeBatch (SUMMARY_FIELDS source→target per section; emptySummaryTargets
 │   │   work list; summarizableSource — the ONE "has a source" rule, shared with DualField),
 │   │   ollamaCatalog (curated open-weight models + sizes; merged with installed),
@@ -206,11 +211,12 @@ server/              ← Express API + SQLite persistence
 │   while running, not just at launch) + backupRuntime (owns both)
 ├── settings.ts (desktop settings.json; applyToEnv; isDesktop gate) · storage.ts (payloadStats)
 ├── translate.ts (pluggable proxy: libretranslate/deepl/google/azure) · translateDocker.ts
-├── summarize.ts (pluggable proxy: ollama/openai/compat; no heuristic fallback) ·
-│   summarizeDocker.ts (app-driven local Ollama, like translateDocker)
+├── llm.ts (THE LLM layer: 7 providers, 2 wire protocols, chatComplete, high-end flag) ·
+│   summarize.ts (one FEATURE on top of it: the one-line short description) ·
+│   ollamaDocker.ts (app-driven local Ollama, like translateDocker)
 ├── version.ts (APP_VERSION) · desktop/ (launcher, freePort, openBrowser, notify, tray,
 │   trayIcon, updater, updateRuntime — CJS-bundled, see §14)
-└── routes/          ← auth, resume, registry, translate, summarize, backup, settings, update
+└── routes/          ← auth, resume, registry, translate, llm, summarize, backup, settings, update
 
 scripts/build-desktop.mjs ← assembles the portable release/ folder (per target OS)
 tests/               ← Vitest (lib/store/components/server) + e2e/smoke.spec.ts. See §10

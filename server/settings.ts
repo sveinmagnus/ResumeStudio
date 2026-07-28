@@ -20,7 +20,7 @@ import fs from 'fs'
 import path from 'path'
 import { resolvePaths } from './config.js'
 import { ltLoadOnly, TRANSLATE_PROVIDERS, type TranslateConfig, type TranslateProvider } from './translate.js'
-import { DEFAULT_OLLAMA_URL, SUMMARIZE_PROVIDERS, type SummarizeConfig, type SummarizeProvider } from './summarize.js'
+import { DEFAULT_OLLAMA_URL, LLM_PROVIDERS, type LlmConfig, type LlmProvider } from './llm.js'
 
 export const SETTINGS_FILENAME = 'settings.json'
 
@@ -57,27 +57,38 @@ export interface AppSettings {
   backup_dir: string
   /** How often (ms) to refresh the backup while running. */
   backup_interval_ms: number
-  // ── Summarize (AI short-description) ──
-  /** Which LLM backend summarizes long descriptions ('off' = no Summarize button). */
-  summarize_provider: SummarizeProvider
-  /** Remote Ollama base URL (ignored when summarize_docker manages a local one). */
-  summarize_ollama_url: string
+  // ── AI assist (the one LLM behind every assist) ──
+  //
+  // These were `summarize_*` until the model stopped being just a summarizer.
+  // The old key names are still READ from an existing settings.json (see
+  // `legacyKey` in the field table) so an upgrade doesn't silently drop a
+  // configured provider and API key.
+  /** Which LLM backend powers the AI assists ('off' = no AI features at all). */
+  llm_provider: LlmProvider
+  /** Remote Ollama base URL (ignored when llm_docker manages a local one). */
+  llm_ollama_url: string
   /** When provider=ollama, run/use the local Docker Ollama at DOCKER_OLLAMA_URL. */
-  summarize_docker: boolean
+  llm_docker: boolean
   /** OpenAI API key (provider=openai). */
-  summarize_openai_api_key: string
+  llm_openai_api_key: string
   /** Base URL for a generic OpenAI-compatible endpoint (provider=compat). */
-  summarize_compat_url: string
+  llm_compat_url: string
   /** Optional API key for the compat endpoint. */
-  summarize_compat_api_key: string
+  llm_compat_api_key: string
   /** Anthropic (Claude) API key (provider=anthropic). */
-  summarize_anthropic_api_key: string
+  llm_anthropic_api_key: string
   /** Google Gemini API key (provider=gemini). */
-  summarize_gemini_api_key: string
+  llm_gemini_api_key: string
   /** Mistral API key (provider=mistral). */
-  summarize_mistral_api_key: string
-  /** Chat model name (e.g. 'llama3.2:3b', 'gpt-4o-mini', 'claude-haiku-4-5'). */
-  summarize_model: string
+  llm_mistral_api_key: string
+  /** Chat model name (e.g. 'llama3.2:3b', 'gpt-4o-mini', 'claude-opus-4-5'). */
+  llm_model: string
+  /**
+   * The user's declaration that the configured model is strong enough for the
+   * ADVANCED assists (whole-CV review, positioning, cross-language semantics).
+   * Declared rather than sniffed — see LlmConfig.highEnd.
+   */
+  llm_high_end: boolean
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -94,16 +105,17 @@ export const DEFAULT_SETTINGS: AppSettings = {
   translate_languages: ['en', 'no', 'se', 'dk'],
   backup_dir: '',
   backup_interval_ms: 60_000,
-  summarize_provider: 'off',
-  summarize_ollama_url: '',
-  summarize_docker: false,
-  summarize_openai_api_key: '',
-  summarize_compat_url: '',
-  summarize_compat_api_key: '',
-  summarize_anthropic_api_key: '',
-  summarize_gemini_api_key: '',
-  summarize_mistral_api_key: '',
-  summarize_model: '',
+  llm_provider: 'off',
+  llm_ollama_url: '',
+  llm_docker: false,
+  llm_openai_api_key: '',
+  llm_compat_url: '',
+  llm_compat_api_key: '',
+  llm_anthropic_api_key: '',
+  llm_gemini_api_key: '',
+  llm_mistral_api_key: '',
+  llm_model: '',
+  llm_high_end: false,
 }
 
 /**
@@ -156,6 +168,14 @@ interface FieldSpec {
   min?: number
   /** Write the env var even when the value is empty. */
   alwaysSet?: boolean
+  /**
+   * A previous name for this setting, still read from an existing settings.json
+   * when the current key is absent. The `summarize_*` → `llm_*` rename would
+   * otherwise reset every desktop user's provider, model and API key to the
+   * defaults on upgrade — silently, since a missing key coerces to "off".
+   * Write-side is unaffected: saving always writes the current key.
+   */
+  legacyKey?: string
 }
 
 const FIELDS: readonly FieldSpec[] = [
@@ -173,17 +193,18 @@ const FIELDS: readonly FieldSpec[] = [
   // ── Backup / sync ──
   { key: 'backup_dir',             kind: 'text',   env: 'RESUME_BACKUP_DIR' },
   { key: 'backup_interval_ms',     kind: 'num',    env: 'RESUME_BACKUP_INTERVAL_MS', min: 5_000, alwaysSet: true },
-  // ── Summarize ──
-  { key: 'summarize_provider',     kind: 'enum',   env: 'SUMMARIZE_PROVIDER', values: SUMMARIZE_PROVIDERS, alwaysSet: true },
-  { key: 'summarize_ollama_url',   kind: 'url' }, // docker override, see applyToEnv
-  { key: 'summarize_docker',       kind: 'bool' },
-  { key: 'summarize_openai_api_key',    kind: 'secret', env: 'SUMMARIZE_OPENAI_API_KEY' },
-  { key: 'summarize_compat_url',        kind: 'url',    env: 'SUMMARIZE_COMPAT_URL' },
-  { key: 'summarize_compat_api_key',    kind: 'secret', env: 'SUMMARIZE_COMPAT_API_KEY' },
-  { key: 'summarize_anthropic_api_key', kind: 'secret', env: 'SUMMARIZE_ANTHROPIC_API_KEY' },
-  { key: 'summarize_gemini_api_key',    kind: 'secret', env: 'SUMMARIZE_GEMINI_API_KEY' },
-  { key: 'summarize_mistral_api_key',   kind: 'secret', env: 'SUMMARIZE_MISTRAL_API_KEY' },
-  { key: 'summarize_model',             kind: 'text',   env: 'SUMMARIZE_MODEL' },
+  // ── AI assist (renamed from summarize_*; legacyKey keeps old files working) ──
+  { key: 'llm_provider',     kind: 'enum',   env: 'LLM_PROVIDER', values: LLM_PROVIDERS, alwaysSet: true, legacyKey: 'summarize_provider' },
+  { key: 'llm_ollama_url',   kind: 'url',    legacyKey: 'summarize_ollama_url' }, // docker override, see applyToEnv
+  { key: 'llm_docker',       kind: 'bool',   legacyKey: 'summarize_docker' },
+  { key: 'llm_openai_api_key',    kind: 'secret', env: 'LLM_OPENAI_API_KEY',    legacyKey: 'summarize_openai_api_key' },
+  { key: 'llm_compat_url',        kind: 'url',    env: 'LLM_COMPAT_URL',        legacyKey: 'summarize_compat_url' },
+  { key: 'llm_compat_api_key',    kind: 'secret', env: 'LLM_COMPAT_API_KEY',    legacyKey: 'summarize_compat_api_key' },
+  { key: 'llm_anthropic_api_key', kind: 'secret', env: 'LLM_ANTHROPIC_API_KEY', legacyKey: 'summarize_anthropic_api_key' },
+  { key: 'llm_gemini_api_key',    kind: 'secret', env: 'LLM_GEMINI_API_KEY',    legacyKey: 'summarize_gemini_api_key' },
+  { key: 'llm_mistral_api_key',   kind: 'secret', env: 'LLM_MISTRAL_API_KEY',   legacyKey: 'summarize_mistral_api_key' },
+  { key: 'llm_model',             kind: 'text',   env: 'LLM_MODEL',             legacyKey: 'summarize_model' },
+  { key: 'llm_high_end',          kind: 'bool',   env: 'LLM_HIGH_END' },
 ]
 
 /**
@@ -293,13 +314,24 @@ function coerceField(f: FieldSpec, raw: unknown): AppSettings[keyof AppSettings]
   }
 }
 
-/** Coerce an arbitrary parsed object into a complete, typed settings record. */
+/**
+ * Coerce an arbitrary parsed object into a complete, typed settings record.
+ *
+ * A field whose current key is absent falls back to its `legacyKey`, so a
+ * settings.json written before the `summarize_*` → `llm_*` rename still
+ * configures the app. `in` rather than `??` on purpose: an explicitly-stored
+ * empty string is a real value ("I cleared this key"), not a reason to reach
+ * back to the old one.
+ */
 function coerce(raw: unknown): AppSettings {
   const o = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
   const out = { ...DEFAULT_SETTINGS }
   for (const f of FIELDS) {
+    const value = (f.key in o) || !f.legacyKey ? o[f.key] : o[f.legacyKey];
+    // The semicolon above is load-bearing: the next line starts with '(' and
+    // would otherwise be parsed as a call on this expression.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (out as any)[f.key] = coerceField(f, o[f.key])
+    (out as any)[f.key] = coerceField(f, value)
   }
   return out
 }
@@ -337,9 +369,9 @@ function effectiveLibreUrl(s: AppSettings): string {
 }
 
 function effectiveOllamaUrl(s: AppSettings): string {
-  return s.summarize_provider === 'ollama' && s.summarize_docker
+  return s.llm_provider === 'ollama' && s.llm_docker
     ? DOCKER_OLLAMA_URL
-    : s.summarize_ollama_url
+    : s.llm_ollama_url
 }
 
 /**
@@ -355,28 +387,31 @@ export function applyToEnv(s: AppSettings): void {
   for (const f of FIELDS) {
     if (!f.env) continue
     const v = s[f.key]
-    if (f.alwaysSet) process.env[f.env] = String(v)
-    else setOrClear(f.env, typeof v === 'string' ? v : String(v))
+    // A boolean projects as '1' / cleared, never the string "false" — every
+    // env-reading consumer tests truthiness, and "false" is a truthy string.
+    const text = f.kind === 'bool' ? (v === true ? '1' : '') : (typeof v === 'string' ? v : String(v))
+    if (f.alwaysSet) process.env[f.env] = text
+    else setOrClear(f.env, text)
   }
   setOrClear('LIBRETRANSLATE_URL', effectiveLibreUrl(s))
-  setOrClear('SUMMARIZE_OLLAMA_URL', effectiveOllamaUrl(s))
+  setOrClear('LLM_OLLAMA_URL', effectiveOllamaUrl(s))
   // docker-compose.yml reads LT_LOAD_ONLY, so this must be on the env before
   // the container starts.
   process.env.LT_LOAD_ONLY = ltLoadOnly(s.translate_languages)
 }
 
-/** Map persisted settings to a SummarizeConfig (mirrors settingsToTranslateConfig). */
-export function settingsToSummarizeConfig(s: AppSettings): SummarizeConfig {
-  const ollamaUrl = (s.summarize_provider === 'ollama' && s.summarize_docker) ? DOCKER_OLLAMA_URL : s.summarize_ollama_url
+/** Map persisted settings to an LlmConfig (mirrors settingsToTranslateConfig). */
+export function settingsToLlmConfig(s: AppSettings): LlmConfig {
   return {
-    provider: s.summarize_provider,
-    ollama: { url: (ollamaUrl || DOCKER_OLLAMA_URL).replace(/\/+$/, '') },
-    openai: { apiKey: s.summarize_openai_api_key },
-    compat: { url: s.summarize_compat_url.replace(/\/+$/, ''), apiKey: s.summarize_compat_api_key },
-    anthropic: { apiKey: s.summarize_anthropic_api_key },
-    gemini: { apiKey: s.summarize_gemini_api_key },
-    mistral: { apiKey: s.summarize_mistral_api_key },
-    model: s.summarize_model,
+    provider: s.llm_provider,
+    ollama: { url: (effectiveOllamaUrl(s) || DOCKER_OLLAMA_URL).replace(/\/+$/, '') },
+    openai: { apiKey: s.llm_openai_api_key },
+    compat: { url: s.llm_compat_url.replace(/\/+$/, ''), apiKey: s.llm_compat_api_key },
+    anthropic: { apiKey: s.llm_anthropic_api_key },
+    gemini: { apiKey: s.llm_gemini_api_key },
+    mistral: { apiKey: s.llm_mistral_api_key },
+    model: s.llm_model,
+    highEnd: s.llm_high_end,
   }
 }
 
@@ -414,19 +449,25 @@ function settingsFromEnv(): AppSettings {
   const raw: Record<string, unknown> = {}
   for (const f of FIELDS) {
     if (!f.env) continue
-    const v = process.env[f.env]
+    // An LLM_* var falls back to its pre-rename SUMMARIZE_* name, so a
+    // deployment configured before the rename keeps working (see llm.ts).
+    const v = process.env[f.env] ?? (f.env.startsWith('LLM_')
+      ? process.env[f.env.replace(/^LLM_/, 'SUMMARIZE_')]
+      : undefined)
     if (v === undefined) continue
-    raw[f.key] = f.kind === 'num' ? Number(v) : v
+    if (f.kind === 'num') raw[f.key] = Number(v)
+    else if (f.kind === 'bool') raw[f.key] = ['1', 'true', 'yes', 'on'].includes(v.trim().toLowerCase())
+    else raw[f.key] = v
   }
   // Back-compat: an instance that only ever set LIBRETRANSLATE_URL (before the
   // provider setting existed) still means "use libretranslate".
   raw.translate_provider = process.env.TRANSLATE_PROVIDER?.trim()
     || (process.env.LIBRETRANSLATE_URL?.trim() ? 'libretranslate' : 'off')
   raw.libretranslate_url = process.env.LIBRETRANSLATE_URL ?? ''
-  raw.summarize_ollama_url = process.env.SUMMARIZE_OLLAMA_URL ?? ''
+  raw.llm_ollama_url = process.env.LLM_OLLAMA_URL ?? process.env.SUMMARIZE_OLLAMA_URL ?? ''
   // Docker management is a desktop-only choice, never inherited from env.
   raw.translate_docker = false
-  raw.summarize_docker = false
+  raw.llm_docker = false
   return coerce(raw)
 }
 
@@ -482,16 +523,17 @@ export interface SettingsView {
   translate_languages: string[]
   backup_dir: string
   backup_interval_ms: number
-  summarize_provider: SummarizeProvider
-  summarize_ollama_url: string
-  summarize_docker: boolean
-  summarize_openai_api_key_set: boolean
-  summarize_compat_url: string
-  summarize_compat_api_key_set: boolean
-  summarize_anthropic_api_key_set: boolean
-  summarize_gemini_api_key_set: boolean
-  summarize_mistral_api_key_set: boolean
-  summarize_model: string
+  llm_provider: LlmProvider
+  llm_ollama_url: string
+  llm_docker: boolean
+  llm_openai_api_key_set: boolean
+  llm_compat_url: string
+  llm_compat_api_key_set: boolean
+  llm_anthropic_api_key_set: boolean
+  llm_gemini_api_key_set: boolean
+  llm_mistral_api_key_set: boolean
+  llm_model: string
+  llm_high_end: boolean
 }
 
 export function toView(s: AppSettings): SettingsView {

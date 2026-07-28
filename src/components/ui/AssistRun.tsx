@@ -21,7 +21,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { Sparkles, Loader2, AlertTriangle, Info, ShieldCheck, ChevronDown } from 'lucide-react'
 import { api, type AssistStatus, ASSIST_OFF } from '../../lib/api'
-import { getAssistStatus } from '../../lib/summarizeClient'
+import { getAssistStatus } from '../../lib/llmClient'
 import { providerBlurb, sizeHint, isRemote, MANUAL_BLURB } from '../../lib/llmAssist'
 import { confirmDialog } from './ConfirmDialog'
 

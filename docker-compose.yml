@@ -42,10 +42,10 @@ services:
       start_period: 120s
     restart: unless-stopped
 
-  # Optional local LLM for the "Summarize" feature (short descriptions).
+  # Optional local LLM for the AI assists (summaries, coach, advisors).
   # NOT started by `npm run dev` — opt-in. The desktop Settings screen can
   # manage this container (start/stop + pull the chosen model), or bring it up
-  # manually with `docker compose up -d ollama`, then point Summarize at
+  # manually with `docker compose up -d ollama`, then point the AI assist at
   # http://localhost:11434. The first model pull downloads several GB into a
   # named volume; CV text only ever travels browser → this app's server → this
   # container, so nothing leaves the host.
