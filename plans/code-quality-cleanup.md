@@ -284,6 +284,43 @@ Each step is one commit, `npm run typecheck && npm test && npm run build` betwee
 Net: roughly **−1100 lines**, and four multi-file drift surfaces collapsed to one
 definition each.
 
+### Outcome (all 13 applied)
+
+Every step landed as its own commit, each verified with typecheck + the full
+suite + a production build, and the user-visible ones checked in the browser
+against a real 4-view / 48-project resume. Final suite: **144 files, 2359
+tests** (up from 143 / 2339 — the difference is new regression tests).
+
+The **−1100 line** estimate was wrong, and worth recording as such. Actual:
+
+| | insertions | deletions |
+|---|---|---|
+| src/ + server/ | 1727 | 1510 |
+| tests/ | 204 | 1 |
+| docs (CLAUDE.md, plans, package.json) | 342 | 1 |
+
+Call-site code did shrink roughly as predicted — RegistryEditors −253,
+ViewEditor −176, the four render adapters −171, the two importers −110,
+api.ts −42 — but the eight new shared modules carry ~990 lines, most of it
+the doc comments explaining *why* each abstraction exists and what drifted
+before it. That is the trade this codebase's conventions ask for, and it is
+the right one, but it means **line count was the wrong yardstick** and the
+plan should not have quoted one so prominently.
+
+The measures that actually mattered:
+
+| | before | after |
+|---|---|---|
+| synthetic-key `if` checks across the codebase | 28 in 8 files | 22, and **1 per render adapter** |
+| `api.ts` error-handling boilerplate blocks | 11 | 0 |
+| hand-rolled blob-download copies | 6 | 0 |
+| places the settings key list is enumerated | 7 | 1 |
+| largest file | 1781 | 1528 |
+
+Two findings were **withdrawn** rather than implemented (F12, and the
+sub-editor half of F10) — see their entries. One pre-existing problem was
+found and is unresolved: see §4.
+
 **Rationale for the order.** Steps 1–6 are near-zero-risk and independent — they
 buy confidence and immediate line reduction before anything structural. Steps 7
 and 8 are the two findings with real defect history and real drift cost; they go
@@ -334,3 +371,44 @@ Re-reading the plan against itself:
 `<style>` architecture, the section-editor repetition, or the hand-rolled
 router. Those are documented choices, and "consistency" here means consistency
 with the project's decisions, not with a generic style guide.
+
+---
+
+## 4. Unresolved: the test suite is flaky under default parallelism
+
+Found while verifying step 4, unrelated to any of these changes.
+
+`npm test` fails intermittently on this machine — **different tests each run**.
+Observed across the series: `ResumeViewsEditor` pop-out (×3 runs), `Autocomplete`
+debounce (×1), and clean runs on identical code. Every failure is a timeout, and
+every one of them passes in isolation.
+
+Cause is resource contention, not a bad test. Vitest defaults to one worker per
+core; on this 12-core machine a 143-file run reports ~370 s of environment setup
+against ~100 s wall clock, and the jsdom component tests miss their budget.
+`vite.config.ts` already raises `testTimeout` to 15 s with a comment
+acknowledging exactly this class of problem — the ceiling is simply still too
+low under full load.
+
+**Confirmed fix:** `npx vitest run --maxWorkers=4` is green, repeatedly
+(129 s vs 97 s — ~30 % slower wall clock, deterministic). Every verification run
+in this series used it.
+
+**Not applied**, because it is a project-infrastructure decision with a real
+cost and it belongs to the owner: CI runners are typically 2–4 cores and may not
+need it at all. Options, cheapest first:
+
+1. `poolOptions.threads.maxThreads: 4` in `vite.config.ts` — deterministic
+   locally, mildly slower; CI unaffected if it already has few cores.
+2. Raise RTL's `asyncUtilTimeout` in `tests/setup-rtl.ts` (it does **not**
+   inherit `testTimeout`; it is still at its 1 s default). Tried in isolation
+   during this work and it did **not** fix the failures on its own — the
+   failures are whole-test timeouts, not query timeouts — so this is a
+   correctness tidy-up, not the fix.
+3. Leave as-is and re-run on red. Cheapest, but it trains everyone to ignore a
+   red suite, which is how a real regression gets waved through.
+
+One related fix WAS applied, because it removes real work rather than changing
+policy: the two test files that mount the view editor now stub `lib/pdfExporter`,
+which was pulling ~2 MB of pdfmake into 34 component tests and laying out a real
+PDF in each. See the step-4 commit.
