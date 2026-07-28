@@ -581,9 +581,10 @@ function ProjectSkillChip({ ps, onRemove }: { ps: ProjectSkill; onRemove: () => 
 function PaneStyles() {
   return (
     <style>{`
-      .sub-block { margin: 16px 0; padding: 14px; background: var(--paper-sunken); border-radius: var(--r-md); }
-      .sub-head { font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--ink-soft); margin-bottom: 10px; }
-      .sub-hint { font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--ink-faint); margin-left: 6px; }
+      /* .section-pane, .editor-block, .sub-block/.sub-head/.sub-hint and the
+         .skill-chip-* family are shared across editors and live in
+         src/index.css — see the note there. Only this pane's own classes
+         belong below. */
       .hl-row { display: flex; gap: 8px; align-items: flex-start; margin-bottom: 7px; }
       .hl-inputs { flex: 1; display: grid; gap: 8px; }
       .hl-inputs.dual { grid-template-columns: 1fr 1fr; }
@@ -594,16 +595,6 @@ function PaneStyles() {
       .hl-del:hover { background: var(--accent-wash); color: var(--accent); }
       .sub-add { display: inline-flex; align-items: center; gap: 5px; padding: 6px 12px; font-size: 13px; font-weight: 600; color: var(--accent); border-radius: var(--r-sm); }
       .sub-add:hover { background: var(--accent-wash); }
-      .skill-chip-list { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 10px; }
-      .skill-chip-w { position: relative; display: inline-flex; align-items: center; background: var(--paper-raised); border: 1px solid var(--line); border-radius: 20px; padding: 2px 6px 2px 2px; }
-      .skill-chip-w:hover { border-color: var(--accent); }
-      .skill-chip { padding: 4px 10px; font-size: 13px; font-weight: 500; background: transparent; cursor: pointer; }
-      .skill-chip:hover { color: var(--accent); }
-      .skill-chip-x { width: 20px; height: 20px; display: grid; place-items: center; color: var(--ink-faint); border-radius: 50%; }
-      .skill-chip-x:hover { background: var(--accent-wash); color: var(--accent); }
-      .section-pane { animation: fadeUp .35s ease; }
-      .editor-block { margin-bottom: 26px; }
-      .eb-title { font-size: 20px; margin-bottom: 14px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
     `}</style>
   )
 }

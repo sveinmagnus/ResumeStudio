@@ -234,3 +234,43 @@ input.pf-input { width: 100%; }
   border-radius: var(--r-sm); font-size: 13px; font-weight: 500; white-space: nowrap;
 }
 .pf-ongoing:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ── Shared editor chrome ─────────────────────────────────────────────── */
+/*
+ * Layout classes used by SEVERAL editor pages. Same rule as .pf-* above: a
+ * component-scoped <style> block only exists in the DOM while that component
+ * is mounted, so these must not live in one editor's style tag. They all
+ * previously sat in ProjectsEditor's PaneStyles, which meant .section-pane,
+ * .sub-block and friends were unstyled on every page that doesn't mount
+ * ProjectsEditor (Languages' CEFR block, the registries, the Header page).
+ */
+.section-pane { animation: fadeUp .35s ease; }
+
+/* A titled group of fields within a page (HeaderEditor's Identity/Links/…). */
+.editor-block { margin-bottom: 26px; }
+.editor-block-title {
+  font-size: 20px; margin-bottom: 14px;
+  padding-bottom: 8px; border-bottom: 1px solid var(--line);
+}
+
+/* A sunken sub-panel inside an editor card (project skills/roles/industries,
+   the Europass CEFR grid). */
+.sub-block { margin: 16px 0; padding: 14px; background: var(--paper-sunken); border-radius: var(--r-md); }
+.sub-head {
+  font-size: 12px; font-weight: 700; letter-spacing: .04em;
+  text-transform: uppercase; color: var(--ink-soft); margin-bottom: 10px;
+}
+.sub-hint { font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--ink-faint); margin-left: 6px; }
+
+/* Registry-link chips (a linked skill / role / industry on a project). */
+.skill-chip-list { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 10px; }
+.skill-chip-w {
+  position: relative; display: inline-flex; align-items: center;
+  background: var(--paper-raised); border: 1px solid var(--line);
+  border-radius: 20px; padding: 2px 6px 2px 2px;
+}
+.skill-chip-w:hover { border-color: var(--accent); }
+.skill-chip { padding: 4px 10px; font-size: 13px; font-weight: 500; background: transparent; cursor: pointer; }
+.skill-chip:hover { color: var(--accent); }
+.skill-chip-x { width: 20px; height: 20px; display: grid; place-items: center; color: var(--ink-faint); border-radius: 50%; }
+.skill-chip-x:hover { background: var(--accent-wash); color: var(--accent); }

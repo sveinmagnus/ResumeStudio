@@ -18,7 +18,7 @@ export function HeaderEditor() {
   return (
     <div className="section-pane">
       <div className="editor-block">
-        <h3 className="eb-title">Identity</h3>
+        <h3 className="editor-block-title">Identity</h3>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
           <TextField label="Full name" value={r.full_name} onChange={(v) => updateResume({ full_name: v })} />
           <TextField label="Email" value={r.email} type="email" onChange={(v) => updateResume({ email: v })} />
@@ -28,7 +28,7 @@ export function HeaderEditor() {
       </div>
 
       <div className="editor-block">
-        <h3 className="eb-title">Professional</h3>
+        <h3 className="editor-block-title">Professional</h3>
         {/* The professional title/headline now comes from the selected Profile's
             tag line (per view), so there is no single master title here. A view
             can still override it in its Header settings. */}
@@ -37,7 +37,7 @@ export function HeaderEditor() {
       </div>
 
       <div className="editor-block">
-        <h3 className="eb-title">Links</h3>
+        <h3 className="editor-block-title">Links</h3>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
           <TextField label="LinkedIn URL" value={r.linkedin_url || ''} onChange={(v) => updateResume({ linkedin_url: v })} />
           <TextField label="Website" value={r.website_url || ''} onChange={(v) => updateResume({ website_url: v })} />
@@ -47,7 +47,7 @@ export function HeaderEditor() {
       </div>
 
       <div className="editor-block">
-        <h3 className="eb-title">Photo &amp; company</h3>
+        <h3 className="editor-block-title">Photo &amp; company</h3>
         <p className="eb-desc">
           Upload a profile photo and your consultancy logo here. Each Resume View
           controls whether and where they appear, and can override them per view.

@@ -1750,15 +1750,8 @@ function RegistryStyles() {
         transition: color .12s, border-color .12s, background .12s;
       }
       .scf-clear:hover { color: #b91c1c; border-color: #f2c2c2; background: #fef2f2; }
-      /* .check-row lives in src/index.css */
-      .sub-block { margin: 16px 0 0; padding: 14px; background: var(--paper-sunken); border-radius: var(--r-md); }
-      .sub-head { font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--ink-soft); margin-bottom: 10px; }
-      .skill-chip-list { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 10px; }
-      .skill-chip-w { position: relative; display: inline-flex; align-items: center; background: var(--paper-raised); border: 1px solid var(--line); border-radius: 20px; padding: 2px 6px 2px 2px; }
-      .skill-chip { padding: 4px 10px; font-size: 13px; font-weight: 500; background: transparent; cursor: pointer; }
-      .skill-chip:hover { color: var(--accent); }
-      .skill-chip-x { width: 20px; height: 20px; display: grid; place-items: center; color: var(--ink-faint); border-radius: 50%; }
-      .skill-chip-x:hover { background: var(--accent-wash); color: var(--accent); }
+      /* .check-row, .sub-block/.sub-head and the .skill-chip-* family live in
+         src/index.css (shared across editors — see the note there). */
       .usage-block { margin-top: 14px; padding: 12px 14px; background: var(--paper-sunken); border-radius: var(--r-md); }
       .usage-block.usage-empty { color: var(--ink-faint); font-size: 12.5px; }
       .usage-block.usage-empty strong { color: var(--ink-soft); font-weight: 700; margin-right: 4px; }
