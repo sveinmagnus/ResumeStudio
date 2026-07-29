@@ -6,8 +6,19 @@ import { listFolders, FolderError } from '../../server/folders'
 
 let root: string
 
+/**
+ * `listFolders` resolves with `path.resolve`, which normalises a path but does
+ * NOT follow symlinks — and that is the behaviour we want: the picker should
+ * show the user the path they navigated to, not its canonical target.
+ *
+ * The temp root has to be realpath'd HERE instead, because on macOS
+ * `os.tmpdir()` is `/var/folders/…`, which is a symlink to `/private/var/…`.
+ * Comparing the function's output against the un-resolved temp path passed on
+ * Linux and Windows (where the two are identical) and failed only on macOS —
+ * which is exactly where it was caught: in the release build's mac matrix leg.
+ */
 beforeAll(() => {
-  root = fs.mkdtempSync(path.join(os.tmpdir(), 'rs-folders-'))
+  root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'rs-folders-')))
   fs.mkdirSync(path.join(root, 'Beta'))
   fs.mkdirSync(path.join(root, 'alpha'))
   fs.writeFileSync(path.join(root, 'a-file.txt'), 'x') // a file, must be ignored
@@ -23,12 +34,12 @@ describe('listFolders()', () => {
     expect(out.entries.map((e) => e.name)).toEqual(['alpha', 'Beta'])
     // Full paths are absolute and under the root.
     expect(out.entries[0].path).toBe(path.join(root, 'alpha'))
-    expect(out.path).toBe(fs.realpathSync(root))
+    expect(out.path).toBe(root)
   })
 
   it('reports the parent directory', () => {
     const out = listFolders(root)
-    expect(out.parent).toBe(path.dirname(fs.realpathSync(root)))
+    expect(out.parent).toBe(path.dirname(root))
   })
 
   it('defaults to the home directory when given no path', () => {
