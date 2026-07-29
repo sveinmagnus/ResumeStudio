@@ -634,3 +634,66 @@ Full end-user + build docs in **`DESKTOP.md`**. Load-bearing invariants for work
 - **Auto-update = staged-swap, not Electron.** `updater.ts` checks GitHub Releases, downloads the per-platform `.tar.gz` (host-allowlisted — SSRF guard), extracts with system `tar`, validates the tree. To replace files a running process can't overwrite (esp. `node.exe` on Windows) it writes a detached per-OS swap script (`buildSwapScript`) that waits for our PID, mirrors the staged build over `RESUME_INSTALL_DIR`, relaunches, and self-deletes. Gated by `isUpdateSupported()` — VPS reports `supported:false` and 403s (a server must never rewrite its own files). `RESUME_NO_UPDATE` disables; `RESUME_UPDATE_REPO` overrides. Keep `assetNameFor` in `updater.ts` and its copy in `build-desktop.mjs` in sync.
 - **Version source of truth (don't reintroduce the v0.3.2 drift bug).** A *published* build's version is the **git tag** — `release.yml` derives it from `GITHUB_REF_NAME`, exports `RESUME_APP_VERSION`, and **hard-fails if `package.json` doesn't match the tag**. To cut a release: bump `package.json` **and** `package-lock.json`, commit, then tag `vX.Y.Z`. Local `npm run build:desktop` (no env) uses `package.json`.
 - **Windows update UX:** the swap is a **visible PowerShell window** with a progress bar (`Wait-Process`, file-by-file `Copy-Item`); the **relaunch is windowless** via `wscript.exe` (invoked by name — never by file association, which opened a text editor and was the original install bug) running `Resume Studio (no window).vbs`. POSIX stays a detached `sh` script. See `DESKTOP.md §6`.
+
+---
+
+## 15. The advanced (high-end) assists
+
+A second tier of AI features that only appear when the operator has declared the
+configured model **high-end** (`llm_high_end` / `LLM_HIGH_END`). They differ from
+the ordinary assists in kind, not just degree: every earlier assist looks at ONE
+field or ONE item, because that is all a small model can hold. These read the
+whole CV and make comparative judgements about it.
+
+### The gate
+
+- **Declared, never sniffed.** Nothing in a model name reliably reports
+  capability (`claude-opus-4-5` parses to no parameter count; a `compat`
+  endpoint can front anything), and being wrong doesn't fail loudly — a 3B model
+  answers a whole-CV review fluently and wrongly. The settings checkbox is
+  pre-ticked by `llmAssist.looksHighEnd()` but the user always decides; the
+  suggestion stops re-firing once they express an opinion.
+- **Two enforcement points.** Client: `AdvancedAssistCard` (+ `useAdvancedAssist`)
+  renders *nothing* when the flag is off — the ONE place the client checks, so
+  seven features can't each get it wrong. Server: `POST /api/llm/complete` with
+  `advanced: true` **403s** unless the flag is set, and only then grants the
+  bigger budget (240 k prompt chars / 16 k output tokens / 180 s vs 60 k / 4 k /
+  45 s). The server half is what a stale tab can't bypass.
+- Hidden, never disabled — same rule as the rest of the AI surface. A disabled
+  control advertises a feature while refusing it, with the fix three screens away.
+
+### The shared vocabulary (build new advisors on these, don't fork them)
+
+- **`lib/cvFields.ts`** — the key-oriented per-section map of text fields.
+  `prose: false` marks identity fields (customer, employer, school): readable,
+  **never rewritable**. Distinct from `completeness.collectTrackedFields`, which
+  is label-oriented for reporting; a cross-check test pins them together.
+- **`lib/cvDigest.ts`** — the ONE way a CV is rendered into a prompt, so an item
+  id in one advisor's reply resolves in another's validator. `buildBilingualDigest`
+  reads **raw locale slots, never `resolve()`** — the fallback chain would show
+  the English text in the Norwegian column and report perfect agreement.
+- **`lib/assistFindings.ts`** — advisory results (A1/A3/D3). Findings carry NO
+  replacement text; `ask` (a question back to the user) is the escape valve.
+  Unknown references are **dropped with a note, not fatal** (viewTailor's rule).
+- **`lib/assistProposals.ts`** — field rewrites (A2). Carries the original for
+  before/after, refuses non-prose fields, and **re-checks at apply time**: the
+  panel is non-blocking, so a field edited after the run is skipped rather than
+  overwritten. The batch applies through `replaceData` as ONE undo step.
+
+### The seven
+
+| | What | Where |
+|---|---|---|
+| A1 | Whole-CV review → findings | Overview (`CvAdvisors`) |
+| A2 | Consistency & voice → proposals | Overview |
+| A3 | Cross-language MEANING (drift.ts's missing third signal) | Overview, needs a secondary locale |
+| A4 | Achievement mining → highlights / competencies | Overview |
+| D1 | Profile + competency bundle generator | Profiles editor |
+| D2 | View introduction draft | View editor, under the intro field |
+| D3 | "What's missing" per section | Section bar, next to Bulk summarize |
+
+Rules they all keep: **drafts never save** (review, tick, apply); **no invented
+facts** — A4 must quote the sentence supporting each proposal or it is dropped,
+and A2 may change how something is said but never what; **D1 requires a written
+brief** (Run stays disabled without one) because the CV cannot say which career
+you want to be read as having next.

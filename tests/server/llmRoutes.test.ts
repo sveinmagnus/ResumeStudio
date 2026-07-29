@@ -114,6 +114,63 @@ describe('POST /api/llm/complete', () => {
     expect(res.status).toBe(503)
   })
 
+  /**
+   * The advanced gate, server side. The client already hides these features,
+   * but a stale tab or a changed setting must not be able to route a whole-CV
+   * review to a small model: it wouldn't fail, it would answer fluently and
+   * wrongly, and the user would act on the result.
+   */
+  describe('the advanced gate', () => {
+    it('refuses an advanced run when the model is not declared high-end', async () => {
+      configureLocal()
+      const fn = vi.fn()
+      vi.stubGlobal('fetch', fn)
+      const res = await request(app).post('/api/llm/complete').send({ prompt: 'p', advanced: true })
+      expect(res.status).toBe(403)
+      expect(fn).not.toHaveBeenCalled()
+    })
+
+    it('allows it, with the bigger budget, when the flag is set', async () => {
+      configureLocal()
+      vi.stubEnv('LLM_HIGH_END', '1')
+      const fn = vi.fn().mockResolvedValue(chat('ok'))
+      vi.stubGlobal('fetch', fn)
+
+      const res = await request(app).post('/api/llm/complete')
+        .send({ prompt: 'p', advanced: true, max_tokens: 999_999 })
+      expect(res.status).toBe(200)
+      const body = JSON.parse((fn.mock.calls[0][1] as RequestInit).body as string)
+      // The advanced cap, not the ordinary 4096 one.
+      expect(body.max_tokens).toBe(16_384)
+    })
+
+    it('still caps the advanced prompt, well above the ordinary limit', async () => {
+      configureLocal()
+      vi.stubEnv('LLM_HIGH_END', '1')
+      const fn = vi.fn().mockResolvedValue(chat('ok'))
+      vi.stubGlobal('fetch', fn)
+
+      // Over the ordinary 60k cap, under the advanced one: a whole-CV bundle.
+      const ok = await request(app).post('/api/llm/complete')
+        .send({ prompt: 'x'.repeat(100_000), advanced: true })
+      expect(ok.status).toBe(200)
+
+      const tooBig = await request(app).post('/api/llm/complete')
+        .send({ prompt: 'x'.repeat(240_001), advanced: true })
+      expect(tooBig.status).toBe(413)
+    })
+
+    it('does not let the high-end flag raise the ORDINARY budget', async () => {
+      configureLocal()
+      vi.stubEnv('LLM_HIGH_END', '1')
+      const fn = vi.fn()
+      vi.stubGlobal('fetch', fn)
+      const res = await request(app).post('/api/llm/complete').send({ prompt: 'x'.repeat(60_001) })
+      expect(res.status).toBe(413)
+      expect(fn).not.toHaveBeenCalled()
+    })
+  })
+
   it('maps an upstream failure to a safe error without leaking internals', async () => {
     configureLocal()
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 429 }))

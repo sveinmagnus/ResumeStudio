@@ -165,6 +165,28 @@ prescriptive.
   items to cut through `excluded_item_ids` — never rewrites prose to fit);
   **cover-letter body** drafted from the posting + the linked view's filtered
   evidence (see below).
+- **Advanced assists (high-end model only)** — a second AI tier that appears
+  only when the operator ticks "This is a high-end model" (`llm_high_end`).
+  Gated in exactly two places: `AdvancedAssistCard` renders nothing on the
+  client, and `POST /api/llm/complete` 403s an `advanced: true` request on the
+  server (which also grants the bigger budget: 240 k prompt chars / 16 k output
+  tokens / 180 s). Declared rather than detected — a small model answers a
+  whole-CV review fluently and wrongly rather than failing, and no model name
+  reliably reports capability. Shared vocabulary: `lib/cvFields.ts` (which
+  fields are prose and therefore rewritable), `lib/cvDigest.ts` (the one way a
+  CV is rendered into a prompt; the bilingual variant reads RAW locale slots so
+  the fallback chain can't hide the gap it's looking for),
+  `lib/assistFindings.ts` (advisory results — no replacement text, unknown refs
+  dropped not fatal) and `lib/assistProposals.ts` (field rewrites — carries the
+  original, refuses non-prose fields, re-checks at apply time so a field edited
+  after the run is skipped rather than overwritten; one `replaceData` per batch).
+  The seven: **whole-CV review**, **consistency & voice pass**, **cross-language
+  meaning check** (drift.ts's long-noted missing third signal), **achievement
+  mining** (every proposal must quote its supporting sentence or it's dropped),
+  **profile + competency-bundle generator** (requires a written focus brief —
+  Run stays disabled without one, because the CV can't say which career you want
+  to be read as having next), **view introduction draft** (written against the
+  view's FILTERED content) and **per-section "what's missing"**. See CLAUDE.md §15.
 - **Cover letters** (shape v10, `lib/coverLetter.ts` + `CoverLettersEditor`) —
   their OWN entity (`data.cover_letters[]`), a document-builder sibling of
   Resume Views in the Export sidebar group. A letter is per-APPLICATION and

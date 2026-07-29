@@ -59,7 +59,20 @@ describe('<AssistRun>', () => {
       const { onResult } = setup()
       await userEvent.click(await screen.findByRole('button', { name: /run with my ai/i }))
       await waitFor(() => expect(onResult).toHaveBeenCalledWith('{"ok":1}'))
-      expect(complete).toHaveBeenCalledWith('PROMPT', undefined)
+      // Third arg is the advanced flag — false unless the caller asks for it.
+      expect(complete).toHaveBeenCalledWith('PROMPT', undefined, false)
+    })
+
+    /**
+     * The advanced flag is what makes the server grant the high-end budget (and
+     * what makes it 403 when the model isn't declared high-end), so a caller
+     * setting it must actually reach the request.
+     */
+    it('forwards the advanced flag to the server', async () => {
+      const complete = vi.spyOn(api, 'llmComplete').mockResolvedValue('{}')
+      setup({ advanced: true })
+      await userEvent.click(await screen.findByRole('button', { name: /run with my ai/i }))
+      await waitFor(() => expect(complete).toHaveBeenCalledWith('PROMPT', undefined, true))
     })
 
     it('never confirms for a local model, even for a whole-CV task', async () => {

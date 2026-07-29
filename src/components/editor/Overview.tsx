@@ -7,6 +7,7 @@ import { computeDrift } from '../../lib/drift'
 import { freshnessReport, snoozeUntil } from '../../lib/freshness'
 import { wipeLocale } from '../../lib/wipeLocale'
 import { CareerTimeline } from './CareerTimeline'
+import { CvAdvisors } from './CvAdvisors'
 import { useDialog } from '../ui/useDialog'
 
 interface CoreStat { label: string; count: number; key: string }
@@ -357,6 +358,12 @@ export function Overview() {
           }}
         />
       )}
+
+      {/* Whole-CV AI passes. Renders nothing unless the configured model is
+          declared high-end — see AdvancedAssistCard. Placed last: it's a
+          deliberate visit, not something to scroll past on the way to the
+          numbers above. */}
+      <CvAdvisors />
 
       <style>{`
         .ov-hero { margin-bottom: 28px; }

@@ -29,6 +29,7 @@ import { SortableContext, sortableKeyboardCoordinates, verticalListSortingStrate
 import { CSS } from '@dnd-kit/utilities'
 import { RegistryLightbox } from './RegistryCategoryView'
 import { confirmDialog } from '../ui/ConfirmDialog'
+import { ProfileGeneratorPanel } from '../ui/ProfileGeneratorPanel'
 import { UNASSIGNED_GROUP, chipDragId, parseChipDragId, reassignCompetency } from '../../lib/competencyBundles'
 
 /** Current year+month as a YearMonth — the default "To" date for a new course. */
@@ -1352,6 +1353,10 @@ export function ProfileEditor() {
         compact view can lead with the short summary and a detailed one with the
         long. Add several profiles and pick one per view.
       </SectionIntro>
+      {/* Above the list: a generated profile is a starting point for the list
+          below, and it needs the brief typed before it can do anything. Hidden
+          entirely unless the model is declared high-end. */}
+      <ProfileGeneratorPanel />
       <SortBar section="key_qualifications" />
       <SortableList section="key_qualifications" ids={items.map((x) => x.id)} addLabel="Add profile" onAdd={add}>
       {items.map((kq) => (

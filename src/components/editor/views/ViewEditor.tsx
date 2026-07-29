@@ -42,6 +42,7 @@ import { ViewStyleControls } from './ViewStyleControls'
 import { ViewHeaderControls } from './ViewHeaderControls'
 import { ViewFooterControls } from './ViewFooterControls'
 import { Styles } from './Styles'
+import { IntroDraftPanel } from '../../ui/IntroDraftPanel'
 
 // ─── Content sections (excludes non-content + the skill/role registries) ─────
 const CONTENT_SECTIONS = SECTIONS.filter(isExportableSection)
@@ -555,6 +556,7 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
           rows={4}
           placeholder="Write an introduction for this view…"
         />
+        <IntroDraftPanel view={view} onApply={(introduction) => onUpdate({ introduction })} />
       </div>
 
       {/* ── Header ── */}

@@ -50,6 +50,13 @@ interface Props {
   /** Max reply tokens, for tasks that return a lot (a full CV import). */
   maxTokens?: number
   /**
+   * An ADVANCED task (whole-CV review, positioning, …): asks the server for the
+   * high-end budget — bigger prompt, longer reply, longer timeout — which it
+   * grants only if the model is declared high-end. Callers gate their own UI on
+   * `supportsAdvanced` too; this flag is what makes the server agree.
+   */
+  advanced?: boolean
+  /**
    * Does this screen offer a copy-prompt / paste-result path at all? It decides
    * the wording when no model is configured — pointing at "the manual path"
    * when there is none is a dead end.
@@ -69,7 +76,7 @@ interface Props {
 
 export function AssistRun({
   buildPrompt, onResult, wholeCv = false, disabled = false,
-  label = 'Run with my AI', maxTokens, hasManualPath, children,
+  label = 'Run with my AI', maxTokens, advanced = false, hasManualPath, children,
 }: Props) {
   const [status, setStatus] = useState<AssistStatus>(ASSIST_OFF)
   const [loaded, setLoaded] = useState(false)
@@ -103,13 +110,13 @@ export function AssistRun({
 
     setBusy(true)
     try {
-      onResult(await api.llmComplete(prompt, maxTokens))
+      onResult(await api.llmComplete(prompt, maxTokens, advanced))
     } catch (e) {
       setErr((e as Error).message)
     } finally {
       setBusy(false)
     }
-  }, [buildPrompt, onResult, wholeCv, status, maxTokens])
+  }, [buildPrompt, onResult, wholeCv, status, maxTokens, advanced])
 
   // Don't flash the manual-only state before the probe lands.
   if (!loaded) return null

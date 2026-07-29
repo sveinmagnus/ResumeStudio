@@ -5,6 +5,7 @@ import { availableSortModes, SORT_LABELS, type SortMode } from '../../lib/sectio
 import { bulkSpec } from '../../lib/bulkImport'
 import { BulkImportModal } from './BulkImportModal'
 import { SummarizeAllButton } from './SummarizeAllButton'
+import { SectionAdviceButton } from './SectionAdviceButton'
 import { summaryFields } from '../../lib/summarizeBatch'
 import { typeGroups, typeFilterKey, type SelectableItem } from '../../lib/viewItemSelect'
 import type { SectionKey } from '../../types'
@@ -103,6 +104,7 @@ export function SortBar({ section }: { section: ArraySection }) {
       {/* Right-hand group. Bulk add is anchored last so the summarize button —
           which comes and goes with the empty count — never shifts it. */}
       <div className="sortbar-actions">
+        <SectionAdviceButton section={section} />
         <SummarizeAllButton section={section} />
         {spec && (
           <button
