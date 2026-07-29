@@ -128,31 +128,47 @@ export function DualField({ label, value, onChange, multiline, rows = 3, placeho
     const inputId = `${fieldId}-${variant}`
     const localeName = LOCALE_LABELS[locale]?.name || locale
     const ariaLabel = `${label} (${localeName})`
+    // The language is shown as a flag INSIDE the field rather than a label
+    // above it. The old per-column "🇳🇴 Norsk" heading repeated the same two
+    // words above every field on the page — a lot of vertical space spent
+    // saying what the flag says in a corner. `aria-label` still carries the
+    // full language name, so nothing is lost to a screen reader.
+    const flag = LOCALE_LABELS[locale]?.flag
+    const flagEl = flag
+      ? <span className={`df-flag df-flag-${variant}`} aria-hidden="true">{flag}</span>
+      : null
+
     if (multiline) {
       return (
-        <AutoTextarea
-          id={inputId}
-          value={v}
-          rows={rows}
-          placeholder={ph}
-          className={cls}
-          lang={bcp47(locale)}
-          ariaLabel={ariaLabel}
-          onChange={(e) => handleChange(locale, e.target.value)}
-        />
+        <div className="df-input-wrap">
+          <AutoTextarea
+            id={inputId}
+            value={v}
+            rows={rows}
+            placeholder={ph}
+            className={`${cls} df-has-flag`}
+            lang={bcp47(locale)}
+            ariaLabel={ariaLabel}
+            onChange={(e) => handleChange(locale, e.target.value)}
+          />
+          {flagEl}
+        </div>
       )
     }
     return (
-      <input
-        id={inputId}
-        type="text"
-        value={v}
-        placeholder={ph}
-        className={cls}
-        lang={bcp47(locale)}
-        aria-label={ariaLabel}
-        onChange={(e) => handleChange(locale, e.target.value)}
-      />
+      <div className="df-input-wrap">
+        <input
+          id={inputId}
+          type="text"
+          value={v}
+          placeholder={ph}
+          className={`${cls} df-has-flag`}
+          lang={bcp47(locale)}
+          aria-label={ariaLabel}
+          onChange={(e) => handleChange(locale, e.target.value)}
+        />
+        {flagEl}
+      </div>
     )
   }
 
@@ -225,19 +241,13 @@ export function DualField({ label, value, onChange, multiline, rows = 3, placeho
       <label className="df-label" htmlFor={`${fieldId}-primary`}>{label}</label>
       <div className={`df-grid ${secondary ? 'df-dual' : 'df-single'}`}>
         <div className="df-col">
-          <div className="df-col-head">
-            <span className="df-locale-tag df-tag-primary">{LOCALE_LABELS[primary]?.flag} {LOCALE_LABELS[primary]?.name || primary}</span>
-            {renderAssist(primary, secondary ?? null)}
-          </div>
+          <div className="df-col-head">{renderAssist(primary, secondary ?? null)}</div>
           {renderInput(primary, 'primary')}
           {renderNotes(primary)}
         </div>
         {secondary && (
           <div className="df-col">
-            <div className="df-col-head">
-              <span className="df-locale-tag df-tag-secondary">{LOCALE_LABELS[secondary]?.flag} {LOCALE_LABELS[secondary]?.name || secondary}</span>
-              {renderAssist(secondary, primary)}
-            </div>
+            <div className="df-col-head">{renderAssist(secondary, primary)}</div>
             {renderInput(secondary, 'secondary')}
             {renderNotes(secondary)}
           </div>
@@ -262,15 +272,21 @@ export function DualField({ label, value, onChange, multiline, rows = 3, placeho
           .df-dual { grid-template-columns: 1fr; }
         }
         .df-col { display: flex; flex-direction: column; gap: 4px; position: relative; }
-        .df-col-head {
-          display: flex; align-items: center; justify-content: space-between;
-          gap: 8px; min-height: 20px;
+        /* Only holds the assist chips now, and only while the column is empty
+           — so it collapses to nothing on a filled field instead of reserving a
+           row for a label. */
+        .df-col-head { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+        .df-col-head:empty { display: none; }
+
+        /* The language flag, floated inside the field's top-right corner. */
+        .df-input-wrap { position: relative; display: flex; flex-direction: column; }
+        .df-flag {
+          position: absolute; top: 7px; right: 9px;
+          font-size: 12px; line-height: 1; pointer-events: none;
+          opacity: .75;
         }
-        .df-locale-tag {
-          font-size: 11px; font-weight: 600; letter-spacing: .04em;
-          color: var(--ink-faint); display: flex; align-items: center; gap: 4px;
-        }
-        .df-tag-secondary { color: var(--secondary-ink-text); }
+        /* Room for the flag so long text doesn't run under it. */
+        .df-has-flag { padding-right: 30px; }
         .df-actions { display: flex; align-items: center; gap: 4px; }
         .df-assist-btn {
           display: inline-flex; align-items: center; gap: 4px;

@@ -367,13 +367,11 @@ function RichColumn({ variant, locale, fieldLabel, html, onCommit, placeholder, 
 
   return (
     <div className={`rf-col rf-col-${variant}`}>
-      <div className="rf-col-head">
-        <span className={`rf-locale-tag rf-tag-${variant}`}>
-          {LOCALE_LABELS[locale]?.flag} {LOCALE_LABELS[locale]?.name || locale}
-        </span>
-        {header}
-      </div>
-      <Toolbar onCmd={exec} active={fmt} />
+      {/* The language name used to live here, above every column of every
+          rich field. It's now the flag in the formatting bar's top-right —
+          same information, no row spent on it. */}
+      <div className="rf-col-head">{header}</div>
+      <Toolbar onCmd={exec} active={fmt} flag={LOCALE_LABELS[locale]?.flag} />
       <div
         ref={editorRef}
         className={`rf-input rf-${variant} ${isEmpty ? 'rf-empty' : ''}`}
@@ -396,15 +394,10 @@ function RichColumn({ variant, locale, fieldLabel, html, onCommit, placeholder, 
 
       <style>{`
         .rf-col { display: flex; flex-direction: column; gap: 4px; position: relative; }
-        .rf-col-head {
-          display: flex; align-items: center; justify-content: space-between;
-          gap: 8px; min-height: 20px;
-        }
-        .rf-locale-tag {
-          font-size: 11px; font-weight: 600; letter-spacing: .04em;
-          color: var(--ink-faint); display: flex; align-items: center; gap: 4px;
-        }
-        .rf-tag-secondary { color: var(--secondary-ink-text); }
+        /* Only the assist chips now, and only while the column is empty, so it
+           collapses instead of reserving a row for a label. */
+        .rf-col-head { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+        .rf-col-head:empty { display: none; }
         .rf-input {
           min-height: 72px; padding: 9px 11px;
           background: var(--paper-raised);
@@ -438,7 +431,11 @@ type Cmd =
 
 interface ToolbarActive { bold: boolean; italic: boolean; underline: boolean; inList: boolean }
 
-function Toolbar({ onCmd, active }: { onCmd: (c: Cmd) => void; active: ToolbarActive }) {
+function Toolbar({ onCmd, active, flag }: {
+  onCmd: (c: Cmd) => void; active: ToolbarActive
+  /** The column's language flag, parked in the bar's top-right corner. */
+  flag?: string
+}) {
   return (
     <div className="rf-toolbar" role="toolbar" aria-label="Formatting">
       <ToolBtn label="Bold (Ctrl+B)" pressed={active.bold} onClick={() => onCmd('bold')}><Bold size={13} /></ToolBtn>
@@ -449,6 +446,9 @@ function Toolbar({ onCmd, active }: { onCmd: (c: Cmd) => void; active: ToolbarAc
       <ToolBtn label="Numbered list" onClick={() => onCmd('insertOrderedList')}><ListOrdered size={13} /></ToolBtn>
       <ToolBtn label="Increase indent (Tab)" disabled={!active.inList} onClick={() => onCmd('indent')}><IndentIncrease size={13} /></ToolBtn>
       <ToolBtn label="Decrease indent (Shift+Tab)" disabled={!active.inList} onClick={() => onCmd('outdent')}><IndentDecrease size={13} /></ToolBtn>
+      {/* aria-hidden: the editor below already carries the language in its
+          accessible name and its `lang`, so this is decoration. */}
+      {flag && <span className="rf-tb-flag" aria-hidden="true">{flag}</span>}
       <style>{`
         .rf-toolbar {
           display: flex; align-items: center; gap: 2px;
@@ -459,6 +459,7 @@ function Toolbar({ onCmd, active }: { onCmd: (c: Cmd) => void; active: ToolbarAc
         .rf-tb-sep {
           width: 1px; height: 16px; background: var(--line); margin: 0 4px;
         }
+        .rf-tb-flag { margin-left: auto; padding-right: 4px; font-size: 12px; line-height: 1; opacity: .75; }
         .rf-input { border-top-left-radius: 0; border-top-right-radius: 0; margin-top: -1px; }
       `}</style>
     </div>
