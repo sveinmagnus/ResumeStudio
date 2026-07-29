@@ -50,11 +50,15 @@ The full catalog with per-feature design detail is in
   OpenAI-compat endpoint, both Bearer-auth); **anthropic** is the native
   **Messages** API (`x-api-key`+`anthropic-version`, top-level `system`, no
   `temperature` — current Claude models reject it, `content[].text` reply). The
-  Ollama model field is a datalist over `lib/ollamaCatalog.ts` (curated
-  open-weight shortlist + sizes) merged with what the instance has pulled (`GET
-  /api/llm/models`) with a Refresh button; the hosted providers get a
-  static curated shortlist (`lib/cloudModelCatalog.ts`). Both stay free-text, so
-  any model id works. The same model can also power **translation**
+  model field is a free-text input plus a **controlled pick-list**
+  (`settings/ModelField.tsx`) of what the provider actually offers, fetched by
+  `server/llmModels.ts` (`GET /api/llm/models`, or a POST carrying the pending
+  form values so a just-pasted key works before Save). **No hardcoded hosted
+  model ids** — a curated shortlist rots and fails late (`gemini-2.5-flash` was
+  offered after Google retired it). Ollama keeps `lib/ollamaCatalog.ts` only
+  because it carries DOWNLOAD SIZES no endpoint reports. Not a `<datalist>`:
+  browsers filter those by the input's current value, so the list vanished once
+  a model was picked. The same model can also power **translation**
   (`translate_provider: 'llm'`) and the **writing coach** instead of a separate
   engine — `llm.ts → chatComplete()` is the one shared chat round-trip.
   **Config is named `llm_*` / `LLM_*`, never `summarize_*`** — the model powers
@@ -712,6 +716,39 @@ what it deletes and how many references it rewrites, and a confirm names the
 totals before `applyHygiene` runs. It also never re-categorises a skill the user
 placed themselves. A registry merge is the most destructive act in the app and
 the least noticeable when wrong.
+
+### Advisor runs outlive the page (`store/useAdvisors.ts`)
+
+An advisor run costs real tokens and can take a minute, and every result invites
+you to navigate away (each finding has an "Open" button). So runs do NOT live in
+component state:
+
+- **A separate store from `useStore`** — advisor state must never be auto-saved,
+  synced, snapshotted or pushed onto the undo stack, and living in the resume
+  store would do all four.
+- **The RAW reply is stored, not the parsed result.** Validators resolve ids
+  against the live CV, so re-parsing on render means a finding about an item you
+  since deleted drops out by itself — no invalidation logic to get wrong.
+- **Resolution is per suggestion** (`resolved: Record<key, 'accepted'|'dismissed'>`).
+  Accepting one of five must leave four; that was the reported bug.
+- Persisted to localStorage (7-day expiry) so a reload doesn't bin paid-for work.
+  A run that was in flight when the tab closed restores as an ERROR, never as a
+  spinner nothing can finish.
+- `AssistRun` takes an optional `advisor={{id, resumeId}}`: with it, the request
+  is fired into the store and the component can unmount mid-flight.
+  `components/ui/AdvisorToast.tsx` is mounted at APP level so the "ready"
+  notice reaches you wherever you went.
+
+Wired for the five Overview advisors (A1–A4, B1). The other panels (D1/D2/D3,
+B4, C4) still hold their results locally — same mechanism applies if that
+becomes annoying.
+
+**A4 fills both language columns.** An accepted achievement is translated into
+the secondary locale (`lib/achievementTranslate.ts`, via the ordinary Draft path
+so it carries the C3 glossary) before the write, because a highlight landing in
+one column silently makes the other version of the CV say less. Best-effort: no
+translator configured means primary-only, which is what happened unconditionally
+before.
 
 ### C3 — the invisible glossary (NOT gated; helps the small-model path)
 

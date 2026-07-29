@@ -12,9 +12,10 @@
  * document.
  */
 
-import { useCallback, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Target, ArrowRight, CircleCheck, CircleDashed, CircleX } from 'lucide-react'
 import { useStore } from '../../store/useStore'
+import { selectRun, useAdvisors } from '../../store/useAdvisors'
 import { AssistRun } from './AssistRun'
 import { AdvancedAssistCard } from './AdvancedAssistCard'
 import { extractJson } from '../../lib/llmAssist'
@@ -42,18 +43,27 @@ export function JobFitPanel() {
   const setActiveSection = useStore((s) => s.setActiveSection)
   const setExpandedItem = useStore((s) => s.setExpandedItem)
 
+  const resumeId = useStore((s) => s.currentResumeId) ?? ''
+  const run = useAdvisors((s) => selectRun(s.runs, 'jobfit', resumeId))
+  const markSeen = useAdvisors((s) => s.markSeen)
+  const clearRun = useAdvisors((s) => s.clear)
   const [posting, setPosting] = useState('')
-  const [result, setResult] = useState<JobFitResult | null>(null)
-  const [error, setError] = useState<string | null>(null)
 
-  const onResult = useCallback((text: string) => {
-    setError(null); setResult(null)
+  // Looking at the panel is seeing the result — that's what clears the toast.
+  useEffect(() => {
+    if (run && run.status !== 'running' && !run.seen) markSeen('jobfit', resumeId)
+  }, [run, resumeId, markSeen])
+
+  // Parsed from the stored reply on each render, so the report survives
+  // navigating off to fix one of the gaps it just told you about.
+  const { result, error } = useMemo(() => {
+    if (!run?.raw) return { result: null as JobFitResult | null, error: null as string | null }
     try {
-      setResult(validateJobFit(JSON.parse(extractJson(text)), data, locale))
+      return { result: validateJobFit(JSON.parse(extractJson(run.raw)), data, locale), error: null }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'The reply could not be read.')
+      return { result: null, error: e instanceof Error ? e.message : 'The reply could not be read.' }
     }
-  }, [data, locale])
+  }, [run?.raw, data, locale])
 
   const jump = (section: string, itemId: string) => {
     setActiveSection(section)
@@ -86,12 +96,12 @@ export function JobFitPanel() {
 
       <AssistRun
         buildPrompt={() => buildJobFitPrompt(data, locale, posting)}
-        onResult={onResult}
         label="Check the fit"
         maxTokens={8000}
         advanced
         wholeCv
         disabled={!ready}
+        advisor={{ id: 'jobfit', resumeId }}
         hasManualPath={false}
       />
       {!ready && posting.trim().length > 0 && (
@@ -101,6 +111,10 @@ export function JobFitPanel() {
 
       {result && (
         <div className="jfp-report">
+          <div className="jfp-report-bar">
+            <span className="jfp-kept">Kept until you clear it — safe to go and fix things.</span>
+            <button className="jfp-clear" onClick={() => clearRun('jobfit', resumeId)}>Clear report</button>
+          </div>
           {result.verdict && <p className="jfp-verdict">{result.verdict}</p>}
 
           {tally && (
@@ -160,6 +174,14 @@ export function JobFitPanel() {
         .jfp-hint { margin: 0; font-size: 12px; color: var(--warn-ink); }
         .jfp-err { margin: 0; font-size: 12.5px; color: var(--err-ink); line-height: 1.45; }
         .jfp-report { display: flex; flex-direction: column; gap: 10px; }
+        .jfp-report-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+        .jfp-kept { font-size: 11.5px; color: var(--ink-faint); }
+        .jfp-clear {
+          padding: 3px 9px; border-radius: var(--r-sm); cursor: pointer;
+          font-size: 12px; font-weight: 600;
+          border: 1px solid var(--line); background: var(--paper); color: var(--ink-soft);
+        }
+        .jfp-clear:hover { border-color: var(--line-strong); color: var(--ink); }
         .jfp-verdict {
           margin: 0; padding: 10px 12px; font-size: 13px; line-height: 1.55;
           background: var(--paper-sunken); border-left: 3px solid var(--accent);

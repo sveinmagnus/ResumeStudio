@@ -12,10 +12,11 @@
  * goes to die.
  */
 
-import { AlertTriangle, Info, CircleAlert, HelpCircle, ArrowRight, CheckCircle2 } from 'lucide-react'
+import { AlertTriangle, Info, CircleAlert, HelpCircle, ArrowRight, CheckCircle2, Check } from 'lucide-react'
 import type { Finding, FindingsResult } from '../../lib/assistFindings'
 import { sectionLabel } from '../../lib/sections'
 import { useStore } from '../../store/useStore'
+import { unresolved, type AdvisorRun } from '../../store/useAdvisors'
 
 const SEVERITY_ICON = {
   high: <CircleAlert size={13} />,
@@ -25,15 +26,26 @@ const SEVERITY_ICON = {
 
 interface Props {
   result: FindingsResult | null
+  /** The stored run, so findings already dealt with stay gone. */
+  run?: AdvisorRun
+  /** Mark one finding done. Without it the list is read-only (older callers). */
+  onResolve?: (key: string, how: 'accepted' | 'dismissed') => void
   /** Shown when a run returned nothing — phrased per caller. */
   emptyText?: string
 }
 
-export function AssistFindingsPanel({ result, emptyText = 'Nothing to flag — this reads well.' }: Props) {
+export function AssistFindingsPanel({
+  result, run, onResolve, emptyText = 'Nothing to flag — this reads well.',
+}: Props) {
   const setActiveSection = useStore((s) => s.setActiveSection)
   const setExpandedItem = useStore((s) => s.setExpandedItem)
 
   if (!result) return null
+
+  // Findings the user has already worked through stay gone — including across
+  // the navigation that acting on one requires.
+  const findings = unresolved(result.findings, run)
+  const doneCount = result.findings.length - findings.length
 
   const jump = (f: Finding) => {
     setActiveSection(f.section)
@@ -42,13 +54,20 @@ export function AssistFindingsPanel({ result, emptyText = 'Nothing to flag — t
 
   return (
     <div className="afp">
-      {result.findings.length === 0 && (
-        <p className="afp-empty"><CheckCircle2 size={14} /> {emptyText}</p>
+      {findings.length === 0 && (
+        <p className="afp-empty">
+          <CheckCircle2 size={14} />
+          {doneCount > 0 ? `All ${doneCount} finding(s) dealt with.` : emptyText}
+        </p>
       )}
 
-      {result.findings.length > 0 && (
+      {doneCount > 0 && findings.length > 0 && (
+        <p className="afp-done">{doneCount} already dealt with.</p>
+      )}
+
+      {findings.length > 0 && (
         <ul className="afp-list">
-          {result.findings.map((f) => (
+          {findings.map((f) => (
             <li key={f.key} className={`afp-item afp-${f.severity}`}>
               <div className="afp-row">
                 <span className="afp-sev" aria-label={`${f.severity} priority`}>{SEVERITY_ICON[f.severity]}</span>
@@ -63,10 +82,18 @@ export function AssistFindingsPanel({ result, emptyText = 'Nothing to flag — t
                     <p className="afp-ask"><HelpCircle size={12} /> {f.ask}</p>
                   )}
                 </div>
-                <button className="afp-jump" onClick={() => jump(f)}
-                  aria-label={`Open ${f.itemLabel || sectionLabel(f.section)}`}>
-                  Open <ArrowRight size={12} />
-                </button>
+                <div className="afp-acts">
+                  <button className="afp-jump" onClick={() => jump(f)}
+                    aria-label={`Open ${f.itemLabel || sectionLabel(f.section)}`}>
+                    Open <ArrowRight size={12} />
+                  </button>
+                  {onResolve && (
+                    <button className="afp-done-btn" onClick={() => onResolve(f.key, 'dismissed')}
+                      aria-label={`Mark done: ${f.title}`} title="Mark as dealt with">
+                      <Check size={12} /> Done
+                    </button>
+                  )}
+                </div>
               </div>
             </li>
           ))}
@@ -115,6 +142,15 @@ export function AssistFindingsPanel({ result, emptyText = 'Nothing to flag — t
           border: 1px solid var(--line); background: var(--paper-sunken); color: var(--ink-soft);
         }
         .afp-jump:hover { border-color: var(--accent); color: var(--accent); }
+        .afp-acts { display: flex; flex-direction: column; gap: 4px; flex-shrink: 0; }
+        .afp-done-btn {
+          display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+          padding: 4px 9px; border-radius: var(--r-sm); cursor: pointer;
+          font-size: 12px; font-weight: 600;
+          border: 1px solid var(--line); background: var(--paper); color: var(--ink-faint);
+        }
+        .afp-done-btn:hover { border-color: var(--ok-ink); color: var(--ok-ink); }
+        .afp-done { margin: 0; font-size: 11.5px; color: var(--ink-faint); }
         .afp-dropped { font-size: 11.5px; color: var(--ink-faint); }
         .afp-dropped summary { cursor: pointer; }
         .afp-dropped ul { margin: 6px 0 0; padding-left: 18px; }

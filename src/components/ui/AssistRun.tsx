@@ -23,6 +23,7 @@ import { Sparkles, Loader2, AlertTriangle, Info, ShieldCheck, ChevronDown } from
 import { api, type AssistStatus, ASSIST_OFF } from '../../lib/api'
 import { getAssistStatus } from '../../lib/llmClient'
 import { providerBlurb, sizeHint, isRemote, MANUAL_BLURB } from '../../lib/llmAssist'
+import { selectRun, startAdvisor, useAdvisors, type AdvisorId } from '../../store/useAdvisors'
 import { confirmDialog } from './ConfirmDialog'
 
 /**
@@ -40,8 +41,19 @@ interface Props {
    * the prompt live as the user types/pastes) — keep it cheap-ish and pure.
    */
   buildPrompt: () => string
-  /** The model's raw reply. The caller validates it exactly as it validates a paste. */
-  onResult: (text: string) => void
+  /**
+   * The model's raw reply. The caller validates it exactly as it validates a
+   * paste. Not used when `advisor` is set — the reply goes to the advisor store
+   * instead, and the panel reads it from there.
+   */
+  onResult?: (text: string) => void
+  /**
+   * Run through the advisor store rather than local state, so the request
+   * survives the user navigating away mid-flight and the reply is still there
+   * when they come back. See `store/useAdvisors.ts` — this is what stops a
+   * minute-long, paid-for run being thrown away by a click.
+   */
+  advisor?: { id: AdvisorId; resumeId: string }
   /** True when the prompt carries the whole CV — gates the once-per-session confirm. */
   wholeCv?: boolean
   disabled?: boolean
@@ -76,12 +88,18 @@ interface Props {
 
 export function AssistRun({
   buildPrompt, onResult, wholeCv = false, disabled = false,
-  label = 'Run with my AI', maxTokens, advanced = false, hasManualPath, children,
+  label = 'Run with my AI', maxTokens, advanced = false, advisor, hasManualPath, children,
 }: Props) {
   const [status, setStatus] = useState<AssistStatus>(ASSIST_OFF)
   const [loaded, setLoaded] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const [err, setErr] = useState<string | null>(null)
+  const [localBusy, setLocalBusy] = useState(false)
+  const [localErr, setLocalErr] = useState<string | null>(null)
+
+  // With an advisor, busy/error are properties of the RUN, not of this
+  // component — that's the whole point: unmounting must not lose them.
+  const storedRun = useAdvisors((s) => (advisor ? selectRun(s.runs, advisor.id, advisor.resumeId) : undefined))
+  const busy = advisor ? storedRun?.status === 'running' : localBusy
+  const err = advisor ? (storedRun?.status === 'error' ? storedRun.error ?? null : null) : localErr
   // Manual is the only path with no model, so it starts open in that case.
   const [manualOpen, setManualOpen] = useState(false)
 
@@ -92,7 +110,7 @@ export function AssistRun({
   }, [])
 
   const run = useCallback(async () => {
-    setErr(null)
+    setLocalErr(null)
     const prompt = buildPrompt()
     if (!prompt.trim()) return
 
@@ -108,15 +126,22 @@ export function AssistRun({
       remoteConsent = true
     }
 
-    setBusy(true)
-    try {
-      onResult(await api.llmComplete(prompt, maxTokens, advanced))
-    } catch (e) {
-      setErr((e as Error).message)
-    } finally {
-      setBusy(false)
+    if (advisor) {
+      // Fire and forget: the store owns the request from here, so this
+      // component can unmount without cancelling anything.
+      void startAdvisor(advisor.id, advisor.resumeId, prompt, { maxTokens, advanced })
+      return
     }
-  }, [buildPrompt, onResult, wholeCv, status, maxTokens, advanced])
+
+    setLocalBusy(true)
+    try {
+      onResult?.(await api.llmComplete(prompt, maxTokens, advanced))
+    } catch (e) {
+      setLocalErr((e as Error).message)
+    } finally {
+      setLocalBusy(false)
+    }
+  }, [buildPrompt, onResult, wholeCv, status, maxTokens, advanced, advisor])
 
   // Don't flash the manual-only state before the probe lands.
   if (!loaded) return null

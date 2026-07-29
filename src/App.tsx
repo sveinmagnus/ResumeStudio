@@ -7,6 +7,7 @@ import { ErrorBoundary } from './components/ErrorBoundary'
 import { AuthGate } from './components/AuthGate'
 import { AppHeader } from './components/AppHeader'
 import { Sidebar } from './components/layout/Sidebar'
+import { AdvisorToast } from './components/ui/AdvisorToast'
 import { SECTIONS, canonicalSectionKey } from './lib/sections'
 import { Overview } from './components/editor/Overview'
 import { HeaderEditor } from './components/editor/HeaderEditor'
@@ -207,6 +208,9 @@ function EditorRoute({ resumeId, routeSection, routeViewId, onUnauthorized }: {
           pane (WCAG 2.4.1). Visible only while focused — see index.css. */}
       <a className="skip-link" href="#main-content">Skip to content</a>
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      {/* App-level on purpose: an advisor run finishing has to reach you
+          wherever you navigated to while the model was thinking. */}
+      <AdvisorToast />
       <main className="app-main">
         <AppHeader
           resumeId={resumeId}

@@ -13,11 +13,14 @@
  * this entire block is simply absent.
  */
 
-import { useCallback, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   ClipboardCheck, PenLine, Languages, Trophy, Check, CheckCheck, Square, X, Quote,
 } from 'lucide-react'
 import { useStore } from '../../store/useStore'
+import {
+  selectRun, unresolved, useAdvisors, type AdvisorId,
+} from '../../store/useAdvisors'
 import { AssistRun } from '../ui/AssistRun'
 import { AdvancedAssistCard, useAdvancedAssist } from '../ui/AdvancedAssistCard'
 import { AssistFindingsPanel } from '../ui/AssistFindingsPanel'
@@ -33,23 +36,51 @@ import {
   applyAchievements, buildMiningPrompt, validateMining,
   type Achievement, type MiningResult,
 } from '../../lib/achievementMining'
+import { translateAchievements } from '../../lib/achievementTranslate'
 import { sectionLabel } from '../../lib/sections'
 
-/** Shared reply handling: parse, or surface why it couldn't be read. */
-function useReply<T>(parse: (text: string) => T) {
-  const [result, setResult] = useState<T | null>(null)
-  const [error, setError] = useState<string | null>(null)
+/**
+ * Read a stored advisor run and parse it, keeping only the suggestions the user
+ * hasn't already dealt with.
+ *
+ * Parsing on every render rather than at reply time is deliberate: the
+ * validators resolve ids against the LIVE CV, so a finding about an item you
+ * deleted (or already fixed) falls out by itself, with no invalidation logic to
+ * get wrong. The raw reply is the only thing stored.
+ */
+function useAdvisorRun<T>(id: AdvisorId, parse: (json: unknown) => T) {
+  const resumeId = useStore((s) => s.currentResumeId) ?? ''
+  const run = useAdvisors((s) => selectRun(s.runs, id, resumeId))
+  const markSeen = useAdvisors((s) => s.markSeen)
+  const clear = useAdvisors((s) => s.clear)
+  const resolve = useAdvisors((s) => s.resolve)
+  const resolveMany = useAdvisors((s) => s.resolveMany)
 
-  const onResult = useCallback((text: string) => {
-    setError(null); setResult(null)
+  // Looking at the panel IS seeing the result — that's what clears the toast.
+  useEffect(() => {
+    if (run && run.status !== 'running' && !run.seen) markSeen(id, resumeId)
+  }, [run, id, resumeId, markSeen])
+
+  const parsed = useMemo(() => {
+    if (!run?.raw) return { result: null as T | null, error: null as string | null }
     try {
-      setResult(parse(JSON.parse(extractJson(text))))
+      return { result: parse(JSON.parse(extractJson(run.raw))), error: null }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'The reply could not be read.')
+      return { result: null, error: e instanceof Error ? e.message : 'The reply could not be read.' }
     }
-  }, [parse])
+    // `parse` closes over the live store, so re-run whenever the run changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [run?.raw, run?.resolved])
 
-  return { result, error, onResult, clear: () => { setResult(null); setError(null) } }
+  return {
+    resumeId,
+    run,
+    result: parsed.result,
+    parseError: parsed.error,
+    resolve: (key: string, how: 'accepted' | 'dismissed') => resolve(id, resumeId, key, how),
+    resolveMany: (keys: readonly string[], how: 'accepted' | 'dismissed') => resolveMany(id, resumeId, keys, how),
+    clear: () => clear(id, resumeId),
+  }
 }
 
 function ErrorLine({ error }: { error: string | null }) {
@@ -62,8 +93,8 @@ function ErrorLine({ error }: { error: string | null }) {
 function CvReview() {
   const data = useStore((s) => s.data)
   const locale = useStore((s) => s.primaryLocale)
-  const { result, error, onResult } = useReply<FindingsResult>(
-    (json) => validateFindings(json, data, locale),
+  const { resumeId, run, result, parseError, resolve } = useAdvisorRun<FindingsResult>(
+    'review', (json) => validateFindings(json, data, locale),
   )
 
   return (
@@ -78,15 +109,20 @@ function CvReview() {
     >
       <AssistRun
         buildPrompt={() => buildCvReviewPrompt(data, locale)}
-        onResult={onResult}
         label="Review my CV"
         maxTokens={6000}
         advanced
         wholeCv
+        advisor={{ id: 'review', resumeId }}
         hasManualPath={false}
       />
-      <ErrorLine error={error} />
-      <AssistFindingsPanel result={result} emptyText="Nothing to flag — this CV reads well." />
+      <ErrorLine error={parseError} />
+      <AssistFindingsPanel
+        result={result}
+        run={run}
+        onResolve={resolve}
+        emptyText="Nothing to flag — this CV reads well."
+      />
     </AdvancedAssistCard>
   )
 }
@@ -96,8 +132,8 @@ function CvReview() {
 function VoicePass() {
   const data = useStore((s) => s.data)
   const locale = useStore((s) => s.primaryLocale)
-  const { result, error, onResult, clear } = useReply<ProposalsResult>(
-    (json) => validateProposals(json, data, locale),
+  const { resumeId, run, result, parseError, resolveMany } = useAdvisorRun<ProposalsResult>(
+    'voice', (json) => validateProposals(json, data, locale),
   )
 
   return (
@@ -113,15 +149,15 @@ function VoicePass() {
     >
       <AssistRun
         buildPrompt={() => buildVoicePassPrompt(data, locale)}
-        onResult={onResult}
         label="Check my writing"
         maxTokens={12000}
         advanced
         wholeCv
+        advisor={{ id: 'voice', resumeId }}
         hasManualPath={false}
       />
-      <ErrorLine error={error} />
-      <AssistProposalsPanel result={result} onDone={clear} />
+      <ErrorLine error={parseError} />
+      <AssistProposalsPanel result={result} run={run} onResolve={resolveMany} />
     </AdvancedAssistCard>
   )
 }
@@ -132,8 +168,8 @@ function SemanticDrift() {
   const data = useStore((s) => s.data)
   const primary = useStore((s) => s.primaryLocale)
   const secondary = useStore((s) => s.secondaryLocale)
-  const { result, error, onResult } = useReply<FindingsResult>(
-    (json) => validateFindings(json, data, primary),
+  const { resumeId, run, result, parseError, resolve } = useAdvisorRun<FindingsResult>(
+    'drift', (json) => validateFindings(json, data, primary),
   )
 
   // Nothing to compare with one language on screen. Hidden rather than
@@ -153,15 +189,20 @@ function SemanticDrift() {
     >
       <AssistRun
         buildPrompt={() => buildSemanticDriftPrompt(data, primary, secondary)}
-        onResult={onResult}
         label="Compare the languages"
         maxTokens={6000}
         advanced
         wholeCv
+        advisor={{ id: 'drift', resumeId }}
         hasManualPath={false}
       />
-      <ErrorLine error={error} />
-      <AssistFindingsPanel result={result} emptyText="The two languages agree." />
+      <ErrorLine error={parseError} />
+      <AssistFindingsPanel
+        result={result}
+        run={run}
+        onResolve={resolve}
+        emptyText="The two languages agree."
+      />
     </AdvancedAssistCard>
   )
 }
@@ -171,13 +212,17 @@ function SemanticDrift() {
 function AchievementMining() {
   const data = useStore((s) => s.data)
   const locale = useStore((s) => s.primaryLocale)
+  const secondary = useStore((s) => s.secondaryLocale)
   const replaceData = useStore((s) => s.replaceData)
   const [accepted, setAccepted] = useState<Set<string>>(new Set())
-  const { result, error, onResult, clear } = useReply<MiningResult>(
-    (json) => validateMining(json, data, locale),
+  const [applying, setApplying] = useState(false)
+  const { resumeId, run, result, parseError, resolveMany } = useAdvisorRun<MiningResult>(
+    'achievements', (json) => validateMining(json, data, locale),
   )
 
-  const items = result?.achievements ?? []
+  // Only what the user hasn't already dealt with — accepting one suggestion
+  // must not discard the other four.
+  const items = unresolved(result?.achievements ?? [], run)
   const chosen = items.filter((a) => accepted.has(a.key))
   const allOn = items.length > 0 && accepted.size === items.length
 
@@ -187,12 +232,27 @@ function AchievementMining() {
     return next
   })
 
-  const apply = () => {
-    if (!chosen.length) return
-    const { data: next } = applyAchievements(data, chosen, locale)
-    replaceData(next)
+  const apply = async () => {
+    if (!chosen.length || applying) return
+    setApplying(true)
+    try {
+      // Translate first so the write fills BOTH language columns at once — a
+      // highlight that lands in one column makes the other version of the CV
+      // silently say less. Best-effort: no translator configured just means
+      // primary-only, which is what used to happen unconditionally.
+      const ready = await translateAchievements(data, chosen, locale, secondary)
+      const { data: next } = applyAchievements(data, ready, locale)
+      replaceData(next)
+      resolveMany(chosen.map((a) => a.key), 'accepted')
+      setAccepted(new Set())
+    } finally {
+      setApplying(false)
+    }
+  }
+
+  const dismissAll = () => {
+    resolveMany(items.map((a) => a.key), 'dismissed')
     setAccepted(new Set())
-    clear()
   }
 
   return (
@@ -208,14 +268,14 @@ function AchievementMining() {
     >
       <AssistRun
         buildPrompt={() => buildMiningPrompt(data, locale)}
-        onResult={onResult}
         label="Find achievements"
         maxTokens={8000}
         advanced
         wholeCv
+        advisor={{ id: 'achievements', resumeId }}
         hasManualPath={false}
       />
-      <ErrorLine error={error} />
+      <ErrorLine error={parseError} />
 
       {result && items.length === 0 && (
         <p className="cva-ok"><Check size={14} /> Nothing buried — your highlights already carry the results.</p>
@@ -250,11 +310,11 @@ function AchievementMining() {
           </ul>
 
           <div className="cva-actions">
-            <button className="cva-apply" onClick={apply} disabled={!chosen.length}>
-              <Check size={13} /> Add {chosen.length || ''} selected
+            <button className="cva-apply" onClick={() => void apply()} disabled={!chosen.length || applying}>
+              <Check size={13} /> {applying ? 'Adding…' : `Add ${chosen.length || ''} selected`}
             </button>
-            <button className="cva-discard" onClick={() => { setAccepted(new Set()); clear() }}>
-              <X size={13} /> Discard all
+            <button className="cva-discard" onClick={dismissAll} disabled={applying}>
+              <X size={13} /> Dismiss the rest
             </button>
           </div>
         </div>

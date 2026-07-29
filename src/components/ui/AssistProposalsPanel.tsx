@@ -15,20 +15,25 @@ import type { Proposal, ProposalsResult } from '../../lib/assistProposals'
 import { applyProposals } from '../../lib/assistProposals'
 import { sectionLabel } from '../../lib/sections'
 import { useStore } from '../../store/useStore'
+import { unresolved, type AdvisorRun } from '../../store/useAdvisors'
 
 interface Props {
   result: ProposalsResult | null
-  /** Clear the panel after a successful apply. */
-  onDone: () => void
+  /** The stored run, so applied/dismissed rewrites stay gone. */
+  run?: AdvisorRun
+  /** Mark rewrites done. Applying some must leave the rest on screen. */
+  onResolve?: (keys: readonly string[], how: 'accepted' | 'dismissed') => void
 }
 
-export function AssistProposalsPanel({ result, onDone }: Props) {
+export function AssistProposalsPanel({ result, run, onResolve }: Props) {
   const data = useStore((s) => s.data)
   const replaceData = useStore((s) => s.replaceData)
   const [accepted, setAccepted] = useState<Set<string>>(new Set())
   const [note, setNote] = useState<string | null>(null)
 
-  const proposals = result?.proposals ?? []
+  // Only what's still outstanding: accepting three of eight must leave five.
+  const proposals = unresolved(result?.proposals ?? [], run)
+  const doneCount = (result?.proposals.length ?? 0) - proposals.length
   const allOn = proposals.length > 0 && accepted.size === proposals.length
 
   const toggle = (key: string) => {
@@ -49,12 +54,21 @@ export function AssistProposalsPanel({ result, onDone }: Props) {
     // ONE replaceData for the whole batch: one undo step, one auto-save.
     const { data: next, applied, skipped } = applyProposals(data, chosen)
     if (applied > 0) replaceData(next)
-    if (skipped.length) {
-      setNote(`Applied ${applied}. Skipped ${skipped.length} — you changed that text after the run, so the rewrite no longer matched.`)
-      setAccepted(new Set())
-      return
-    }
-    onDone()
+
+    // Resolve only what actually landed. A skipped rewrite (the field changed
+    // under it) stays on the list, since it was never applied.
+    const skippedKeys = new Set(skipped.map((p) => p.key))
+    onResolve?.(chosen.filter((p) => !skippedKeys.has(p.key)).map((p) => p.key), 'accepted')
+    setAccepted(new Set())
+    setNote(skipped.length
+      ? `Applied ${applied}. Skipped ${skipped.length} — you changed that text after the run, so the rewrite no longer matched.`
+      : null)
+  }
+
+  const dismissAll = () => {
+    onResolve?.(proposals.map((p) => p.key), 'dismissed')
+    setAccepted(new Set())
+    setNote(null)
   }
 
   if (!result) return null
@@ -62,13 +76,21 @@ export function AssistProposalsPanel({ result, onDone }: Props) {
   return (
     <div className="app-wrap">
       {proposals.length === 0 && (
-        <p className="app-empty"><Check size={14} /> Nothing to change — the writing is already consistent.</p>
+        <p className="app-empty">
+          <Check size={14} />
+          {doneCount > 0
+            ? `All ${doneCount} suggested rewrite(s) dealt with.`
+            : 'Nothing to change — the writing is already consistent.'}
+        </p>
       )}
 
       {proposals.length > 0 && (
         <>
           <div className="app-bar">
-            <span className="app-count">{accepted.size} of {proposals.length} selected</span>
+            <span className="app-count">
+              {accepted.size} of {proposals.length} selected
+              {doneCount > 0 && ` · ${doneCount} already done`}
+            </span>
             <button className="app-all" onClick={() => setAccepted(allOn ? new Set() : new Set(proposals.map((p) => p.key)))}>
               {allOn ? <Square size={12} /> : <CheckCheck size={12} />}
               {allOn ? 'Clear all' : 'Select all'}
@@ -105,8 +127,8 @@ export function AssistProposalsPanel({ result, onDone }: Props) {
             <button className="app-apply" onClick={apply} disabled={!chosen.length}>
               <Check size={13} /> Apply {chosen.length || ''} selected
             </button>
-            <button className="app-discard" onClick={onDone}>
-              <X size={13} /> Discard all
+            <button className="app-discard" onClick={dismissAll}>
+              <X size={13} /> Dismiss the rest
             </button>
           </div>
         </>

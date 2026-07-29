@@ -44,6 +44,18 @@ export interface Achievement {
   detail: string
   /** The sentence from the source this is drawn from — the check on invention. */
   evidence: string
+  /**
+   * The same text in other locales, keyed by locale code — filled by the panel
+   * from the translation path before applying.
+   *
+   * A CV maintained in two languages must stay maintained in two languages: an
+   * accepted highlight that lands only in the primary column silently makes the
+   * secondary version of the CV say less, and the gap is invisible until an
+   * export goes out. So the panel translates first and the write fills both
+   * columns at once. Absent = primary only (nothing configured to translate
+   * with), which is honest rather than broken.
+   */
+  translations?: Record<string, { text: string; detail: string }>
 }
 
 export interface MiningResult {
@@ -192,6 +204,24 @@ export function validateMining(json: unknown, data: ResumeStore, locale: string)
  * business (shape v12, §4) and joining one silently would change what every
  * view built on that profile exports.
  */
+/**
+ * One localized value for an achievement: the primary locale plus whatever the
+ * panel managed to translate. Empty translations are skipped rather than stored
+ * as `''`, which would read as "deliberately blank" everywhere else.
+ */
+function localized(
+  a: Achievement,
+  locale: string,
+  pick: (t: { text: string; detail: string }) => string,
+): LocalizedString {
+  const out: LocalizedString = { [locale]: pick({ text: a.text, detail: a.detail }) }
+  for (const [code, t] of Object.entries(a.translations ?? {})) {
+    const value = pick(t).trim()
+    if (code !== locale && value) out[code] = value
+  }
+  return out
+}
+
 export function applyAchievements(
   data: ResumeStore,
   accepted: readonly Achievement[],
@@ -222,7 +252,7 @@ export function applyAchievements(
       const existing = Array.isArray(item.highlights) ? (item.highlights as LocalizedString[]) : []
       // Re-running the pass shouldn't stack duplicates of the same line.
       if (existing.some((h) => (h?.[locale] ?? '').trim() === a.text)) continue
-      copy[idx] = { ...item, highlights: [...existing, { [locale]: a.text }] }
+      copy[idx] = { ...item, highlights: [...existing, localized(a, locale, (t) => t.text)] }
       highlights++
     }
     next[section] = copy
@@ -237,8 +267,8 @@ export function applyAchievements(
       const competency: KeyCompetency = {
         id: uuidv4(),
         resume_id: resumeId,
-        title: { [locale]: a.text },
-        description: { [locale]: a.detail || a.text },
+        title: localized(a, locale, (t) => t.text),
+        description: localized(a, locale, (t) => t.detail || t.text),
         sort_order: existing.length,
         starred: false,
         disabled: false,
