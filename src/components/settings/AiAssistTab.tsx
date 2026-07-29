@@ -4,18 +4,18 @@
  * `llm`) translation too.
  */
 
-import { Loader2, Check, AlertCircle, Server, Box, Power, RefreshCw, Sparkles, Gauge } from 'lucide-react'
+import { Loader2, Check, AlertCircle, Server, Box, Power, Sparkles, Gauge } from 'lucide-react'
 import { useSettingsForm, type LlmUiProvider } from './context'
-import { cloudModelOptions, modelPlaceholder } from '../../lib/cloudModelCatalog'
+import { ModelField } from './ModelField'
 
 export function AiAssistTab() {
   const {
     managed, keyPlaceholder,
     llmProvider, setLlmProvider, llmOllamaUrl, setLlmOllamaUrl,
-    llmCompatUrl, setLlmCompatUrl, llmModel, setLlmModel,
+    llmCompatUrl, setLlmCompatUrl,
     llmHighEnd, setLlmHighEnd,
     llmKeys, setLlmKeys, llmKeySet, llmTest, onTestLlm,
-    llmDocker, onOllamaDocker, isOllama, modelOpts, installed, modelsBusy, refreshModels,
+    llmDocker, onOllamaDocker,
     status,
   } = useSettingsForm()
 
@@ -36,12 +36,6 @@ export function AiAssistTab() {
       </section>
     )
   }
-
-  const installedCount = installed.length
-  // Cloud providers map 1:1 to their server name, so the UI value is the catalog
-  // key. Ollama has its own (dynamic) list; both feed the same datalist below.
-  const cloudModels = cloudModelOptions(llmProvider)
-  const hasModelList = isOllama || cloudModels.length > 0
 
   return (
     <section className="sm-sec">
@@ -79,41 +73,7 @@ export function AiAssistTab() {
 
       {llmProvider !== 'off' && (
         <div className="sm-sub">
-          <label className="sm-field-label" htmlFor="sm-sum-model">Model</label>
-          {/* A datalist rather than a <select>: Ollama has thousands of
-              valid tags, so the list is a shortlist to pick from, not a
-              constraint — any tag you type still works. Refresh re-asks
-              the running instance what it has pulled. */}
-          <div className="sm-field-row">
-            <input id="sm-sum-model" className="sm-input" value={llmModel}
-              list={hasModelList ? 'sm-model-list' : undefined}
-              placeholder={modelPlaceholder(llmProvider)}
-              onChange={(e) => setLlmModel(e.target.value)} aria-label="AI assist model" />
-            {isOllama && (
-              <button className="sm-btn sm-btn-icon" onClick={() => void refreshModels()}
-                disabled={modelsBusy} title="Refresh the list from the running Ollama"
-                aria-label="Refresh model list">
-                {modelsBusy ? <Loader2 size={13} className="sm-spin" /> : <RefreshCw size={13} />}
-              </button>
-            )}
-          </div>
-          {hasModelList && (
-            <datalist id="sm-model-list">
-              {isOllama
-                ? modelOpts.map((m) => <option key={m.name} value={m.name} label={m.label} />)
-                : cloudModels.map((m) => <option key={m.name} value={m.name} label={m.note} />)}
-            </datalist>
-          )}
-          {isOllama && (
-            <p className="sm-help">
-              {installedCount > 0
-                ? `${installedCount} model(s) already pulled. Others download on first use.`
-                : 'Pick a model — smaller is faster and downloads less. Any Ollama tag works.'}
-            </p>
-          )}
-          {!isOllama && cloudModels.length > 0 && (
-            <p className="sm-help">Smaller/“mini/flash” models are cheapest and plenty for one-line drafts. Any model id the provider accepts works.</p>
-          )}
+          <ModelField />
 
           {/* The advanced gate. It's a declaration, not a detection: nothing in
               a model name reliably says how capable it is, and a small model
@@ -133,7 +93,7 @@ export function AiAssistTab() {
             meaning checks, and profile positioning. These ask the model to judge
             your entire CV at once — leave this off for small local models
             (roughly under 30B), which answer confidently and wrongly rather than
-            admitting they can't.
+            admitting they can&rsquo;t.
           </p>
 
           <style>{`
@@ -180,7 +140,7 @@ export function AiAssistTab() {
 
       {llmProvider === 'openai' && (
         <div className="sm-sub">
-          <input className="sm-input" type="password" placeholder={keyPlaceholder(llmKeySet.openai)}
+          <input className="sm-input" type="password" autoComplete="new-password" placeholder={keyPlaceholder(llmKeySet.openai)}
             value={llmKeys.openai} onChange={(e) => setLlmKeys((k) => ({ ...k, openai: e.target.value }))}
             aria-label="OpenAI API key" />
           <p className="sm-help">Get a key at <code>platform.openai.com</code>.</p>
@@ -189,7 +149,7 @@ export function AiAssistTab() {
 
       {llmProvider === 'anthropic' && (
         <div className="sm-sub">
-          <input className="sm-input" type="password" placeholder={keyPlaceholder(llmKeySet.anthropic)}
+          <input className="sm-input" type="password" autoComplete="new-password" placeholder={keyPlaceholder(llmKeySet.anthropic)}
             value={llmKeys.anthropic} onChange={(e) => setLlmKeys((k) => ({ ...k, anthropic: e.target.value }))}
             aria-label="Anthropic API key" />
           <p className="sm-help">Native Claude Messages API. Get a key at <code>console.anthropic.com</code>.</p>
@@ -198,7 +158,7 @@ export function AiAssistTab() {
 
       {llmProvider === 'gemini' && (
         <div className="sm-sub">
-          <input className="sm-input" type="password" placeholder={keyPlaceholder(llmKeySet.gemini)}
+          <input className="sm-input" type="password" autoComplete="new-password" placeholder={keyPlaceholder(llmKeySet.gemini)}
             value={llmKeys.gemini} onChange={(e) => setLlmKeys((k) => ({ ...k, gemini: e.target.value }))}
             aria-label="Google Gemini API key" />
           <p className="sm-help">Uses Google's OpenAI-compatible endpoint. Get a key at <code>aistudio.google.com</code>.</p>
@@ -207,7 +167,7 @@ export function AiAssistTab() {
 
       {llmProvider === 'mistral' && (
         <div className="sm-sub">
-          <input className="sm-input" type="password" placeholder={keyPlaceholder(llmKeySet.mistral)}
+          <input className="sm-input" type="password" autoComplete="new-password" placeholder={keyPlaceholder(llmKeySet.mistral)}
             value={llmKeys.mistral} onChange={(e) => setLlmKeys((k) => ({ ...k, mistral: e.target.value }))}
             aria-label="Mistral API key" />
           <p className="sm-help">Get a key at <code>console.mistral.ai</code>.</p>
@@ -218,7 +178,7 @@ export function AiAssistTab() {
         <div className="sm-sub">
           <input className="sm-input" placeholder="Base URL, e.g. https://openrouter.ai/api/v1"
             value={llmCompatUrl} onChange={(e) => setLlmCompatUrl(e.target.value)} aria-label="OpenAI-compatible base URL" />
-          <input className="sm-input" type="password" placeholder={keyPlaceholder(llmKeySet.compat)}
+          <input className="sm-input" type="password" autoComplete="new-password" placeholder={keyPlaceholder(llmKeySet.compat)}
             value={llmKeys.compat} onChange={(e) => setLlmKeys((k) => ({ ...k, compat: e.target.value }))}
             aria-label="OpenAI-compatible API key" />
         </div>

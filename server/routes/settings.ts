@@ -19,6 +19,7 @@ import { startTranslate, stopTranslate, translateReachable, dockerAvailable, DOC
 import { isLlmConfigured, LlmError } from '../llm.js'
 import { summarize } from '../summarize.js'
 import { startOllama, stopOllama, ollamaReachable, dockerAvailable as ollamaDockerAvailable } from '../ollamaDocker.js'
+import { listProviderModels } from '../llmModels.js'
 import { reconfigureBackup } from '../backupRuntime.js'
 import { listFolders, FolderError } from '../folders.js'
 
@@ -155,6 +156,52 @@ router.post('/docker', (req: Request, res: Response): void => {
 })
 
 /**
+ * The saved settings with the form's PENDING values merged over them.
+ *
+ * SECURITY: pending values (esp. the two base URLs) let the caller point the
+ * server's outbound fetch at an arbitrary host — a server-side request forgery
+ * vector. They are honoured ONLY on the desktop build, where the user IS the
+ * operator configuring their own machine. On the VPS build the saved config is
+ * used verbatim, so an authed user can't make the server fetch arbitrary URLs.
+ *
+ * Shared by "test" and "models" so the guard exists once: a second copy is how
+ * one of them would eventually get it wrong.
+ */
+function withPendingLlm(body: Record<string, unknown>): AppSettings {
+  const merged: AppSettings = { ...currentSettings() }
+  if (!isDesktop()) return merged
+
+  const str = (k: string) => (typeof body[k] === 'string' ? (body[k] as string) : undefined)
+  if (str('llm_provider') !== undefined) merged.llm_provider = body.llm_provider as AppSettings['llm_provider']
+  if (str('llm_ollama_url') !== undefined) merged.llm_ollama_url = (body.llm_ollama_url as string).trim()
+  if (typeof body.llm_docker === 'boolean') merged.llm_docker = body.llm_docker
+  if (str('llm_compat_url') !== undefined) merged.llm_compat_url = (body.llm_compat_url as string).trim()
+  if (str('llm_openai_api_key')) merged.llm_openai_api_key = body.llm_openai_api_key as string
+  if (str('llm_compat_api_key')) merged.llm_compat_api_key = body.llm_compat_api_key as string
+  if (str('llm_anthropic_api_key')) merged.llm_anthropic_api_key = body.llm_anthropic_api_key as string
+  if (str('llm_gemini_api_key')) merged.llm_gemini_api_key = body.llm_gemini_api_key as string
+  if (str('llm_mistral_api_key')) merged.llm_mistral_api_key = body.llm_mistral_api_key as string
+  if (str('llm_model') !== undefined) merged.llm_model = (body.llm_model as string).trim()
+  return merged
+}
+
+/**
+ * POST /api/settings/llm/models — the provider's current model list, using the
+ * form's pending values.
+ *
+ * A POST rather than reusing GET /api/llm/models because the useful moment is
+ * "I have just pasted an API key and want to see what it can run" — before
+ * Save. The GET (saved config only) stays for everything else.
+ */
+router.post('/llm/models', (req: Request, res: Response): void => {
+  void (async () => {
+    const cfg = settingsToLlmConfig(withPendingLlm((req.body ?? {}) as Record<string, unknown>))
+    if (cfg.provider === 'off') { res.json({ models: [] }); return }
+    res.json({ models: await listProviderModels(cfg) })
+  })()
+})
+
+/**
  * POST /api/settings/llm/test — verify the AI-assist config works by asking for
  * one tiny summary (the cheapest round-trip that proves the whole path). Same
  * SSRF guard as the translate test: pending body values (esp. URLs) are honoured
@@ -162,23 +209,7 @@ router.post('/docker', (req: Request, res: Response): void => {
  */
 router.post('/llm/test', (req: Request, res: Response): void => {
   void (async () => {
-    const body = (req.body ?? {}) as Record<string, unknown>
-    const base = currentSettings()
-    const merged: AppSettings = { ...base }
-    if (isDesktop()) {
-      const str = (k: string) => (typeof body[k] === 'string' ? (body[k] as string) : undefined)
-      if (str('llm_provider') !== undefined) merged.llm_provider = body.llm_provider as AppSettings['llm_provider']
-      if (str('llm_ollama_url') !== undefined) merged.llm_ollama_url = (body.llm_ollama_url as string).trim()
-      if (typeof body.llm_docker === 'boolean') merged.llm_docker = body.llm_docker
-      if (str('llm_compat_url') !== undefined) merged.llm_compat_url = (body.llm_compat_url as string).trim()
-      if (str('llm_openai_api_key')) merged.llm_openai_api_key = body.llm_openai_api_key as string
-      if (str('llm_compat_api_key')) merged.llm_compat_api_key = body.llm_compat_api_key as string
-      if (str('llm_anthropic_api_key')) merged.llm_anthropic_api_key = body.llm_anthropic_api_key as string
-      if (str('llm_gemini_api_key')) merged.llm_gemini_api_key = body.llm_gemini_api_key as string
-      if (str('llm_mistral_api_key')) merged.llm_mistral_api_key = body.llm_mistral_api_key as string
-      if (str('llm_model') !== undefined) merged.llm_model = (body.llm_model as string).trim()
-    }
-    const cfg = settingsToLlmConfig(merged)
+    const cfg = settingsToLlmConfig(withPendingLlm((req.body ?? {}) as Record<string, unknown>))
     if (cfg.provider === 'off') { res.json({ reachable: false, message: 'No AI provider is selected.' }); return }
     if (!cfg.model) { res.json({ reachable: false, message: 'Set a model name first (e.g. "llama3.2:3b").' }); return }
     try {

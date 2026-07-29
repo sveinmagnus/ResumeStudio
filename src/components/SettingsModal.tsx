@@ -3,7 +3,7 @@ import { X, Loader2, Check, Settings } from 'lucide-react'
 import { resetLlmAvailability } from '../lib/llmClient'
 import { looksHighEnd } from '../lib/llmAssist'
 import { resetAssistConsent } from './ui/AssistRun'
-import { modelOptions, type InstalledModel } from '../lib/ollamaCatalog'
+import { buildModelOptions, type LiveModel } from '../lib/modelPicker'
 import { forcedLanguages, resolveTranslateLanguages, DEFAULT_TRANSLATE_LANGUAGES } from '../lib/translateLanguages'
 import {
   api, type SettingsStatus, type SettingsUpdate, type UpdateStatus, UnauthorizedError,
@@ -106,7 +106,7 @@ export function SettingsModal({ onClose, onChanged, onUnauthorized }: SettingsMo
   const [llmDocker, setLlmDocker] = useState<{ busy: boolean; text?: string; ok?: boolean }>({ busy: false })
   // Models the running Ollama has pulled, merged with the curated catalog to
   // populate the model datalist. Empty until asked for (or if nothing is up).
-  const [installed, setInstalled] = useState<InstalledModel[]>([])
+  const [liveModels, setLiveModels] = useState<LiveModel[]>([])
   const [modelsBusy, setModelsBusy] = useState(false)
 
   // ── Updates (desktop build) ───────────────────────────────────────────────
@@ -338,20 +338,31 @@ export function SettingsModal({ onClose, onChanged, onUnauthorized }: SettingsMo
   // The model picker only makes sense for Ollama — OpenAI/compat endpoints have
   // no list we can enumerate, so they keep the plain free-text field.
   const isOllama = llmProvider === 'ollama_docker' || llmProvider === 'ollama_remote'
-  const modelOpts = useMemo(() => modelOptions(installed), [installed])
-  const installedCount = installed.length
+  const modelOpts = useMemo(
+    () => buildModelOptions(llmProvider, liveModels),
+    [llmProvider, liveModels],
+  )
 
+  /**
+   * Ask the provider what it currently offers. Sends the form's PENDING values
+   * so a key you just pasted works before Save — otherwise the first refresh
+   * after entering a key would always come back empty, which is precisely when
+   * you want the list.
+   */
   const refreshModels = useCallback(async () => {
     setModelsBusy(true)
-    setInstalled(await api.ollamaModels())
+    setLiveModels(await api.llmModels(buildUpdate()))
     setModelsBusy(false)
-  }, [])
+  }, [buildUpdate])
 
-  // Populate once when the Ollama provider is showing, so the list is there
-  // before the user opens it. Cheap, and silently empty if nothing is running.
+  // Populate when a provider that can be asked is showing, so the list is there
+  // before the user opens it. Cheap, and silently empty if nothing answers.
+  // Keyed on the provider only: re-running on every keystroke in the key field
+  // would hammer the provider's API.
   useEffect(() => {
-    if (isOllama) void refreshModels()
-  }, [isOllama, refreshModels])
+    if (llmProvider !== 'off') void refreshModels()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [llmProvider])
 
   const managed = status?.managed === true
   const keyPlaceholder = (set: boolean) => (set ? '•••••• (saved — leave blank to keep)' : 'API key')
@@ -365,7 +376,7 @@ export function SettingsModal({ onClose, onChanged, onUnauthorized }: SettingsMo
     llmCompatUrl, setLlmCompatUrl, llmModel, setLlmModel: onModelChange,
     llmHighEnd, setLlmHighEnd: onHighEndChange,
     llmKeys, setLlmKeys, llmKeySet, llmTest, onTestLlm,
-    llmDocker, onOllamaDocker, isOllama, modelOpts, installed, modelsBusy, refreshModels,
+    llmDocker, onOllamaDocker, isOllama, modelOpts, modelsBusy, refreshModels,
     backupDir, setBackupDir,
     upd, updBusy, onCheckUpdate, onInstallUpdate,
   }

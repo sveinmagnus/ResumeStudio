@@ -1,6 +1,6 @@
 import type { ResumeStore, LocalizedString, RegistryEntry, RegistryKind } from '../types'
 import type { StorageStats } from './storage'
-import type { InstalledModel } from './ollamaCatalog'
+import type { LiveModel } from './modelPicker'
 import type { GlossaryPayload } from './glossary'
 
 // ─── Auth ──────────────────────────────────────────────────────────────────────
@@ -715,12 +715,19 @@ export const api = {
    * Never throws — an empty list just means "nothing to merge with the curated
    * catalog" (instance down, or a provider we can't enumerate).
    */
-  async ollamaModels(): Promise<InstalledModel[]> {
+  async llmModels(pending?: SettingsUpdate): Promise<LiveModel[]> {
     return safe(async () => {
-      const res = await request('GET', '/api/llm/models')
+      // POST with the form's pending values when we have them: the useful
+      // moment is right after pasting a key, BEFORE Save. The server honours
+      // pending values on the desktop build only (SSRF guard).
+      const res = pending
+        ? await request('POST', '/api/settings/llm/models', pending)
+        : await request('GET', '/api/llm/models')
       if (!res.ok) return []
-      const json = await res.json() as { models?: InstalledModel[] }
-      return Array.isArray(json.models) ? json.models : []
+      const json = await res.json() as { models?: LiveModel[] }
+      return Array.isArray(json.models)
+        ? json.models.filter((m): m is LiveModel => typeof m?.id === 'string' && !!m.id)
+        : []
     }, [])
   },
 

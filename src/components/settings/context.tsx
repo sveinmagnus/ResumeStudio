@@ -11,7 +11,7 @@
 
 import { createContext, useContext } from 'react'
 import type { SettingsStatus, UpdateStatus, DockerActionResult } from '../../lib/api'
-import type { InstalledModel } from '../../lib/ollamaCatalog'
+import type { ModelOption } from '../../lib/modelPicker'
 
 /** The translation provider as the UI models it (Docker vs remote are one provider server-side). */
 export type UiProvider = 'off' | 'libre_docker' | 'libre_remote' | 'deepl' | 'google' | 'azure' | 'llm'
@@ -72,8 +72,8 @@ export interface SettingsForm {
   llmDocker: ActionState
   onOllamaDocker: (action: 'start' | 'stop' | 'status') => Promise<DockerActionResult | void>
   isOllama: boolean
-  modelOpts: Array<{ name: string; label: string; installed: boolean }>
-  installed: InstalledModel[]
+  /** The model pick-list: what the provider reports, plus Ollama download sizes. */
+  modelOpts: ModelOption[]
   modelsBusy: boolean
   refreshModels: () => Promise<void>
 

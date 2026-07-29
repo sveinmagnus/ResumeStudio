@@ -2,7 +2,7 @@ import { Router, type Request, type Response } from 'express'
 import {
   ADVANCED_TIMEOUT_MS, chatComplete, isHighEndConfigured, llmInfo, LlmError, resolveConfig,
 } from '../llm.js'
-import { listOllamaModels } from '../ollamaDocker.js'
+import { listProviderModels } from '../llmModels.js'
 
 /**
  * The LLM backend: what's configured, what models it offers, and a single
@@ -51,20 +51,20 @@ router.get('/status', (_req: Request, res: Response): void => {
 })
 
 /**
- * GET /api/llm/models — the models the configured Ollama has pulled, so the
- * settings model field can offer real options next to the curated catalog.
+ * GET /api/llm/models — what the configured provider currently offers, so the
+ * settings model field lists real, current model ids instead of a shortlist
+ * that goes stale the moment a provider revs its line-up.
  *
- * The URL comes from the SERVER's config, never the request: this makes an
- * outbound fetch, so accepting a client-supplied host would be SSRF. Only
- * meaningful for the ollama provider — everything else reports an empty list
- * (OpenAI/compat endpoints have no equivalent we can enumerate cheaply), and a
- * missing/stopped instance is an empty list too, never an error.
+ * Every provider is asked directly (see llmModels.ts): Ollama reports what it
+ * has pulled, the rest have a `/models` endpoint. The URL and key come from the
+ * SERVER's config, never the request — this makes an outbound fetch, so
+ * accepting a client-supplied host would be SSRF. Unreachable, unconfigured or
+ * unrecognised all mean an empty list, never an error; the client falls back to
+ * its curated catalog.
  */
 router.get('/models', (_req: Request, res: Response): void => {
   void (async () => {
-    const c = resolveConfig()
-    if (c.provider !== 'ollama') { res.json({ models: [] }); return }
-    res.json({ models: await listOllamaModels(c.ollama.url) })
+    res.json({ models: await listProviderModels(resolveConfig()) })
   })()
 })
 

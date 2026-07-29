@@ -55,12 +55,24 @@ const ANTHROPIC_VERSION = '2023-06-01'
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/openai'
 const MISTRAL_BASE = 'https://api.mistral.ai/v1'
 
-/** Sensible default chat model per hosted provider — small/fast suits a one-line
- *  summary, and it means an API key alone is enough to be "configured". */
+/**
+ * Fallback chat model per hosted provider, used only when the model field is
+ * blank — it means an API key alone is enough to count as "configured".
+ *
+ * ⚠️ These are model ids belonging to someone else's product line, so they go
+ * stale, and when they do the failure is late and confusing: the app looks
+ * configured and every call 404s. `gemini-2.5-flash` sat here after Google had
+ * moved on, which is exactly how that plays out.
+ *
+ * Prefer ids with a floating alias (`-latest`) where the provider offers one,
+ * since those don't rot. And note the real fix is elsewhere: the settings model
+ * picker now lists what the provider currently offers (`llmModels.ts`), so a
+ * configured install should never be relying on this table.
+ */
 const DEFAULT_MODEL: Partial<Record<LlmProvider, string>> = {
   openai: 'gpt-4o-mini',
   anthropic: 'claude-haiku-4-5',
-  gemini: 'gemini-2.5-flash',
+  gemini: 'gemini-flash-latest',
   mistral: 'mistral-small-latest',
 }
 
@@ -137,7 +149,7 @@ export function resolveConfig(env: NodeJS.ProcessEnv = process.env): LlmConfig {
  *  Anthropic's native Messages API differs enough to need its own branch. */
 type WireProtocol = 'openai' | 'anthropic'
 
-interface ResolvedEndpoint {
+export interface ResolvedEndpoint {
   protocol: WireProtocol
   baseUrl: string
   apiKey: string
@@ -157,6 +169,16 @@ function endpointFor(c: LlmConfig): ResolvedEndpoint | null {
     case 'anthropic': return c.anthropic.apiKey ? { protocol: 'anthropic', baseUrl: ANTHROPIC_BASE, apiKey: c.anthropic.apiKey, model: model('anthropic') } : null
     default: return null
   }
+}
+
+/**
+ * The resolved endpoint for a config, or null. Exported for `llmModels.ts`,
+ * which needs the same base URL + auth to ask a provider what it offers — the
+ * alternative was a second copy of the provider table, which is exactly the
+ * drift this file exists to prevent.
+ */
+export function resolveEndpoint(config?: LlmConfig): ResolvedEndpoint | null {
+  return endpointFor(config ?? resolveConfig())
 }
 
 /** True when the resolved (or supplied) provider has what it needs to run. */
