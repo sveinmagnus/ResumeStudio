@@ -4,12 +4,13 @@ import {
 } from 'lucide-react'
 import {
   validateBulkImport, mapBulkItems, appendBulkItems, findDuplicates,
-  bulkInstructions, InvalidBulkImportError,
+  bulkInstructions, intakeInstructions, InvalidBulkImportError,
   type BulkSectionSpec, type BulkImportIssue, type BulkRegistryAdditions,
 } from '../../lib/bulkImport'
 import { useStore } from '../../store/useStore'
 import { useDialog } from './useDialog'
 import { AssistRun } from './AssistRun'
+import { useAdvancedAssist } from './AdvancedAssistCard'
 import { extractJson } from '../../lib/llmAssist'
 import { downloadText } from '../../lib/download'
 
@@ -58,6 +59,14 @@ export function BulkImportModal({ spec, onClose }: BulkImportModalProps) {
     : [primaryLocale]
 
   const instructions = useMemo(() => bulkInstructions(spec, locales), [spec, locales])
+
+  /**
+   * A high-end model unlocks freeform intake (C1) — the same output contract,
+   * read out of messy prose instead of a tidy list. The BYO copy-and-paste path
+   * below is unaffected either way: it always hands over the plain instructions,
+   * so a user who wants to run this in a stronger AI of their own still can.
+   */
+  const { enabled: advanced } = useAdvancedAssist()
 
   const reset = () => { setIssues([]); setParseError(null); setStaged(null) }
 
@@ -243,18 +252,33 @@ export function BulkImportModal({ spec, onClose }: BulkImportModalProps) {
               <div className="bim-step-title">Your source material</div>
               <textarea
                 className="bim-textarea"
-                placeholder="Paste the CV text / project list / export to read items from…"
+                placeholder={advanced
+                  ? 'Paste anything — an email, meeting notes, a statement of work, a CV, a project list…'
+                  : 'Paste the CV text / project list / export to read items from…'}
                 value={source}
                 aria-label="Source material"
                 onChange={(e) => setSource(e.target.value)}
               />
+              {advanced && (
+                <p className="bim-step-note">
+                  Your model is marked high-end, so this reads messy prose — an
+                  email or a set of notes, not just a tidy list. It extracts what
+                  the text actually says and leaves out what it doesn&rsquo;t.
+                </p>
+              )}
               <AssistRun
-                buildPrompt={() => `${instructions}\n\n---\n\nSOURCE MATERIAL:\n\n${source}`}
+                // A high-end model gets the intake prompt (freeform-aware) and
+                // the larger budget; anything else keeps the original narrow
+                // prompt it can actually handle.
+                buildPrompt={() => (advanced
+                  ? intakeInstructions(spec, locales, source)
+                  : `${instructions}\n\n---\n\nSOURCE MATERIAL:\n\n${source}`)}
                 onResult={validate}
                 wholeCv
                 disabled={!source.trim()}
                 label={`Extract ${spec.label.toLowerCase()}`}
-                maxTokens={4096}
+                maxTokens={advanced ? 12_000 : 4096}
+                advanced={advanced}
                 // This modal lays its own copy-instructions / paste-JSON steps
                 // out as numbered stages rather than passing them as children.
                 hasManualPath

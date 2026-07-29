@@ -22,6 +22,7 @@ import { AssistRun } from '../ui/AssistRun'
 import { AdvancedAssistCard, useAdvancedAssist } from '../ui/AdvancedAssistCard'
 import { AssistFindingsPanel } from '../ui/AssistFindingsPanel'
 import { AssistProposalsPanel } from '../ui/AssistProposalsPanel'
+import { JobFitPanel } from '../ui/JobFitPanel'
 import { extractJson } from '../../lib/llmAssist'
 import { validateFindings, type FindingsResult } from '../../lib/assistFindings'
 import { validateProposals, type ProposalsResult } from '../../lib/assistProposals'
@@ -288,6 +289,9 @@ export function CvAdvisors() {
       <VoicePass />
       <SemanticDrift />
       <AchievementMining />
+      {/* Applying to something specific rather than tending the CV — last,
+          because it needs a posting pasted in and the others don't. */}
+      <JobFitPanel />
 
       <style>{`
         .cva-wrap { display: flex; flex-direction: column; gap: 12px; margin-top: 28px; }

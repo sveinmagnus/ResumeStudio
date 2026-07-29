@@ -691,6 +691,25 @@ whole CV and make comparative judgements about it.
 | D1 | Profile + competency bundle generator | Profiles editor |
 | D2 | View introduction draft | View editor, under the intro field |
 | D3 | "What's missing" per section | Section bar, next to Bulk summarize |
+| B1 | Job fit report vs a pasted posting | Overview (`JobFitPanel`) |
+| B5 | Letter angles + critique | Cover letter editor, under the body |
+| C1 | Freeform intake from messy prose | Bulk add modal — **upgrade, not a new surface** |
+
+**B1** answers a different question from `viewTailor` — tailoring SELECTS items
+once you've decided to apply; this asks whether you can answer the posting at
+all. Its third status, **`adjacent`** (the CV shows Docker and Helm; they asked
+for Kubernetes), is the one worth having — it's the gap the user can close
+honestly by editing their own words. An `evidenced` row whose citation doesn't
+resolve is **downgraded to `adjacent`, not dropped**: unproven isn't proof, but
+losing the row would break the completeness that makes the report useful.
+
+**C1 is a prompt, not a pipeline.** Freeform intake reuses the section's one
+`BulkSectionSpec` for validation/mapping/duplicates/preview — only what the model
+READS changes (`intakeInstructions` wraps `bulkInstructions` with messy-source
+rules + the text inline, and asks for the advanced budget). **The BYO
+copy-prompt/paste-JSON path is untouched and always hands over the plain
+instructions**, so a quality-assured import through a stronger external model
+stays available whatever is configured locally.
 
 Rules they all keep: **drafts never save** (review, tick, apply); **no invented
 facts** — A4 must quote the sentence supporting each proposal or it is dropped,

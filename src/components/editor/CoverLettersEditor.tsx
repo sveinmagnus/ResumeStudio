@@ -5,6 +5,7 @@ import { Plus, Pencil, Trash2, Mail, ChevronDown, FileText, FileDown, FileType }
 import { DualField } from '../ui/DualField'
 import { AssistRun } from '../ui/AssistRun'
 import { buildCoverLetterPrompt, buildCoverLetterText } from '../../lib/coverLetter'
+import { LetterAdvicePanel } from '../ui/LetterAdvicePanel'
 import { getDefaultFonts } from '../../lib/appPrefs'
 import { exportFilename } from '../../lib/exportFilename'
 import { downloadText } from '../../lib/download'
@@ -232,6 +233,10 @@ function LetterEditor({ letter, onBack, onDelete, onUpdate, primaryLocale }: {
       </div>
       <div className="cl-block">
         <DualField label="Body" value={letter.body} onChange={(v) => onUpdate({ body: v })} multiline rows={12} placeholder="Write the letter, or draft it above then edit…" />
+        {/* Under the body, because both passes are about what's in it: choose an
+            approach before writing, or get it read back afterwards. Hidden
+            unless the model is declared high-end. */}
+        <LetterAdvicePanel letter={letter} onApplyBody={(body) => onUpdate({ body })} />
       </div>
       <div className="cl-block">
         <DualField label="Closing" value={letter.closing} onChange={(v) => onUpdate({ closing: v })} placeholder="e.g. Yours sincerely," />

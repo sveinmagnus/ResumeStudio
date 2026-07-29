@@ -186,7 +186,18 @@ prescriptive.
   **profile + competency-bundle generator** (requires a written focus brief —
   Run stays disabled without one, because the CV can't say which career you want
   to be read as having next), **view introduction draft** (written against the
-  view's FILTERED content) and **per-section "what's missing"**. See CLAUDE.md §15.
+  view's FILTERED content) and **per-section "what's missing"**.
+  Then three more for the application itself: the **job fit report**
+  (`lib/jobFit.ts` — every requirement in a pasted posting scored
+  evidenced/adjacent/missing with CV item citations; `adjacent` is the valuable
+  one, and an `evidenced` row whose citation doesn't resolve is downgraded rather
+  than believed), **letter angles + critique** (`lib/letterAdvice.ts` — three
+  complete alternative letters with the trade-off spelled out, or a second read
+  of the one you wrote, checked against the linked view's evidence), and
+  **freeform intake** (`intakeInstructions` — the same `resumestudio-bulk/v1`
+  contract read out of an email or meeting notes; the BYO copy-and-paste path is
+  untouched, so quality-assured imports through an external model still work).
+  See CLAUDE.md §15.
 - **Cover letters** (shape v10, `lib/coverLetter.ts` + `CoverLettersEditor`) —
   their OWN entity (`data.cover_letters[]`), a document-builder sibling of
   Resume Views in the Export sidebar group. A letter is per-APPLICATION and

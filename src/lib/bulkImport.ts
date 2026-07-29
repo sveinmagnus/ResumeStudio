@@ -1127,3 +1127,56 @@ system, meeting notes, anything. Convert everything relevant into the items arra
 ---
 `
 }
+
+/**
+ * C1 — the intake prompt: the same instructions, plus the guidance a model needs
+ * when the source is MESSY PROSE rather than a tidy list, and the source text
+ * itself.
+ *
+ * Why this is a wrapper and not a second format: the output contract, the
+ * validator, the registry interning, the duplicate check and the preview are all
+ * driven by the section's one `BulkSectionSpec` (see the note at the top of this
+ * file). Freeform intake changes what the model READS, never what it writes — so
+ * it earns a prompt, not a pipeline. The copy-and-paste path keeps working
+ * unchanged for anyone who would rather run this in their own AI.
+ *
+ * The extra rules all address the same failure: prose invites a model to help.
+ * An email saying "we finally got the Oslo thing over the line in the spring"
+ * tempts it into a start date, a client name and an outcome, none of which were
+ * stated. Every rule below is a way of saying: extract, don't infer.
+ */
+export function intakeInstructions(
+  spec: BulkSectionSpec,
+  locales: string[],
+  source: string,
+): string {
+  return [
+    bulkInstructions(spec, locales),
+    '',
+    '## Reading messy source material',
+    '',
+    'The text below was not written to be imported. It may be an email, meeting',
+    'notes, a statement of work, a LinkedIn blurb, or something dictated. Read it',
+    'the way a colleague would and pull out the real items.',
+    '',
+    '- **One entry per real engagement**, however the text is arranged. Several',
+    '  paragraphs about one project are one item; a list of five clients in one',
+    '  sentence is five.',
+    '- **Dates: only what is stated.** "Last spring" is not a date unless the text',
+    '  says which year. Give the year alone when the month is not stated. Omit the',
+    '  field entirely rather than guessing.',
+    '- **Do not upgrade the language.** "Helped with" stays helped with; it does',
+    '  not become "led". Keep the writer\'s own claims at their own strength.',
+    '- **Do not fill gaps from what is plausible.** If the text never names the',
+    '  client, the technology or the outcome, leave that field out. A blank field',
+    '  is a two-second fix; an invented one has to be defended in an interview.',
+    '- **Ignore anything that is not an item for this section** — greetings,',
+    '  signatures, scheduling, opinions, and anything belonging to a different',
+    '  part of a CV.',
+    '- If the text contains nothing that belongs here, return an empty items array.',
+    '  That is a correct answer, not a failure.',
+    '',
+    '--- SOURCE MATERIAL ---',
+    source.trim(),
+  ].join('\n')
+}
