@@ -256,11 +256,25 @@ input.pf-input { width: 100%; }
 /* A sunken sub-panel inside an editor card (project skills/roles/industries,
    the Europass CEFR grid). */
 .sub-block { margin: 16px 0; padding: 14px; background: var(--paper-sunken); border-radius: var(--r-md); }
+/* Intra-item group headings. These were 12px uppercase in --ink-soft, which
+   read as a caption floating between two fields rather than as the title OF
+   the fields under it. Larger, darker, and with a rule beneath to bind the
+   heading to its group. */
 .sub-head {
-  font-size: 12px; font-weight: 700; letter-spacing: .04em;
-  text-transform: uppercase; color: var(--ink-soft); margin-bottom: 10px;
+  font-size: 14px; font-weight: 700; letter-spacing: .01em;
+  color: var(--ink); margin-bottom: 10px;
+  padding-bottom: 6px; border-bottom: 1px solid var(--line);
 }
-.sub-hint { font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--ink-faint); margin-left: 6px; }
+.sub-hint {
+  font-size: 12px; font-weight: 400; text-transform: none; letter-spacing: 0;
+  color: var(--ink-faint); margin-left: 6px;
+}
+
+/* A row where an "add" control and its AI counterpart sit side by side —
+   "Add highlight" + Suggest, the skill search + Suggest. Both put rows into
+   the same list, so they belong on one line. Wraps rather than squeezing. */
+.sub-add-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.sub-add-grow { flex: 1 1 240px; min-width: 0; }
 
 /* Registry-link chips (a linked skill / role / industry on a project). */
 .skill-chip-list { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 10px; }

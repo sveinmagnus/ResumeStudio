@@ -15,7 +15,7 @@ import { TranslationPopover } from '../ui/TranslationPopover'
 import { effectiveSkillCategory, categoryNameIndex } from '../../lib/skillCategorize'
 import { AssistRun } from '../ui/AssistRun'
 import { KeyPointsPanel } from '../ui/KeyPointsPanel'
-import { WritingCoachPanel } from '../ui/WritingCoachPanel'
+import { WritingAssist } from '../ui/WritingAssist'
 import { toHighlights } from '../../lib/keyPoints'
 import { extractJson } from '../../lib/llmAssist'
 import {
@@ -70,11 +70,10 @@ export function ProjectsEditor() {
           <ProjectIndustriesEditor project={p} />
           <ProjectRolesEditor project={p} />
           <RichField label="Description" value={p.long_description} onChange={(v) => updateItem('projects', p.id, { long_description: v })} />
-          {/* Coaches the PRIMARY column only — the model read one locale, so
-              rewriting the other would be a translation nobody asked for. */}
-          <WritingCoachPanel
-            source={p.long_description}
-            locale={primaryLocale}
+          {/* Writes the PRIMARY column only — the model read one locale, so
+              filling the other would be a translation nobody asked for. */}
+          <WritingAssist
+            section="projects" item={p} source={p.long_description} locale={primaryLocale}
             onApply={(html) => updateItem('projects', p.id, {
               long_description: { ...p.long_description, [primaryLocale]: html },
             })}
@@ -137,19 +136,24 @@ function HighlightsEditor({ project }: { project: Project }) {
           <button className="hl-del" onClick={() => remove(i)} aria-label="Remove highlight" title="Remove highlight"><X size={14} /></button>
         </div>
       ))}
-      <button className="sub-add" onClick={add}><Plus size={13} /> Add highlight</button>
-      {/* Reshapes the project's own long description into bullets — drafts
-          land in the primary locale; the secondary column is the user's
-          existing Copy/Draft-translation job. */}
-      <KeyPointsPanel
-        source={project.long_description}
-        locale={primaryLocale}
-        style="highlights"
-        noun="highlights"
-        onApply={(points) => updateItem('projects', project.id, {
-          highlights: [...project.highlights, ...toHighlights(points, primaryLocale)],
-        })}
-      />
+      {/* The suggest button sits BESIDE Add highlight: both add rows to the
+          same list, so they belong on one line rather than a stack. Reshapes
+          the project's own long description into bullets — drafts land in the
+          primary locale; the secondary column is the user's existing
+          Copy/Draft-translation job. */}
+      <div className="sub-add-row">
+        <button className="sub-add" onClick={add}><Plus size={13} /> Add highlight</button>
+        <KeyPointsPanel
+          source={project.long_description}
+          locale={primaryLocale}
+          style="highlights"
+          noun="highlights"
+          inline
+          onApply={(points) => updateItem('projects', project.id, {
+            highlights: [...project.highlights, ...toHighlights(points, primaryLocale)],
+          })}
+        />
+      </div>
     </div>
   )
 }
@@ -407,23 +411,30 @@ function ProjectSkillsEditor({ project }: { project: Project }) {
           <ProjectSkillChip key={s.id} ps={s} onRemove={() => remove(s.id)} />
         ))}
       </div>
-      <SkillSuggestPanel project={project} onLink={linkExisting} onCreate={createAndLink} />
-      <Autocomplete
-        options={data.skills
-          .filter((reg) => !project.skills.some((ps) => ps.skill_id === reg.id))
-          .map((reg) => ({
-            id: reg.id,
-            label: resolve(reg.name, primaryLocale) || '(unnamed skill)',
-            sublabel: reg.category_id ? effectiveSkillCategory(reg, catNamesById) : undefined,
-          }))}
-        onPick={linkExisting}
-        onAddNew={createAndLink}
-        addLabel="skill"
-        placeholder="Search or add a skill…"
-        suggestExtra={suggestSkillNames(() =>
-          useStore.getState().data.skills.map((s) => resolve(s.name, primaryLocale)),
-        )}
-      />
+      {/* Search and suggest sit on one line: both put skills into the same
+          list, and the suggestion is the shortcut for "I can't remember what
+          I used". */}
+      <div className="sub-add-row">
+        <div className="sub-add-grow">
+          <Autocomplete
+            options={data.skills
+              .filter((reg) => !project.skills.some((ps) => ps.skill_id === reg.id))
+              .map((reg) => ({
+                id: reg.id,
+                label: resolve(reg.name, primaryLocale) || '(unnamed skill)',
+                sublabel: reg.category_id ? effectiveSkillCategory(reg, catNamesById) : undefined,
+              }))}
+            onPick={linkExisting}
+            onAddNew={createAndLink}
+            addLabel="skill"
+            placeholder="Search or add a skill…"
+            suggestExtra={suggestSkillNames(() =>
+              useStore.getState().data.skills.map((s) => resolve(s.name, primaryLocale)),
+            )}
+          />
+        </div>
+        <SkillSuggestPanel project={project} onLink={linkExisting} onCreate={createAndLink} inline />
+      </div>
     </div>
   )
 }
@@ -437,10 +448,12 @@ function ProjectSkillsEditor({ project }: { project: Project }) {
  * reversible, so it's pre-ticked; creating a NEW registry entry grows a shared
  * resource every other project sees, so it isn't.
  */
-function SkillSuggestPanel({ project, onLink, onCreate }: {
+function SkillSuggestPanel({ project, onLink, onCreate, inline = false }: {
   project: Project
   onLink: (skillId: string) => void
   onCreate: (name: string) => void
+  /** Beside the skill search field rather than stacked above it. */
+  inline?: boolean
 }) {
   const { data, primaryLocale } = useStore()
   const [result, setResult] = useState<ExtractionResult | null>(null)
@@ -485,12 +498,13 @@ function SkillSuggestPanel({ project, onLink, onCreate }: {
   )
 
   return (
-    <div className="ss-wrap">
+    <div className={inline ? 'ss-wrap ss-inline' : 'ss-wrap'}>
       <AssistRun
         buildPrompt={() => buildSkillExtractPrompt(project, primaryLocale, registryVocabulary(data.skills, primaryLocale))}
         onResult={onResult}
+        compact={inline}
         disabled={!hasProse}
-        label="Suggest skills from the description"
+        label={inline ? 'Suggest skills' : 'Suggest skills from the description'}
         maxTokens={400}
         hasManualPath={false}
       />

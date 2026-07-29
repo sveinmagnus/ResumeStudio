@@ -105,3 +105,69 @@ export function validateCoachResponse(json: unknown): CoachResult {
 
   return { rewrite, asks }
 }
+
+/**
+ * The other half of the writing assist: draft a description for a field that is
+ * EMPTY.
+ *
+ * Coaching needs prose to work on. An empty field has none, so the model has
+ * only the item's identity facts — customer, name, dates, issuer — plus
+ * whatever it happens to know about them. That second source is the reason this
+ * is a separate function with its own warning rather than a branch inside
+ * `buildCoachPrompt`: coaching can only reshape what you wrote, while this can
+ * be CONFIDENTLY WRONG about a real organisation, and the two deserve different
+ * expectations from the reader.
+ *
+ * So the prompt is built to fail visibly rather than plausibly:
+ *  - it must say what it is unsure of in `asks` rather than smoothing over it;
+ *  - it must not invent your role, your outcomes or any number;
+ *  - a thing it doesn't recognise gets a short generic draft and an ask, not an
+ *    imagined one. An internal project at a client and a course from 2004 have
+ *    no public footprint, and that is the common case in a consultant's CV.
+ */
+export function buildDraftPrompt(
+  facts: readonly string[],
+  sectionLabel: string,
+  locale: string,
+): string {
+  return [
+    `You are drafting a STARTING POINT for one empty "${sectionLabel}" entry on a`,
+    "consultant's CV. They will edit it; it does not need to be finished.",
+    '',
+    "All you have is the entry's identity below, plus whatever you happen to know",
+    'about the organisations, products or qualifications it names.',
+    '',
+    'Produce TWO things:',
+    '',
+    '1. "rewrite" — 2–4 sentences describing what this entry is about, in the',
+    '   third-party-neutral way a CV describes work. Cover what the organisation',
+    '   or subject IS and what work of this kind typically involves.',
+    '',
+    '   THE LINE YOU MUST NOT CROSS: do not state what THIS PERSON did, what they',
+    '   achieved, what they were responsible for, how big the team was, or any',
+    '   number, date or technology that is not in the facts below. You do not',
+    '   know those things. Describe the context; leave their part to them.',
+    '',
+    '   If you do not recognise what is named, say so plainly in one short',
+    '   sentence and keep the draft generic. A confident paragraph about a',
+    '   project you have never heard of is worse than no draft: it reads as',
+    '   true, and the person may not catch it before it goes out.',
+    '',
+    '2. "asks" — 2–5 short questions covering exactly what you had to leave out:',
+    '   their role, the outcome, the scale, the technologies. These are the',
+    '   sentences only they can write.',
+    '',
+    `   Write both in the language with code "${locale}".`,
+    '',
+    'Reply with ONLY this JSON, no prose:',
+    `{"$schema":"${WRITING_COACH_SCHEMA}","rewrite":"the draft","asks":["What was your role?"]}`,
+    '',
+    '--- THE ENTRY ---',
+    facts.length ? facts.join('\n') : '(nothing filled in yet)',
+  ].join('\n')
+}
+
+/** True when there's enough identity to draft FROM — a blank card is not. */
+export function hasDraftableFacts(facts: readonly string[]): boolean {
+  return facts.length > 0
+}

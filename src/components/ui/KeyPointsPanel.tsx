@@ -25,9 +25,15 @@ interface Props {
   onApply: (points: DraftPoint[]) => void
   /** What the points are called here, for the button + count. */
   noun?: string
+  /**
+   * Sitting on a row beside "Add highlight" rather than stacked under the list:
+   * the button renders as a chip and the provenance line goes beside it, since
+   * a full-width blurb would push the row apart.
+   */
+  inline?: boolean
 }
 
-export function KeyPointsPanel({ source, locale, style, onApply, noun = 'points' }: Props) {
+export function KeyPointsPanel({ source, locale, style, onApply, noun = 'points', inline = false }: Props) {
   const [draft, setDraft] = useState<DraftPoint[] | null>(null)
   const [picked, setPicked] = useState<Set<number>>(new Set())
   const [error, setError] = useState<string | null>(null)
@@ -58,12 +64,15 @@ export function KeyPointsPanel({ source, locale, style, onApply, noun = 'points'
   })
 
   return (
-    <div className="kp-wrap">
+    <div className={inline ? 'kp-wrap kp-inline' : 'kp-wrap'}>
       <AssistRun
         buildPrompt={() => buildKeyPointsPrompt(source, locale, style)}
         onResult={onResult}
+        compact={inline}
         disabled={!hasProse}
-        label={`Suggest ${noun} from the description`}
+        // Beside "Add highlight" the long form pushes the row onto two lines,
+        // and the source is obvious from where the button sits.
+        label={inline ? `Suggest ${noun}` : `Suggest ${noun} from the description`}
         maxTokens={600}
         hasManualPath={false}
       />

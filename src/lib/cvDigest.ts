@@ -80,6 +80,31 @@ export function itemLabel(section: string, item: Record<string, unknown>, locale
 }
 
 /**
+ * The identity facts of one item, as "Label: value" lines — everything the
+ * non-prose fields and the date range know about it.
+ *
+ * This is what grounds a from-scratch description: a model asked to write about
+ * a project has nothing to go on but the customer, the name, the dates and the
+ * skills attached, and those are exactly the fields `cvFields` marks
+ * `prose: false`. Reusing that map means a new section gets this for free.
+ */
+export function itemFacts(
+  section: string,
+  item: Record<string, unknown>,
+  locale: string,
+): string[] {
+  const out: string[] = []
+  for (const f of fieldsOf(section)) {
+    if (f.prose) continue
+    const text = textOf(item[f.key], locale, 200)
+    if (text) out.push(`${f.label}: ${text}`)
+  }
+  const range = fmtRange(item)
+  if (range) out.push(`Dates: ${range}`)
+  return out
+}
+
+/**
  * The digest. Section headings carry the store key (what a reply must name),
  * items carry their real id, and each non-empty field is one `key: text` line.
  */

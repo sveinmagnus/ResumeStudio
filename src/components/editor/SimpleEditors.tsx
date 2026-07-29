@@ -30,6 +30,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { RegistryLightbox } from './RegistryCategoryView'
 import { confirmDialog } from '../ui/ConfirmDialog'
 import { ProfileGeneratorPanel } from '../ui/ProfileGeneratorPanel'
+import { WritingAssist } from '../ui/WritingAssist'
 import { UNASSIGNED_GROUP, chipDragId, parseChipDragId, reassignCompetency } from '../../lib/competencyBundles'
 
 /** Current year+month as a YearMonth — the default "To" date for a new course. */
@@ -115,6 +116,10 @@ export function WorkEditor() {
           <RoleTypeLinks roleIds={w.role_ids} hint="— the general role held, for summarising experience across positions (independent of the title above)"
             onChange={(ids) => updateItem('work_experiences', w.id, { role_ids: ids })} />
           <RichField label="Description" value={w.long_description} onChange={(v) => updateItem('work_experiences', w.id, { long_description: v })} />
+          <WritingAssist
+            section="work_experiences" item={w} source={w.long_description ?? {}} locale={primaryLocale} noun="description"
+            onApply={(html) => updateItem('work_experiences', w.id, { long_description: { ...w.long_description, [primaryLocale]: html } })}
+          />
           <ShortDescriptionField section="work_experiences" id={w.id} value={w.short_description} from={w.long_description} />
           <FieldRow>
             <DateField label="Start" value={w.start} onChange={(v) => updateItem('work_experiences', w.id, { start: v })} />
@@ -274,6 +279,10 @@ export function EducationEditor() {
           <DualField label="School" value={e.school} onChange={(v) => updateItem('educations', e.id, { school: v })} />
           <DualField label="Degree" value={e.degree} onChange={(v) => updateItem('educations', e.id, { degree: v })} />
           <RichField label="Description" value={e.description} onChange={(v) => updateItem('educations', e.id, { description: v })} />
+          <WritingAssist
+            section="educations" item={e} source={e.description ?? {}} locale={primaryLocale} noun="description"
+            onApply={(html) => updateItem('educations', e.id, { description: { ...e.description, [primaryLocale]: html } })}
+          />
           <ShortDescriptionField section="educations" id={e.id} value={e.short_description} from={e.description} />
           <FieldRow>
             <DateField label="Start" value={e.start} onChange={(v) => updateItem('educations', e.id, { start: v })} />
@@ -324,6 +333,10 @@ export function CoursesEditor() {
           <DualField label="Course name" value={c.name} onChange={(v) => updateItem('courses', c.id, { name: v })} />
           <DualField label="Provider" value={c.program} onChange={(v) => updateItem('courses', c.id, { program: v })} />
           <RichField label="Description" value={c.description} onChange={(v) => updateItem('courses', c.id, { description: v })} />
+          <WritingAssist
+            section="courses" item={c} source={c.description ?? {}} locale={primaryLocale} noun="description"
+            onApply={(html) => updateItem('courses', c.id, { description: { ...c.description, [primaryLocale]: html } })}
+          />
           <ShortDescriptionField section="courses" id={c.id} value={c.short_description} from={c.description} />
           <FieldRow>
             <DateField label="From" value={c.start} onChange={(v) => updateItem('courses', c.id, { start: v })} />
@@ -366,6 +379,10 @@ export function CertificationsEditor() {
           <DualField label="Certification" value={c.name} onChange={(v) => updateItem('certifications', c.id, { name: v })} />
           <DualField label="Issuing organisation" value={c.organiser} onChange={(v) => updateItem('certifications', c.id, { organiser: v })} />
           <RichField label="Description" value={c.description} onChange={(v) => updateItem('certifications', c.id, { description: v })} />
+          <WritingAssist
+            section="certifications" item={c} source={c.description ?? {}} locale={primaryLocale} noun="description"
+            onApply={(html) => updateItem('certifications', c.id, { description: { ...c.description, [primaryLocale]: html } })}
+          />
           <ShortDescriptionField section="certifications" id={c.id} value={c.short_description} from={c.description} />
           <FieldRow>
             <DateField label="Issued" value={c.issued} onChange={(v) => updateItem('certifications', c.id, { issued: v })} />
@@ -411,6 +428,10 @@ export function PositionsEditor() {
           <RoleTypeLinks roleIds={p.role_ids ?? []} hint="— link a registry role type so this engagement feeds that role's years of experience"
             onChange={(ids) => updateItem('positions', p.id, { role_ids: ids })} />
           <RichField label="Description" value={p.description} onChange={(v) => updateItem('positions', p.id, { description: v })} />
+          <WritingAssist
+            section="positions" item={p} source={p.description ?? {}} locale={primaryLocale} noun="description"
+            onApply={(html) => updateItem('positions', p.id, { description: { ...p.description, [primaryLocale]: html } })}
+          />
           <ShortDescriptionField section="positions" id={p.id} value={p.short_description} from={p.description} />
           <FieldRow>
             <label className="pf-wrap">
@@ -465,6 +486,10 @@ export function PresentationsEditor() {
           <DualField label="Title" value={p.title} onChange={(v) => updateItem('presentations', p.id, { title: v })} />
           <DualField label="Event / venue" value={p.event} onChange={(v) => updateItem('presentations', p.id, { event: v })} />
           <RichField label="Abstract" value={p.description} onChange={(v) => updateItem('presentations', p.id, { description: v })} />
+          <WritingAssist
+            section="presentations" item={p} source={p.description ?? {}} locale={primaryLocale} noun="abstract"
+            onApply={(html) => updateItem('presentations', p.id, { description: { ...p.description, [primaryLocale]: html } })}
+          />
           <ShortDescriptionField section="presentations" id={p.id} value={p.short_description} from={p.description} />
           <FieldRow>
             <DateField label="From" value={p.start} onChange={(v) => updateItem('presentations', p.id, { start: v })} />
@@ -514,6 +539,10 @@ export function PublicationsEditor() {
             placeholder="Comma-separated, e.g. Jane Doe, John Roe"
           />
           <RichField label="Abstract" value={p.abstract} onChange={(v) => updateItem('publications', p.id, { abstract: v })} />
+          <WritingAssist
+            section="publications" item={p} source={p.abstract ?? {}} locale={primaryLocale} noun="abstract"
+            onApply={(html) => updateItem('publications', p.id, { abstract: { ...p.abstract, [primaryLocale]: html } })}
+          />
           <ShortDescriptionField section="publications" id={p.id} value={p.short_description} from={p.abstract} />
           <FieldRow>
             <label className="pf-wrap">
@@ -564,6 +593,10 @@ export function AwardsEditor() {
           <DualField label="Issuer" value={a.issuer} onChange={(v) => updateItem('honor_awards', a.id, { issuer: v })} />
           <DualField label="For work" value={a.for_work} onChange={(v) => updateItem('honor_awards', a.id, { for_work: v })} />
           <RichField label="Description" value={a.description} onChange={(v) => updateItem('honor_awards', a.id, { description: v })} />
+          <WritingAssist
+            section="honor_awards" item={a} source={a.description ?? {}} locale={primaryLocale} noun="description"
+            onApply={(html) => updateItem('honor_awards', a.id, { description: { ...a.description, [primaryLocale]: html } })}
+          />
           <ShortDescriptionField section="honor_awards" id={a.id} value={a.short_description} from={a.description} />
           <DateField label="Date" value={a.date} onChange={(v) => updateItem('honor_awards', a.id, { date: v })} />
         </EditorCard>
@@ -653,10 +686,15 @@ export function SpokenLanguagesEditor() {
  */
 function CompetencyFields({ competency: k }: { competency: KeyCompetency }) {
   const updateItem = useStore((s) => s.updateItem)
+  const primaryLocale = useStore((s) => s.primaryLocale)
   return (
     <>
       <DualField label="Competency" value={k.title} onChange={(v) => updateItem('key_competencies', k.id, { title: v })} placeholder="e.g. Solution architecture" />
       <RichField label="Description" value={k.description} onChange={(v) => updateItem('key_competencies', k.id, { description: v })} />
+      <WritingAssist
+        section="key_competencies" item={k} source={k.description ?? {}} locale={primaryLocale} noun="description"
+        onApply={(html) => updateItem('key_competencies', k.id, { description: { ...k.description, [primaryLocale]: html } })}
+      />
       <ShortDescriptionField section="key_competencies" id={k.id} value={k.short_description} from={k.description} />
     </>
   )
@@ -1022,6 +1060,10 @@ export function RecommendationsEditor() {
             <TextField label="Link" value={r.contact_url || ''} onChange={(v) => updateItem('recommendations', r.id, { contact_url: v || null })} />
           </FieldRow>
           <RichField label="Testimonial" value={r.text} onChange={(v) => updateItem('recommendations', r.id, { text: v })} />
+          <WritingAssist
+            section="recommendations" item={r} source={r.text ?? {}} locale={primaryLocale} noun="testimonial"
+            onApply={(html) => updateItem('recommendations', r.id, { text: { ...r.text, [primaryLocale]: html } })}
+          />
           <ShortDescriptionField section="recommendations" id={r.id} value={r.short_description} from={r.text} />
           <FieldRow>
             <TextField label="Recommender" value={r.recommender_name} onChange={(v) => updateItem('recommendations', r.id, { recommender_name: v })} />
@@ -1366,6 +1408,10 @@ export function ProfileEditor() {
           starred={kq.starred} disabled={kq.disabled}>
           <DualField label="Tag line" value={kq.tag_line} onChange={(v) => updateItem('key_qualifications', kq.id, { tag_line: v })} placeholder="e.g. Senior Cloud Architect" />
           <RichField label="Full profile (full mode)" value={kq.summary} onChange={(v) => updateItem('key_qualifications', kq.id, { summary: v })} />
+          <WritingAssist
+            section="key_qualifications" item={kq} source={kq.summary ?? {}} locale={primaryLocale} noun="profile"
+            onApply={(html) => updateItem('key_qualifications', kq.id, { summary: { ...kq.summary, [primaryLocale]: html } })}
+          />
           <RichField label="Short summary (summary mode)" value={kq.summary_short ?? {}} onChange={(v) => updateItem('key_qualifications', kq.id, { summary_short: v })} placeholder="A one- or two-line alternative shown in Summary mode (never alongside the full profile)" />
           <ProfileBundleEditor kq={kq} />
         </EditorCard>
