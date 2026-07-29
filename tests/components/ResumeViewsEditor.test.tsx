@@ -398,6 +398,15 @@ describe('<ResumeViewsEditor>', () => {
     expect(useStore.getState().data.views[0].introduction.en).toBe('Targeted for boards')
   })
 
+  /**
+   * The two pop-out tests render the whole view editor AND a pop-out window's
+   * worth of preview, so they land within a second or two of the 15s global
+   * limit and time out whenever the suite runs under parallel load — a flake,
+   * not a failure. Given their own budget rather than raising it for all 2500
+   * tests, which would hide real hangs everywhere else.
+   */
+  const POPOUT_TIMEOUT_MS = 40_000
+
   describe('preview pop-out / pop-in', () => {
     // A stand-in for the popped-out window: jsdom doesn't implement window.open.
     function fakeWindow() {
@@ -437,7 +446,7 @@ describe('<ResumeViewsEditor>', () => {
       expect(win.close).toHaveBeenCalledTimes(1)
       expect(await screen.findByTitle('Resume View preview')).toBeInTheDocument()
       expect(screen.getByRole('button', { name: /^pop out$/i })).toBeInTheDocument()
-    })
+    }, POPOUT_TIMEOUT_MS)
 
     it('can re-show the inline preview while the pop-out window is still active', async () => {
       const win = fakeWindow()
@@ -454,7 +463,7 @@ describe('<ResumeViewsEditor>', () => {
       expect(await screen.findByTitle('Resume View preview')).toBeInTheDocument()
       expect(screen.getByRole('button', { name: /^pop in$/i })).toBeInTheDocument()
       expect(win.close).not.toHaveBeenCalled()
-    })
+    }, POPOUT_TIMEOUT_MS)
 
     it('surfaces a clear error when the browser blocks the pop-up', async () => {
       vi.spyOn(window, 'open').mockReturnValue(null)
