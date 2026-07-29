@@ -90,6 +90,11 @@ export function RegistryHygienePanel() {
       title: 'Apply these registry changes?',
       message: lines,
       confirmLabel: 'Apply',
+      // A merge DELETES a registry entry and rewrites its references across the
+      // whole CV — the most destructive thing this app does, and the hardest to
+      // notice afterwards. Deleting a single course already gets the danger
+      // treatment; this has to look at least as serious as that.
+      danger: impact.entriesDeleted > 0,
     })
     if (!ok) return
 
@@ -268,7 +273,7 @@ export function RegistryHygienePanel() {
         .rhp-keep { font-weight: 600; color: var(--ink); }
         .rhp-cat { font-weight: 600; color: var(--secondary-ink-text); }
         .rhp-kind, .rhp-new {
-          font-size: 10.5px; font-weight: 600; border-radius: 999px; padding: 0 6px;
+          font-size: 11px; font-weight: 600; border-radius: 999px; padding: 0 6px;
           border: 1px solid var(--line); color: var(--ink-faint);
         }
         .rhp-new { color: var(--secondary-ink-text); border-color: var(--secondary-line); background: var(--secondary-tint); }

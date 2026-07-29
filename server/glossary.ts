@@ -230,9 +230,23 @@ const HTML_ESCAPES: Record<string, string> = {
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
 }
 const escapeHtml = (s: string): string => s.replace(/[&<>"']/g, (c) => HTML_ESCAPES[c])
+/**
+ * The inverse of `escapeHtml`.
+ *
+ * `&amp;` MUST be decoded LAST. Decoding it first makes the pair non-inverse:
+ * text containing a literal `&lt;` escapes to `&amp;lt;`, which an `&amp;`-first
+ * pass turns into `&lt;` and the next pass into `<`. So `A &lt; B` came back as
+ * `A < B`, and `&lt;script&gt;` came back as real `<script>` — inert text
+ * promoted to markup on a round-trip through Google's HTML mode.
+ *
+ * Escape-at-render (see the security skill §2) meant that was never XSS, but it
+ * corrupted legitimate content and manufactured active markup inside the
+ * trusted store, which is exactly the defence-in-depth this codebase relies on.
+ */
 const unescapeHtml = (s: string): string =>
-  s.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+  s.replace(/&lt;/g, '<').replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
 
 function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')

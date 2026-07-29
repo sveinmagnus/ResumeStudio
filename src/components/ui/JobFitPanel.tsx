@@ -224,7 +224,7 @@ export function JobFitPanel() {
         .jfp-row.jfp-missing .jfp-status { color: var(--err-ink); }
         .jfp-req { flex: 1; min-width: 0; font-size: 13.5px; font-weight: 600; color: var(--ink); line-height: 1.4; }
         .jfp-weight {
-          font-size: 10.5px; font-weight: 600; color: var(--ink-faint);
+          font-size: 11px; font-weight: 600; color: var(--ink-faint);
           border: 1px solid var(--line); border-radius: 999px; padding: 0 6px;
         }
         .jfp-evidence { list-style: none; margin: 0; padding: 0 0 0 2px; display: flex; flex-direction: column; gap: 3px; }

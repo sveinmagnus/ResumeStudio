@@ -146,4 +146,29 @@ describe('googleMarkup', () => {
     const { html } = googleMarkup('a < b og Skydrift her', g)
     expect(googleUnmarkup(html)).toBe('a < b og Cloud operations her')
   })
+
+  /**
+   * Regression: `unescapeHtml` decoded `&amp;` FIRST, which made the escape /
+   * unescape pair non-inverse for text that already CONTAINS an entity — the
+   * case the raw-`<` test above cannot catch, because a bare `<` survives either
+   * order.
+   *
+   * A literal `&lt;` escapes to `&amp;lt;`; an `&amp;`-first pass decoded that
+   * to `&lt;` and the next pass to `<`. So `A &lt; B` came back as `A < B`, and
+   * a CV mentioning `&lt;script&gt;` came back carrying real `<script>` —
+   * inert text promoted to markup inside the store. Never XSS (escape-at-render
+   * holds) but a corruption bug and a hole in defence in depth.
+   */
+  it.each([
+    'A &lt; B',
+    '&lt;script&gt;alert(1)&lt;/script&gt;',
+    'Tom &amp; Jerry',
+    'R&D "quoted" & <b>bold</b>',
+    "it's & <a>",
+  ])('round-trips %j without decoding an entity twice', (text) => {
+    // Force markup on by including a glossary term, then strip it back out.
+    const { html, used } = googleMarkup(`${text} Skydrift`, g)
+    expect(used).toBe(true)
+    expect(googleUnmarkup(html)).toBe(`${text} Cloud operations`)
+  })
 })

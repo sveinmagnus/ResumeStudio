@@ -548,7 +548,7 @@ export function Overview() {
         }
         .ov-drift-ignore:hover { background: var(--paper-sunken); color: var(--ink); }
         .ov-drift-badge {
-          flex: none; font-size: 10px; font-weight: 700; text-transform: uppercase;
+          flex: none; font-size: 11px; font-weight: 700; text-transform: uppercase;
           letter-spacing: .06em; padding: 2px 7px; border-radius: 999px; line-height: 1.5;
         }
         .ov-drift-high { background: var(--warn-wash); color: var(--warn-ink); }

@@ -222,14 +222,14 @@ export function AtsAuditPanel({ view }: { view: ResumeView }) {
         .ats-term-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
         .ats-status {
           display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0;
-          font-size: 10.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+          font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
         }
         .ats-present .ats-status { color: var(--ok-ink); }
         .ats-elsewhere .ats-status { color: var(--warn-ink); }
         .ats-absent .ats-status { color: var(--err-ink); }
         .ats-word { font-size: 13px; font-weight: 600; color: var(--ink); }
         .ats-known, .ats-verdict {
-          font-size: 10.5px; font-weight: 600; border-radius: 999px; padding: 0 6px;
+          font-size: 11px; font-weight: 600; border-radius: 999px; padding: 0 6px;
           border: 1px solid var(--line); color: var(--ink-faint);
         }
         .ats-verdict.ats-v-covered { color: var(--ok-ink); border-color: var(--ok-ink); background: var(--ok-wash); }

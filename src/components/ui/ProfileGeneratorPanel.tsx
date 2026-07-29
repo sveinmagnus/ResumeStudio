@@ -209,7 +209,7 @@ export function ProfileGeneratorPanel() {
         .pgp-bundle li { font-size: 12.5px; color: var(--ink-soft); }
         .pgp-b-title { color: var(--ink); }
         .pgp-new {
-          margin-left: 6px; padding: 0 6px; border-radius: 999px; font-size: 10.5px; font-weight: 700;
+          margin-left: 6px; padding: 0 6px; border-radius: 999px; font-size: 11px; font-weight: 700;
           color: var(--secondary-ink-text); background: var(--secondary-tint);
           border: 1px solid var(--secondary-line);
         }
