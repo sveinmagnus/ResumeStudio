@@ -16,6 +16,7 @@ import { applyProposals } from '../../lib/assistProposals'
 import { sectionLabel } from '../../lib/sections'
 import { useStore } from '../../store/useStore'
 import { unresolved, type AdvisorRun } from '../../store/useAdvisors'
+import { CollapsibleSection } from './CollapsibleSection'
 
 interface Props {
   result: ProposalsResult | null
@@ -23,9 +24,14 @@ interface Props {
   run?: AdvisorRun
   /** Mark rewrites done. Applying some must leave the rest on screen. */
   onResolve?: (keys: readonly string[], how: 'accepted' | 'dismissed') => void
+  /** Fold state, when the caller keeps it (store-backed advisors). */
+  collapsed?: boolean
+  onCollapsedChange?: (collapsed: boolean) => void
 }
 
-export function AssistProposalsPanel({ result, run, onResolve }: Props) {
+export function AssistProposalsPanel({
+  result, run, onResolve, collapsed, onCollapsedChange,
+}: Props) {
   const data = useStore((s) => s.data)
   const replaceData = useStore((s) => s.replaceData)
   const [accepted, setAccepted] = useState<Set<string>>(new Set())
@@ -86,17 +92,24 @@ export function AssistProposalsPanel({ result, run, onResolve }: Props) {
 
       {proposals.length > 0 && (
         <>
-          <div className="app-bar">
-            <span className="app-count">
-              {accepted.size} of {proposals.length} selected
-              {doneCount > 0 && ` · ${doneCount} already done`}
-            </span>
-            <button className="app-all" onClick={() => setAccepted(allOn ? new Set() : new Set(proposals.map((p) => p.key)))}>
-              {allOn ? <Square size={12} /> : <CheckCheck size={12} />}
-              {allOn ? 'Clear all' : 'Select all'}
-            </button>
-          </div>
-
+          <CollapsibleSection
+            title="Suggested rewrites"
+            count={proposals.length}
+            open={collapsed === undefined ? undefined : !collapsed}
+            onToggle={(open) => onCollapsedChange?.(!open)}
+            actions={
+              <>
+                <span className="app-count">
+                  {accepted.size} selected
+                  {doneCount > 0 && ` · ${doneCount} done`}
+                </span>
+                <button className="app-all" onClick={() => setAccepted(allOn ? new Set() : new Set(proposals.map((p) => p.key)))}>
+                  {allOn ? <Square size={12} /> : <CheckCheck size={12} />}
+                  {allOn ? 'Clear all' : 'Select all'}
+                </button>
+              </>
+            }
+          >
           <ul className="app-list">
             {proposals.map((p) => (
               <li key={p.key} className={accepted.has(p.key) ? 'app-item app-on' : 'app-item'}>
@@ -120,6 +133,7 @@ export function AssistProposalsPanel({ result, run, onResolve }: Props) {
               </li>
             ))}
           </ul>
+          </CollapsibleSection>
 
           {note && <p className="app-note" role="status">{note}</p>}
 

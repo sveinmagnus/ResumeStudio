@@ -69,6 +69,12 @@ export interface AdvisorRun {
   resolved: Record<string, 'accepted' | 'dismissed'>
   /** False until the user has looked at the finished result — drives the toast. */
   seen: boolean
+  /**
+   * The results list is folded away. Persisted with the run because the results
+   * themselves are: folding a twelve-item review, navigating off to fix
+   * something and coming back to find it open again would undo the point.
+   */
+  collapsed?: boolean
 }
 
 interface AdvisorState {
@@ -77,6 +83,7 @@ interface AdvisorState {
   resolve: (id: AdvisorId, resumeId: string, key: string, how: 'accepted' | 'dismissed') => void
   resolveMany: (id: AdvisorId, resumeId: string, keys: readonly string[], how: 'accepted' | 'dismissed') => void
   markSeen: (id: AdvisorId, resumeId: string) => void
+  setCollapsed: (id: AdvisorId, resumeId: string, collapsed: boolean) => void
   clear: (id: AdvisorId, resumeId: string) => void
   clearResume: (resumeId: string) => void
 }
@@ -190,6 +197,17 @@ export const useAdvisors = create<AdvisorState>((set, get) => ({
       const run = s.runs[k]
       if (!run || run.seen) return s
       const runs = { ...s.runs, [k]: { ...run, seen: true } }
+      save(runs)
+      return { runs }
+    })
+  },
+
+  setCollapsed(id, resumeId, collapsed) {
+    set((s) => {
+      const k = runKey(id, resumeId)
+      const run = s.runs[k]
+      if (!run || !!run.collapsed === collapsed) return s
+      const runs = { ...s.runs, [k]: { ...run, collapsed } }
       save(runs)
       return { runs }
     })

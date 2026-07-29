@@ -18,6 +18,7 @@ import { useStore } from '../../store/useStore'
 import { selectRun, useAdvisors } from '../../store/useAdvisors'
 import { AssistRun } from './AssistRun'
 import { AdvancedAssistCard } from './AdvancedAssistCard'
+import { CollapsibleSection } from './CollapsibleSection'
 import { extractJson } from '../../lib/llmAssist'
 import {
   buildJobFitPrompt, fitTally, hasPosting, validateJobFit,
@@ -47,6 +48,7 @@ export function JobFitPanel() {
   const run = useAdvisors((s) => selectRun(s.runs, 'jobfit', resumeId))
   const markSeen = useAdvisors((s) => s.markSeen)
   const clearRun = useAdvisors((s) => s.clear)
+  const setCollapsed = useAdvisors((s) => s.setCollapsed)
   const [posting, setPosting] = useState('')
 
   // Looking at the panel is seeing the result — that's what clears the toast.
@@ -125,6 +127,12 @@ export function JobFitPanel() {
             </div>
           )}
 
+          <CollapsibleSection
+            title="Requirements"
+            count={result.requirements.length}
+            open={run?.collapsed !== true}
+            onToggle={(open) => setCollapsed('jobfit', resumeId, !open)}
+          >
           <ul className="jfp-list">
             {result.requirements.map((r) => (
               <li key={r.key} className={`jfp-row jfp-${r.status}`}>
@@ -153,6 +161,7 @@ export function JobFitPanel() {
               </li>
             ))}
           </ul>
+          </CollapsibleSection>
 
           {result.dropped.length > 0 && (
             <details className="jfp-dropped">

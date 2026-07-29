@@ -15,6 +15,7 @@ import { ScanSearch, Check, PackageOpen, CircleX, Quote, Sparkles } from 'lucide
 import { useStore } from '../../store/useStore'
 import { AssistRun } from './AssistRun'
 import { useAdvancedAssist } from './AdvancedAssistCard'
+import { CollapsibleSection } from './CollapsibleSection'
 import { extractJson } from '../../lib/llmAssist'
 import {
   buildAtsPrompt, coverageTally, runLiteralAudit, validateAtsResponse,
@@ -114,6 +115,7 @@ export function AtsAuditPanel({ view }: { view: ResumeView }) {
             </p>
           ) : null}
 
+          <CollapsibleSection title="Terms" count={coverage.terms.length}>
           <ul className="ats-list">
             {coverage.terms.map((t) => {
               const eq = byTerm.get(t.term)
@@ -137,6 +139,7 @@ export function AtsAuditPanel({ view }: { view: ResumeView }) {
               )
             })}
           </ul>
+          </CollapsibleSection>
 
           {gaps.length > 0 && advanced && (
             <div className="ats-second">

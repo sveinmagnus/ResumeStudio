@@ -17,6 +17,7 @@ import type { Finding, FindingsResult } from '../../lib/assistFindings'
 import { sectionLabel } from '../../lib/sections'
 import { useStore } from '../../store/useStore'
 import { unresolved, type AdvisorRun } from '../../store/useAdvisors'
+import { CollapsibleSection } from './CollapsibleSection'
 
 const SEVERITY_ICON = {
   high: <CircleAlert size={13} />,
@@ -30,12 +31,16 @@ interface Props {
   run?: AdvisorRun
   /** Mark one finding done. Without it the list is read-only (older callers). */
   onResolve?: (key: string, how: 'accepted' | 'dismissed') => void
+  /** Fold state, when the caller keeps it (store-backed advisors). */
+  collapsed?: boolean
+  onCollapsedChange?: (collapsed: boolean) => void
   /** Shown when a run returned nothing — phrased per caller. */
   emptyText?: string
 }
 
 export function AssistFindingsPanel({
-  result, run, onResolve, emptyText = 'Nothing to flag — this reads well.',
+  result, run, onResolve, collapsed, onCollapsedChange,
+  emptyText = 'Nothing to flag — this reads well.',
 }: Props) {
   const setActiveSection = useStore((s) => s.setActiveSection)
   const setExpandedItem = useStore((s) => s.setExpandedItem)
@@ -61,11 +66,14 @@ export function AssistFindingsPanel({
         </p>
       )}
 
-      {doneCount > 0 && findings.length > 0 && (
-        <p className="afp-done">{doneCount} already dealt with.</p>
-      )}
-
       {findings.length > 0 && (
+        <CollapsibleSection
+          title="Findings"
+          count={findings.length}
+          open={collapsed === undefined ? undefined : !collapsed}
+          onToggle={(open) => onCollapsedChange?.(!open)}
+          actions={doneCount > 0 ? <span className="afp-done">{doneCount} done</span> : undefined}
+        >
         <ul className="afp-list">
           {findings.map((f) => (
             <li key={f.key} className={`afp-item afp-${f.severity}`}>
@@ -98,6 +106,7 @@ export function AssistFindingsPanel({
             </li>
           ))}
         </ul>
+        </CollapsibleSection>
       )}
 
       {result.dropped.length > 0 && (

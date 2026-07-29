@@ -23,6 +23,7 @@ import { useStore } from '../../store/useStore'
 import { AssistRun } from './AssistRun'
 import { AdvancedAssistCard } from './AdvancedAssistCard'
 import { confirmDialog } from './ConfirmDialog'
+import { CollapsibleSection } from './CollapsibleSection'
 import { extractJson } from '../../lib/llmAssist'
 import {
   applyHygiene, buildHygienePrompt, hasRegistryContent, hygieneImpact, validateHygiene,
@@ -136,7 +137,10 @@ export function RegistryHygienePanel() {
 
       {result && result.merges.length > 0 && (
         <section className="rhp-group">
-          <h4 className="rhp-group-head"><GitMerge size={14} /> Possible duplicates ({result.merges.length})</h4>
+          <CollapsibleSection
+            title={<><GitMerge size={14} /> Possible duplicates</>}
+            count={result.merges.length}
+          >
           <p className="rhp-warn">
             <AlertTriangle size={13} />
             Each of these <strong>deletes</strong> one entry and rewrites its references.
@@ -164,20 +168,26 @@ export function RegistryHygienePanel() {
               </li>
             ))}
           </ul>
+          </CollapsibleSection>
         </section>
       )}
 
       {result && result.categories.length > 0 && (
         <section className="rhp-group">
-          <h4 className="rhp-group-head"><Tags size={14} /> Category suggestions ({result.categories.length})</h4>
-          <div className="rhp-bar">
-            <span className="rhp-count">{okCats.size} of {result.categories.length} selected</span>
-            <button className="rhp-all"
-              onClick={() => setOkCats(allCats ? new Set() : new Set(result.categories.map((c) => c.key)))}>
-              {allCats ? <Square size={12} /> : <CheckCheck size={12} />}
-              {allCats ? 'Clear all' : 'Select all'}
-            </button>
-          </div>
+          <CollapsibleSection
+            title={<><Tags size={14} /> Category suggestions</>}
+            count={result.categories.length}
+            actions={
+              <>
+                <span className="rhp-count">{okCats.size} selected</span>
+                <button className="rhp-all"
+                  onClick={() => setOkCats(allCats ? new Set() : new Set(result.categories.map((c) => c.key)))}>
+                  {allCats ? <Square size={12} /> : <CheckCheck size={12} />}
+                  {allCats ? 'Clear all' : 'Select all'}
+                </button>
+              </>
+            }
+          >
           <ul className="rhp-list">
             {result.categories.map((c) => (
               <li key={c.key} className={okCats.has(c.key) ? 'rhp-item rhp-on' : 'rhp-item'}>
@@ -195,6 +205,7 @@ export function RegistryHygienePanel() {
               </li>
             ))}
           </ul>
+          </CollapsibleSection>
         </section>
       )}
 

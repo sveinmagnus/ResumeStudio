@@ -25,6 +25,7 @@ import { AssistRun } from '../ui/AssistRun'
 import { AdvancedAssistCard, useAdvancedAssist } from '../ui/AdvancedAssistCard'
 import { AssistFindingsPanel } from '../ui/AssistFindingsPanel'
 import { AssistProposalsPanel } from '../ui/AssistProposalsPanel'
+import { CollapsibleSection } from '../ui/CollapsibleSection'
 import { JobFitPanel } from '../ui/JobFitPanel'
 import { extractJson } from '../../lib/llmAssist'
 import { validateFindings, type FindingsResult } from '../../lib/assistFindings'
@@ -55,6 +56,7 @@ function useAdvisorRun<T>(id: AdvisorId, parse: (json: unknown) => T) {
   const clear = useAdvisors((s) => s.clear)
   const resolve = useAdvisors((s) => s.resolve)
   const resolveMany = useAdvisors((s) => s.resolveMany)
+  const setCollapsed = useAdvisors((s) => s.setCollapsed)
 
   // Looking at the panel IS seeing the result — that's what clears the toast.
   useEffect(() => {
@@ -80,6 +82,10 @@ function useAdvisorRun<T>(id: AdvisorId, parse: (json: unknown) => T) {
     resolve: (key: string, how: 'accepted' | 'dismissed') => resolve(id, resumeId, key, how),
     resolveMany: (keys: readonly string[], how: 'accepted' | 'dismissed') => resolveMany(id, resumeId, keys, how),
     clear: () => clear(id, resumeId),
+    // Folded state rides with the run, so it survives the navigation that
+    // acting on a suggestion requires.
+    collapsed: run?.collapsed === true,
+    setCollapsed: (v: boolean) => setCollapsed(id, resumeId, v),
   }
 }
 
@@ -93,9 +99,9 @@ function ErrorLine({ error }: { error: string | null }) {
 function CvReview() {
   const data = useStore((s) => s.data)
   const locale = useStore((s) => s.primaryLocale)
-  const { resumeId, run, result, parseError, resolve } = useAdvisorRun<FindingsResult>(
-    'review', (json) => validateFindings(json, data, locale),
-  )
+  const {
+    resumeId, run, result, parseError, resolve, collapsed, setCollapsed,
+  } = useAdvisorRun<FindingsResult>('review', (json) => validateFindings(json, data, locale))
 
   return (
     <AdvancedAssistCard
@@ -121,6 +127,8 @@ function CvReview() {
         result={result}
         run={run}
         onResolve={resolve}
+        collapsed={collapsed}
+        onCollapsedChange={setCollapsed}
         emptyText="Nothing to flag — this CV reads well."
       />
     </AdvancedAssistCard>
@@ -132,9 +140,9 @@ function CvReview() {
 function VoicePass() {
   const data = useStore((s) => s.data)
   const locale = useStore((s) => s.primaryLocale)
-  const { resumeId, run, result, parseError, resolveMany } = useAdvisorRun<ProposalsResult>(
-    'voice', (json) => validateProposals(json, data, locale),
-  )
+  const {
+    resumeId, run, result, parseError, resolveMany, collapsed, setCollapsed,
+  } = useAdvisorRun<ProposalsResult>('voice', (json) => validateProposals(json, data, locale))
 
   return (
     <AdvancedAssistCard
@@ -157,7 +165,13 @@ function VoicePass() {
         hasManualPath={false}
       />
       <ErrorLine error={parseError} />
-      <AssistProposalsPanel result={result} run={run} onResolve={resolveMany} />
+      <AssistProposalsPanel
+        result={result}
+        run={run}
+        onResolve={resolveMany}
+        collapsed={collapsed}
+        onCollapsedChange={setCollapsed}
+      />
     </AdvancedAssistCard>
   )
 }
@@ -168,9 +182,9 @@ function SemanticDrift() {
   const data = useStore((s) => s.data)
   const primary = useStore((s) => s.primaryLocale)
   const secondary = useStore((s) => s.secondaryLocale)
-  const { resumeId, run, result, parseError, resolve } = useAdvisorRun<FindingsResult>(
-    'drift', (json) => validateFindings(json, data, primary),
-  )
+  const {
+    resumeId, run, result, parseError, resolve, collapsed, setCollapsed,
+  } = useAdvisorRun<FindingsResult>('drift', (json) => validateFindings(json, data, primary))
 
   // Nothing to compare with one language on screen. Hidden rather than
   // disabled: the fix is the language switcher, not this panel.
@@ -201,6 +215,8 @@ function SemanticDrift() {
         result={result}
         run={run}
         onResolve={resolve}
+        collapsed={collapsed}
+        onCollapsedChange={setCollapsed}
         emptyText="The two languages agree."
       />
     </AdvancedAssistCard>
@@ -216,9 +232,9 @@ function AchievementMining() {
   const replaceData = useStore((s) => s.replaceData)
   const [accepted, setAccepted] = useState<Set<string>>(new Set())
   const [applying, setApplying] = useState(false)
-  const { resumeId, run, result, parseError, resolveMany } = useAdvisorRun<MiningResult>(
-    'achievements', (json) => validateMining(json, data, locale),
-  )
+  const {
+    resumeId, run, result, parseError, resolveMany, collapsed, setCollapsed,
+  } = useAdvisorRun<MiningResult>('achievements', (json) => validateMining(json, data, locale))
 
   // Only what the user hasn't already dealt with — accepting one suggestion
   // must not discard the other four.
@@ -283,15 +299,22 @@ function AchievementMining() {
 
       {items.length > 0 && (
         <div className="cva-mine">
-          <div className="cva-bar">
-            <span className="cva-count">{accepted.size} of {items.length} selected</span>
-            <button className="cva-all"
-              onClick={() => setAccepted(allOn ? new Set() : new Set(items.map((a) => a.key)))}>
-              {allOn ? <Square size={12} /> : <CheckCheck size={12} />}
-              {allOn ? 'Clear all' : 'Select all'}
-            </button>
-          </div>
-
+          <CollapsibleSection
+            title="Achievements found"
+            count={items.length}
+            open={!collapsed}
+            onToggle={(open) => setCollapsed(!open)}
+            actions={
+              <>
+                <span className="cva-count">{accepted.size} selected</span>
+                <button className="cva-all"
+                  onClick={() => setAccepted(allOn ? new Set() : new Set(items.map((a) => a.key)))}>
+                  {allOn ? <Square size={12} /> : <CheckCheck size={12} />}
+                  {allOn ? 'Clear all' : 'Select all'}
+                </button>
+              </>
+            }
+          >
           <ul className="cva-list">
             {items.map((a: Achievement) => (
               <li key={a.key} className={accepted.has(a.key) ? 'cva-item cva-on' : 'cva-item'}>
@@ -308,6 +331,7 @@ function AchievementMining() {
               </li>
             ))}
           </ul>
+          </CollapsibleSection>
 
           <div className="cva-actions">
             <button className="cva-apply" onClick={() => void apply()} disabled={!chosen.length || applying}>
