@@ -17,7 +17,10 @@ beforeAll(async () => {
   process.env.RESUME_RATE_LIMIT_MAX = '1000000'
   // Run as the desktop build so settings are editable.
   process.env.RESUME_DESKTOP = '1'
-  dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rs-setroute-'))
+  // realpath at creation: on macOS os.tmpdir() is /var/folders/... which is a
+  // symlink to /private/var/..., and listFolders normalises without following
+  // symlinks (by design). Same fix as tests/server/folders.test.ts.
+  dataDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'rs-setroute-')))
   process.env.RESUME_DATA_DIR = dataDir
   const { createApp } = await import('../../server/app')
   app = createApp()
@@ -190,7 +193,7 @@ describe('POST /api/settings/folders', () => {
   it('lists a given folder\'s subfolders', async () => {
     const res = await request(app).post('/api/settings/folders').send({ path: dataDir })
     expect(res.status).toBe(200)
-    expect(res.body.path).toBe(fs.realpathSync(dataDir))
+    expect(res.body.path).toBe(dataDir)
   })
 
   it('404s for a folder that does not exist', async () => {
