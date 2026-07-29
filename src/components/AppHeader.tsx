@@ -5,6 +5,7 @@ import { SaveStatus, type SaveState } from './layout/SaveStatus'
 import { LanguageSwitcher } from './layout/LanguageSwitcher'
 import { SnapshotHistory } from './SnapshotHistory'
 import { SettingsModal } from './SettingsModal'
+import { onOpenSettings, type SettingsTabId } from '../lib/settingsBus'
 import { GlobalSearch } from './GlobalSearch'
 import { api, type ResumeMeta, UnauthorizedError } from '../lib/api'
 import { Link, navigate } from '../lib/router'
@@ -44,6 +45,14 @@ export function AppHeader({
   const { undo, redo, canUndo, canRedo } = useUndoRedo()
   const [showHistory, setShowHistory] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
+  const [settingsTab, setSettingsTab] = useState<SettingsTabId | undefined>(undefined)
+
+  // Anywhere in the app can ask for Settings (the advisors upsell on Overview
+  // does) without a callback threaded down through five components.
+  useEffect(() => onOpenSettings((tab) => {
+    setSettingsTab(tab)
+    setShowSettings(true)
+  }), [])
   const [showSearch, setShowSearch] = useState(false)
   const headerRef = useRef<HTMLElement>(null)
 
@@ -90,7 +99,8 @@ export function AppHeader({
       )}
       {showSettings && (
         <SettingsModal
-          onClose={() => setShowSettings(false)}
+          initialTab={settingsTab}
+          onClose={() => { setShowSettings(false); setSettingsTab(undefined) }}
           // Translation availability is re-probed by the modal itself on save;
           // nothing else in the editor needs a refresh signal.
           onChanged={() => {}}

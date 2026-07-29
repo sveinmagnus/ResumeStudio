@@ -43,6 +43,8 @@ const TABS: TabDef[] = [
 const SAVEABLE_TABS = new Set(['translation', 'ai', 'sync'])
 
 interface SettingsModalProps {
+  /** Which tab to land on. Used when something deep-links into a setting. */
+  initialTab?: string
   onClose: () => void
   /** Called after a successful save so the picker can refresh sync status etc. */
   onChanged: () => void
@@ -55,11 +57,11 @@ interface SettingsModalProps {
  * its API key, and set the cloud-sync backup folder. On a server build the API
  * reports `managed:false` and this renders a read-only explanation instead.
  */
-export function SettingsModal({ onClose, onChanged, onUnauthorized }: SettingsModalProps) {
+export function SettingsModal({ initialTab, onClose, onChanged, onUnauthorized }: SettingsModalProps) {
   const dialogRef = useDialog(onClose)
   const [status, setStatus] = useState<SettingsStatus | null>(null)
   const [loadErr, setLoadErr] = useState<string | null>(null)
-  const [tab, setTab] = useState<string>('version')
+  const [tab, setTab] = useState<string>(initialTab ?? 'version')
 
   // Form state
   const [provider, setProvider] = useState<UiProvider>('off')

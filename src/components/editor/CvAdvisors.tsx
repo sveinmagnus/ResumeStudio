@@ -16,6 +16,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   ClipboardCheck, PenLine, Languages, Trophy, Check, CheckCheck, Square, X, Quote,
+  Lock, Settings,
 } from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import {
@@ -27,7 +28,8 @@ import { AssistFindingsPanel } from '../ui/AssistFindingsPanel'
 import { AssistProposalsPanel } from '../ui/AssistProposalsPanel'
 import { CollapsibleSection } from '../ui/CollapsibleSection'
 import { JobFitPanel } from '../ui/JobFitPanel'
-import { extractJson } from '../../lib/llmAssist'
+import { backendName, extractJson } from '../../lib/llmAssist'
+import { openSettings } from '../../lib/settingsBus'
 import { validateFindings, type FindingsResult } from '../../lib/assistFindings'
 import { validateProposals, type ProposalsResult } from '../../lib/assistProposals'
 import { buildCvReviewPrompt } from '../../lib/cvReview'
@@ -357,25 +359,48 @@ function AchievementMining() {
 // ── The block ────────────────────────────────────────────────────────────────
 
 export function CvAdvisors() {
-  const { enabled } = useAdvancedAssist()
-  // Hide the heading too, not just the cards — an empty "AI advisors" section
-  // would be an advert for a feature this install doesn't have.
-  if (!enabled) return null
+  const { enabled, status } = useAdvancedAssist()
 
   return (
     <section className="cva-wrap" aria-label="AI advisors">
       <h2 className="cva-heading">AI advisors</h2>
-      <p className="cva-sub">
-        Each of these reads your whole CV in one pass. Everything they produce is
-        a draft for you to check — nothing is saved until you accept it.
-      </p>
-      <CvReview />
-      <VoicePass />
-      <SemanticDrift />
-      <AchievementMining />
+      {enabled ? (
+        <p className="cva-sub">
+          Each of these reads your whole CV in one pass. Everything they produce is
+          a draft for you to check — nothing is saved until you accept it.
+        </p>
+      ) : (
+        /* The heading stays even with nothing configured. Hiding it entirely
+           meant the capability was invisible to anyone who hadn't already read
+           about it — you can't choose to unlock a feature you've never seen. */
+        <div className="cva-locked">
+          <p className="cva-locked-lede">
+            <Lock size={14} />
+            These read your <strong>whole CV at once</strong>: a full review, a
+            consistency &amp; voice pass, achievement mining, a cross-language
+            meaning check, and a job-fit report against a posting.
+          </p>
+          <p className="cva-sub">
+            {status.configured
+              ? <>Your configured model (<strong>{backendName(status)}</strong>) isn&rsquo;t marked
+                as high-end. These passes judge the entire document, and a small model
+                answers them confidently and wrongly — so they stay hidden until you
+                say the model can handle it.</>
+              : <>They need an AI model configured, and marked as high-end — a frontier
+                hosted model, or a large local one.</>}
+          </p>
+          <button className="cva-setup" onClick={() => openSettings('ai')}>
+            <Settings size={13} /> {status.configured ? 'Review the AI settings' : 'Set up a model'}
+          </button>
+        </div>
+      )}
+      {enabled && <CvReview />}
+      {enabled && <VoicePass />}
+      {enabled && <SemanticDrift />}
+      {enabled && <AchievementMining />}
       {/* Applying to something specific rather than tending the CV — last,
           because it needs a posting pasted in and the others don't. */}
-      <JobFitPanel />
+      {enabled && <JobFitPanel />}
 
       <style>{`
         .cva-wrap { display: flex; flex-direction: column; gap: 12px; margin-top: 28px; }
@@ -384,6 +409,24 @@ export function CvAdvisors() {
           font-size: 21px; color: var(--ink);
         }
         .cva-sub { margin: -4px 0 4px; font-size: 13px; color: var(--ink-soft); line-height: 1.5; }
+        .cva-locked {
+          display: flex; flex-direction: column; gap: 8px; align-items: flex-start;
+          padding: 14px; border: 1px dashed var(--secondary-line);
+          border-radius: var(--r-md); background: var(--paper-raised);
+        }
+        .cva-locked-lede {
+          display: flex; align-items: flex-start; gap: 7px; margin: 0;
+          font-size: 13px; line-height: 1.5; color: var(--ink);
+        }
+        .cva-locked-lede svg { flex-shrink: 0; margin-top: 2px; color: var(--secondary-ink); }
+        .cva-locked .cva-sub { margin: 0; }
+        .cva-setup {
+          display: inline-flex; align-items: center; gap: 6px;
+          padding: 7px 12px; border-radius: var(--r-sm); cursor: pointer;
+          font-size: 12.5px; font-weight: 600;
+          background: var(--accent); color: #fff; border: 1px solid var(--accent);
+        }
+        .cva-setup:hover { background: var(--accent-bright); }
         .cva-err { margin: 0; font-size: 12.5px; color: var(--err-ink); line-height: 1.45; }
         .cva-ok {
           display: flex; align-items: center; gap: 7px; margin: 0;

@@ -48,10 +48,19 @@ describe('<AssistRun>', () => {
   describe('with a local model', () => {
     beforeEach(() => backend(LOCAL))
 
-    it('offers Run labelled with the model and promises locality', async () => {
+    /**
+     * The model name is deliberately NOT on the button: it's in the provenance
+     * line beside it, where it's only worth reading if you care. Repeating it on
+     * every button made a project card read like a hardware inventory.
+     */
+    it('offers a clean Run label and promises locality', async () => {
       setup()
-      expect(await screen.findByRole('button', { name: /run with my ai \(llama3\.2:3b\)/i })).toBeInTheDocument()
+      const btn = await screen.findByRole('button', { name: /^run with my ai$/i })
+      expect(btn).toBeInTheDocument()
+      expect(btn.textContent).not.toMatch(/llama/i)
       expect(screen.getByText(/does not leave/i)).toBeInTheDocument()
+      // …and the model IS named, once, in the line beside it.
+      expect(screen.getByText(/llama3\.2:3b/)).toBeInTheDocument()
     })
 
     it('runs the prompt and hands the raw reply to the caller', async () => {

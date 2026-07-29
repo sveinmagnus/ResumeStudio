@@ -14,27 +14,31 @@
  * The server enforces the same flag independently (see routes/llm.ts).
  */
 
-import { useEffect, useState, type ReactNode } from 'react'
+import { useSyncExternalStore, type ReactNode } from 'react'
 import { Gauge } from 'lucide-react'
-import { getAssistStatus } from '../../lib/llmClient'
+import { assistStatusSnapshot, subscribeAssistStatus } from '../../lib/llmClient'
 import { supportsAdvanced } from '../../lib/llmAssist'
-import { ASSIST_OFF, type AssistStatus } from '../../lib/api'
+import type { AssistStatus } from '../../lib/api'
+
+/**
+ * The live backend status. Subscribed rather than fetched-once, so saving a
+ * model or ticking "high-end" lights the AI surfaces up in place instead of
+ * waiting for a remount.
+ */
+export function useAssistStatus(): AssistStatus {
+  return useSyncExternalStore(subscribeAssistStatus, assistStatusSnapshot, assistStatusSnapshot)
+}
 
 /**
  * Resolve whether the advanced assists are available. Shared so a page can hide
  * a whole section (heading and all) rather than leave an empty frame.
  */
 export function useAdvancedAssist(): { loaded: boolean; enabled: boolean; status: AssistStatus } {
-  const [status, setStatus] = useState<AssistStatus>(ASSIST_OFF)
-  const [loaded, setLoaded] = useState(false)
-
-  useEffect(() => {
-    let alive = true
-    void getAssistStatus().then((s) => { if (alive) { setStatus(s); setLoaded(true) } })
-    return () => { alive = false }
-  }, [])
-
-  return { loaded, enabled: loaded && supportsAdvanced(status), status }
+  const status = useAssistStatus()
+  // `configured` is the probe's own signal that it has answered — an
+  // unconfigured backend and an unprobed one look the same and are treated the
+  // same, which is the right (closed) default either way.
+  return { loaded: true, enabled: supportsAdvanced(status), status }
 }
 
 interface Props {

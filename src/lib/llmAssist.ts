@@ -129,6 +129,22 @@ export function sizeHint(chars: number, status: AssistStatus): string | null {
 }
 
 /**
+ * How to name the backend in one phrase.
+ *
+ * Hosted model ids usually already carry the provider ("gemini-3.6-flash",
+ * "mistral-small-latest"), so printing both produced "gemini, gemini-3.6-flash"
+ * — the same word twice. When the model id already says who it is, the model id
+ * is the whole answer.
+ */
+export function backendName(status: AssistStatus): string {
+  const provider = status.provider.trim()
+  const model = status.model.trim()
+  if (!model) return provider
+  if (!provider) return model
+  return model.toLowerCase().includes(provider.toLowerCase()) ? model : `${provider}, ${model}`
+}
+
+/**
  * One sentence saying where the content goes. Rendered next to every Run
  * button; the wording is the user's only signal, so it names the destination
  * rather than saying something vague like "your configured provider".
@@ -150,7 +166,22 @@ export function providerBlurb(status: AssistStatus, hasManualPath: boolean): str
   if (status.local) {
     return `Runs on ${status.model} on this computer — the content does not leave it.`
   }
-  return `Sends the content to your configured AI provider (${status.provider}${status.model ? `, ${status.model}` : ''}) over the internet.`
+  return `Sends the content to your configured AI provider (${backendName(status)}) over the internet.`
+}
+
+/**
+ * True when the configured model is small enough that a writing task will
+ * likely disappoint. Advisory only — it never blocks the run, it just says so
+ * next to the button, because "the AI is rubbish" is usually "the 3B model is
+ * doing something a 3B model can't do".
+ */
+export function looksWeakForWriting(status: AssistStatus): boolean {
+  if (!status.configured || status.highEnd) return false
+  const params = paramsOf(status.model)
+  // Unknown size on a REMOTE endpoint is assumed fine (hosted models are the
+  // ones people point at for capability); unknown size locally is assumed small.
+  if (params == null) return status.local
+  return params <= 8
 }
 
 /** True when a run would send content off this machine. Drives the confirm. */

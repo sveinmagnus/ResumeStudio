@@ -18,11 +18,13 @@
  *                  copy-prompt / paste-result steps.
  */
 
-import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Sparkles, Loader2, AlertTriangle, Info, ShieldCheck, ChevronDown } from 'lucide-react'
 import { api, type AssistStatus, ASSIST_OFF } from '../../lib/api'
-import { getAssistStatus } from '../../lib/llmClient'
-import { providerBlurb, sizeHint, isRemote, MANUAL_BLURB } from '../../lib/llmAssist'
+import { useAssistStatus } from './AdvancedAssistCard'
+import {
+  providerBlurb, sizeHint, isRemote, backendName, looksWeakForWriting, MANUAL_BLURB,
+} from '../../lib/llmAssist'
 import { selectRun, startAdvisor, useAdvisors, type AdvisorId } from '../../store/useAdvisors'
 import { confirmDialog } from './ConfirmDialog'
 
@@ -54,6 +56,19 @@ interface Props {
    * minute-long, paid-for run being thrown away by a click.
    */
   advisor?: { id: AdvisorId; resumeId: string }
+  /**
+   * In-item placement: the button sits under the field it applies to, styled
+   * like the Copy/Draft/Summarize chips beside it, with the provenance and
+   * model warnings laid out to its RIGHT rather than stacked underneath. Six
+   * of these down a project card is a lot of vertical space to spend on the
+   * same sentence.
+   */
+  compact?: boolean
+  /**
+   * Warn that a small model will struggle with this particular task. Writing
+   * assists set it; structural ones (extract these skills) don't need to.
+   */
+  warnWeakModel?: boolean
   /** True when the prompt carries the whole CV — gates the once-per-session confirm. */
   wholeCv?: boolean
   disabled?: boolean
@@ -88,10 +103,10 @@ interface Props {
 
 export function AssistRun({
   buildPrompt, onResult, wholeCv = false, disabled = false,
-  label = 'Run with my AI', maxTokens, advanced = false, advisor, hasManualPath, children,
+  label = 'Run with my AI', maxTokens, advanced = false, advisor,
+  compact = false, warnWeakModel = false, hasManualPath, children,
 }: Props) {
-  const [status, setStatus] = useState<AssistStatus>(ASSIST_OFF)
-  const [loaded, setLoaded] = useState(false)
+  const status = useAssistStatus()
   const [localBusy, setLocalBusy] = useState(false)
   const [localErr, setLocalErr] = useState<string | null>(null)
 
@@ -102,12 +117,6 @@ export function AssistRun({
   const err = advisor ? (storedRun?.status === 'error' ? storedRun.error ?? null : null) : localErr
   // Manual is the only path with no model, so it starts open in that case.
   const [manualOpen, setManualOpen] = useState(false)
-
-  useEffect(() => {
-    let alive = true
-    void getAssistStatus().then((s) => { if (alive) { setStatus(s); setLoaded(true) } })
-    return () => { alive = false }
-  }, [])
 
   const run = useCallback(async () => {
     setLocalErr(null)
@@ -143,32 +152,71 @@ export function AssistRun({
     }
   }, [buildPrompt, onResult, wholeCv, status, maxTokens, advanced, advisor])
 
-  // Don't flash the manual-only state before the probe lands.
-  if (!loaded) return null
+  /**
+   * Announce start and completion to assistive tech.
+   *
+   * The button's label flips to "Working…", but a label change on a control
+   * that is simultaneously disabled is not reliably announced — and the RESULTS
+   * render in a sibling panel with no live region of its own. So a run that can
+   * take up to three minutes (the advanced budget) finished in silence.
+   *
+   * The five Overview advisors already had `AdvisorToast` for this; the panels
+   * that hold their results locally (D1/D2/D3, B4, B5, C4) had nothing. Putting
+   * it here covers every assist, present and future, from the one control they
+   * all render.
+   *
+   * Errors are deliberately NOT repeated here — they already have role="alert"
+   * below, and announcing both would say it twice.
+   */
+  const [announcement, setAnnouncement] = useState('')
+  const wasBusy = useRef(false)
+  useEffect(() => {
+    if (busy && !wasBusy.current) setAnnouncement(`${label} started…`)
+    else if (!busy && wasBusy.current) {
+      setAnnouncement(err ? '' : `${label} finished. Review the results below.`)
+    }
+    wasBusy.current = busy
+  }, [busy, err, label])
 
   const configured = status.configured
   const hint = configured ? sizeHint(buildPrompt().length, status) : null
   const remote = isRemote(status)
   const showManual = !configured || manualOpen
 
+  const weak = warnWeakModel && looksWeakForWriting(status)
+
   return (
-    <div className="ar-wrap">
+    <div className={compact ? 'ar-wrap ar-compact' : 'ar-wrap'}>
+      {/* Persistent live region — never conditionally unmounted, so the
+          announcement is heard (CLAUDE.md §6, same rule as SaveStatus). */}
+      <p className="sr-only" role="status">{announcement}</p>
       {configured && (
         <>
           <div className="ar-run-row">
             <button className="ar-run" onClick={() => void run()} disabled={disabled || busy}>
               {busy ? <Loader2 size={14} className="ar-spin" /> : <Sparkles size={14} />}
-              {busy ? 'Working…' : `${label}${status.model ? ` (${status.model})` : ''}`}
+              {/* No model name here: it's in the provenance line beside the
+                  button, where it's only worth reading if you care. */}
+              {busy ? 'Working…' : label}
             </button>
+
+            {/* Beside the button in compact mode, under it otherwise. */}
+            <div className="ar-notes">
+              <p className={`ar-blurb ${remote ? 'ar-remote' : 'ar-local'}`}>
+                {remote ? <AlertTriangle size={12} /> : <ShieldCheck size={12} />}
+                {providerBlurb(status, hasManualPath)}
+              </p>
+              {weak && (
+                <p className="ar-blurb ar-weak">
+                  <AlertTriangle size={12} />
+                  {backendName(status)} is a small model — expect thin results on a
+                  writing task. A larger one does this much better.
+                </p>
+              )}
+              {hint && <p className="ar-blurb ar-hint"><Info size={12} />{hint}</p>}
+              {err && <p className="ar-blurb ar-err" role="alert"><AlertTriangle size={12} />{err}</p>}
+            </div>
           </div>
-
-          <p className={`ar-blurb ${remote ? 'ar-remote' : 'ar-local'}`}>
-            {remote ? <AlertTriangle size={12} /> : <ShieldCheck size={12} />}
-            {providerBlurb(status, hasManualPath)}
-          </p>
-
-          {hint && <p className="ar-blurb ar-hint"><Info size={12} />{hint}</p>}
-          {err && <p className="ar-blurb ar-err" role="alert"><AlertTriangle size={12} />{err}</p>}
         </>
       )}
 
@@ -198,7 +246,18 @@ export function AssistRun({
 
       <style>{`
         .ar-wrap { display: flex; flex-direction: column; gap: 8px; }
-        .ar-run-row { display: flex; }
+        /* Default: button on its own row, notes stacked beneath it. */
+        .ar-run-row { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+        .ar-notes { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+
+        /* Compact (in-item): notes sit to the RIGHT of the button. Six of these
+           down a project card stacked vertically is a screenful of the same
+           sentence. Wraps under on a narrow column rather than squeezing. */
+        .ar-compact .ar-run-row {
+          flex-direction: row; align-items: center; gap: 10px; flex-wrap: wrap;
+        }
+        .ar-compact .ar-notes { flex: 1 1 260px; }
+        .ar-compact .ar-blurb { font-size: 11.5px; }
         .ar-run {
           display: inline-flex; align-items: center; gap: 7px;
           padding: 9px 14px; border-radius: var(--r-sm); font-size: 13.5px; font-weight: 600;
@@ -207,6 +266,14 @@ export function AssistRun({
         }
         .ar-run:hover:not(:disabled) { background: var(--accent-bright); }
         .ar-run:disabled { opacity: .55; cursor: default; }
+        /* Matches the Copy / Draft / Summarize chips beside it, a shade larger
+           so it reads as the heavier action of the group. */
+        .ar-compact .ar-run {
+          padding: 6px 12px; font-size: 12.5px; font-weight: 600;
+          background: var(--paper); color: var(--accent);
+          border: 1px solid var(--accent);
+        }
+        .ar-compact .ar-run:hover:not(:disabled) { background: var(--accent-wash); }
         .ar-blurb {
           display: flex; align-items: flex-start; gap: 6px;
           font-size: 12px; line-height: 1.45; margin: 0; color: var(--ink-soft);
@@ -215,6 +282,7 @@ export function AssistRun({
         .ar-local { color: var(--ok-ink); }
         .ar-remote { color: var(--warn-ink); }
         .ar-err { color: var(--err-ink); }
+        .ar-weak { color: var(--warn-ink); }
         .ar-hint { color: var(--ink-faint); }
         .ar-manual { display: flex; flex-direction: column; gap: 8px; }
         .ar-manual-toggle {
