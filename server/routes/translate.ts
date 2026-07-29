@@ -5,6 +5,7 @@ import {
   TranslateError,
   MAX_TRANSLATE_CHARS,
 } from '../translate.js'
+import { parseGlossary } from '../glossary.js'
 
 const router = Router()
 
@@ -15,8 +16,14 @@ router.get('/status', (_req: Request, res: Response): void => {
 
 /**
  * POST /api/translate — draft-translate one field.
- * Body: { text, source, target } (source/target in app locale codes).
+ * Body: { text, source, target, glossary? } (source/target in app locale codes).
  * Returns: { translation }.
+ *
+ * `glossary` is optional terminology the CLIENT derived from the resume and
+ * scoped to this text (src/lib/glossary.ts) — the server has no access to the
+ * CV, so it cannot build it itself. Untrusted, so it is capped and
+ * charset-cleaned by `parseGlossary` before it can reach a prompt or an
+ * upstream API. Absent or unusable simply means translating without it.
  */
 router.post('/', (req: Request, res: Response): void => {
   void (async () => {
@@ -49,7 +56,7 @@ router.post('/', (req: Request, res: Response): void => {
     }
 
     try {
-      const translation = await translate(text, source, target)
+      const translation = await translate(text, source, target, undefined, parseGlossary(body?.glossary))
       res.json({ translation })
     } catch (err) {
       if (err instanceof TranslateError) {

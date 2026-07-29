@@ -197,7 +197,27 @@ prescriptive.
   **freeform intake** (`intakeInstructions` — the same `resumestudio-bulk/v1`
   contract read out of an email or meeting notes; the BYO copy-and-paste path is
   untouched, so quality-assured imports through an external model still work).
-  See CLAUDE.md §15.
+  Then the **ATS keyword audit** (`lib/atsAudit.ts` — pass 1 is a literal search
+  over `buildViewText`'s real output and needs NO model; three-way status where
+  `elsewhere` means "in your CV but this view excluded it", fixable without
+  writing a word; a `missing` term never gets a suggestion and an unquoted
+  `covered` is downgraded, so it can't become a keyword stuffer) and
+  **registry hygiene** (`lib/registryHygiene.ts` — semantic merge + category
+  proposals; proposal-only by construction, nothing pre-ticked, no "select all"
+  for merges, each row states what it deletes and how many references it
+  rewrites, a confirm names the totals, and a skill the user categorised is
+  never re-categorised). See CLAUDE.md §15.
+- **Bilingual glossary (C3)** (`src/lib/glossary.ts` + `server/glossary.ts`) —
+  terminology consistency for the ORDINARY Draft translation, with no UI and no
+  high-end gate. Harvested rather than inferred: registry names and short
+  both-locale identity fields are already curated term pairs, and a name written
+  identically in both columns is a do-not-translate instruction. Scoped per
+  field so it stays a few lines and a small local model can honour it; derived
+  per call, so nothing persists and no shape changes. Provider reach: `llm` via
+  a prompt block, **DeepL** via a real glossary resource (cached by pair +
+  content hash, best-effort), **Google v2** via `format=html` + `notranslate`
+  spans (v2 has no glossary API — that's v3 Advanced), LibreTranslate unchanged.
+  This is the prevention for what A3 detects.
 - **Cover letters** (shape v10, `lib/coverLetter.ts` + `CoverLettersEditor`) —
   their OWN entity (`data.cover_letters[]`), a document-builder sibling of
   Resume Views in the Export sidebar group. A letter is per-APPLICATION and

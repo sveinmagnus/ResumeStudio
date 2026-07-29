@@ -129,7 +129,9 @@ describe('<DualField>', () => {
     const draft = await screen.findByRole('button', { name: /draft/i })
     await userEvent.click(draft)
 
-    expect(translateSpy).toHaveBeenCalledWith('hello', 'en', 'no')
+    // Fourth arg is the C3 glossary, scoped to this text — undefined here
+    // because the fixture store has no bilingual terminology to harvest.
+    expect(translateSpy).toHaveBeenCalledWith('hello', 'en', 'no', undefined)
     expect(onChange).toHaveBeenLastCalledWith({ en: 'hello', no: 'hei oversatt' })
     expect(await screen.findByText(/please review/i)).toBeInTheDocument()
   })
@@ -144,7 +146,7 @@ describe('<DualField>', () => {
     const draft = await screen.findByRole('button', { name: /draft/i })
     await userEvent.click(draft)
 
-    expect(translateSpy).toHaveBeenCalledWith('hei', 'no', 'en')
+    expect(translateSpy).toHaveBeenCalledWith('hei', 'no', 'en', undefined)
     expect(onChange).toHaveBeenLastCalledWith({ no: 'hei', en: 'hello drafted' })
   })
 

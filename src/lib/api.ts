@@ -1,6 +1,7 @@
 import type { ResumeStore, LocalizedString, RegistryEntry, RegistryKind } from '../types'
 import type { StorageStats } from './storage'
 import type { InstalledModel } from './ollamaCatalog'
+import type { GlossaryPayload } from './glossary'
 
 // ─── Auth ──────────────────────────────────────────────────────────────────────
 //
@@ -529,8 +530,10 @@ export const api = {
    * Draft-translate a single field. `source`/`target` are app locale codes
    * (e.g. 'en', 'no'). Throws ServerError with a user-safe message on failure.
    */
-  async translate(text: string, source: string, target: string): Promise<string> {
-    const res = await request('POST', '/api/translate', { text, source, target })
+  async translate(
+    text: string, source: string, target: string, glossary?: GlossaryPayload,
+  ): Promise<string> {
+    const res = await request('POST', '/api/translate', { text, source, target, glossary })
     if (!res.ok) {
       await fail(res, 'Translation failed')
     }

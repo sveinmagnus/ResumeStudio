@@ -20,6 +20,7 @@ import { SortBar } from '../ui/SortBar'
 import { Autocomplete } from '../ui/Autocomplete'
 import { confirmDialog } from '../ui/ConfirmDialog'
 import { RegistryCategoryView, RegistryLightbox, categoriesOf } from './RegistryCategoryView'
+import { RegistryHygienePanel } from '../ui/RegistryHygienePanel'
 import { useRegistryFilter, isMissingTranslation, type RegistryFilter, type NamedItem } from './useRegistryFilter'
 import { UsagePanel, projectGroup, employmentGroup, positionGroup } from './UsagePanel'
 import { TranslationPopover } from '../ui/TranslationPopover'
@@ -659,6 +660,9 @@ export function SkillsEditor() {
         and certifications. Years of experience are computed from the projects
         that use it.
       </p>
+      {/* Covers all three registries, so it sits on the busiest one rather
+          than being repeated. Proposals only — see RegistryHygienePanel. */}
+      <RegistryHygienePanel />
       <div className="reg-view-toggle" role="group" aria-label="Skill view">
         <button type="button" className={`rvt-btn ${view === 'list' ? 'active' : ''}`} onClick={() => setView('list')} aria-pressed={view === 'list'}>
           <List size={14} /> List

@@ -22,6 +22,10 @@
  */
 
 import { chatComplete, isLlmConfigured, languageNameOf, LlmError } from './llm.js'
+import {
+  ensureDeeplGlossary, glossaryPromptBlock, googleMarkup, googleUnmarkup,
+  type WireGlossary,
+} from './glossary.js'
 
 /**
  * `llm` reuses whatever model the SUMMARIZE settings already configure (local
@@ -197,18 +201,33 @@ async function translateLibre(text: string, source: string, target: string, c: T
   return json.translatedText
 }
 
-async function translateDeepL(text: string, source: string, target: string, c: TranslateConfig): Promise<string> {
+async function translateDeepL(
+  text: string, source: string, target: string, c: TranslateConfig, glossary?: WireGlossary,
+): Promise<string> {
   const key = c.deepl.apiKey
   if (!key) throw new TranslateError(503, 'Translation is not configured on this server')
   // DeepL Free keys end in ':fx' and use a separate host.
   const host = key.endsWith(':fx') ? 'https://api-free.deepl.com' : 'https://api.deepl.com'
+  const sourceLang = mapDeepL(DEEPL_SOURCE, source)
+  const targetLang = mapDeepL(DEEPL_TARGET, target)
+
+  // DeepL is the one provider with first-class glossary support: a real
+  // server-side resource, reused by id across calls (see ensureDeeplGlossary).
+  // Best-effort — a null id simply means translating without it, because losing
+  // the translation to a glossary hiccup would be a poor trade.
+  const glossaryId = glossary
+    ? await ensureDeeplGlossary(glossary, { host, key, sourceLang, targetLang }, TIMEOUT_MS)
+    : null
+
   const res = await postJson(`${host}/v2/translate`, {
     method: 'POST',
     headers: { 'Authorization': `DeepL-Auth-Key ${key}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       text: [text],
-      source_lang: mapDeepL(DEEPL_SOURCE, source),
-      target_lang: mapDeepL(DEEPL_TARGET, target),
+      source_lang: sourceLang,
+      target_lang: targetLang,
+      // A glossary requires an explicit source_lang, which we always send.
+      ...(glossaryId ? { glossary_id: glossaryId } : {}),
     }),
   })
   if (!res.ok) {
@@ -223,19 +242,25 @@ async function translateDeepL(text: string, source: string, target: string, c: T
   return out
 }
 
-async function translateGoogle(text: string, source: string, target: string, c: TranslateConfig): Promise<string> {
+async function translateGoogle(
+  text: string, source: string, target: string, c: TranslateConfig, glossary?: WireGlossary,
+): Promise<string> {
   const key = c.google.apiKey
   if (!key) throw new TranslateError(503, 'Translation is not configured on this server')
+  const marked = googleMarkup(text, glossary)
   const res = await postJson(
     `https://translation.googleapis.com/language/translate/v2?key=${encodeURIComponent(key)}`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        q: text,
+        q: marked.html,
         source: mapWith(GOOGLE_MAP, source),
         target: mapWith(GOOGLE_MAP, target),
-        format: 'text',
+        // v2 has no glossary parameter (that's v3 Advanced, which needs a
+        // service account). `notranslate` spans in HTML mode are the supported
+        // way to pin terminology here — see googleMarkup.
+        format: marked.used ? 'html' : 'text',
       }),
     },
   )
@@ -247,7 +272,9 @@ async function translateGoogle(text: string, source: string, target: string, c: 
   const json = await res.json().catch(() => null) as { data?: { translations?: { translatedText?: string }[] } } | null
   const out = json?.data?.translations?.[0]?.translatedText
   if (typeof out !== 'string') throw new TranslateError(502, 'Translation service returned no text')
-  return out
+  // Only unwrap what we wrapped. HTML mode also entity-encodes the rest of the
+  // text, so this must run on exactly the requests that used it.
+  return marked.used ? googleUnmarkup(out) : out
 }
 
 async function translateAzure(text: string, source: string, target: string, c: TranslateConfig): Promise<string> {
@@ -288,14 +315,17 @@ async function translateAzure(text: string, source: string, target: string, c: T
  */
 export async function translate(
   text: string, source: string, target: string, config?: TranslateConfig,
+  glossary?: WireGlossary,
 ): Promise<string> {
   const c = config ?? resolveConfig()
   switch (c.provider) {
+    // LibreTranslate has no glossary or tag-protection facility to hook into,
+    // so it is the one provider the glossary cannot reach.
     case 'libretranslate': return translateLibre(text, source, target, c)
-    case 'deepl':          return translateDeepL(text, source, target, c)
-    case 'google':         return translateGoogle(text, source, target, c)
+    case 'deepl':          return translateDeepL(text, source, target, c, glossary)
+    case 'google':         return translateGoogle(text, source, target, c, glossary)
     case 'azure':          return translateAzure(text, source, target, c)
-    case 'llm':            return translateLlm(text, source, target)
+    case 'llm':            return translateLlm(text, source, target, glossary)
     default:               throw new TranslateError(503, 'Translation is not configured on this server')
   }
 }
@@ -339,18 +369,26 @@ export function tidyTranslation(raw: string): string {
  * LlmError is remapped to TranslateError so the route's error contract
  * (and its "never leak upstream detail" rule) is unchanged.
  */
-async function translateLlm(text: string, source: string, target: string): Promise<string> {
+async function translateLlm(
+  text: string, source: string, target: string, glossary?: WireGlossary,
+): Promise<string> {
   const from = languageNameOf(source)
   const to = languageNameOf(target)
   if (!from || !to) {
     throw new TranslateError(400, `The AI translator does not support ${!from ? source : target}`)
   }
+  // The glossary rides in the SYSTEM message, after the instructions: it is a
+  // constraint on how to translate, not content to translate. Already scoped by
+  // the client to terms present in this text, so it stays a few lines even on a
+  // CV with hundreds of registry entries — small enough for a 3B model to obey.
+  const block = glossaryPromptBlock(glossary)
   try {
     const raw = await chatComplete(
       [
         {
           role: 'system',
-          content: LLM_TRANSLATE_PROMPT.replace('{SOURCE}', from).replace(/\{TARGET\}/g, to),
+          content: LLM_TRANSLATE_PROMPT.replace('{SOURCE}', from).replace(/\{TARGET\}/g, to)
+            + (block ? `\n\n${block}` : ''),
         },
         { role: 'user', content: text },
       ],

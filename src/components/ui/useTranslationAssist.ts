@@ -18,6 +18,8 @@
  */
 import { useState } from 'react'
 import { api } from '../../lib/api'
+import { glossaryFor } from '../../lib/glossary'
+import { useStore } from '../../store/useStore'
 import type { LocalizedString } from '../../types'
 
 export interface TranslationAssist {
@@ -97,7 +99,13 @@ export function useTranslationAssist(
   const draftBetween = (from: string, to: string) => {
     const source = textOf(from)
     if (!source) return Promise.resolve()
-    return run(to, () => api.translate(source, from, to), setDraftedLocale, 'Translation failed')
+    // C3: the terminology this CV already uses, narrowed to the terms that
+    // actually occur in THIS text. Invisible by design — there is no control for
+    // it, because "translate this the way I translated it last time" is not a
+    // decision the user should have to make per field. A few lines at most, so
+    // it costs nothing and works on a small local model.
+    const glossary = glossaryFor(useStore.getState().data, from, to, source)
+    return run(to, () => api.translate(source, from, to, glossary), setDraftedLocale, 'Translation failed')
   }
 
   const summarizeInto = (locale: string, source: string) => {

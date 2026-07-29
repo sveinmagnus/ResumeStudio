@@ -694,6 +694,43 @@ whole CV and make comparative judgements about it.
 | B1 | Job fit report vs a pasted posting | Overview (`JobFitPanel`) |
 | B5 | Letter angles + critique | Cover letter editor, under the body |
 | C1 | Freeform intake from messy prose | Bulk add modal — **upgrade, not a new surface** |
+| B4 | ATS keyword audit of a view's export | View editor, last block. **Pass 1 needs no model** |
+| C4 | Registry merge + category proposals | Skill Registry — **proposals only, never applies** |
+
+**B4** audits the ARTIFACT, not the CV: it reads `buildViewText`'s real output.
+Its free first pass is a string search with no model at all, so it works on an
+install with no AI — only the synonym/cross-language second pass is gated.
+Three-way status, and the middle one is the prize: `elsewhere` (in the master CV
+but excluded by THIS view) is fixed by re-including an item, with no writing.
+It must never become a keyword-stuffer: a `missing` term carries no suggestion,
+and a `covered` verdict with no supporting quote is downgraded, because the
+quote *is* the evidence.
+
+**C4 is proposal-only by construction** — `validateHygiene` has no code path to
+a mutation, nothing is pre-ticked, merges have no "select all", each row states
+what it deletes and how many references it rewrites, and a confirm names the
+totals before `applyHygiene` runs. It also never re-categorises a skill the user
+placed themselves. A registry merge is the most destructive act in the app and
+the least noticeable when wrong.
+
+### C3 — the invisible glossary (NOT gated; helps the small-model path)
+
+`lib/glossary.ts` harvests term pairs from the data that already holds them —
+the **registries** (`Skill`/`Role`/`Industry`/`SkillCategory` names are curated
+`LocalizedString`s) and short **identity** fields filled in both locales — plus
+a do-not-translate list from names written identically in both columns. Prose is
+deliberately not mined: that needs a model and would put guesses into a
+mechanism whose value is being certain. `scopeGlossary` narrows it to terms
+present in the field being translated, so a 300-entry glossary becomes three
+lines and a 3B model can obey it. Derived per call — no persistence, no shape
+bump. It rides the ordinary Draft button; there is no UI for it.
+
+Provider reach is uneven and `server/glossary.ts` owns that: **llm** gets a
+prompt block; **DeepL** gets a real glossary resource, cached by (pair + content
+hash) and best-effort (a failure translates without it); **Google v2** has no
+glossary API at all, so terminology is pinned structurally with `format=html`
+and `notranslate` spans; **LibreTranslate** has nothing to hook into and is
+unchanged.
 
 **B1** answers a different question from `viewTailor` — tailoring SELECTS items
 once you've decided to apply; this asks whether you can answer the posting at

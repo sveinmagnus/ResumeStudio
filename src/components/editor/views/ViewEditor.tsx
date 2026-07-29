@@ -43,6 +43,7 @@ import { ViewHeaderControls } from './ViewHeaderControls'
 import { ViewFooterControls } from './ViewFooterControls'
 import { Styles } from './Styles'
 import { IntroDraftPanel } from '../../ui/IntroDraftPanel'
+import { AtsAuditPanel } from '../../ui/AtsAuditPanel'
 
 // ─── Content sections (excludes non-content + the skill/role registries) ─────
 const CONTENT_SECTIONS = SECTIONS.filter(isExportableSection)
@@ -894,6 +895,13 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
           hasCompany={!!(data.resume?.company_name ?? '').trim()}
           onChange={updateFooter}
         />
+      </div>
+
+      {/* ── Keyword check ── last, because it audits the finished artifact:
+          everything above changes what this view exports, and this reads what
+          it exports. The free text-search pass needs no model. */}
+      <div className="rv-section-block">
+        <AtsAuditPanel view={view} />
       </div>
 
         </div>
