@@ -22,7 +22,7 @@ import { showcaseGroups } from './showcase'
 import { sortItems } from './sectionSort'
 import { resolveSectionStyle, sectionHeadingText, kqVisibility, bulletGlyph, withDefaults } from './viewStyle'
 import { withHeaderDefaults, withFooterDefaults, buildHeaderLines, buildCopyrightLine } from './viewHeader'
-import { parseRichBlocks, type RichRun } from './richText'
+import { parseRichBlocks, plainParagraphs, type RichRun } from './richText'
 import { resolve } from './locales'
 
 type Format = 'text' | 'markdown'
@@ -37,16 +37,33 @@ function runText(r: RichRun, fmt: Format): string {
   return t
 }
 
-/** Flatten allowlisted rich text into plain/markdown lines (lists become dashes). */
+/**
+ * Flatten allowlisted rich text into plain/markdown lines (lists become
+ * dashes). Blocks are separated by a BLANK line — consecutive list items
+ * excepted — because that is what a paragraph break looks like in a plain-text
+ * CV, and because Markdown merges two adjacent lines into one paragraph
+ * otherwise (the text export said "two paragraphs", the rendered Markdown
+ * showed one).
+ */
 function richToLines(html: string, fmt: Format): string[] {
-  return parseRichBlocks(html)
-    .map((b) => {
-      const text = b.runs.map((r) => runText(r, fmt)).join('')
-      if (b.kind === 'paragraph') return text
+  const out: string[] = []
+  let prevWasItem = false
+  for (const b of parseRichBlocks(html)) {
+    const text = b.runs.map((r) => runText(r, fmt)).join('')
+    if (!text.trim()) continue
+    const isItem = b.kind === 'list-item'
+    if (out.length && !(isItem && prevWasItem)) out.push('')
+    if (isItem) {
       const indent = '  '.repeat(b.level ?? 0)
-      return `${indent}${b.ordered ? `${b.index}. ` : '- '}${text}`
-    })
-    .filter((t) => t.trim() !== '')
+      out.push(`${indent}${b.ordered ? `${b.index}. ` : '- '}${text.replace(/\n/g, ' ')}`)
+    } else {
+      // A newline inside a paragraph run survives only from a list item's
+      // <br>; anywhere else it is already a block boundary.
+      out.push(...text.split('\n'))
+    }
+    prevWasItem = isItem
+  }
+  return out
 }
 
 // ─── Item rendering ───────────────────────────────────────────────────────────
@@ -80,7 +97,9 @@ function renderItemLines(v: ItemView, fmt: Format, bullet: string | null = null)
   if (metaTxt) lines.push(md ? `*${metaTxt}*` : metaTxt)
   lines.push(...richToLines(v.body, fmt))
   for (const p of v.points) {
-    const body = richToLines(p.body, 'text').join(' ')
+    // A point is one bullet line: the blank separators between paragraphs
+    // collapse away when the body is folded into it.
+    const body = richToLines(p.body, 'text').filter(Boolean).join(' ')
     const label = p.label ? (md ? `**${p.label}**: ` : `${p.label}: `) : ''
     lines.push(`- ${label}${body}`)
   }
@@ -118,8 +137,11 @@ function buildViewDoc(store: ResumeStore, view: ResumeView, locale: string, fmt:
   out.push('')
 
   // ── Introduction ──────────────────────────────────────────────────────────
-  const intro = resolve(view.introduction, locale)
-  if (intro) { out.push(intro); out.push('') }
+  const introParas = plainParagraphs(resolve(view.introduction, locale))
+  if (introParas.length) {
+    introParas.forEach((p, i) => { if (i) out.push(''); out.push(p) })
+    out.push('')
+  }
 
   // ── Sections in the view's order (same walk as the HTML/DOCX adapters) ────
   for (const s of planViewSections(view)) {

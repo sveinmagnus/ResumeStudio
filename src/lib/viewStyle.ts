@@ -23,6 +23,7 @@ import {
   DEFAULT_HEADING_FONT, DEFAULT_BODY_FONT,
   type GlobalFonts, type PdfBaseFont,
 } from './fonts'
+import { PARA_GAP_LINES, paraGapEm } from './richText'
 
 // ─── Defaults ───────────────────────────────────────────────────────────────
 
@@ -108,6 +109,15 @@ export interface StyleTokens {
   /** Vertical gap between top-level items in the section (CSS px, DOCX twips). */
   itemGapPx: number
   itemGapTwips: number
+  /**
+   * Gap between PARAGRAPHS inside one item's body — `PARA_GAP_LINES` of a line
+   * box, so paragraphs sit one-and-a-half lines apart in every target. `Em` is
+   * for CSS (scales with whatever font size the element uses), `Pt` for pdfmake
+   * and `Twips` for DOCX (both fixed to the body size the renderers set).
+   */
+  paraGapEm: number
+  paraGapPt: number
+  paraGapTwips: number
   /** Bottom margin under section headings. */
   sectionHeadingAfterPx: number
   sectionHeadingAfterTwips: number
@@ -193,6 +203,7 @@ export function deriveTokens(style: ViewStyle): StyleTokens {
   const accentHex = sanitizeHexColor(style.accent_color)
   // Heading text colour falls back to the accent when unset (back-compat).
   const headingHex = sanitizeHexColor(style.heading_color ?? style.accent_color, accentHex)
+  const paraGapPt = Math.round(PARA_GAP_LINES * density.lineHeight * sizes.bodyPt * 10) / 10
   return {
     bodyFontSizePt: sizes.bodyPt,
     smallFontSizePt: Math.max(7, sizes.bodyPt - 1),
@@ -211,6 +222,9 @@ export function deriveTokens(style: ViewStyle): StyleTokens {
     bodyPdfFont: bodyFont.pdfFont,
     itemGapPx: density.itemGapPx,
     itemGapTwips: density.itemGapTwips,
+    paraGapEm: paraGapEm(density.lineHeight),
+    paraGapPt: paraGapPt,
+    paraGapTwips: Math.round(paraGapPt * 20),
     sectionHeadingAfterPx: density.sectionGapPx,
     sectionHeadingAfterTwips: density.sectionGapTwips,
     pagePadCss: pageMargin.cssPadding,

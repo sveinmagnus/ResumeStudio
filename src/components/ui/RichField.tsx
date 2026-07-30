@@ -8,7 +8,7 @@ import type { LocalizedString } from '../../types'
 import { LOCALE_LABELS, bcp47 } from '../../lib/locales'
 import { canDraftBetween } from '../../lib/translateClient'
 import { useTranslationAvailable } from '../../store/useTranslation'
-import { sanitizeRich, cleanPastedHtml, plainToRichHtml } from '../../lib/richText'
+import { sanitizeRich, cleanPastedHtml, plainToRichHtml, paraGapEm } from '../../lib/richText'
 import { useTranslationAssist } from './useTranslationAssist'
 
 interface RichFieldProps {
@@ -270,6 +270,19 @@ function RichColumn({ variant, locale, fieldLabel, html, onCommit, placeholder, 
     if (focused) placeCaretAtEnd(el)
   }, [html])
 
+  /**
+   * Ask the engine for `<p>` rather than `<div>` when Enter splits a block.
+   * A `<div>` isn't in the allowlist, so the sanitiser unwrapped it and the
+   * two lines silently merged back into one on the next load.
+   *
+   * Called from `exec`, with the caret already in the editor: Chrome ignores
+   * this command when there is no live selection (setting it on focus looked
+   * right and measurably did nothing).
+   */
+  const setParagraphSeparator = () => {
+    try { document.execCommand('defaultParagraphSeparator', false, 'p') } catch { /* not supported */ }
+  }
+
   // Commit on every input — sanitiser cleans whatever the browser produced.
   const onInput = () => {
     const el = editorRef.current
@@ -284,6 +297,7 @@ function RichColumn({ variant, locale, fieldLabel, html, onCommit, placeholder, 
     // browser would emit a <blockquote> the sanitiser flattens anyway.
     if ((cmd === 'indent' || cmd === 'outdent') && !selectionInListItem()) return
     el.focus()
+    setParagraphSeparator()
     // execCommand is deprecated but widely supported; the small subset of
     // commands we use is stable across Chromium / Firefox / WebKit. We
     // accept the deprecation risk for the zero-dependency win.
@@ -346,6 +360,18 @@ function RichColumn({ variant, locale, fieldLabel, html, onCommit, placeholder, 
    * key is NOT hijacked, so keyboard users can still tab through the form.
    */
   const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    // Enter — with or WITHOUT Shift — makes a paragraph. Left to the browser
+    // these diverge: Enter emits the engine's default separator (a <div> in
+    // Chrome, whose boundary the allowlist then drops, silently merging the
+    // two lines on the next load) and Shift+Enter emits a <br>, a break with
+    // no paragraph spacing that looks identical while typing and different in
+    // every export. Routing both through `exec` pins the separator to <p>
+    // with the caret live, which is the only moment Chrome honours it.
+    if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.nativeEvent.isComposing) {
+      e.preventDefault()
+      exec('insertParagraph')
+      return
+    }
     if (e.key === 'Tab' && !e.ctrlKey && !e.metaKey && !e.altKey) {
       if (selectionInListItem()) {
         e.preventDefault()
@@ -404,7 +430,12 @@ function RichColumn({ variant, locale, fieldLabel, html, onCommit, placeholder, 
           border: 1px solid var(--line); border-radius: var(--r-sm);
           transition: border-color .15s, box-shadow .15s, background .15s;
           line-height: 1.5; font-size: 15px; outline: none;
-          white-space: pre-wrap; word-wrap: break-word;
+          /* NOT pre-wrap. Under pre-wrap Chrome answers Enter with a div
+             (whose boundary the sanitiser then drops) and Shift+Enter with a
+             raw newline — a break the editor showed but the HTML preview and
+             Word rendered as a space. With normal white-space every break is
+             real markup, and blockify makes it a paragraph. */
+          word-wrap: break-word;
         }
         .rf-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-wash); background: #fff; }
         .rf-input.rf-secondary { background: var(--secondary-tint); border-color: var(--secondary-line); }
@@ -413,9 +444,11 @@ function RichColumn({ variant, locale, fieldLabel, html, onCommit, placeholder, 
           content: attr(data-placeholder);
           color: var(--ink-faint); pointer-events: none;
         }
-        .rf-input p { margin: 0 0 4px; }
+        /* The same paragraph gap the exports use — PARA_GAP_LINES of the 1.5
+           line-height above, so what you type is what the PDF/DOCX shows. */
+        .rf-input p { margin: 0 0 ${paraGapEm(1.5)}em; }
         .rf-input p:last-child { margin-bottom: 0; }
-        .rf-input ul, .rf-input ol { padding-left: 22px; margin: 4px 0; }
+        .rf-input ul, .rf-input ol { padding-left: 22px; margin: ${paraGapEm(1.5)}em 0; }
         .rf-input li { margin: 2px 0; }
       `}</style>
     </div>
@@ -427,7 +460,7 @@ function RichColumn({ variant, locale, fieldLabel, html, onCommit, placeholder, 
 type Cmd =
   | 'bold' | 'italic' | 'underline'
   | 'insertUnorderedList' | 'insertOrderedList'
-  | 'indent' | 'outdent'
+  | 'indent' | 'outdent' | 'insertParagraph'
 
 interface ToolbarActive { bold: boolean; italic: boolean; underline: boolean; inList: boolean }
 

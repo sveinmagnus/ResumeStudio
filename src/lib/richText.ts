@@ -13,6 +13,17 @@
  * across LocalizedString, plain-text imports (CVpartner), translation drafts,
  * and exports — at the cost of one sanitise step per write.
  *
+ * ONE KIND OF LINE BREAK (see `blockify`). A value can arrive carrying three
+ * different encodings of "new line" — a `<p>` boundary, a `<br>`, and a raw
+ * newline in a text node (what the editor used to emit under
+ * `white-space: pre-wrap`, and what every plain-text import carries). They used
+ * to render differently in every target: the `<p>` got paragraph spacing, the
+ * `<br>` got a tight break, and a raw newline became a break in the editor and
+ * in PDF but a plain SPACE in the HTML preview and in Word. Invisible in the
+ * editor, different in the export. So sanitising now CANONICALISES: outside a
+ * list item every break becomes a `<p>` boundary, and the paragraph gap is one
+ * shared value (`PARA_GAP_LINES`) in all four renderers.
+ *
  * Pasted content (Word / Google Docs / websites) goes through the richer
  * `cleanPastedHtml` first: it maps style-based bold/italic/underline to tags,
  * keeps paragraph boundaries from divs/headings/tables, converts Word list
@@ -26,6 +37,20 @@
 const ALLOWED_TAGS = new Set([
   'P', 'BR', 'STRONG', 'B', 'EM', 'I', 'U', 'UL', 'OL', 'LI',
 ])
+
+/**
+ * The gap between paragraphs, as a fraction of one line box. 0.5 gives the
+ * one-and-a-half line spacing the CV style asks for (one line of text plus
+ * half a line of air). ONE number, consumed by the editor, the HTML preview,
+ * the DOCX exporter and the PDF exporter — change it here and all four move
+ * together.
+ */
+export const PARA_GAP_LINES = 0.5
+
+/** The paragraph gap in CSS `em`, for a container with this line height. */
+export function paraGapEm(lineHeight: number): number {
+  return Math.round(PARA_GAP_LINES * lineHeight * 1000) / 1000
+}
 
 /**
  * Strip everything that isn't on the allowlist. Children of disallowed
@@ -49,7 +74,193 @@ export function sanitizeRich(html: string): string {
   stripComments(root)
   walk(root)
   normalizeBreaks(root)
+  blockify(root)
   return root.innerHTML
+}
+
+/** Inline tags that survive a paragraph split (rebuilt around each half). */
+const INLINE_TAGS = new Set(['STRONG', 'B', 'EM', 'I', 'U'])
+
+/**
+ * Canonicalise the block structure so a value encodes "new line" exactly ONE
+ * way. Afterwards a sanitised value satisfies:
+ *
+ *  - the root holds only `<p>`, `<ul>` and `<ol>` — no loose text, no stray
+ *    `<br>`, no raw newlines;
+ *  - a `<p>` holds only inline content — every `<br>` and every raw newline
+ *    inside it became a paragraph boundary, with the inline formatting
+ *    (`<strong>`/`<em>`/`<u>`) rebuilt around each half;
+ *  - inside a list item a break stays a `<br>` (splitting there would invent a
+ *    bullet the user never wrote) and every renderer draws it as a real break.
+ *
+ * A whitespace-only text node is never a break — that's the newline in
+ * pretty-printed markup (`</p>\n<p>`), which HTML has always rendered as
+ * nothing. Only a newline sitting next to real text is one.
+ *
+ * Idempotent: canonical input rebuilds to itself, which the editor's
+ * repaint guard depends on.
+ */
+function blockify(root: Element): void {
+  const doc = root.ownerDocument
+  const out: Node[] = []
+  let loose: Node[] = []
+
+  const flushLoose = () => {
+    if (!loose.length) return
+    const holder = doc.createElement('p')
+    for (const n of loose) holder.appendChild(n)
+    out.push(...splitIntoParagraphs(holder, doc))
+    loose = []
+  }
+
+  for (const node of Array.from(root.childNodes)) {
+    if (node.nodeType === 1) {
+      const el = node as Element
+      if (el.tagName === 'UL' || el.tagName === 'OL') {
+        flushLoose()
+        newlinesToBreaks(el)
+        // The breaks we just introduced go through the same tidy-up as the
+        // ones that arrived as markup (edge breaks dropped, runs collapsed).
+        normalizeBreaks(el)
+        out.push(el)
+        continue
+      }
+      if (el.tagName === 'P') {
+        flushLoose()
+        out.push(...splitIntoParagraphs(el, doc))
+        continue
+      }
+    }
+    loose.push(node)
+  }
+  flushLoose()
+
+  while (root.firstChild) root.removeChild(root.firstChild)
+  for (const n of out) root.appendChild(n)
+}
+
+/**
+ * Flatten one block's inline content into a list of `<p>`s, breaking at every
+ * `<br>` and every newline that sits next to real text. The chain of open
+ * inline elements is cloned into each new paragraph, so a break in the middle
+ * of a bold run leaves both halves bold.
+ */
+function splitIntoParagraphs(source: Element, doc: Document): Element[] {
+  const paras: Element[] = []
+  let cur = doc.createElement('p')
+  paras.push(cur)
+  // The inline elements currently open, outermost first; the last one is where
+  // content lands.
+  let open: Element[] = []
+  const tip = (): Element => (open.length ? open[open.length - 1] : cur)
+
+  const startNew = () => {
+    cur = doc.createElement('p')
+    paras.push(cur)
+    let parent: Element = cur
+    const rebuilt: Element[] = []
+    for (const el of open) {
+      const clone = doc.createElement(el.tagName.toLowerCase())
+      parent.appendChild(clone)
+      parent = clone
+      rebuilt.push(clone)
+    }
+    open = rebuilt
+  }
+
+  const visit = (node: Node): void => {
+    if (node.nodeType === 3 /* text */) {
+      const text = node.textContent || ''
+      if (!text.trim()) {
+        // Layout whitespace between tags — carries no break.
+        tip().appendChild(doc.createTextNode(text))
+        return
+      }
+      const parts = text.replace(/\r\n?/g, '\n').split('\n')
+      parts.forEach((part, i) => {
+        if (i) startNew()
+        if (part) tip().appendChild(doc.createTextNode(part))
+      })
+      return
+    }
+    if (node.nodeType !== 1) return
+    const el = node as Element
+    if (el.tagName === 'BR') {
+      startNew()
+      return
+    }
+    if (INLINE_TAGS.has(el.tagName)) {
+      const clone = doc.createElement(el.tagName.toLowerCase())
+      tip().appendChild(clone)
+      open.push(clone)
+      for (const child of Array.from(el.childNodes)) visit(child)
+      open.pop()
+      return
+    }
+    // A list (or anything else) nested inside a paragraph: descend through it.
+    // Invalid nesting like this only reaches us from imported markup.
+    for (const child of Array.from(el.childNodes)) visit(child)
+  }
+
+  for (const child of Array.from(source.childNodes)) visit(child)
+
+  const kept = paras.filter((p) => (p.textContent || '').trim().length > 0)
+  for (const p of kept) {
+    pruneEmptyInline(p)
+    trimEdgeWhitespace(p)
+  }
+  return kept
+}
+
+/** Drop inline wrappers the split left with nothing in them. */
+function pruneEmptyInline(el: Element): void {
+  for (const child of Array.from(el.children)) {
+    pruneEmptyInline(child)
+    if (INLINE_TAGS.has(child.tagName) && !(child.textContent || '').trim()) child.remove()
+  }
+}
+
+/** Trim the leading/trailing whitespace a split can leave at a paragraph edge. */
+function trimEdgeWhitespace(el: Element): void {
+  const texts: Text[] = []
+  const collect = (n: Node) => {
+    for (const child of Array.from(n.childNodes)) {
+      if (child.nodeType === 3) texts.push(child as Text)
+      else if (child.nodeType === 1) collect(child)
+    }
+  }
+  collect(el)
+  if (!texts.length) return
+  texts[0].data = texts[0].data.replace(/^\s+/, '')
+  texts[texts.length - 1].data = texts[texts.length - 1].data.replace(/\s+$/, '')
+}
+
+/**
+ * Inside a list, a raw newline next to real text becomes a `<br>` — the one
+ * place a break is not a paragraph boundary. Whitespace-only text nodes (the
+ * indentation of pretty-printed markup) are left alone.
+ */
+function newlinesToBreaks(root: Element): void {
+  const doc = root.ownerDocument
+  const walkText = (node: Node) => {
+    const inList = node.nodeType === 1 && ((node as Element).tagName === 'UL' || (node as Element).tagName === 'OL')
+    for (const child of Array.from(node.childNodes)) {
+      if (child.nodeType === 1) { walkText(child); continue }
+      if (child.nodeType !== 3) continue
+      const text = (child.textContent || '').replace(/\r\n?/g, '\n')
+      // Layout whitespace BETWEEN list items renders as nothing — drop it so
+      // the canonical output doesn't carry the source's indentation.
+      if (inList && !text.trim()) { child.parentNode?.removeChild(child); continue }
+      if (!text.trim() || !text.includes('\n')) continue
+      const frag = doc.createDocumentFragment()
+      text.split('\n').forEach((part, i) => {
+        if (i) frag.appendChild(doc.createElement('br'))
+        if (part) frag.appendChild(doc.createTextNode(part))
+      })
+      child.parentNode?.replaceChild(frag, child)
+    }
+  }
+  walkText(root)
 }
 
 /**
@@ -163,29 +374,50 @@ export function cleanPastedHtml(html: string): string {
     if (!(p.textContent || '').trim()) p.remove()
   }
 
-  // sanitizeRich re-parses; invalid nesting we may have built (e.g. a <p>
-  // inside a table-row paragraph) auto-corrects there and can leave empty
-  // <p> shells behind — sweep those as a last step.
-  return sanitizeRich(root.innerHTML).replace(/<p>(?:\s|<br\s*\/?>)*<\/p>/gi, '')
+  // sanitizeRich re-parses and canonicalises the block structure (invalid
+  // nesting we may have built auto-corrects there, empty shells are swept).
+  const clean = sanitizeRich(root.innerHTML)
+  // A one-paragraph paste splices into the caret's paragraph rather than
+  // splitting it in two — mirroring plainToRichHtml's single-line rule.
+  return unwrapSingleParagraph(clean)
+}
+
+/** `<p>x</p>` → `x` when that's the whole value; anything else is untouched. */
+function unwrapSingleParagraph(html: string): string {
+  if (!html) return ''
+  const doc = new DOMParser().parseFromString(`<div id="root">${html}</div>`, 'text/html')
+  const root = doc.getElementById('root')
+  if (!root) return html
+  const only = root.childNodes.length === 1 ? root.firstChild : null
+  if (only && only.nodeType === 1 && (only as Element).tagName === 'P') return (only as Element).innerHTML
+  return html
 }
 
 /**
- * Convert plain clipboard text into the storage shape: blank-line-separated
- * chunks become paragraphs, single newlines become <br>. Single-line text is
- * returned escaped but unwrapped so it splices into the caret's paragraph.
+ * Split plain text into paragraphs. EVERY newline is a paragraph break — a
+ * blank line and a single newline mean the same thing, because the user cannot
+ * see which one a stored value holds. This is the plain-text twin of
+ * `blockify`, and the one rule every plain-text source (CVpartner and LinkedIn
+ * imports, AI/bulk imports, translation drafts) is read with.
+ */
+export function plainParagraphs(text: string): string[] {
+  if (!text) return []
+  return text.replace(/\r\n?/g, '\n').split('\n').map((p) => p.trim()).filter(Boolean)
+}
+
+/**
+ * Convert plain clipboard text into the storage shape: every line becomes a
+ * paragraph. Single-line text is returned escaped but unwrapped so it splices
+ * into the caret's paragraph instead of splitting it.
  */
 export function plainToRichHtml(text: string): string {
   if (!text) return ''
   const esc = (s: string) =>
     s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-  const normalized = text.replace(/\r\n?/g, '\n')
-  if (!normalized.includes('\n')) return esc(normalized)
-  return normalized
-    .split(/\n{2,}/)
-    .map((p) => p.trim())
-    .filter(Boolean)
-    .map((p) => `<p>${esc(p).split('\n').join('<br>')}</p>`)
-    .join('')
+  const paras = plainParagraphs(text)
+  if (!paras.length) return ''
+  if (paras.length === 1 && !/\n/.test(text)) return esc(text)
+  return paras.map((p) => `<p>${esc(p)}</p>`).join('')
 }
 
 /** Non-breaking space (U+00A0), via charCode so the source stays ASCII-visible. */
@@ -495,8 +727,31 @@ export function hasMarkup(s: string): boolean {
  */
 export function renderRichHtml(value: string, escapePlain: (s: string) => string): string {
   if (!value) return ''
-  if (!hasMarkup(value)) return escapePlain(value)
+  // Plain text is paragraph-split on the way out too, so an imported CV whose
+  // descriptions are newline-separated reads the same as one typed in the
+  // editor. Without this the newlines collapsed to spaces and the whole
+  // description arrived as one block of running text.
+  if (!hasMarkup(value)) {
+    return plainParagraphs(value).map((p) => `<p>${escapePlain(p)}</p>`).join('')
+  }
   return sanitizeRich(value)
+}
+
+/**
+ * Render a rich value for a context that is ITSELF one line — a bullet in the
+ * points list, where a block `<p>` would push the text below its label. The
+ * paragraphs are joined with a space; lists keep their own markup.
+ */
+export function renderRichInlineHtml(value: string, escapePlain: (s: string) => string): string {
+  if (!value) return ''
+  if (!hasMarkup(value)) return plainParagraphs(value).map(escapePlain).join(' ')
+  const doc = new DOMParser().parseFromString(`<div id="root">${sanitizeRich(value)}</div>`, 'text/html')
+  const root = doc.getElementById('root')
+  if (!root) return ''
+  return Array.from(root.children)
+    .map((el) => (el.tagName === 'P' ? el.innerHTML : el.outerHTML))
+    .filter(Boolean)
+    .join(' ')
 }
 
 // ─── DOCX helpers ────────────────────────────────────────────────────────────
@@ -529,9 +784,16 @@ export type RichBlock =
 export function parseRichBlocks(html: string): RichBlock[] {
   if (!html) return []
   if (!hasMarkup(html)) {
-    return [{ kind: 'paragraph', runs: [{ text: html }] }]
+    // Plain text splits on newlines, exactly as the HTML path does — otherwise
+    // a Word/PDF export ran the lines together while the preview showed them
+    // apart.
+    return plainParagraphs(html).map((text) => ({ kind: 'paragraph', runs: [{ text }] }))
   }
-  const doc = new DOMParser().parseFromString(`<div id="root">${html}</div>`, 'text/html')
+  // Canonicalise FIRST. A value written before blockify existed still holds
+  // <br>s and raw newlines, and walking those directly gave Word and the PDF a
+  // different block structure than the HTML preview built from the same value.
+  const canonical = sanitizeRich(html)
+  const doc = new DOMParser().parseFromString(`<div id="root">${canonical}</div>`, 'text/html')
   const root = doc.getElementById('root')
   if (!root) return []
   const out: RichBlock[] = []

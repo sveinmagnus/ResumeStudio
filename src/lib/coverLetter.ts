@@ -15,6 +15,7 @@ import type { CoverLetter, ResumeStore, ResumeView } from '../types'
 import { resolve, bcp47 } from './locales'
 import { buildTailorCatalog } from './viewTailor'
 import { applyView } from './viewFilter'
+import { plainParagraphs } from './richText'
 
 /**
  * Everything an export needs, resolved to one locale and plain strings. Kept in
@@ -48,9 +49,14 @@ function subjectLine(role: string, locale: string): string {
   return `${prefix} ${role}`
 }
 
-/** Split plain body text into trimmed paragraphs on blank lines. */
+/**
+ * Split plain body text into trimmed paragraphs. EVERY newline is a break —
+ * the same rule `plainParagraphs` applies to every other plain-text field, so
+ * a letter written with single newlines doesn't quietly come out as one slab
+ * while the same text in a CV description comes out as paragraphs.
+ */
 export function bodyParagraphs(body: string): string[] {
-  return body.split(/\n\s*\n/).map((p) => p.trim().replace(/\s*\n\s*/g, ' ')).filter(Boolean)
+  return plainParagraphs(body)
 }
 
 /** Today as a localized "Place, 5 March 2026"-style dateline (date part only when no place). */

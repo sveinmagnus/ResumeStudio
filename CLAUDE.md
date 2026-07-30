@@ -270,6 +270,31 @@ export (like the anonymization/internal-notes fields):
   employment type, project/employment role) offers a display-only **Filter**
   control beside Sort — it hides rows in the editor only, never in views/exports.
 
+### Rich text — ONE kind of line break
+Description-shaped fields store sanitised HTML (`lib/richText.ts`). The storage
+shape is **canonical**: after `sanitizeRich` the root holds only `<p>`, `<ul>`
+and `<ol>`; a `<p>` holds only inline content. Every break — a `<br>`, a raw
+newline in a text node, a blank line — is turned into a **paragraph boundary**
+by `blockify`, with the inline formatting rebuilt around each half. The one
+exception is inside an `<li>`, where a break stays a `<br>` (splitting there
+would invent a bullet nobody wrote) and every renderer draws it as a real break.
+Plain text (imports, the view intro, cover-letter bodies) goes through
+`plainParagraphs`, which applies the same rule.
+
+**Why it's an invariant, not a preference.** A value could encode "new line"
+three ways, invisible in the editor, and each rendered differently per target:
+the `<p>` got spacing, the `<br>` got a tight break, and a raw newline was a
+break in the editor and the PDF but a plain SPACE in the HTML preview and in
+Word. So: the editor emits one thing (Enter *and* Shift+Enter both route
+through `exec('insertParagraph')`, which pins `defaultParagraphSeparator` to
+`p` with the caret live — Chrome ignores that command at focus time, and its
+default `<div>` is unwrapped by the allowlist, silently merging the two lines),
+`parseRichBlocks` canonicalises before walking so legacy values render the same,
+and the paragraph gap is ONE number: `PARA_GAP_LINES` (0.5 of a line box →
+1.5-line spacing), surfaced as `paraGapEm`/`paraGapPt`/`paraGapTwips` on
+`StyleTokens` and consumed by the editor, HTML, DOCX and PDF alike.
+`tests/paragraphSpacing.test.ts` pins all four against every encoding.
+
 ### Shared registries
 - **`Skill`** — global registry (`data.skills`), referenced by `ProjectSkill` via `skill_id`. `countSkillReferences()`.
 - **`Role`** — global registry (`data.roles`), referenced by `ProjectRole` + `WorkExperience.role_id`. `countRoleReferences()`.

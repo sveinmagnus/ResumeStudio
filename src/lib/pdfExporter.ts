@@ -33,7 +33,7 @@ import { SECTION_CATALOG, summaryTitleMeta, type AnyItem as CatalogItem, type Ca
 import { skillMatrixRows, fmtLastUsed, fmtProficiency, type SkillMatrixRow } from './skillMatrix'
 import { applyView } from './viewFilter'
 import { planViewSections, sectionItems, renderKeyFor } from './viewSectionPlan'
-import { parseRichBlocks } from './richText'
+import { parseRichBlocks, plainParagraphs } from './richText'
 import { sortItems } from './sectionSort'
 import {
   deriveTokens, resolveSectionStyle, sectionHeadingText, kqVisibility, bulletGlyph, withDefaults,
@@ -98,7 +98,7 @@ function richToPdf(html: string, tokens: StyleTokens, opts: PStyle = {}): PdfNod
   if (!blocks.length) return []
   const out: PdfNode[] = []
   const fontSize = tokens.bodyFontSizePt
-  for (const block of blocks) {
+  blocks.forEach((block, i) => {
     const runs = block.runs.map((r) => ({
       text: r.text,
       bold: r.bold ?? opts.bold,
@@ -106,8 +106,12 @@ function richToPdf(html: string, tokens: StyleTokens, opts: PStyle = {}): PdfNod
       decoration: r.underline ? 'underline' : undefined,
     }))
     if (block.kind === 'paragraph') {
-      out.push({ text: runs, fontSize, color: opts.color ?? INK, margin: [0, 0, 0, opts.bottom ?? 4] as Margin })
-      continue
+      // Shared 1.5-line gap between paragraphs; the caller's gap after the last
+      // one (mirrors richParagraphs in the DOCX exporter).
+      const last = i === blocks.length - 1
+      const bottom = last ? (opts.bottom ?? tokens.paraGapPt) : tokens.paraGapPt
+      out.push({ text: runs, fontSize, color: opts.color ?? INK, margin: [0, 0, 0, bottom] as Margin })
+      return
     }
     const marker = block.ordered ? `${block.index}. ` : '• '
     out.push({
@@ -116,7 +120,7 @@ function richToPdf(html: string, tokens: StyleTokens, opts: PStyle = {}): PdfNod
       color: opts.color ?? INK,
       margin: [10 + block.level * 12, 0, 0, 3] as Margin,
     })
-  }
+  })
   return out
 }
 
@@ -174,10 +178,11 @@ function renderItemPdf(v: ItemView, tokens: StyleTokens, bullet: string | null =
   if (v.plainBody) out.push(para(v.plainBody, tokens, { bottom: 5 }))
   if (v.body) out.push(...richToPdf(v.body, tokens, { bottom: 6 }))
   for (const p of v.points) {
-    const blocks = parseRichBlocks(p.body)
-    const runs = blocks.length
-      ? blocks[0].runs.map((r) => ({ text: r.text, bold: r.bold, italics: r.italic, decoration: r.underline ? 'underline' : undefined }))
-      : []
+    // A point is one bullet line — flatten every paragraph of its body into it.
+    const runs = parseRichBlocks(p.body).flatMap((b, i) => [
+      ...(i ? [{ text: ' ' }] : []),
+      ...b.runs.map((r) => ({ text: r.text, bold: r.bold, italics: r.italic, decoration: r.underline ? 'underline' : undefined })),
+    ])
     const line: PdfNode[] = [{ text: p.label ? `• ${p.label}` : '• ', bold: !!p.label }]
     if (p.label && runs.length) line.push({ text: ' — ' })
     line.push(...runs)
@@ -400,10 +405,14 @@ export async function buildPdfDocDefinition(
   }
 
   // ── Introduction ────────────────────────────────────────────────────────
-  const intro = L(view.introduction, locale)
-  if (intro) {
-    content.push({ text: intro, italics: true, color: META, fontSize: baseTokens.bodyFontSizePt, margin: [0, 4, 0, 12] as Margin })
-  }
+  const introParas = plainParagraphs(L(view.introduction, locale))
+  introParas.forEach((text, i) => {
+    const last = i === introParas.length - 1
+    content.push({
+      text, italics: true, color: META, fontSize: baseTokens.bodyFontSizePt,
+      margin: [0, i === 0 ? 4 : 0, 0, last ? 12 : baseTokens.paraGapPt] as Margin,
+    })
+  })
 
   // ── Content sections in the view's chosen order ─────────────────────────
   for (const def of planViewSections(view)) {

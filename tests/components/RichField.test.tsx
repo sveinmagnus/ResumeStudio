@@ -106,6 +106,41 @@ describe('<RichField>', () => {
     expect(onChange).not.toHaveBeenCalled()
   })
 
+  // Both Enter keys make a PARAGRAPH. Left to the browser they diverge: plain
+  // Enter emits the engine's default separator (a <div> in Chrome, whose
+  // boundary the allowlist drops — the two lines silently merged on reload)
+  // and Shift+Enter emits a <br>, a break with no paragraph spacing that looks
+  // the same while typing and different in every export.
+  const enterCases: [string, boolean][] = [['Enter', false], ['Shift+Enter', true]]
+  for (const [label, shiftKey] of enterCases) {
+    it(`${label} inserts a paragraph, with the separator pinned to <p>`, () => {
+      const cmds: [string, unknown][] = []
+      const exec = vi.fn((cmd: string, _ui?: boolean, value?: string) => {
+        cmds.push([cmd, value])
+        return true
+      })
+      Object.defineProperty(document, 'execCommand', { value: exec, configurable: true, writable: true })
+
+      render(<RichField label="Description" value={{ en: '<p>a</p>' }} onChange={vi.fn()} />)
+      const editor = screen.getByRole('textbox')
+      const ev = fireEvent.keyDown(editor, { key: 'Enter', shiftKey })
+
+      // The browser's own handling is suppressed…
+      expect(ev).toBe(false) // preventDefault() was called
+      // …and the separator is set with the caret live (Chrome ignores it
+      // otherwise), immediately before the split.
+      expect(cmds).toEqual([['defaultParagraphSeparator', 'p'], ['insertParagraph', undefined]])
+    })
+  }
+
+  it('leaves Enter alone mid-IME-composition', () => {
+    const exec = vi.fn(() => true)
+    Object.defineProperty(document, 'execCommand', { value: exec, configurable: true, writable: true })
+    render(<RichField label="Description" value={{ en: '<p>a</p>' }} onChange={vi.fn()} />)
+    fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter', isComposing: true })
+    expect(exec).not.toHaveBeenCalled()
+  })
+
   it('disables the indent buttons when the caret is not in a list', () => {
     render(<RichField label="Description" value={{}} onChange={() => {}} />)
     expect(screen.getByRole('button', { name: /Increase indent/ })).toBeDisabled()

@@ -10,8 +10,11 @@ function storeWith(over: Partial<ResumeStore> = {}): ResumeStore {
 }
 
 describe('bodyParagraphs()', () => {
-  it('splits on blank lines and collapses inner newlines', () => {
-    expect(bodyParagraphs('One\nline.\n\nSecond para.')).toEqual(['One line.', 'Second para.'])
+  it('breaks on every newline, blank line or not', () => {
+    // Same rule as every other plain-text field (plainParagraphs): the user
+    // cannot see whether a stored value holds one newline or two, so both
+    // have to mean the same thing.
+    expect(bodyParagraphs('One\nline.\n\nSecond para.')).toEqual(['One', 'line.', 'Second para.'])
   })
   it('drops empty paragraphs', () => {
     expect(bodyParagraphs('\n\nOnly one\n\n\n')).toEqual(['Only one'])

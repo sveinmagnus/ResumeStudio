@@ -9,7 +9,7 @@ import type { SummaryLayout } from '../types'
 import { skillMatrixRows, fmtLastUsed, fmtProficiency } from './skillMatrix'
 import { xs, fmtYears } from './exportStrings'
 import { showcaseGroups } from './showcase'
-import { renderRichHtml } from './richText'
+import { renderRichHtml, renderRichInlineHtml, plainParagraphs } from './richText'
 import { deriveTokens, resolveSectionStyle, sectionHeadingText, kqVisibility, bulletGlyph, withDefaults, withResolvedFonts, resolveFontCss, type ResolvedSectionStyle, type StyleTokens } from './viewStyle'
 import type { GlobalFonts } from './fonts'
 import { sortItems } from './sectionSort'
@@ -437,7 +437,7 @@ function renderItem(sectionKey: string, item: unknown, ctx: RenderCtx): string {
   const metaTxt = (dateFirst ? [v.date, ...metaParts] : [...metaParts, v.date]).filter(Boolean).join(' · ')
   const pointsHtml = v.points.length
     ? `<ul class="ve-points">${v.points
-        .map((p) => `<li>${p.label ? `<strong>${escapeHtml(p.label)}</strong>: ` : ''}${renderRichHtml(p.body, escapeHtml)}</li>`)
+        .map((p) => `<li>${p.label ? `<strong>${escapeHtml(p.label)}</strong>: ` : ''}${renderRichInlineHtml(p.body, escapeHtml)}</li>`)
         .join('')}</ul>`
     : ''
   const titleHtml = v.title ? `<h3>${escapeHtml(v.title)}</h3>` : ''
@@ -582,7 +582,10 @@ export function buildViewHtml(store: ResumeStore, view: ResumeView, locale: stri
     .filter(Boolean)
     .join('\n')
 
-  const intro = escapeHtml(lc(view.introduction))
+  // The intro is a plain-text field, but its newlines have to mean the same
+  // thing as a description's — paragraphs, one-and-a-half lines apart.
+  const intro = plainParagraphs(lc(view.introduction))
+    .map((p) => `<p>${escapeHtml(p)}</p>`).join('')
 
   // ── Header (configurable identity block) ──────────────────────────────────
   const header = withHeaderDefaults(view.header)
@@ -749,7 +752,7 @@ export function buildViewHtml(store: ResumeStore, view: ResumeView, locale: stri
        no callout box — so a view's introduction and its professional summary
        share one look and feel. */
     .ve-intro { margin: 14px 0 18px; font-size: ${tokens.bodyFontSizePt}pt;
-                line-height: ${tokens.lineHeight}; color: #1f2937; white-space: pre-line; }
+                line-height: ${tokens.lineHeight}; color: #1f2937; }
     .ve-section { margin-bottom: 8px; }
     /* Heading hidden → the section carries the top margin the <h2> would have,
        so it doesn't crowd the previous section (margin collapses like the h2). */
@@ -797,10 +800,16 @@ export function buildViewHtml(store: ResumeStore, view: ResumeView, locale: stri
     .ve-sec-spoken_languages .ve-item-line:last-child { margin-right: 0; }
     .ve-meta { font-size: ${tokens.metaFontSizePt}pt; color: #6B7280; margin: 2px 0 5px; }
     .ve-desc { font-size: ${tokens.smallFontSizePt}pt; color: #374151; margin-top: 5px; }
-    .ve-desc p { margin: 0 0 4px; }
-    .ve-desc p:last-child { margin-bottom: 0; }
-    .ve-desc ul, .ve-desc ol { margin: 5px 0 5px 18px; }
+    .ve-desc ul, .ve-desc ol { margin: ${tokens.paraGapEm}em 0 ${tokens.paraGapEm}em 18px; }
     .ve-desc li { margin-bottom: 2px; }
+    /* ONE paragraph gap for every prose block, whatever the field or the
+       target: half a line of air, so paragraphs sit 1.5 lines apart. The em
+       unit keeps it proportional to each block's own font size. */
+    .ve-intro p, .ve-desc p, .ve-rec-quote p, .ve-points li p {
+      margin: 0 0 ${tokens.paraGapEm}em;
+    }
+    .ve-intro p:last-child, .ve-desc p:last-child,
+    .ve-rec-quote p:last-child, .ve-points li p:last-child { margin-bottom: 0; }
     .ve-points { margin: 8px 0 0 18px; font-size: ${tokens.smallFontSizePt}pt; color: #374151; }
     .ve-points li { margin-bottom: 3px; }
     .ve-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 7px; }

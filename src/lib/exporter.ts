@@ -34,7 +34,7 @@ import { skillMatrixRows, fmtLastUsed, fmtProficiency, type SkillMatrixRow } fro
 import { xs, fmtYears } from './exportStrings'
 import { applyView, viewProfileTagLine } from './viewFilter'
 import { planViewSections, sectionItems, renderKeyFor } from './viewSectionPlan'
-import { parseRichBlocks, type RichRun } from './richText'
+import { parseRichBlocks, plainParagraphs, type RichRun } from './richText'
 import { deriveTokens, resolveSectionStyle, sectionHeadingText, kqVisibility, bulletGlyph, withDefaults, withResolvedFonts, resolveFontDocx, type ResolvedSectionStyle, type StyleTokens } from './viewStyle'
 import type { GlobalFonts } from './fonts'
 import { withHeaderDefaults, withFooterDefaults, buildHeaderLines, buildCopyrightLine, footerLines } from './viewHeader'
@@ -93,15 +93,22 @@ function richParagraphs(html: string, ctx: ExportCtx, opts: PStyle = {}): Paragr
   if (!blocks.length) return []
   const out: Paragraph[] = []
   const fontSize = ctx.tokens.bodyFontSizePt * 2
-  for (const block of blocks) {
+  blocks.forEach((block, i) => {
     const runs = renderRuns(block.runs, ctx, opts, fontSize)
+    // Between two paragraphs of the same body: the shared 1.5-line gap. After
+    // the LAST one: the caller's gap to whatever follows the block (the DOCX
+    // twin of `p:last-child { margin-bottom: 0 }` plus a container margin).
+    const last = i === blocks.length - 1
     if (block.kind === 'paragraph') {
       out.push(new Paragraph({
-        spacing: { before: opts.before, after: opts.after ?? 60 },
+        spacing: {
+          before: i === 0 ? opts.before : undefined,
+          after: last ? (opts.after ?? ctx.tokens.paraGapTwips) : ctx.tokens.paraGapTwips,
+        },
         indent: opts.indent,
         children: runs,
       }))
-      continue
+      return
     }
     const marker = block.ordered ? `${block.index}. ` : '• '
     out.push(new Paragraph({
@@ -112,20 +119,43 @@ function richParagraphs(html: string, ctx: ExportCtx, opts: PStyle = {}): Paragr
         ...runs,
       ],
     }))
+  })
+  return out
+}
+
+/**
+ * Runs → docx TextRuns. A newline inside a run (a `<br>` in a list item, the
+ * only place one survives canonicalisation) becomes a REAL Word break: a raw
+ * "\n" in `<w:t>` is just XML whitespace, so Word used to render it as a
+ * space while the preview and the PDF showed a line break.
+ */
+function renderRuns(runs: RichRun[], ctx: ExportCtx, opts: PStyle, fontSize: number): TextRun[] {
+  const out: TextRun[] = []
+  for (const r of runs) {
+    const common = {
+      bold: r.bold ?? opts.bold,
+      italics: r.italic ?? opts.italic,
+      underline: r.underline ? {} : undefined,
+      color: opts.color,
+      size: fontSize,
+      font: ctx.tokens.bodyFontDocx,
+    }
+    r.text.split('\n').forEach((piece, i) => {
+      if (!i && !piece) return
+      out.push(new TextRun({ ...common, text: piece, ...(i ? { break: 1 } : {}) }))
+    })
   }
   return out
 }
 
-function renderRuns(runs: RichRun[], ctx: ExportCtx, opts: PStyle, fontSize: number): TextRun[] {
-  return runs.map((r) => new TextRun({
-    text: r.text,
-    bold: r.bold ?? opts.bold,
-    italics: r.italic ?? opts.italic,
-    underline: r.underline ? {} : undefined,
-    color: opts.color,
-    size: fontSize,
-    font: ctx.tokens.bodyFontDocx,
-  }))
+/** Every block's runs as one inline sequence, paragraphs joined by a space. */
+function flattenBlocks(blocks: ReturnType<typeof parseRichBlocks>): RichRun[] {
+  const out: RichRun[] = []
+  for (const block of blocks) {
+    if (out.length) out.push({ text: ' ' })
+    out.push(...block.runs)
+  }
+  return out
 }
 
 function sectionHeading(label: string, tokens: StyleTokens): Paragraph {
@@ -346,20 +376,23 @@ export async function exportDocx(store: ResumeStore, view: ResumeView, locale: s
   }
 
   // ── Introduction (view-specific) ────────────────────────────────────────
-  const intro = L(view.introduction, locale)
-  if (intro) {
+  const introParas = plainParagraphs(L(view.introduction, locale))
+  introParas.forEach((text, i) => {
     children.push(new Paragraph({
-      spacing: { before: 80, after: 220 },
+      spacing: {
+        before: i === 0 ? 80 : undefined,
+        after: i === introParas.length - 1 ? 220 : baseTokens.paraGapTwips,
+      },
       alignment: AlignmentType.LEFT,
       children: [new TextRun({
-        text: intro,
+        text,
         italics: true,
         font: baseTokens.bodyFontDocx,
         color: '333333',
         size: baseTokens.bodyFontSizePt * 2,
       })],
     }))
-  }
+  })
 
   // ── Content sections in the view's chosen order ─────────────────────────
   for (const def of planViewSections(view)) {
@@ -588,8 +621,9 @@ function renderItemDocx(v: ItemView, ctx: ExportCtx, bullet: string | null = nul
   if (v.plainBody) out.push(para(v.plainBody, ctx, { after: 80, indent: bodyIndent }))
   if (v.body) out.push(...richParagraphs(v.body, ctx, { after: 100, indent: bodyIndent }))
   for (const p of v.points) {
-    const blocks = parseRichBlocks(p.body)
-    const runs = blocks.length ? renderRuns(blocks[0].runs, ctx, {}, sz) : []
+    // A point is one bullet line: flatten every paragraph of its body into it
+    // rather than dropping all but the first.
+    const runs = renderRuns(flattenBlocks(parseRichBlocks(p.body)), ctx, {}, sz)
     out.push(new Paragraph({
       spacing: { after: 60 },
       indent: bodyIndent,
