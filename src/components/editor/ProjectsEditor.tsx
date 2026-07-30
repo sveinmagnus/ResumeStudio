@@ -31,7 +31,6 @@ export function ProjectsEditor() {
   const { data, primaryLocale, addItem, updateItem } = useStore()
   const projects = useSortedItems('projects')
 
-  const allTags = [...new Set(data.projects.flatMap((p) => p.skill_tags ?? []))]
 
   const addProject = () => {
     const p: Project = {
@@ -65,36 +64,54 @@ export function ProjectsEditor() {
           preview={richToPlain(resolve(p.long_description, primaryLocale))}
           starred={p.starred} disabled={p.disabled}>
 
-          <DualField label="Customer" value={p.customer} onChange={(v) => updateItem('projects', p.id, { customer: v })} />
-          <DualField label="Project name" value={p.description} onChange={(v) => updateItem('projects', p.id, { description: v })} />
+          {/* A project has more moving parts than any other section, so it is
+              the one that gets grouped into the sunken blocks the registries
+              already use. Everything that identifies the engagement — who,
+              what, when, how much of you — is one block: the dates and
+              allocation used to sit BELOW the descriptions, where four small
+              number fields disappeared between two walls of prose. */}
+          <div className="sub-block">
+            <div className="sub-head">The engagement</div>
+            <DualField label="Customer" value={p.customer} onChange={(v) => updateItem('projects', p.id, { customer: v })} />
+            <DualField label="Project name" value={p.description} onChange={(v) => updateItem('projects', p.id, { description: v })} />
+            <FieldRow>
+              <DateField label="Start" value={p.start} onChange={(v) => updateItem('projects', p.id, { start: v })} />
+              <DateField label="End" value={p.end} onChange={(v) => updateItem('projects', p.id, { end: v })} allowOngoing />
+              <TextField label="Allocation %" value={p.percent_allocated?.toString() || ''} type="number"
+                onChange={(v) => updateItem('projects', p.id, { percent_allocated: v ? parseInt(v) : null })} />
+              <TextField label="Team size" value={p.team_size?.toString() || ''} type="number"
+                onChange={(v) => updateItem('projects', p.id, { team_size: v ? parseInt(v) : null })} />
+            </FieldRow>
+          </div>
+
           <ProjectIndustriesEditor project={p} />
           <ProjectRolesEditor project={p} />
-          <RichField label="Description" value={p.long_description} onChange={(v) => updateItem('projects', p.id, { long_description: v })} />
-          {/* Writes the PRIMARY column only — the model read one locale, so
-              filling the other would be a translation nobody asked for. */}
-          <WritingAssist
-            section="projects" item={p} source={p.long_description} locale={primaryLocale}
-            onApply={(html) => updateItem('projects', p.id, {
-              long_description: { ...p.long_description, [primaryLocale]: html },
-            })}
-          />
-          <DualField label="Short description (summary mode)" value={p.short_description ?? {}} onChange={(v) => updateItem('projects', p.id, { short_description: v })} summarizeFrom={p.long_description} placeholder="One concise line shown in summary mode" />
 
-          <FieldRow>
-            <DateField label="Start" value={p.start} onChange={(v) => updateItem('projects', p.id, { start: v })} />
-            <DateField label="End" value={p.end} onChange={(v) => updateItem('projects', p.id, { end: v })} allowOngoing />
-            <TextField label="Allocation %" value={p.percent_allocated?.toString() || ''} type="number"
-              onChange={(v) => updateItem('projects', p.id, { percent_allocated: v ? parseInt(v) : null })} />
-            <TextField label="Team size" value={p.team_size?.toString() || ''} type="number"
-              onChange={(v) => updateItem('projects', p.id, { team_size: v ? parseInt(v) : null })} />
-          </FieldRow>
+          <div className="sub-block">
+            <div className="sub-head">Description</div>
+            <RichField label="Description" value={p.long_description} onChange={(v) => updateItem('projects', p.id, { long_description: v })} />
+            {/* Writes the PRIMARY column only — the model read one locale, so
+                filling the other would be a translation nobody asked for. */}
+            <WritingAssist
+              section="projects" item={p} source={p.long_description} locale={primaryLocale}
+              onApply={(html) => updateItem('projects', p.id, {
+                long_description: { ...p.long_description, [primaryLocale]: html },
+              })}
+            />
+          </div>
+
+          <div className="sub-block">
+            <div className="sub-head">Short description <span className="sub-hint">shown in summary mode</span></div>
+            <DualField label="Short description" value={p.short_description ?? {}} onChange={(v) => updateItem('projects', p.id, { short_description: v })} summarizeFrom={p.long_description} placeholder="One concise line shown in summary mode" />
+          </div>
 
           <HighlightsEditor project={p} />
           <ProjectSkillsEditor project={p} />
 
-          <TextField label="External case-study URL" value={p.external_url || ''} onChange={(v) => updateItem('projects', p.id, { external_url: v })} />
-          <TagField label="Skill tags (for targeting)" tags={p.skill_tags} suggestions={allTags}
-            onChange={(t) => updateItem('projects', p.id, { skill_tags: t })} />
+          <div className="sub-block">
+            <div className="sub-head">Reference</div>
+            <TextField label="External case-study URL" value={p.external_url || ''} onChange={(v) => updateItem('projects', p.id, { external_url: v })} />
+          </div>
         </EditorCard>
       ))}
       </SortableList>
@@ -361,6 +378,8 @@ function ProjectRoleChip({ project, pr, onRemove }: { project: Project; pr: Proj
 function ProjectSkillsEditor({ project }: { project: Project }) {
   const { data, addItem, updateItem, primaryLocale } = useStore()
   const catNamesById = categoryNameIndex(data.skill_categories ?? [], primaryLocale)
+  // Every tag used anywhere, so the field can suggest what's already in play.
+  const allTags = [...new Set(data.projects.flatMap((p) => p.skill_tags ?? []))]
 
   const remove = (sid: string) => updateItem('projects', project.id, { skills: project.skills.filter((s) => s.id !== sid) })
 
@@ -435,6 +454,12 @@ function ProjectSkillsEditor({ project }: { project: Project }) {
         </div>
         <SkillSuggestPanel project={project} onLink={linkExisting} onCreate={createAndLink} inline />
       </div>
+
+      {/* Targeting tags live WITH the skills rather than at the foot of the
+          card: both answer "what is this project about", and separating them
+          left the tags reading as an unrelated afterthought. */}
+      <TagField label="Skill tags (for targeting)" tags={project.skill_tags} suggestions={allTags}
+        onChange={(t) => updateItem('projects', project.id, { skill_tags: t })} />
     </div>
   )
 }
