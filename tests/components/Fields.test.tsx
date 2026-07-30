@@ -5,7 +5,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { useState } from 'react'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { TextField, DateField, TagField } from '../../src/components/ui/Fields'
+import { TextField, DateField } from '../../src/components/ui/Fields'
 import type { YearMonth } from '../../src/types'
 
 describe('<TextField>', () => {
@@ -98,40 +98,5 @@ describe('<DateField>', () => {
     render(<Wrap5 />)
     await userEvent.click(screen.getByRole('button', { name: /increase year/i }))
     expect(latest).toEqual({ year: new Date().getFullYear(), month: null })
-  })
-})
-
-describe('<TagField>', () => {
-  function Wrap() {
-    const [tags, setTags] = useState<string[]>([])
-    return <TagField label="Tags" tags={tags} onChange={setTags} />
-  }
-
-  it('adds a tag on Enter (lower-cased) and removes it', async () => {
-    render(<Wrap />)
-    const input = screen.getByPlaceholderText('add tag…')
-    await userEvent.type(input, 'React{Enter}')
-    expect(screen.getByText('react')).toBeInTheDocument()
-
-    await userEvent.click(screen.getByRole('button', { name: 'Remove react' }))
-    expect(screen.queryByText('react')).not.toBeInTheDocument()
-  })
-
-  it('does not add duplicate tags', async () => {
-    render(<Wrap />)
-    const input = screen.getByPlaceholderText('add tag…')
-    await userEvent.type(input, 'node{Enter}')
-    await userEvent.type(input, 'node{Enter}')
-    expect(screen.getAllByText('node')).toHaveLength(1)
-  })
-
-  it('tolerates an undefined tags array (regression: crashed the Projects section)', async () => {
-    // Data written outside the editor (older resume, raw API client) can miss
-    // an additive array field despite the type — render as empty, don't throw.
-    const onChange = vi.fn()
-    render(<TagField label="Tags" tags={undefined as unknown as string[]} onChange={onChange} />)
-    const input = screen.getByPlaceholderText('add tag…')
-    await userEvent.type(input, 'go{Enter}')
-    expect(onChange).toHaveBeenCalledWith(['go'])
   })
 })

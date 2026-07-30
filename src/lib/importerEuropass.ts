@@ -128,7 +128,7 @@ export function importFromEuropassJson(json: unknown): ResumeStore {
     store.key_qualifications.push({
       id: uuidv4(), resume_id: resumeId,
       label: {}, tag_line: {}, summary: { [loc]: about },
-      key_points: [], skill_tags: [], competency_ids: [], sort_order: 0,
+      key_points: [], competency_ids: [], sort_order: 0,
       starred: false, disabled: false, internal_notes: null,
     })
   }
@@ -146,7 +146,7 @@ export function importFromEuropassJson(json: unknown): ResumeStore {
       employment_type: null, company_size: null, company_url: null,
       start: parseEuropassDate(w['startDate'] ?? w['from']),
       end: (w['ongoing'] === true) ? null : parseEuropassDate(w['endDate'] ?? w['to']),
-      role_ids: [], skill_tags: [], sort_order: i,
+      role_ids: [], sort_order: i,
       starred: false, disabled: false, internal_notes: null,
     }
     store.work_experiences.push(we)
@@ -165,7 +165,7 @@ export function importFromEuropassJson(json: unknown): ResumeStore {
       grade: null, exchange: false,
       start: parseEuropassDate(e['startDate'] ?? e['from']),
       end: (e['ongoing'] === true) ? null : parseEuropassDate(e['endDate'] ?? e['to']),
-      skill_tags: [], sort_order: i, starred: false, disabled: false,
+      sort_order: i, starred: false, disabled: false,
     }
     store.educations.push(ed)
   })
@@ -253,7 +253,7 @@ export function importFromEuropassXml(xml: string): ResumeStore {
       end: w.querySelector('Period > Current')?.textContent?.trim() === 'true'
         ? null
         : dateFrom(w.querySelector('Period > To')),
-      role_ids: [], skill_tags: [], sort_order: i,
+      role_ids: [], sort_order: i,
       starred: false, disabled: false, internal_notes: null,
     }
     store.work_experiences.push(we)
@@ -270,7 +270,7 @@ export function importFromEuropassXml(xml: string): ResumeStore {
       grade: null, exchange: false,
       start: dateFrom(e.querySelector('Period > From')),
       end: dateFrom(e.querySelector('Period > To')),
-      skill_tags: [], sort_order: i, starred: false, disabled: false,
+      sort_order: i, starred: false, disabled: false,
     }
     store.educations.push(ed)
   })

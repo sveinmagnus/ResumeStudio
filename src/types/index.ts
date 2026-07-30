@@ -270,7 +270,6 @@ export interface KeyQualification {
   /** A shorter alternative summary (rich text) for compact views. Additive/optional. */
   summary_short?: LocalizedString
   key_points: KeyPoint[]
-  skill_tags: string[]
   /**
    * The competencies that belong to this profile, as an ordered list of
    * `KeyCompetency` ids — the profile's "bundle". A view that presents this
@@ -365,7 +364,6 @@ export interface Project {
   team_size: number | null
   location_country_code: string | null
   external_url: string | null
-  skill_tags: string[]
   sort_order: number
   starred: boolean
   disabled: boolean
@@ -405,7 +403,6 @@ export interface WorkExperience {
    * (shape v7, migrated from the single pre-v7 `role_id`). Not shown in exports.
    */
   role_ids: string[]
-  skill_tags: string[]
   sort_order: number
   starred: boolean
   disabled: boolean
@@ -424,7 +421,6 @@ export interface Education {
   exchange: boolean
   start: YearMonth | null
   end: YearMonth | null
-  skill_tags: string[]
   sort_order: number
   starred: boolean
   disabled: boolean
@@ -454,7 +450,6 @@ export interface Course {
    */
   category?: string | null
   skill_ids: string[]
-  skill_tags: string[]
   sort_order: number
   starred: boolean
   disabled: boolean
@@ -477,7 +472,6 @@ export interface Certification {
   expires: YearMonth | null
   credential_url: string | null
   skill_ids: string[]
-  skill_tags: string[]
   sort_order: number
   starred: boolean
   disabled: boolean
@@ -523,7 +517,6 @@ export interface Position {
    * absent reads as `[]`. Registry merges rewrite these ids. Not shown in exports.
    */
   role_ids?: string[]
-  skill_tags: string[]
   sort_order: number
   starred: boolean
   disabled: boolean
@@ -549,7 +542,6 @@ export interface Presentation {
   start: YearMonth | null
   /** When it was last given (shape v13). `null` = ongoing (like other ranges). */
   end: YearMonth | null
-  skill_tags: string[]
   sort_order: number
   starred: boolean
   disabled: boolean
@@ -565,7 +557,6 @@ export interface HonorAward {
   /** Single-line summary shown in SUMMARY mode. Additive/optional. */
   short_description?: LocalizedString
   date: YearMonth | null
-  skill_tags: string[]
   sort_order: number
   disabled: boolean
 }
@@ -582,7 +573,6 @@ export interface Publication {
   url: string | null
   date: YearMonth | null
   publication_type: 'article' | 'research' | 'whitepaper' | 'book' | 'book_chapter' | 'blog_post' | 'report' | 'thesis'
-  skill_tags: string[]
   sort_order: number
   starred: boolean
   disabled: boolean

@@ -282,7 +282,7 @@ describe('glossary', () => {
       id: 'we-1', resume_id: 'resume-1',
       employer: { no: 'Statens vegvesen', en: 'Statens vegvesen' },
       role_title: { no: 'Løsningsarkitekt', en: 'Solution architect' },
-      description: {}, long_description: {}, role_ids: [], skill_tags: [],
+      description: {}, long_description: {}, role_ids: [],
       start: { year: 2020, month: 1 }, end: null,
       sort_order: 0, starred: false, disabled: false,
     } as unknown as ResumeStore['work_experiences'][number]]

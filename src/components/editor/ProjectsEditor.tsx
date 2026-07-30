@@ -4,7 +4,7 @@ import { useSortedItems } from '../../store/useSortedItems'
 import { suggestSkillNames } from '../../lib/skillTaxonomy'
 import { DualField } from '../ui/DualField'
 import { RichField } from '../ui/RichField'
-import { TextField, DateField, TagField } from '../ui/Fields'
+import { TextField, DateField } from '../ui/Fields'
 import { EditorCard, FieldRow } from '../ui/EditorCard'
 import { SortableList } from '../ui/SortableList'
 import { SortBar } from '../ui/SortBar'
@@ -38,7 +38,7 @@ export function ProjectsEditor() {
       customer: {}, customer_anonymized: {}, use_anonymized: false, industries: [],
       description: {}, long_description: {}, highlights: [], roles: [], skills: [],
       start: null, end: null, percent_allocated: null, team_size: null,
-      location_country_code: null, external_url: null, skill_tags: [],
+      location_country_code: null, external_url: null,
       sort_order: projects.length, starred: false, disabled: false, internal_notes: null,
     }
     addItem('projects', p)
@@ -378,8 +378,6 @@ function ProjectRoleChip({ project, pr, onRemove }: { project: Project; pr: Proj
 function ProjectSkillsEditor({ project }: { project: Project }) {
   const { data, addItem, updateItem, primaryLocale } = useStore()
   const catNamesById = categoryNameIndex(data.skill_categories ?? [], primaryLocale)
-  // Every tag used anywhere, so the field can suggest what's already in play.
-  const allTags = [...new Set(data.projects.flatMap((p) => p.skill_tags ?? []))]
 
   const remove = (sid: string) => updateItem('projects', project.id, { skills: project.skills.filter((s) => s.id !== sid) })
 
@@ -455,11 +453,6 @@ function ProjectSkillsEditor({ project }: { project: Project }) {
         <SkillSuggestPanel project={project} onLink={linkExisting} onCreate={createAndLink} inline />
       </div>
 
-      {/* Targeting tags live WITH the skills rather than at the foot of the
-          card: both answer "what is this project about", and separating them
-          left the tags reading as an unrelated afterthought. */}
-      <TagField label="Skill tags (for targeting)" tags={project.skill_tags} suggestions={allTags}
-        onChange={(t) => updateItem('projects', project.id, { skill_tags: t })} />
     </div>
   )
 }

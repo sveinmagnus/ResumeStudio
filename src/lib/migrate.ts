@@ -80,6 +80,9 @@ import { v4 as uuidv4 } from 'uuid'
  *                 place of the single `date` (`migratePresentationDates`),
  *                 mirroring Courses v11: `end` is seeded from `date`, `start`
  *                 starts blank, and an empty `end` means ongoing.
+ *  - 14         — `skill_tags` removed from every entity: declared by the
+ *                 original scaffold, editable on one section, read by nothing.
+ *                 Stripped on load so it doesn't linger in stored resumes.
  *
  * Bump this ONLY for structural changes that need a migration (moving or
  * reshaping data). Additive optional fields are handled by render-boundary
@@ -88,7 +91,7 @@ import { v4 as uuidv4 } from 'uuid'
  * (like `industries`) is NOT a tolerable "optional field" — it must be
  * guaranteed present, hence the bump + migration.
  */
-export const CURRENT_SHAPE_VERSION = 13
+export const CURRENT_SHAPE_VERSION = 14
 
 /**
  * True when `store` was written by a build with a NEWER shape than this one
@@ -143,6 +146,7 @@ const MIGRATIONS: ReadonlyArray<(store: ResumeStore) => ResumeStore> = [
   migrateCourseDates,      // v11
   migrateBundleMembership, // v12
   migratePresentationDates, // v13
+  stripSkillTags,          // v14
 ]
 
 /**
@@ -758,4 +762,43 @@ export function migrateBundleMembership(store: ResumeStore): ResumeStore {
   })
 
   return { ...store, key_qualifications, key_competencies }
+}
+
+/**
+ * Shape v14: drop `skill_tags` from every entity that carried it.
+ *
+ * It was declared across ten entity types by the original scaffold, editable on
+ * exactly one (projects), and read by NOTHING — not the exporters, not view
+ * filtering, not search, not tailoring, not the skill matrix, not any AI pass.
+ * Write-only data behind a label ("for targeting") that promised a feature the
+ * code never had. The registry-linked `Skill` entities do that job properly.
+ *
+ * Removing the field from the types would leave the key sitting in every stored
+ * resume forever, so this strips it on load. Idempotent shape-sniffer like the
+ * rest: a store with no `skill_tags` anywhere is returned by reference.
+ */
+const SKILL_TAG_SECTIONS = [
+  'projects', 'work_experiences', 'educations', 'courses', 'certifications',
+  'positions', 'presentations', 'publications', 'honor_awards', 'key_qualifications',
+] as const
+
+function stripSkillTags(store: ResumeStore): ResumeStore {
+  const raw = store as unknown as Record<string, unknown>
+  let touched = false
+  const patch: Record<string, unknown> = {}
+
+  for (const section of SKILL_TAG_SECTIONS) {
+    const list = raw[section]
+    if (!Array.isArray(list)) continue
+    if (!list.some((it) => it && typeof it === 'object' && 'skill_tags' in it)) continue
+    touched = true
+    patch[section] = list.map((it) => {
+      if (!it || typeof it !== 'object' || !('skill_tags' in it)) return it
+      const clean = { ...(it as Record<string, unknown>) }
+      delete clean.skill_tags
+      return clean
+    })
+  }
+
+  return touched ? { ...store, ...patch } as ResumeStore : store
 }

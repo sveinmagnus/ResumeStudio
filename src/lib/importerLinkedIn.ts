@@ -167,7 +167,7 @@ export function importFromLinkedIn(files: Record<string, string>): ResumeStore {
     store.key_qualifications.push({
       id: uuidv4(), resume_id: resumeId,
       label: {}, tag_line: {}, summary: L(profile['Summary']),
-      key_points: [], skill_tags: [], competency_ids: [], sort_order: 0,
+      key_points: [], competency_ids: [], sort_order: 0,
       starred: false, disabled: false, internal_notes: null,
     })
   }
@@ -184,7 +184,7 @@ export function importFromLinkedIn(files: Record<string, string>): ResumeStore {
       employment_type: null, company_size: null, company_url: null,
       start: parseLinkedInDate(p['Started On']),
       end: parseLinkedInDate(p['Finished On']),
-      role_ids: [], skill_tags: [], sort_order: i,
+      role_ids: [], sort_order: i,
       starred: false, disabled: false, internal_notes: null,
     })
   })
@@ -200,7 +200,7 @@ export function importFromLinkedIn(files: Record<string, string>): ResumeStore {
       grade: null, exchange: false,
       start: parseLinkedInDate(e['Start Date']),
       end: parseLinkedInDate(e['End Date']),
-      skill_tags: [], sort_order: i, starred: false, disabled: false,
+      sort_order: i, starred: false, disabled: false,
     })
   })
 
@@ -241,7 +241,7 @@ export function importFromLinkedIn(files: Record<string, string>): ResumeStore {
       issued: parseLinkedInDate(c['Started On']),
       expires: parseLinkedInDate(c['Finished On']),
       credential_url: c['Url'] || null,
-      skill_ids: [], skill_tags: [], sort_order: i,
+      skill_ids: [], sort_order: i,
       starred: false, disabled: false,
     }
     store.certifications.push(cert)
@@ -266,7 +266,7 @@ export function importFromLinkedIn(files: Record<string, string>): ResumeStore {
       percent_allocated: null, team_size: null,
       location_country_code: null,
       external_url: p['Url'] || null,
-      skill_tags: [], sort_order: i,
+      sort_order: i,
       starred: false, disabled: false, internal_notes: null,
     }
     store.projects.push(project)

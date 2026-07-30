@@ -270,7 +270,7 @@ export function applyProfileDraft(
     summary: { [locale]: draft.summary },
     ...(draft.summaryShort ? { summary_short: { [locale]: draft.summaryShort } } : {}),
     key_points: [],
-    skill_tags: [],
+    
     competency_ids: competencyIds,
     sort_order: data.key_qualifications.length,
     starred: false,

@@ -75,7 +75,7 @@ const FIELD_LABELS: Record<string, string> = {
   expires: 'Expiry', issued: 'Issued', completed: 'Completed', date: 'Date',
   category: 'Category',
   percent_allocated: 'Allocation %', team_size: 'Team size',
-  skill_tags: 'Skill tags', co_authors: 'Co-authors', email: 'Email',
+  co_authors: 'Co-authors', email: 'Email',
   phone: 'Phone', nationality: 'Nationality',
   place_of_residence: 'Place of residence', linkedin_url: 'LinkedIn',
   website_url: 'Website', full_name: 'Full name', company_name: 'Company',

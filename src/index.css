@@ -187,14 +187,14 @@ h1,h2,h3,h4 { font-family: var(--serif); font-weight: 300; line-height: 1.1; }
 .check-row input { width: 16px; height: 16px; accent-color: var(--accent); }
 
 /*
- * "Plain field" primitives (.pf-*): the plain-text/date/tag/category form
- * control look used across TextField/DateField/TagField (ui/Fields.tsx) AND
+ * "Plain field" primitives (.pf-*): the plain-text/date/category form
+ * control look used across TextField/DateField (ui/Fields.tsx) AND
  * bare inputs styled the same way elsewhere (RegistryEditors' CategoryField
  * and proficiency input, SimpleEditors' selects, ExperienceField). These must
  * live here rather than in a per-component <style> tag: a component-scoped
  * style block only exists in the DOM while that component is mounted, so a
- * page that renders a bare .pf-input without ever mounting TextField/
- * DateField/TagField (e.g. the Skill/Role registry) got an unstyled browser
+ * page that renders a bare .pf-input without ever mounting TextField or
+ * DateField (e.g. the Skill/Role registry) got an unstyled browser
  * default textbox — see the CategoryField regression.
  */
 /* display:block so the variant rendered as a <label> wrapping its control

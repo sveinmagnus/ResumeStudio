@@ -139,7 +139,7 @@ function kqWithPoints(points: Partial<KeyPoint>[]): KeyQualification {
     tag_line: {},
     summary: { en: 'Summary' },
     key_points: filled,
-    skill_tags: [],
+    
     sort_order: 0,
     starred: false,
     disabled: false,
@@ -768,5 +768,42 @@ describe('migrateBundleMembership (v12)', () => {
     const out = migrateStore(store)
     expect(out.shape_version).toBe(CURRENT_SHAPE_VERSION)
     expect(out.key_qualifications[0].competency_ids).toEqual(['c1'])
+  })
+})
+
+describe('stripSkillTags (v14)', () => {
+  /**
+   * `skill_tags` was declared on ten entities, editable on one, and read by
+   * nothing. Removing it from the types would leave the key in every stored
+   * resume forever, so the migration strips it on load.
+   */
+  it('removes the key from every entity that carried it', () => {
+    const store = emptyStore()
+    store.projects = [{ ...makeProject(), skill_tags: ['cloud'] } as never]
+    store.courses = [{ ...makeCourse(), skill_tags: [] } as never]
+
+    const out = migrateStore({ ...store, shape_version: 13 })
+    expect('skill_tags' in (out.projects[0] as object)).toBe(false)
+    expect('skill_tags' in (out.courses[0] as object)).toBe(false)
+    expect(out.shape_version).toBe(CURRENT_SHAPE_VERSION)
+  })
+
+  /** Everything else on the item survives — this only drops the one key. */
+  it('leaves the rest of the item untouched', () => {
+    const store = emptyStore()
+    const project = { ...makeProject(), skill_tags: ['cloud'] } as never
+    store.projects = [project]
+
+    const out = migrateStore({ ...store, shape_version: 13 })
+    expect(out.projects[0].customer).toEqual((project as unknown as { customer: unknown }).customer)
+    expect(out.projects[0].id).toBe((project as unknown as { id: string }).id)
+  })
+
+  /** Idempotent shape-sniffer, like every other step in the chain. */
+  it('is a no-op for a store that never had it', () => {
+    const store = emptyStore()
+    store.projects = [makeProject()]
+    const out = migrateStore({ ...store, shape_version: 13 })
+    expect(out.projects[0]).toBe(store.projects[0])
   })
 })

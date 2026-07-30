@@ -264,7 +264,7 @@ describe('achievement mining', () => {
     const s = storeWithProject()
     s.key_qualifications = [{
       id: 'kq-1', resume_id: 'resume-1', label: {}, tag_line: { en: 'Architect' },
-      summary: {}, key_points: [], skill_tags: [], competency_ids: [],
+      summary: {}, key_points: [], competency_ids: [],
       sort_order: 0, starred: false, disabled: false, internal_notes: null,
     }]
     const { achievements } = validateMining({

@@ -3,7 +3,7 @@ import { useStore, newId } from '../../store/useStore'
 import { useSortedItems } from '../../store/useSortedItems'
 import { DualField } from '../ui/DualField'
 import { RichField } from '../ui/RichField'
-import { TextField, DateField, TagField } from '../ui/Fields'
+import { TextField, DateField } from '../ui/Fields'
 import { EditorCard, FieldRow } from '../ui/EditorCard'
 import { SortableList } from '../ui/SortableList'
 import { SortBar } from '../ui/SortBar'
@@ -93,7 +93,7 @@ export function WorkEditor() {
     const w: WorkExperience = {
       id: newId(), resume_id: data.resume!.id, employer: {}, role_title: {}, description: {},
       long_description: {}, employment_type: null, company_size: null, company_url: null,
-      start: null, end: null, role_ids: [], skill_tags: [], sort_order: items.length, starred: false, disabled: false, internal_notes: null,
+      start: null, end: null, role_ids: [], sort_order: items.length, starred: false, disabled: false, internal_notes: null,
     }
     addItem('work_experiences', w)
   }
@@ -257,7 +257,7 @@ export function EducationEditor() {
   const add = () => {
     const e: Education = {
       id: newId(), resume_id: data.resume!.id, school: {}, degree: {}, description: {},
-      grade: null, exchange: false, start: null, end: null, skill_tags: [],
+      grade: null, exchange: false, start: null, end: null,
       sort_order: items.length, starred: false, disabled: false,
     }
     addItem('educations', e)
@@ -311,7 +311,7 @@ export function CoursesEditor() {
       // New courses default the "To" date to today and leave "From" blank; an
       // empty To later reads as ongoing (like every other date range).
       start: null, end: thisMonth(), category: null,
-      skill_ids: [], skill_tags: [], sort_order: items.length, starred: false, disabled: false,
+      skill_ids: [], sort_order: items.length, starred: false, disabled: false,
     }
     addItem('courses', c)
   }
@@ -358,7 +358,7 @@ export function CertificationsEditor() {
   const add = () => {
     const c: Certification = {
       id: newId(), resume_id: data.resume!.id, name: {}, organiser: {}, description: {},
-      issued: null, expires: null, credential_url: null, skill_ids: [], skill_tags: [],
+      issued: null, expires: null, credential_url: null, skill_ids: [],
       sort_order: items.length, starred: false, disabled: false,
     }
     addItem('certifications', c)
@@ -405,7 +405,7 @@ export function PositionsEditor() {
   const add = () => {
     const p: Position = {
       id: newId(), resume_id: data.resume!.id, name: {}, organisation: {}, description: {},
-      start: null, end: null, role_ids: [], skill_tags: [], sort_order: items.length, starred: false, disabled: false,
+      start: null, end: null, role_ids: [], sort_order: items.length, starred: false, disabled: false,
     }
     addItem('positions', p)
   }
@@ -465,7 +465,7 @@ export function PresentationsEditor() {
       // New presentations default the "To" date to today and leave "From" blank;
       // a talk given once needs only "To", a recurring one carries both.
       url: null, date: null, start: null, end: thisMonth(),
-      skill_tags: [], sort_order: items.length, starred: false, disabled: false,
+      sort_order: items.length, starred: false, disabled: false,
     }
     addItem('presentations', p)
   }
@@ -511,7 +511,7 @@ export function PublicationsEditor() {
   const add = () => {
     const p: Publication = {
       id: newId(), resume_id: data.resume!.id, title: {}, publisher: {}, co_authors: [], abstract: {},
-      url: null, date: null, publication_type: 'article', skill_tags: [], sort_order: items.length,
+      url: null, date: null, publication_type: 'article', sort_order: items.length,
       starred: false, disabled: false, internal_notes: null,
     }
     addItem('publications', p)
@@ -572,7 +572,7 @@ export function AwardsEditor() {
   const add = () => {
     const a: HonorAward = {
       id: newId(), resume_id: data.resume!.id, name: {}, issuer: {}, for_work: {}, description: {},
-      date: null, skill_tags: [], sort_order: items.length, disabled: false,
+      date: null, sort_order: items.length, disabled: false,
     }
     addItem('honor_awards', a)
   }
@@ -1366,7 +1366,7 @@ export function ProfileEditor() {
   const add = () => {
     const k: KeyQualification = {
       id: newId(), resume_id: data.resume!.id, label: {}, tag_line: {}, summary: {},
-      key_points: [], skill_tags: [], competency_ids: [], sort_order: items.length, starred: false, disabled: false, internal_notes: null,
+      key_points: [], competency_ids: [], sort_order: items.length, starred: false, disabled: false, internal_notes: null,
     }
     addItem('key_qualifications', k)
     // A view shows exactly ONE profile. So a new profile must not silently

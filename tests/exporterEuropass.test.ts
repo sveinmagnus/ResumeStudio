@@ -22,7 +22,7 @@ function makeEducation(over: Partial<Education> = {}): Education {
     school: { en: 'NTNU' }, degree: { en: 'MSc Computer Science' },
     description: {}, grade: null, exchange: false,
     start: { year: 2004, month: 8 }, end: { year: 2009, month: 6 },
-    skill_tags: [], sort_order: 0, starred: false, disabled: false,
+    sort_order: 0, starred: false, disabled: false,
     ...over,
   }
 }
