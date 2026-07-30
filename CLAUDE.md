@@ -88,7 +88,11 @@ The full catalog with per-feature design detail is in
 
 **Intentionally simple:** the router is a hand-rolled ~150-line History API
 hook (`src/lib/router.ts`, no dep; the URL is canonical, `EditorRoute`
-two-way-syncs it — URL→store then store→URL, order load-bearing). Styling is
+two-way-syncs it — URL→store then store→URL, order load-bearing). Each
+history entry also carries a **UI snapshot** (scroll + expanded card) so Back
+returns you where you were; it is stamped CONTINUOUSLY, never at `navigate()`
+time, because `setActiveSection` clears `expandedItemId` before navigation
+runs. Restore uses `openItem` (not the toggling `setExpandedItem`). Styling is
 inline `<style>` blocks per component + CSS custom properties. No Tailwind, no
 CSS-in-JS.
 
