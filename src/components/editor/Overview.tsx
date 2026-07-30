@@ -258,8 +258,11 @@ export function Overview() {
                 />
               </div>
 
+              {/* The list is NAMED, so what the row just disclosed is
+                  identifiable — to a screen reader moving between lists, and to
+                  a test that would otherwise assume it's the only one here. */}
               {isOpen && c.missing.length > 0 && (
-                <ul className="ov-missing">
+                <ul className="ov-missing" aria-label={`Untranslated fields in ${LOCALE_LABELS[l]?.name || l}`}>
                   {c.missing.map((m, i) => (
                     <li key={`${m.section}:${m.itemId ?? 'root'}:${m.fieldLabel}:${i}`}>
                       <button className="ov-missing-row" onClick={() => goToField(m)}>

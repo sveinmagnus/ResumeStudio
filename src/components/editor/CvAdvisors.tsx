@@ -366,20 +366,54 @@ export function CvAdvisors() {
       <h2 className="cva-heading">AI advisors</h2>
       {enabled ? (
         <p className="cva-sub">
-          Each of these reads your whole CV in one pass. Everything they produce is
-          a draft for you to check — nothing is saved until you accept it.
+          Each advisor below reads your whole CV in one pass. Everything they
+          produce is a draft for you to check — nothing is saved until you accept it.
         </p>
       ) : (
         /* The heading stays even with nothing configured. Hiding it entirely
            meant the capability was invisible to anyone who hadn't already read
            about it — you can't choose to unlock a feature you've never seen. */
         <div className="cva-locked">
+          {/* The icon and the prose are the flex container's only two children.
+              Leaving the sentence as bare text made every run between the tags
+              its own anonymous flex item, so a <strong> mid-sentence sliced the
+              paragraph into columns. */}
           <p className="cva-locked-lede">
             <Lock size={14} />
-            These read your <strong>whole CV at once</strong>: a full review, a
-            consistency &amp; voice pass, achievement mining, a cross-language
-            meaning check, and a job-fit report against a posting.
+            <span>
+              The AI assists elsewhere in the editor each work on one field —
+              summarise this description, translate that column. An{' '}
+              <strong>advisor</strong> is the opposite: it reads your{' '}
+              <strong>whole CV in one pass</strong> and reports on it as a
+              document. That&rsquo;s the only way to catch anything comparative —
+              a claim nothing else backs up, two entries that contradict each
+              other, the one project that undersells itself.
+            </span>
           </p>
+          <ul className="cva-locked-list">
+            <li>
+              <strong>Review my whole CV</strong> — what a careful reader would hold
+              against it: thin entries, unevidenced claims, repeated phrasing, gaps.
+            </li>
+            <li>
+              <strong>Make the writing consistent</strong> — works out the voice your
+              CV mostly uses and proposes moving the outliers to it. Same facts,
+              better prose.
+            </li>
+            <li>
+              <strong>Find buried achievements</strong> — results hidden in your long
+              descriptions, quoted back so you can promote them to highlights.
+            </li>
+            <li>
+              <strong>Do my two languages say the same thing?</strong> — compares the
+              language columns for MEANING, not just for which fields are filled
+              (needs a second language on screen).
+            </li>
+            <li>
+              <strong>Can I answer this posting?</strong> — pulls every requirement
+              out of a job ad and checks each one against your CV.
+            </li>
+          </ul>
           <p className="cva-sub">
             {status.configured
               ? <>Your configured model (<strong>{backendName(status)}</strong>) isn&rsquo;t marked
@@ -420,6 +454,13 @@ export function CvAdvisors() {
         }
         .cva-locked-lede svg { flex-shrink: 0; margin-top: 2px; color: var(--secondary-ink); }
         .cva-locked .cva-sub { margin: 0; }
+        /* The five advisors, named as they're named on their own cards, so the
+           locked state teaches the same vocabulary the unlocked one uses. */
+        .cva-locked-list {
+          margin: 0 0 0 21px; padding: 0; display: flex; flex-direction: column; gap: 5px;
+          font-size: 12.5px; line-height: 1.5; color: var(--ink-soft);
+        }
+        .cva-locked-list strong { color: var(--ink); }
         .cva-setup {
           display: inline-flex; align-items: center; gap: 6px;
           padding: 7px 12px; border-radius: var(--r-sm); cursor: pointer;

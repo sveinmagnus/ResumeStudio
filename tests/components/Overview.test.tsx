@@ -134,9 +134,10 @@ describe('<Overview> translation completeness drill-down', () => {
     expect(noRow).toHaveAttribute('aria-expanded', 'false')
     await userEvent.click(noRow)
     expect(noRow).toHaveAttribute('aria-expanded', 'true')
-    // Missing in 'no': project customer. Scope to the missing-field list — the
-    // career-timeline card also labels a bar "Acme" (the same project).
-    const list = await screen.findByRole('list')
+    // Missing in 'no': project customer. Scope to the missing-field list BY
+    // NAME — the career-timeline card also labels a bar "Acme" (the same
+    // project), and the Overview holds other lists besides this one.
+    const list = await screen.findByRole('list', { name: /Untranslated fields in Norsk/ })
     expect(list).toBeInTheDocument()
     expect(within(list).getByText('Acme')).toBeInTheDocument()
     expect(within(list).getByText('Customer')).toBeInTheDocument()
@@ -162,6 +163,7 @@ describe('<Overview> translation completeness drill-down', () => {
     expect(noRow).toHaveAttribute('aria-expanded', 'true')
     await userEvent.click(noRow)
     expect(noRow).toHaveAttribute('aria-expanded', 'false')
-    expect(screen.queryByRole('list')).not.toBeInTheDocument()
+    expect(screen.queryByRole('list', { name: /Untranslated fields in Norsk/ }))
+      .not.toBeInTheDocument()
   })
 })
