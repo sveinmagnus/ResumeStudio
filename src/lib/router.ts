@@ -81,8 +81,66 @@ function emit(): void {
   for (const l of listeners) l()
 }
 
+// ─── Per-entry UI state (scroll + which item was open) ──────────────────────
+//
+// The History API restores neither for a pushState app. Jumping from an
+// advisor finding into the item it's about and pressing Back therefore landed
+// you at the top of a collapsed list — having lost both your place and the
+// thing you were looking at.
+//
+// So each history entry carries a snapshot: before pushing a new one we
+// `replaceState` the CURRENT entry with where the user was, and on `popstate`
+// the browser hands that snapshot back. The router doesn't know what "the open
+// item" is, so the app registers a capture function.
+
+export interface HistoryUiState {
+  scrollY: number
+  /** The expanded editor card, so Back reopens what you came from. */
+  expandedItemId: string | null
+}
+
+/**
+ * Stamp the CURRENT entry with where the user is, without adding history.
+ *
+ * Called as the user scrolls and opens cards rather than at `navigate()` time,
+ * because by then it is too late: clicking a section in the sidebar sets the
+ * active section first, and `setActiveSection` clears the expanded card — so a
+ * snapshot taken during navigation always recorded "nothing open".
+ */
+export function stampHistoryState(ui: HistoryUiState): void {
+  if (typeof window === 'undefined') return
+  const current = (window.history.state as { ui?: HistoryUiState } | null)?.ui
+  if (current && current.scrollY === ui.scrollY && current.expandedItemId === ui.expandedItemId) return
+  try {
+    window.history.replaceState(
+      { ...(window.history.state as object | null), ui },
+      '',
+      window.location.pathname,
+    )
+  } catch {
+    /* replaceState can throw under exotic sandboxing — navigation matters more */
+  }
+}
+
+let pendingRestore: HistoryUiState | null = null
+
+/**
+ * The snapshot for the entry we just navigated BACK to, consumed once.
+ * Returns null for a forward navigation, which must not restore anything —
+ * arriving somewhere new should start at the top.
+ */
+export function takePendingRestore(): HistoryUiState | null {
+  const p = pendingRestore
+  pendingRestore = null
+  return p
+}
+
 if (typeof window !== 'undefined') {
-  window.addEventListener('popstate', emit)
+  window.addEventListener('popstate', (e) => {
+    const state = e.state as { ui?: HistoryUiState } | null
+    pendingRestore = state?.ui ?? null
+    emit()
+  })
 }
 
 function subscribe(l: Listener): () => void {
@@ -114,6 +172,8 @@ export function navigate(to: string | Route, opts?: { replace?: boolean }): void
   if (typeof window === 'undefined') return
   const target = typeof to === 'string' ? to : pathFor(to)
   if (target === window.location.pathname) return
+  // The entry we're leaving is already stamped (see stampHistoryState), so
+  // there is nothing to capture here.
   if (opts?.replace) window.history.replaceState({}, '', target)
   else window.history.pushState({}, '', target)
   emit()

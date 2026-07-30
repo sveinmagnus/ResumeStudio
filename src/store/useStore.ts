@@ -105,6 +105,12 @@ interface AppState {
   setPrimaryLocale: (l: string) => void
   setSecondaryLocale: (l: string | null) => void
   setExpandedItem: (id: string | null) => void
+  /**
+   * Open a card outright, without `setExpandedItem`'s toggle. Restoring state
+   * (browser Back) must not close the card when it happens to already be the
+   * open one — a toggle turns "put it back" into "close it".
+   */
+  openItem: (id: string | null) => void
   /** Change a section's display sort mode (UI-only; does not bump mutationCount). */
   setSectionSort: (section: ArraySectionKey, mode: SortMode) => void
   /** Set a section's editor type filter (UI-only; '' clears it). */
@@ -275,6 +281,7 @@ export const useStore = create<AppState>((set, get) => {
     setPrimaryLocale:   (l) => mutate((st) => st.primaryLocale === l ? null : { primaryLocale: l }),
     setSecondaryLocale: (l) => mutate((st) => st.secondaryLocale === l ? null : { secondaryLocale: l }),
     setExpandedItem:    (id) => set((st) => ({ expandedItemId: st.expandedItemId === id ? null : id })),
+    openItem:           (id) => set({ expandedItemId: id }),
 
     // ── Resume / locale ────────────────────────────────────────────────────
 

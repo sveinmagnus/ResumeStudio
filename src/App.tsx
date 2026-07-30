@@ -24,7 +24,7 @@ import { ConflictModal } from './components/ConflictModal'
 import { NewerDataNotice } from './components/NewerDataNotice'
 import { RemoteUpdateNotice } from './components/RemoteUpdateNotice'
 import { RegistryConflictNotice } from './components/RegistryConflictNotice'
-import { useRoute, navigate, Link } from './lib/router'
+import { useRoute, navigate, Link, stampHistoryState, takePendingRestore } from './lib/router'
 import { dropLegacyCache } from './lib/localCache'
 import { api } from './lib/api'
 
@@ -126,7 +126,43 @@ function EditorRoute({ resumeId, routeSection, routeViewId, onUnauthorized }: {
     } else if (st.activeSection !== section) {
       st.setActiveSection(section)
     }
+
+    // Back/forward only: put the user where they were. This runs AFTER the
+    // section switch on purpose — `setActiveSection` clears `expandedItemId`,
+    // so reopening the card has to come second or it would be undone.
+    const restore = takePendingRestore()
+    if (!restore) return
+    if (restore.expandedItemId) useStore.getState().openItem(restore.expandedItemId)
+    // Two frames: one for React to commit the new section, one for the browser
+    // to lay it out. Scrolling before the content exists scrolls nothing.
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      window.scrollTo({ top: restore.scrollY, behavior: 'auto' })
+    }))
   }, [hasData, resumeId, routeSection, routeViewId])
+
+  /**
+   * Keep the current history entry's snapshot fresh as the user scrolls and
+   * opens cards, so Back has something to restore. Stamping at navigation time
+   * doesn't work: the section switch clears the expanded card first.
+   */
+  useEffect(() => {
+    let frame = 0
+    const stamp = () => {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => stampHistoryState({
+        scrollY: window.scrollY,
+        expandedItemId: useStore.getState().expandedItemId,
+      }))
+    }
+    stamp()
+    window.addEventListener('scroll', stamp, { passive: true })
+    const unsub = useStore.subscribe(stamp)
+    return () => {
+      cancelAnimationFrame(frame)
+      window.removeEventListener('scroll', stamp)
+      unsub()
+    }
+  }, [])
 
   useEffect(() => {
     const st = useStore.getState()
