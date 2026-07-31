@@ -272,6 +272,7 @@ function EditorRoute({ resumeId, routeSection, routeViewId, onUnauthorized }: {
           <ConflictModal
             mine={data}
             theirs={conflict.data}
+            conflicts={conflict.conflicts}
             onResolve={resolveConflict}
             onClose={() => setConflictDismissed(true)}
           />

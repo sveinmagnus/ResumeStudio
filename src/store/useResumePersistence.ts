@@ -28,6 +28,7 @@ import { type SaveState } from '../components/layout/SaveStatus'
 import { loadPending, savePending, clearPending, listDirty, clearAllCaches } from '../lib/localCache'
 import { subscribeOnline, recheckConnectivity, isOnline, type Connectivity } from '../lib/connectivity'
 import { decideBoot, selectDrainTargets, type BootAction } from '../lib/syncEngine'
+import { mergeStores, type MergeConflict } from '../lib/threeWayMerge'
 import { navigate } from '../lib/router'
 
 export type AppLoad = 'loading' | 'auth' | 'ready' | 'not-found'
@@ -68,6 +69,14 @@ export async function backgroundFlush(id: string): Promise<void> {
 export interface ConflictState {
   data: ResumeStore
   meta: { version: number; primary_locale: string; secondary_locale: string | null }
+  /**
+   * The values both sides changed differently, when a three-way merge was
+   * possible. Empty array is impossible here (a clean merge never reaches the
+   * modal); `null` means we had no base document to merge against — a reload
+   * mid-edit, or edits queued offline from a previous session — so the modal
+   * falls back to a whole-document diff.
+   */
+  conflicts: MergeConflict[] | null
 }
 
 export interface ResumePersistence {
@@ -114,6 +123,7 @@ export function useResumePersistence(resumeId: string): ResumePersistence {
   // Actions are stable references (created once in the store), so selecting
   // them here doesn't subscribe this hook to re-renders.
   const loadStore = useStore((s) => s.loadStore)
+  const replaceData = useStore((s) => s.replaceData)
   const unloadStore = useStore((s) => s.unloadStore)
   const reconcileRegistry = useStore((s) => s.reconcileRegistry)
   const setCurrentResumeId = useStore((s) => s.setCurrentResumeId)
@@ -135,6 +145,19 @@ export function useResumePersistence(resumeId: string): ResumePersistence {
   // The server version this client last saw — sent as the optimistic-
   // concurrency base on each save, advanced on every successful save.
   const baseVersion = useRef<number | undefined>(undefined)
+  /**
+   * The DOCUMENT at `baseVersion` — what our edits are derived from. Held so a
+   * refused save can be three-way merged instead of thrown at the user as a
+   * whole-document choice (see `lib/threeWayMerge.ts`).
+   *
+   * In memory only, deliberately. The obvious alternative is to persist it
+   * beside the queued edit, but a pending record already carries the whole
+   * document including base64 images, and localStorage is capped around 5 MB per
+   * origin — doubling it to buy a better modal is the wrong trade. Null means
+   * "no base available" (offline edits from a previous session, or a reload
+   * mid-conflict), and the conflict path degrades to what it did before.
+   */
+  const baseData = useRef<ResumeStore | null>(null)
   // While a conflict is unresolved we pause auto-save (read inside the effect
   // via the ref so each mutation re-check sees the current value).
   const conflictPaused = useRef(false)
@@ -154,6 +177,10 @@ export function useResumePersistence(resumeId: string): ResumePersistence {
   ) => {
     loadStore(data, { primary: meta.primary_locale, secondary: meta.secondary_locale })
     baseVersion.current = meta.version
+    // Read the store back rather than reusing `data`: loadStore migrates, so the
+    // in-memory document can differ from what arrived, and a base that doesn't
+    // match what we are editing would read every migrated field as an edit.
+    baseData.current = useStore.getState().data
     lastSavedMutation.current = 0
     clearPending(resumeId)
     setCacheSavedAt(null)
@@ -175,6 +202,8 @@ export function useResumePersistence(resumeId: string): ResumePersistence {
         resumeId, snapshot, locales, baseVersion.current, saveAbort.current.signal,
       )
       baseVersion.current = res.version
+      // What the server now holds is what our next edits are derived from.
+      baseData.current = snapshot
       lastSavedMutation.current = counterAtSend
       setSaveState('saved')
       // We now hold the server's latest version, so any pending "updated
@@ -193,9 +222,29 @@ export function useResumePersistence(resumeId: string): ResumePersistence {
         return
       }
       if (err instanceof ConflictError) {
-        // The server copy moved on (another tab/device). Keep the local edits
+        // The server copy moved on (another tab, another machine, or the desktop
+        // sync watcher merging a backup file). That is only a decision for the
+        // user if both sides changed the SAME value — so try a three-way merge
+        // first, and bother nobody when the two sets of edits don't overlap.
+        const base = baseData.current
+        const merge = base ? mergeStores(base, snapshot, err.current.data) : null
+
+        if (merge && merge.conflicts.length === 0) {
+          // Unambiguous. Adopt the reconciled document at the server's version
+          // and let the ordinary save effect push it (replaceData bumps
+          // mutationCount, which is what schedules that).
+          //
+          // replaceData, never loadStore: this is an in-app rewrite, so it must
+          // stay on the undo stack and must reach auto-save (CLAUDE.md §7).
+          baseVersion.current = err.current.meta.version
+          baseData.current = err.current.data
+          replaceData(merge.merged)
+          setSaveState('saving')
+          return
+        }
+
+        // Genuine overlap (or no base to merge against) — keep the local edits
         // (don't clear the cache) and pause auto-save until the user resolves.
-        // Phase 4 renders a keep/discard + diff modal off `conflict`.
         conflictPaused.current = true
         setConflict({
           data: err.current.data,
@@ -204,6 +253,7 @@ export function useResumePersistence(resumeId: string): ResumePersistence {
             primary_locale: err.current.meta.primary_locale,
             secondary_locale: err.current.meta.secondary_locale,
           },
+          conflicts: merge ? merge.conflicts : null,
         })
         setSaveState('conflict')
         return
@@ -224,7 +274,7 @@ export function useResumePersistence(resumeId: string): ResumePersistence {
         recheckConnectivity()
       }
     }
-  }, [resumeId])
+  }, [resumeId, replaceData])
 
   // ── Initial load: prefer server, fall back to per-id local cache ──────────
   useEffect(() => {
@@ -232,6 +282,7 @@ export function useResumePersistence(resumeId: string): ResumePersistence {
     setCurrentResumeId(resumeId)
     lastSavedMutation.current = 0
     baseVersion.current = undefined
+    baseData.current = null
     conflictPaused.current = false
     setConflict(null)
     setRemoteUpdate(false)
@@ -256,6 +307,11 @@ export function useResumePersistence(resumeId: string): ResumePersistence {
         case 'flush-local':
           // Unsynced offline edits win over the server copy: load them and push
           // with their base version (clean → syncs; stale → non-blocking conflict).
+          //
+          // `baseData` stays null here: the queued record holds OUR edits, not
+          // the document they were derived from, and passing our own edits off
+          // as the base would make the merge read every one of them as "nobody
+          // changed this" and quietly discard them.
           loadStore(pending!.data, pending!.locales)
           baseVersion.current = pending!.base_version
           setCacheSavedAt(pending!.saved_at)
@@ -447,6 +503,10 @@ export function useResumePersistence(resumeId: string): ResumePersistence {
       // Keep mine: re-PUT the local edits at the server's now-current version
       // (a clean overwrite). The store still holds the local data untouched.
       baseVersion.current = conflict.meta.version
+      // We are now based on the server copy we chose to overwrite, so a further
+      // concurrent write merges against the right document instead of the one
+      // this conflict superseded.
+      baseData.current = conflict.data
       setConflict(null)
       void flushToServer()
     }

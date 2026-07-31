@@ -63,6 +63,16 @@ const SECTION_LABELS: Record<string, string> = {
   views: 'Resume views',
 }
 
+/**
+ * Human label for a top-level store key. Shared with the merge conflict list so
+ * both halves of the conflict modal name a section the same way; unknown keys
+ * (a section added since, or `resume`) fall back to the key itself.
+ */
+export function sectionLabel(key: string): string {
+  if (key === 'resume') return 'Personal details'
+  return SECTION_LABELS[key] ?? key
+}
+
 /** Profile fields worth surfacing, with labels. */
 const PROFILE_FIELDS: { key: keyof import('../types').Resume; label: string }[] = [
   { key: 'full_name', label: 'Full name' },
@@ -95,8 +105,14 @@ const TITLE_FIELDS = [
   'employer', 'degree', 'issuer', 'organisation', 'language',
 ]
 
-/** A readable label for an item, for the conflict panel. */
-function labelOf(item: unknown): string {
+/**
+ * A readable label for an item, for the conflict panel.
+ *
+ * Exported so `threeWayMerge` names items the same way this diff does — the two
+ * feed the same modal, and an item called "Acme AS" in one list and
+ * "(untitled)" in the other reads as two different items.
+ */
+export function labelOf(item: unknown): string {
   if (!item || typeof item !== 'object') return '(untitled)'
   const rec = item as Record<string, unknown>
   for (const f of TITLE_FIELDS) {

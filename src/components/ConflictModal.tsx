@@ -1,6 +1,7 @@
 import { GitMerge, X, ArrowRight } from 'lucide-react'
 import type { ResumeStore } from '../types'
-import { diffStores } from '../lib/diffResume'
+import { diffStores, sectionLabel } from '../lib/diffResume'
+import type { MergeConflict } from '../lib/threeWayMerge'
 import { useDialog } from './ui/useDialog'
 
 interface ConflictModalProps {
@@ -8,22 +9,37 @@ interface ConflictModalProps {
   mine: ResumeStore
   /** The server (theirs) store that changed under us. */
   theirs: ResumeStore
+  /**
+   * The values both sides changed differently, when a three-way merge ran.
+   * `null` means no base document was available to merge against, and the modal
+   * falls back to summarising every difference between the two copies.
+   */
+  conflicts?: MergeConflict[] | null
   onResolve: (choice: 'keep' | 'discard') => void
   /** Dismiss without resolving (keeps editing; the conflict badge stays). */
   onClose: () => void
 }
 
 /**
- * Keep/discard conflict resolution with a "what changed" panel.
+ * Keep/discard conflict resolution, showing what actually needs deciding.
  *
- * Shown when a save was refused because the resume changed elsewhere (another
- * tab/device). The diff is a read-only summary — section add/remove/change
- * counts + notable profile-field differences — not a merge. The user keeps
- * their version (overwrite the server) or discards it (take the server copy).
+ * Shown when a save was refused because the resume changed elsewhere AND the
+ * two sets of edits genuinely overlap — non-overlapping edits are merged
+ * silently upstream (`lib/threeWayMerge.ts`) and never reach this modal. So the
+ * primary display is the short list of contested values, not a document diff:
+ * listing everything that differed was what made this modal read as "48 items
+ * conflict" when one person had dragged a card.
+ *
+ * The whole-document diff remains as the fallback for the case where no base
+ * document was available to merge against (offline edits queued by a previous
+ * session), which is the only situation where we truly cannot tell whose change
+ * a difference was.
  */
-export function ConflictModal({ mine, theirs, onResolve, onClose }: ConflictModalProps) {
+export function ConflictModal({ mine, theirs, conflicts, onResolve, onClose }: ConflictModalProps) {
   const dialogRef = useDialog(onClose)
-  const diff = diffStores(mine, theirs)
+  // Only compute the (whole-document, O(n) stringify) diff when it's what we
+  // are going to render.
+  const diff = conflicts && conflicts.length > 0 ? null : diffStores(mine, theirs)
 
   return (
     <div className="cm-overlay" role="dialog" aria-modal="true" aria-label="Resolve conflict" onClick={onClose}>
@@ -33,12 +49,41 @@ export function ConflictModal({ mine, theirs, onResolve, onClose }: ConflictModa
           <button className="cm-close" onClick={onClose} aria-label="Close"><X size={16} /></button>
         </div>
         <p className="cm-sub">
-          Another tab or device saved this resume while you were editing. Your local
-          changes haven't been saved yet. Choose which version to keep — this can't be undone.
+          {diff
+            ? `Another tab or device saved this resume while you were editing. Your local
+               changes haven't been saved yet. Choose which version to keep — this can't be undone.`
+            : `Another tab or device changed the same values you did. Everything else was
+               merged automatically — only the values below need a decision, and the choice
+               applies to all of them. This can't be undone.`}
         </p>
 
         <div className="cm-body">
-          {diff.identical ? (
+          {!diff ? (
+            <div className="cm-group">
+              <div className="cm-group-title">
+                {conflicts!.length} contested {conflicts!.length === 1 ? 'value' : 'values'}
+              </div>
+              <ul className="cm-fields">
+                {conflicts!.map((c, i) => (
+                  <li key={`${c.section}-${c.itemId ?? ''}-${c.field}-${i}`} className="cm-field">
+                    <span className="cm-field-name">
+                      {sectionLabel(c.section)}
+                      {c.label && c.label !== c.section ? ` · ${c.label}` : ''}
+                      {c.field ? <span className="cm-field-path"> {c.field}</span> : null}
+                    </span>
+                    <span className="cm-field-vals">
+                      <span className="cm-mine">{c.mine || '—'}</span>
+                      <ArrowRight size={11} className="cm-arrow" />
+                      <span className="cm-theirs">{c.theirs || '—'}</span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <p className="cm-legend">
+                “Yours” = your unsaved edits · “Theirs” = the version now on the server.
+              </p>
+            </div>
+          ) : diff.identical ? (
             <div className="cm-state">
               No field-level differences detected — the versions look equivalent.
               Keeping yours will simply re-save your copy.
@@ -161,6 +206,7 @@ export function ConflictModal({ mine, theirs, onResolve, onClose }: ConflictModa
         .cm-item-changed .cm-item-mark { color: var(--warn-ink); }
         .cm-item-more { color: var(--ink-faint); font-style: italic; }
         .cm-field-name, .cm-section-name { font-weight: 600; flex-shrink: 0; }
+        .cm-field-path { font-weight: 400; color: var(--ink-faint); font-size: 11.5px; }
         .cm-field-vals { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
         .cm-mine, .cm-theirs { max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .cm-mine { color: var(--accent); }

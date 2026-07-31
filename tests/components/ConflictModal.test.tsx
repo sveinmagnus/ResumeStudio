@@ -54,4 +54,51 @@ describe('<ConflictModal>', () => {
     render(<ConflictModal mine={same} theirs={structuredClone(same)} onResolve={() => {}} onClose={() => {}} />)
     expect(screen.getByText(/no field-level differences/i)).toBeInTheDocument()
   })
+
+  describe('with a merge result', () => {
+    const conflicts = [{
+      section: 'projects', itemId: 'p1', label: 'Initech', field: 'customer.en',
+      mine: 'Initech AS', theirs: 'Initech Ltd',
+    }]
+
+    it('lists only the contested values, not the whole-document diff', () => {
+      render(
+        <ConflictModal
+          mine={mine()} theirs={theirs()} conflicts={conflicts}
+          onResolve={() => {}} onClose={() => {}}
+        />,
+      )
+      expect(screen.getByText(/1 contested value/i)).toBeInTheDocument()
+      expect(screen.getByText('Initech AS')).toBeInTheDocument()
+      expect(screen.getByText('Initech Ltd')).toBeInTheDocument()
+      // The document diff (which would also list the untouched Title change)
+      // must not be rendered — showing it is the bug this replaced.
+      expect(screen.queryByText(/only theirs/i)).not.toBeInTheDocument()
+      expect(screen.queryByText('Architect')).not.toBeInTheDocument()
+      expect(screen.getByText(/merged automatically/i)).toBeInTheDocument()
+    })
+
+    it('falls back to the full diff when no base was available to merge against', () => {
+      render(
+        <ConflictModal
+          mine={mine()} theirs={theirs()} conflicts={null}
+          onResolve={() => {}} onClose={() => {}}
+        />,
+      )
+      expect(screen.getByText('Title')).toBeInTheDocument()
+      expect(screen.getByText(/only theirs/i)).toBeInTheDocument()
+    })
+
+    it('still resolves keep/discard', async () => {
+      const onResolve = vi.fn()
+      render(
+        <ConflictModal
+          mine={mine()} theirs={theirs()} conflicts={conflicts}
+          onResolve={onResolve} onClose={() => {}}
+        />,
+      )
+      await userEvent.click(screen.getByRole('button', { name: /keep my version/i }))
+      expect(onResolve).toHaveBeenCalledWith('keep')
+    })
+  })
 })
