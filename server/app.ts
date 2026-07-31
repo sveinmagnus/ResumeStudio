@@ -257,9 +257,22 @@ export function createApp(): Express {
   const clientDir = process.env.RESUME_CLIENT_DIR?.trim() || (isProd ? path.join(__dirname, '..', 'dist') : null)
   if (clientDir) {
     app.use(express.static(clientDir))
-    // SPA fallback — all non-API routes serve index.html
+    // SPA fallback — all non-API routes serve index.html.
+    //
+    // `{ root }` + a bare filename, NOT an absolute path. `send` defaults to
+    // `dotfiles: 'ignore'` and applies it to the WHOLE path it is handed, so
+    // `res.sendFile('/…/.something/dist/index.html')` 404s because of a dot
+    // segment in the INSTALL path — which has nothing to do with the request.
+    // With `root`, only the relative part is dot-checked, so where the app
+    // happens to be installed stops mattering.
+    //
+    // Not hypothetical: served from a directory under `.claude/worktrees/…`,
+    // every hard load of a deep route (a bookmark, a reload of
+    // `/r/:id/:section`, a nav link opened in a new tab) 404'd while `/` was
+    // fine, because `/` is answered by express.static above and never reaches
+    // here. Any install path with a dot segment does the same.
     app.get(/^(?!\/api).*/, (_req, res) => {
-      res.sendFile(path.join(clientDir, 'index.html'))
+      res.sendFile('index.html', { root: clientDir })
     })
   }
 

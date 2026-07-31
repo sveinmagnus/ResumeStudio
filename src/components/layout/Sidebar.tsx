@@ -1,6 +1,6 @@
-import { useEffect } from 'react'
+import { useEffect, type MouseEvent } from 'react'
 import { useStore } from '../../store/useStore'
-import { Link } from '../../lib/router'
+import { Link, isPlainLeftClick } from '../../lib/router'
 import { SECTIONS, GROUP_LABELS, GROUP_ORDER, canonicalSectionKey } from '../../lib/sections'
 import {
   LayoutDashboard, User, FileText, Briefcase, Building2, Users,
@@ -37,7 +37,7 @@ export interface SidebarProps {
 }
 
 export function Sidebar({ isOpen = false, onClose }: SidebarProps = {}) {
-  const { data, activeSection, activeViewId, setActiveSection, setActiveView } = useStore()
+  const { data, activeSection, activeViewId, currentResumeId } = useStore()
 
   // Close on Esc + lock body scroll while the drawer is open. The CSS media
   // query owns "is this actually drawer mode?", so we always attach these
@@ -65,11 +65,24 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps = {}) {
     return items && items.length > 0 ? [[g, items] as const] : []
   })
 
-  // Wrap navigation handlers so a click closes the drawer on mobile. On
-  // desktop onClose is still called but the sidebar is always visible, so it's
-  // harmless.
-  const goSection = (key: string) => { setActiveSection(key); onClose?.() }
-  const goView = (id: string | null) => { setActiveView(id); onClose?.() }
+  /**
+   * Every nav item is a real `<a href>`, so Ctrl/Cmd-click, middle-click and the
+   * context menu's "Open in new tab" work — the app's own sections are exactly
+   * the thing a user wants two of, side by side (a project in one window,
+   * the view that includes it in another). `<Link>` intercepts the plain
+   * left-click and routes it through the History API; the URL⇄store effect in
+   * `EditorRoute` then moves the store, so nothing here has to.
+   *
+   * The only local work is closing the mobile drawer — and that must not happen
+   * on a modified click, which is opening somewhere else and leaving this
+   * window where it is.
+   */
+  const closeOnPlainClick = (e: MouseEvent<HTMLAnchorElement>) => {
+    if (isPlainLeftClick(e)) onClose?.()
+  }
+  const sectionHref = (key: string) => ({
+    name: 'editor' as const, id: currentResumeId ?? '', section: key,
+  })
 
   return (
     <>
@@ -128,30 +141,32 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps = {}) {
                   const onList = activeSection === 'views' && !activeViewId
                   return (
                     <div key={s.key}>
-                      <button
+                      <Link
+                        to={sectionHref('views')}
                         className={`sb-item ${onList ? 'active' : ''}`}
-                        aria-current={onList ? 'true' : undefined}
-                        onClick={() => goView(null)}
+                        aria-current={onList ? 'page' : undefined}
+                        onClick={closeOnPlainClick}
                       >
                         <Icon size={16} />
                         <span className="sb-item-label">{s.label}</span>
                         {count !== null && <span className="sb-count">{count}</span>}
-                      </button>
+                      </Link>
                       {(data.views?.length ?? 0) > 0 && (
                         <div className="sb-subnav">
                           {(data.views ?? []).map((v) => {
                             const vActive = activeSection === 'views' && activeViewId === v.id
                             return (
-                              <button
+                              <Link
                                 key={v.id}
+                                to={{ name: 'editor', id: currentResumeId ?? '', section: 'views', viewId: v.id }}
                                 className={`sb-subitem ${vActive ? 'active' : ''}`}
-                                aria-current={vActive ? 'true' : undefined}
-                                onClick={() => goView(v.id)}
+                                aria-current={vActive ? 'page' : undefined}
+                                onClick={closeOnPlainClick}
                                 title={v.name}
                               >
                                 <span className="sb-subdot" />
                                 <span className="sb-item-label">{v.name}</span>
-                              </button>
+                              </Link>
                             )
                           })}
                         </div>
@@ -164,16 +179,17 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps = {}) {
                 // the Profile item (see canonicalSectionKey).
                 const active = canonicalSectionKey(activeSection) === s.key
                 return (
-                  <button
+                  <Link
                     key={s.key}
+                    to={sectionHref(s.key)}
                     className={`sb-item ${active ? 'active' : ''}`}
-                    aria-current={active ? 'true' : undefined}
-                    onClick={() => goSection(s.key)}
+                    aria-current={active ? 'page' : undefined}
+                    onClick={closeOnPlainClick}
                   >
                     <Icon size={16} />
                     <span className="sb-item-label">{s.label}</span>
                     {count !== null && <span className="sb-count">{count}</span>}
-                  </button>
+                  </Link>
                 )
               })}
             </div>
@@ -241,11 +257,14 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps = {}) {
             font-size: 11px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase;
             color: rgba(244,241,234,0.58); padding: 0 10px; margin-bottom: 6px;
           }
+          /* Nav items are anchors (so they can be opened in a new tab) styled
+             as rows — reset the link defaults the browser would otherwise add. */
           .sb-item {
             display: flex; align-items: center; gap: 11px; width: 100%;
             padding: 8px 10px; border-radius: var(--r-sm); color: rgba(244,241,234,0.72);
             font-size: 13.5px; font-weight: 500; text-align: left; transition: color .13s, background .13s, border-color .13s, box-shadow .13s;
-            margin-bottom: 1px;
+            margin-bottom: 1px; text-decoration: none; cursor: pointer;
+            box-sizing: border-box;
           }
           .sb-item:hover { background: rgba(244,241,234,0.07); color: var(--paper); }
           .sb-item.active { background: var(--accent); color: #fff; }
@@ -267,6 +286,7 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps = {}) {
             padding: 6px 10px; border-radius: var(--r-sm);
             color: rgba(244,241,234,0.62); font-size: 12.5px; font-weight: 500;
             text-align: left; transition: color .13s, background .13s, border-color .13s, box-shadow .13s; margin-bottom: 1px;
+            text-decoration: none; cursor: pointer; box-sizing: border-box;
           }
           .sb-subitem:hover { background: rgba(244,241,234,0.07); color: var(--paper); }
           .sb-subitem.active { background: var(--accent); color: #fff; }

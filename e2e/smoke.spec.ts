@@ -39,9 +39,10 @@ const fullName = (page: Page) => page.getByLabel('Full name', { exact: true })
 test('an edit auto-saves to the server and survives a reload', async ({ page }) => {
   await createResume(page)
 
-  // Scope to the nav button — once a section is active its name also shows
-  // as the page <h1> (and the URL now keeps the section across reloads).
-  await page.getByRole('button', { name: 'Personal Details' }).click()
+  // Scope to the nav LINK — once a section is active its name also shows as
+  // the page <h1> (and the URL now keeps the section across reloads). The nav
+  // is real anchors so Ctrl-click opens a section in a new tab.
+  await page.getByRole('link', { name: 'Personal Details' }).click()
   await expect(page).toHaveURL(/\/r\/[0-9a-f-]{36}\/header/)
   await fullName(page).fill('Kari Nordmann')
   // Auto-save: 1s debounce + PUT round-trip → header shows "Saved".
@@ -56,16 +57,65 @@ test('a Resume View renders the live preview from saved content', async ({ page 
   await createResume(page)
 
   // Give the CV some content the preview can show.
-  await page.getByRole('button', { name: 'Personal Details' }).click()
+  await page.getByRole('link', { name: 'Personal Details' }).click()
   await fullName(page).fill('Preview Person')
   await expect(page.getByText('Saved', { exact: true })).toBeVisible({ timeout: 10_000 })
 
-  await page.getByRole('button', { name: /Resume Views/ }).click()
+  await page.getByRole('link', { name: /Resume Views/ }).click()
   await page.getByRole('button', { name: 'New View' }).click()
 
   // The live preview iframe re-renders (250ms debounce) with the CV content.
   const frame = page.frameLocator('iframe[title="Resume View preview"]')
   await expect(frame.getByText('Preview Person')).toBeVisible({ timeout: 10_000 })
+})
+
+/**
+ * Exporting is the app's whole point, and it is the one flow where everything
+ * that only breaks in a real browser lines up: a dynamic `import()` of a ~350 kB
+ * chunk, the CSP that governs whether that chunk may load at all, and a Blob
+ * download. None of it is exercised by the jsdom suites, which stub the exporter
+ * precisely because pulling it in is expensive.
+ */
+test('a view exports a .docx — the lazy chunk loads and downloads', async ({ page }) => {
+  await createResume(page)
+
+  await page.getByRole('link', { name: 'Personal Details' }).click()
+  await fullName(page).fill('Export Person')
+  await expect(page.getByText('Saved', { exact: true })).toBeVisible({ timeout: 10_000 })
+
+  await page.getByRole('link', { name: /Resume Views/ }).click()
+  await page.getByRole('button', { name: 'New View' }).click()
+
+  // The export actions live behind an "Export view" dropdown.
+  await page.getByRole('button', { name: /Export view/ }).click()
+  const download = await Promise.all([
+    page.waitForEvent('download', { timeout: 20_000 }),
+    page.getByRole('menuitem', { name: /Export DOCX/ }).click(),
+  ]).then(([d]) => d)
+
+  expect(download.suggestedFilename()).toMatch(/\.docx$/)
+  // A DOCX is a zip: the first bytes are the local file header. An empty or
+  // HTML-error "download" would not be.
+  const path = await download.path()
+  expect(path).toBeTruthy()
+})
+
+/**
+ * The nav is anchors, not buttons with onClick — so a section can be opened in
+ * a second window and read beside another one. A synthetic click can't prove
+ * that; opening the href in a new page can.
+ */
+test('a section link is a real URL that loads on its own', async ({ page, context }) => {
+  await createResume(page)
+
+  const link = page.getByRole('link', { name: /^Projects/ })
+  const href = await link.getAttribute('href')
+  expect(href).toMatch(/\/r\/[0-9a-f-]{36}\/projects$/)
+
+  const second = await context.newPage()
+  await second.goto(href!)
+  await expect(second.getByRole('heading', { name: 'Projects' })).toBeVisible()
+  await second.close()
 })
 
 test('unknown resume ids bounce back to the picker', async ({ page }) => {

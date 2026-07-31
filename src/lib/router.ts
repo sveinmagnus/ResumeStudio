@@ -187,6 +187,18 @@ interface LinkProps extends Omit<AnchorHTMLAttributes<HTMLAnchorElement>, 'href'
 }
 
 /**
+ * Is this the click that should navigate IN PLACE?
+ *
+ * Ctrl/Cmd-click, Shift-click and middle-click mean "open this somewhere else",
+ * and the browser handles them itself. Anything a `<Link>` does on top of
+ * navigation — closing a drawer, selecting a section — must ask this first, or
+ * opening a section in a second tab also moves the tab you're still reading.
+ */
+export function isPlainLeftClick(e: MouseEvent<HTMLElement>): boolean {
+  return e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey
+}
+
+/**
  * In-app anchor. Renders a normal <a> so right-click "Open in new tab" works,
  * but intercepts plain left-clicks to use the History API instead of a full
  * page navigation.
@@ -197,7 +209,7 @@ export function Link({ to, replace, onClick, children, ...rest }: LinkProps) {
     onClick?.(e)
     if (e.defaultPrevented) return
     // Let the browser handle anything that isn't a plain left-click.
-    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+    if (!isPlainLeftClick(e)) return
     e.preventDefault()
     navigate(to, { replace })
   }
