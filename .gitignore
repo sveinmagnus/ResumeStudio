@@ -23,3 +23,7 @@ data/
 .claude/settings.json
 reports/
 .stryker-tmp/
+
+# Generated per-file by scripts/mutation-run.mjs; deleted after each run.
+vitest.mutation.*.config.ts
+stryker.mutation.*.json

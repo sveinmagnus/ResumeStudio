@@ -23,8 +23,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "test:mutation": "stryker run",
-    "test:e2e": "npm run build && playwright test"
+    "test:mutation": "node scripts/mutation-run.mjs",
+    "test:e2e": "npm run build && playwright test",
+    "test:mutation:report": "node scripts/mutation-run.mjs --report"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
