@@ -66,6 +66,33 @@ export default defineConfig({
       provider: 'v8',
       include: ['src/lib/**/*.ts', 'src/components/**/*.{ts,tsx}'],
       reporter: ['text', 'html'],
+      /**
+       * A ratchet, not a target.
+       *
+       * Each number sits a point or two BELOW what the suite actually achieves
+       * today, so the gate fires on decay rather than on noise. Raise them when
+       * coverage genuinely improves; do not lower them to make a red build
+       * green — that is the one move that turns this into decoration.
+       *
+       * `src/lib` is held to a much higher bar than the global figure because
+       * it is the pure logic: importers, exporters, the merge engine, the view
+       * filter. It is cheap to test and expensive to get wrong. Components are
+       * deliberately not chased to the same number — they are also covered by
+       * the Playwright suite and the jest-axe pass, and tests written purely to
+       * move a component coverage number tend to assert that render() rendered.
+       */
+      thresholds: {
+        statements: 76,
+        branches: 67,
+        functions: 68,
+        lines: 79,
+        'src/lib/**/*.ts': {
+          statements: 86,
+          branches: 75,
+          functions: 88,
+          lines: 89,
+        },
+      },
     },
   },
 })

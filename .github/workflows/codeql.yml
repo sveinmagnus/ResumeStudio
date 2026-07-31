@@ -1,0 +1,58 @@
+name: CodeQL
+
+# Static analysis. The unit/component/route suites prove the app does what it
+# should; this looks for the classes of defect tests are structurally bad at
+# finding — injection, path traversal, SSRF, unsafe deserialization — and it
+# looks hardest at the half of the codebase that has an attack surface at all:
+# the Express server (auth, SQLite, file paths, the updater's download
+# allowlist).
+#
+# Free here because the repository is public. If it ever goes private this
+# workflow needs GitHub Advanced Security, and should be removed rather than
+# left failing.
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  schedule:
+    # Weekly, so a newly-published query pattern finds old code without
+    # waiting for someone to push. Off-peak on a Monday.
+    - cron: '17 4 * * 1'
+
+concurrency:
+  group: codeql-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  analyze:
+    name: Analyze (javascript-typescript)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    permissions:
+      # Publishing results to the Security tab needs write here; everything
+      # else stays read-only.
+      security-events: write
+      actions: read
+      contents: read
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@bce182f857edf1feab116e9795a3393d21977282 # v4
+        with:
+          languages: javascript-typescript
+          # `security-extended` over the default `security`: the default set is
+          # tuned to keep noise near zero on any codebase, and this one is small
+          # enough to absorb the extra queries. Revisit if it turns noisy.
+          queries: security-extended
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@bce182f857edf1feab116e9795a3393d21977282 # v4
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@bce182f857edf1feab116e9795a3393d21977282 # v4
+        with:
+          category: /language:javascript-typescript

@@ -7,9 +7,11 @@
 # and Dependabot is what bumps the SHA + version comment when a new release
 # ships. Without it, SHA pins rot silently.
 #
-# NOT enabled for npm on purpose: this repo manages runtime deps by hand
-# (bundle-size discipline, lazy chunks) and already runs advisory `depcheck` +
-# `npm audit` in CI. Turn on an `npm` ecosystem block here only if that changes.
+# npm is enabled for SECURITY UPDATES ONLY. Feature bumps stay manual on
+# purpose — this repo manages runtime deps by hand (bundle-size discipline,
+# lazy chunks), and a stream of "bump X 1.2.3 → 1.2.4" PRs is how a queue of
+# real security PRs gets skimmed past. `npm audit` reports; this is what
+# actually opens the fix.
 version: 2
 updates:
   - package-ecosystem: github-actions
@@ -24,3 +26,24 @@ updates:
       github-actions:
         patterns:
           - "*"
+
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    # The whole point of the block: nothing but advisories.
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: fix
+    groups:
+      npm-security:
+        patterns:
+          - "*"
+    # Dependabot opens version-update PRs unless told not to; this leaves only
+    # the security ones, which it raises regardless of this setting.
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
+          - version-update:semver-patch

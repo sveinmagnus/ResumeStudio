@@ -1,0 +1,43 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "_comment": [
+    "Mutation testing — an AUDIT, not a CI gate.",
+    "",
+    "Coverage says a line ran. It does not say the test would have noticed if the",
+    "line were wrong. Stryker changes the code (flips a <= to a <, drops a call,",
+    "returns an empty string) and reports which changes NO test caught. Those are",
+    "the assertions that aren't there.",
+    "",
+    "Scoped to src/lib on purpose: that is the pure logic — the merge engine, the",
+    "importers, the view filter, the escaping — where a wrong branch is a silent",
+    "data defect rather than a visible UI bug, and where a test can be written",
+    "cheaply. Mutating components mostly proves that a rendered string changed,",
+    "which is what the RTL suite already asserts.",
+    "",
+    "Run with `npm run test:mutation`. It takes a long time (each surviving mutant",
+    "means re-running the affected tests), which is exactly why it is not in CI —",
+    "it is something you do before a release, read, and act on."
+  ],
+  "packageManager": "npm",
+  "testRunner": "vitest",
+  "vitest": {
+    "configFile": "vite.config.ts"
+  },
+  "reporters": ["html", "clear-text", "progress"],
+  "htmlReporter": {
+    "fileName": "reports/mutation/index.html"
+  },
+  "coverageAnalysis": "perTest",
+  "mutate": [
+    "src/lib/**/*.ts",
+    "!src/lib/**/*.test.ts"
+  ],
+  "ignorePatterns": ["dist", "release", "coverage", "reports", ".stryker-tmp"],
+  "thresholds": {
+    "high": 80,
+    "low": 60,
+    "break": null
+  },
+  "timeoutMS": 60000,
+  "concurrency": 4
+}

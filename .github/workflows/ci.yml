@@ -47,8 +47,37 @@ jobs:
       - name: Build
         run: npm run build
 
+      # The bundle discipline (lazy exporters, tree-shaken icons, no fonts CDN)
+      # was previously enforced only by a Vite warning that exits 0. This asserts
+      # the numbers — see scripts/check-bundle-size.mjs for the budgets.
+      - name: Bundle budget
+        run: npm run check:bundle
+
+  coverage:
+    name: coverage thresholds
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install
+        run: npm ci
+
+      # A separate job rather than replacing `npm test`: instrumentation roughly
+      # doubles the run and has its own flake profile, and the plain suite should
+      # stay the fast, authoritative gate. Thresholds live in vite.config.ts.
+      - name: Test with coverage
+        run: npm run test:coverage
+
   e2e:
-    name: e2e smoke (Playwright)
+    name: e2e smoke (chromium • firefox • webkit)
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -65,7 +94,7 @@ jobs:
         run: npm ci
 
       - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install --with-deps chromium firefox webkit
 
       - name: Build
         run: npm run build

@@ -21,3 +21,5 @@ data/
 # (settings.local.json is ignored via the global gitignore; this covers the
 # shared file too, since it only ever holds per-user prefs in this project.)
 .claude/settings.json
+reports/
+.stryker-tmp/
