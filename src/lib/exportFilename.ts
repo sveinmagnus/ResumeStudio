@@ -14,7 +14,7 @@ export function slugifyFilenamePart(input: string | null | undefined, fallback =
   const slug = (input ?? '')
     // Illegal-in-Windows + control chars → separator. The control-character
     // range is the point of this line, not an accident of the pattern.
-    // eslint-disable-next-line no-control-regex
+    // eslint-disable-next-line no-control-regex -- stripping control chars is the point (see above)
     .replace(/[\\/:*?"<>|\x00-\x1f]+/g, ' ')
     .trim()
     .replace(/\s+/g, '_')

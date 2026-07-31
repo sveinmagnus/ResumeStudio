@@ -91,7 +91,7 @@ export function useRegistryFilter<T extends NamedItem>(
   const usage = useMemo(
     () => new Map(sortedItems.map((i) => [i.id, countRefs(data, i.id)])),
     // countRefs is a module-level function per registry — stable by construction.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- countRefs is stable (see above)
     [sortedItems, data],
   )
 

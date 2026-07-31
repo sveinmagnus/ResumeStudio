@@ -330,7 +330,7 @@ function coerce(raw: unknown): AppSettings {
     const value = (f.key in o) || !f.legacyKey ? o[f.key] : o[f.legacyKey];
     // The semicolon above is load-bearing: the next line starts with '(' and
     // would otherwise be parsed as a call on this expression.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- dynamically-keyed write onto a typed settings object; the key is validated above
     (out as any)[f.key] = coerceField(f, value)
   }
   return out

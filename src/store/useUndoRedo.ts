@@ -120,7 +120,7 @@ export function useUndoRedo(): {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   // undo/redo are stable closures over refs — safe to omit from deps.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- undo/redo are stable ref closures (see above)
   }, [])
 
   return { undo, redo, canUndo, canRedo }

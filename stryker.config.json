@@ -1,29 +1,35 @@
 {
   "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
   "_comment": [
-    "Mutation testing — an AUDIT, not a CI gate.",
+    "Mutation testing \u2014 an AUDIT, not a CI gate.",
     "",
     "Coverage says a line ran. It does not say the test would have noticed if the",
     "line were wrong. Stryker changes the code (flips a <= to a <, drops a call,",
     "returns an empty string) and reports which changes NO test caught. Those are",
     "the assertions that aren't there.",
     "",
-    "Scoped to src/lib on purpose: that is the pure logic — the merge engine, the",
-    "importers, the view filter, the escaping — where a wrong branch is a silent",
+    "Scoped to src/lib on purpose: that is the pure logic \u2014 the merge engine, the",
+    "importers, the view filter, the escaping \u2014 where a wrong branch is a silent",
     "data defect rather than a visible UI bug, and where a test can be written",
     "cheaply. Mutating components mostly proves that a rendered string changed,",
     "which is what the RTL suite already asserts.",
     "",
     "Run with `npm run test:mutation`. It takes a long time (each surviving mutant",
-    "means re-running the affected tests), which is exactly why it is not in CI —",
-    "it is something you do before a release, read, and act on."
+    "means re-running the affected tests), which is exactly why it is not in CI \u2014",
+    "it is something you do before a release, read, and act on.",
+    "",
+    "dryRunTimeoutMinutes is raised from Stryker's 5-minute default on purpose: the dry run executes the WHOLE 2600-test suite once per test-runner process, instrumented, and four of those in parallel do not finish in five minutes. The symptom is 'Initial test run timed out!' before a single mutant is tried, which reads like a broken config rather than a budget."
   ],
   "packageManager": "npm",
   "testRunner": "vitest",
   "vitest": {
     "configFile": "vite.config.ts"
   },
-  "reporters": ["html", "clear-text", "progress"],
+  "reporters": [
+    "html",
+    "clear-text",
+    "progress"
+  ],
   "htmlReporter": {
     "fileName": "reports/mutation/index.html"
   },
@@ -32,12 +38,19 @@
     "src/lib/**/*.ts",
     "!src/lib/**/*.test.ts"
   ],
-  "ignorePatterns": ["dist", "release", "coverage", "reports", ".stryker-tmp"],
+  "ignorePatterns": [
+    "dist",
+    "release",
+    "coverage",
+    "reports",
+    ".stryker-tmp"
+  ],
   "thresholds": {
     "high": 80,
     "low": 60,
     "break": null
   },
   "timeoutMS": 60000,
-  "concurrency": 4
+  "concurrency": 2,
+  "dryRunTimeoutMinutes": 30
 }

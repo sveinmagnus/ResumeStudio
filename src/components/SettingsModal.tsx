@@ -363,7 +363,7 @@ export function SettingsModal({ initialTab, onClose, onChanged, onUnauthorized }
   // would hammer the provider's API.
   useEffect(() => {
     if (llmProvider !== 'off') void refreshModels()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the provider only (see above), so typing a key does not hammer the provider API
   }, [llmProvider])
 
   const managed = status?.managed === true

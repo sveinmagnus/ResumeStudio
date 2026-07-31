@@ -361,7 +361,7 @@ export function useResumePersistence(resumeId: string): ResumePersistence {
       saveAbort.current?.abort()
       unloadStore()
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- boot runs once per resumeId, by design
   }, [resumeId])
 
   // ── Queue write: short debounce so we don't stringify per keystroke. Marks

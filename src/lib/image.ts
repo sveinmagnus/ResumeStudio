@@ -318,7 +318,7 @@ function base64ToBytes(b64: string): Uint8Array {
     for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i)
     return out
   }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- probing for Node's Buffer from browser-typed code; it legitimately may not exist
   const B = (globalThis as any).Buffer
   if (B) return new Uint8Array(B.from(b64, 'base64'))
   throw new Error('No base64 decoder available.')

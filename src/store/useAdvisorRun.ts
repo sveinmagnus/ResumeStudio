@@ -89,7 +89,7 @@ export function useAdvisorRun<T>(
       return { result: null, error: e instanceof Error ? e.message : 'The reply could not be read.' }
     }
     // `parse` closes over the live store, so re-run whenever the run changes.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- parse reads the live store (see above)
   }, [run?.raw, run?.resolved, parseKey])
 
   return {

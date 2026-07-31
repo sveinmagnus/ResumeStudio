@@ -39,6 +39,24 @@ export default tseslint.config(
   comments.recommended,
 
   /**
+   * Every `eslint-disable` must say WHY, inline, after a `--`.
+   *
+   * Not bureaucracy: a bare disable is indistinguishable from a rule someone
+   * silenced because it was inconvenient, and the next reader has no way to
+   * tell a considered exception from a shrug. This whole config leans on
+   * documented exceptions — the WAI-ARIA tablist, contentEditable focusability,
+   * the deliberately keyboard-operable crop canvas — and each is only defensible
+   * because the reason travels with it.
+   */
+  {
+    rules: {
+      '@eslint-community/eslint-comments/require-description': ['error', {
+        ignore: ['eslint-enable'],
+      }],
+    },
+  },
+
+  /**
    * Type-aware rules, chosen individually rather than by preset.
    *
    * The full `recommendedTypeChecked` preset is not enabled: it triples lint
