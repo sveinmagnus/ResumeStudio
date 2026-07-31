@@ -154,6 +154,12 @@ Wishlist: §12.
   (enlarged hit-areas next to real controls — adding tabIndex would create a
   duplicate tab stop, which is worse), and three testing-library/vitest rules
   that fight this suite's deliberate style. Read the config before adding to it.
+  `eslint-plugin-jsx-a11y` still declares a peer of `eslint@<=9` (6.10.2 is its
+  latest); it runs fine on 10, so `package.json → overrides` pins that peer to
+  `$eslint`. **Never regenerate `package-lock.json` with `--legacy-peer-deps`
+  or `--force`** — that writes a lockfile whose peer conflicts `npm ci` then
+  rejects, and CI fails at Install before a single gate runs (it did, in
+  `216f9e1`). Drop the override once the plugin ships an eslint-10 peer.
 - **Other gates** — `npm run check:bundle` asserts the initial-payload budget
   (340 kB gzip) and that the heavy chunks stay lazy; `npm run test:coverage`
   enforces a ratchet (global ~76 %, `src/lib` ~86 %) set just below current so it
