@@ -293,6 +293,21 @@ units:
       token_estimate: 1000
 
   # ── Policies ───────────────────────────────────────────────────────────────
+  - id: quality-gates
+    kind: policy
+    path: eslint.config.js
+    intent: "Which code-quality rules does this repo enforce, and — more importantly — which are deliberately OFF and why? Project invariants (lazy exporters, lucide tree-shaking, no process.env in the client, the exportStrings localization boundary), the CLAUDE.md §3 layering as import-x zones, five selected type-aware rules, jsx-a11y, and the vitest/testing-library correctness rules. Read before adding a rule or 'fixing' a disabled one."
+    scope: project
+    audience: [agent, developer]
+    validated: "2026-07-31"
+    update_frequency: as-needed
+    depends_on: [claude-instructions]
+    triggers: [lint, eslint, rules, code-quality, layering, a11y-lint, type-aware]
+    not_for: ["formatting style", "what a feature does"]
+    hints:
+      token_estimate: 2400
+      priority: supplementary
+
   - id: ci-policy
     kind: policy
     path: .github/workflows/ci.yml

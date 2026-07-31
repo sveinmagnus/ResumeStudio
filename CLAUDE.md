@@ -130,13 +130,36 @@ Wishlist: §12.
 - **TypeScript strict mode.** `npm run typecheck` covers client + server.
 - **`npm run lint` must be clean** (CI runs it first). `eslint.config.js` is
   deliberately NOT a style guide — no formatting opinions, no import ordering.
-  Every custom rule in it enforces an invariant written down in this file, and
-  most of them encode a bug that already happened: lucide namespace imports,
-  a static import of `lib/exporter`/`lib/pdfExporter`, `process.env` in client
-  code, `transition: all`, and `lib/exportStrings` reaching into `components/`.
-  The React Compiler rules (`react-hooks/refs`, `set-state-in-effect`) are OFF
-  with a reason recorded in the config — this is React 18 without the compiler
-  and both flag deliberate patterns.
+  Every rule in it either enforces an invariant written down in this file or
+  catches a class of bug the type system can't see. What it holds:
+  - **Project invariants** (`no-restricted-syntax` / `no-restricted-imports`):
+    lucide namespace imports, a static import of `lib/exporter`/`lib/pdfExporter`,
+    `process.env` in client code, `transition: all`, `dangerouslySetInnerHTML`,
+    `target="_blank"` without `rel`, and `lib/exportStrings` reaching into
+    `components/`.
+  - **The §3 layering, mechanically** (`import-x/no-restricted-paths`): lib/ may
+    not import components/ or store/; types/ imports nothing; store/ may not
+    import components/ **except** `ui/ConfirmDialog` (imperative by design).
+    Plus `no-cycle`, because the codebase already dodges one by hand.
+  - **Type-aware rules** (five, chosen individually — the full preset is not
+    enabled): `no-floating-promises`, `no-misused-promises`, `await-thenable`,
+    `require-await`, `return-await`. Cheap here because `void f()` is already
+    the house fire-and-forget marker, so they only fire on unmarked promises.
+  - **Accessibility** (`jsx-a11y`), complementing the jest-axe suite: axe only
+    sees what a test mounts, this sees all ~50 components.
+  - **Test correctness** (`@vitest/eslint-plugin`, `testing-library`): a
+    `findBy*` without `await` is always truthy and always passes.
+  Rules that are OFF are off with a recorded reason, never silently: the React
+  Compiler rules (React 18, no compiler), three jsx-a11y interaction rules
+  (enlarged hit-areas next to real controls — adding tabIndex would create a
+  duplicate tab stop, which is worse), and three testing-library/vitest rules
+  that fight this suite's deliberate style. Read the config before adding to it.
+- **Other gates** — `npm run check:bundle` asserts the initial-payload budget
+  (340 kB gzip) and that the heavy chunks stay lazy; `npm run test:coverage`
+  enforces a ratchet (global ~76 %, `src/lib` ~86 %) set just below current so it
+  catches decay, not noise; `npm run test:mutation` (Stryker, `src/lib` only) is
+  an **audit you run before a release**, not a CI gate — it reports which
+  assertions aren't there. CI also runs CodeQL (`security-extended`) and gitleaks.
 - **No `any`** unless interfacing with truly unknown shapes (e.g. raw imported JSON). Use `unknown` then narrow.
 - **No default exports** for components — use named exports. (`main.tsx` and `App.tsx` are the only existing default exports; new components are named.)
 - **Inline styles via `<style>` tag inside the component.** Each component owns its CSS. Tokens come from `src/index.css` (see §6). The only utility classes in `index.css` are widely-shared widgets: `.check-row`, `.skip-link`, `.sr-only`, `.pf-*` (plain-field primitives — wrap/label/input/year-stepper/ongoing). **`.pf-*` must stay in `index.css`, not a component's own `<style>` tag** — a component-scoped style block only exists in the DOM while that component is mounted, so a page using a bare `.pf-input` without ever mounting `TextField`/`DateField`/`TagField` gets an unstyled browser-default textbox (this regressed the registry `CategoryField` once already — see git history).
@@ -620,6 +643,8 @@ npm run dev:client       # just Vite      npm run dev:server   # just Express (t
 npm run build            # production build to dist/    npm run preview  # serve dist/
 npm test                 # vitest run      npm run typecheck    # client + server tsc
 npm run lint             # eslint (CI gate)   npm run lint:fix     # eslint --fix
+npm run check:bundle     # initial-payload budget (needs a build first)
+npm run test:mutation    # Stryker over src/lib — slow, pre-release audit
 npm start                # production server (NODE_ENV=production)
 npm run desktop          # build client + run the desktop launcher from source (tsx)
 npm run build:desktop    # assemble the portable release/ folder (per target OS)

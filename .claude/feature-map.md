@@ -645,6 +645,21 @@ lazy-exporter rule, no `process.env` in client code, no `transition: all`, and
 `lib/exportStrings` being unreachable from `src/components/**`. The `uuid`
 package was dropped for `crypto.randomUUID` (`lib/uuid.ts`).
 
+**Quality gates (July 2026, 1.0 prep).** The pipeline is now: **lint →
+typecheck → test → build → bundle budget**, plus parallel **coverage
+thresholds**, **e2e on three engines** (chromium/firefox/webkit), **CodeQL**
+(`security-extended`, free on a public repo), **gitleaks**, and advisory
+depcheck. ESLint grew from five project-invariant rules to also enforce the §3
+layering (`import-x/no-restricted-paths` + `no-cycle`), five selected type-aware
+rules, `jsx-a11y`, and the vitest/testing-library correctness rules — see
+CLAUDE.md §2 for what is deliberately OFF and why. Coverage is a **ratchet** set
+just below current (global ~76 %, `src/lib` ~86 %), and the bundle budget
+asserts the initial payload (340 kB gzip) plus that pdfmake / vfs_fonts /
+exporter stay in their own chunks. **Stryker** mutation testing
+(`npm run test:mutation`, `src/lib` only) is a pre-release audit rather than a
+gate — it answers the question coverage cannot: not "did this line run" but
+"would any test have noticed if it were wrong".
+
 **Deferred / dropped:** **A4 Phase 2** (content-addressed asset table) was
 deliberately deferred — measurement infra shipped; build the table only when
 real data warrants. **F4** (application log) was dropped as out of scope.
