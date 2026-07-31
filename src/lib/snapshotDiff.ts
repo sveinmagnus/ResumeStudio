@@ -143,7 +143,7 @@ function deltaLabel(prev: string, next: string): string {
 function describeItemEdit(
   prev: Record<string, unknown>,
   next: Record<string, unknown>,
-  locale: string,
+  _locale: string,
 ): string[] {
   const details: string[] = []
   const keys = new Set([...Object.keys(prev), ...Object.keys(next)])

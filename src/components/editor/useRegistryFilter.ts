@@ -115,7 +115,7 @@ export function useRegistryFilter<T extends NamedItem>(
     return extraFilter ? base.filter(extraFilter) : base
     // extraFilter is re-created per render by design (it closes over the
     // caller's own filter state, which is already a dependency below).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [sortedItems, usage, missingItems, filter, extraFilter])
 
   // The hook is typed per store section; every registry item satisfies

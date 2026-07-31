@@ -20,7 +20,7 @@
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Sparkles, Loader2, AlertTriangle, Info, ShieldCheck, ChevronDown } from 'lucide-react'
-import { api, type AssistStatus, ASSIST_OFF } from '../../lib/api'
+import { api } from '../../lib/api'
 import { useAssistStatus } from './AdvancedAssistCard'
 import {
   providerBlurb, sizeHint, isRemote, backendName, looksWeakForWriting, MANUAL_BLURB,

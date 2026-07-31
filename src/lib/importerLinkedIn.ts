@@ -17,7 +17,7 @@
 
 import { uuidv4 } from './uuid'
 import type {
-  ResumeStore, Resume, Skill, WorkExperience, Education, Certification,
+  ResumeStore, Resume, Skill, Certification,
   SpokenLanguage, Project, Recommendation, LocalizedString, YearMonth,
 } from '../types'
 

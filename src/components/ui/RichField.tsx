@@ -326,7 +326,7 @@ function RichColumn({ variant, locale, fieldLabel, html, onCommit, placeholder, 
     const el = editorRef.current
     if (!el) return
     el.focus()
-    let done = false
+    let done: boolean
     try {
       done = document.execCommand('insertHTML', false, cleanHtml)
     } catch {

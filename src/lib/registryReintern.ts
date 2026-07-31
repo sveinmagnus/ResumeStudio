@@ -9,7 +9,7 @@
  * matching entry, or create one, then rewrite the resume's links
  * (`planReintern` + `remapCanonicalIds`, wrapped by the `reinternBackupLinks`
  * orchestrator). This is the `mergeRegistry`-by-key idea moved to the import
- * boundary (plans/cross-resume-registries.md §4).
+ * boundary (see `lib/registrySync.ts` for the pure planning half).
  *
  * The pure functions here are the testable core; only `reinternBackupLinks` does
  * I/O (create-missing on the target). Same-instance restore converges too — a

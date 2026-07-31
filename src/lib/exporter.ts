@@ -23,11 +23,11 @@ import {
   TableBorders, WidthType, VerticalAlign,
 } from 'docx'
 import type {
-  ResumeStore, ResumeView, Resume, LocalizedString, SectionDetail, SectionStyle,
+  ResumeStore, ResumeView, Resume, LocalizedString, SectionDetail,
   ViewHeaderConfig, FooterSeparator, CoverLetter,
 } from '../types'
 import { resolveLetterParts } from './coverLetter'
-import { SECTIONS, localizedSectionHeading } from './sections'
+import { localizedSectionHeading } from './sections'
 import { resolve, type DateFormat } from './locales'
 import { SECTION_CATALOG, summaryTitleMeta, type AnyItem as CatalogItem, type CatalogCtx, type ItemView } from './sectionCatalog'
 import { skillMatrixRows, fmtLastUsed, fmtProficiency, type SkillMatrixRow } from './skillMatrix'

@@ -22,11 +22,11 @@
  */
 
 import type {
-  ResumeStore, ResumeView, Resume, LocalizedString, SectionDetail, SectionStyle,
+  ResumeStore, ResumeView, Resume, LocalizedString, SectionDetail,
   ViewHeaderConfig, FooterSeparator, CoverLetter,
 } from '../types'
 import { resolveLetterParts } from './coverLetter'
-import { SECTIONS, localizedSectionHeading } from './sections'
+import { localizedSectionHeading } from './sections'
 import { resolve, type DateFormat } from './locales'
 import { xs, fmtYears } from './exportStrings'
 import { SECTION_CATALOG, summaryTitleMeta, type AnyItem as CatalogItem, type CatalogCtx, type ItemView } from './sectionCatalog'
@@ -34,7 +34,6 @@ import { skillMatrixRows, fmtLastUsed, fmtProficiency, type SkillMatrixRow } fro
 import { applyView } from './viewFilter'
 import { planViewSections, sectionItems, renderKeyFor } from './viewSectionPlan'
 import { parseRichBlocks, plainParagraphs } from './richText'
-import { sortItems } from './sectionSort'
 import {
   deriveTokens, resolveSectionStyle, sectionHeadingText, kqVisibility, bulletGlyph, withDefaults,
   withResolvedFonts, resolveFontPdf,

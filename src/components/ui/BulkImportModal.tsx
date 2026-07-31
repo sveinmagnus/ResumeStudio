@@ -54,9 +54,13 @@ export function BulkImportModal({ spec, onClose }: BulkImportModalProps) {
   const [copied, setCopied] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
-  const locales = data.resume?.supported_locales?.length
-    ? data.resume.supported_locales
-    : [primaryLocale]
+  // Memoized because it feeds a useMemo below: a fresh array literal every
+  // render would rebuild the instructions on every keystroke.
+  const supported = data.resume?.supported_locales
+  const locales = useMemo(
+    () => (supported?.length ? supported : [primaryLocale]),
+    [supported, primaryLocale],
+  )
 
   const instructions = useMemo(() => bulkInstructions(spec, locales), [spec, locales])
 

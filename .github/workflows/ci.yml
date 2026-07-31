@@ -19,7 +19,7 @@ concurrency:
 
 jobs:
   verify:
-    name: typecheck • test • build
+    name: lint • typecheck • test • build
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -34,6 +34,9 @@ jobs:
 
       - name: Install
         run: npm ci
+
+      - name: Lint
+        run: npm run lint
 
       - name: Typecheck
         run: npm run typecheck

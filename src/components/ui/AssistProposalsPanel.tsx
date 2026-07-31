@@ -11,7 +11,7 @@
 
 import { useMemo, useState } from 'react'
 import { Check, CheckCheck, Square, X } from 'lucide-react'
-import type { Proposal, ProposalsResult } from '../../lib/assistProposals'
+import type { ProposalsResult } from '../../lib/assistProposals'
 import { applyProposals } from '../../lib/assistProposals'
 import { sectionLabel } from '../../lib/sections'
 import { useStore } from '../../store/useStore'

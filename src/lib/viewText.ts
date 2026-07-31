@@ -12,14 +12,12 @@
  */
 
 import type { ResumeStore, ResumeView, LocalizedString } from '../types'
-import { SECTIONS, localizedSectionHeading } from './sections'
+import { localizedSectionHeading } from './sections'
 import { applyView, viewProfileTagLine } from './viewFilter'
 import { planViewSections, sectionItems, renderKeyFor } from './viewSectionPlan'
 import { SECTION_CATALOG, summaryTitleMeta, type CatalogCtx, type ItemView } from './sectionCatalog'
 import { skillMatrixRows, fmtLastUsed, fmtProficiency } from './skillMatrix'
 import { xs, fmtYears } from './exportStrings'
-import { showcaseGroups } from './showcase'
-import { sortItems } from './sectionSort'
 import { resolveSectionStyle, sectionHeadingText, kqVisibility, bulletGlyph, withDefaults } from './viewStyle'
 import { withHeaderDefaults, withFooterDefaults, buildHeaderLines, buildCopyrightLine } from './viewHeader'
 import { parseRichBlocks, plainParagraphs, type RichRun } from './richText'

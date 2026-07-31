@@ -11,7 +11,7 @@
  */
 
 import { useState } from 'react'
-import { PenLine, Check, X, HelpCircle } from 'lucide-react'
+import { Check, X, HelpCircle } from 'lucide-react'
 import { AssistRun } from './AssistRun'
 import { extractJson } from '../../lib/llmAssist'
 import {

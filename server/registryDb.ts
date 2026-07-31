@@ -1,7 +1,7 @@
 /**
  * Instance-level registry store (cross-resume registries, Stage 3 / Increment 1).
  *
- * The CANONICAL half of the split in plans/cross-resume-registries.md §3.0: a
+ * The CANONICAL half of the instance-registry split (CLAUDE.md §14): a
  * skill/role/industry/category's shared IDENTITY (localized name + normalized
  * key + skill-only classification/category link), owned by the instance rather
  * than any one resume, with its own optimistic-concurrency `version`. Per-person

@@ -52,15 +52,19 @@ export function useAdvisorRun<T>(
   parse: (raw: string) => T,
   scope?: string,
   /**
-   * Extra values `parse` closes over that are NOT the live CV.
+   * A key for anything `parse` closes over that is NOT the live CV.
    *
-   * The default deps are the reply and the resolution map, which covers a
+   * The parse re-runs on the reply and the resolution map, which covers a
    * validator reading the store (that re-renders us anyway). The ATS audit is
-   * the exception: its validator is checked against terms derived from a pasted
+   * the exception: its validator checks against terms derived from a pasted
    * posting held in component state, so the parse has to re-run when that
    * changes or the report is read against the wrong term list.
+   *
+   * A single string rather than a dependency array, because a spread dependency
+   * list defeats both the lint rule and the reader — the length has to be
+   * stable across renders and an array literal can't promise that.
    */
-  deps: readonly unknown[] = [],
+  parseKey?: string,
 ): AdvisorRunView<T> {
   const resumeId = useStore((s) => s.currentResumeId) ?? ''
   const run = useAdvisors((s) => selectRun(s.runs, id, resumeId, scope))
@@ -86,7 +90,7 @@ export function useAdvisorRun<T>(
     }
     // `parse` closes over the live store, so re-run whenever the run changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [run?.raw, run?.resolved, ...deps])
+  }, [run?.raw, run?.resolved, parseKey])
 
   return {
     ref,

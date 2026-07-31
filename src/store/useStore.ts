@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { uuidv4 } from '../lib/uuid'
-import type { ResumeStore, Resume, LocalizedString, RegistryEntry } from '../types'
+import type { ResumeStore, Resume, RegistryEntry } from '../types'
 import { detectLocalesInData, sortLocales } from '../lib/locales'
 import { migrateStore, isNewerShape } from '../lib/migrate'
 import { emptyStore as makeEmpty, freshStore as makeFresh } from '../lib/freshStore'

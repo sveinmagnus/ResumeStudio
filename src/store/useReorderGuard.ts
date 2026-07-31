@@ -29,5 +29,5 @@ export function useReorderGuard(section: ArraySection): (proceed: () => void) =>
         `section back to Custom order.`,
       confirmLabel: 'Move & switch to Custom',
     }).then((ok) => { if (ok) proceed() })
-  }, [mode, section])
+  }, [mode])
 }

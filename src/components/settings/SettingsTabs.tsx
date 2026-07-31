@@ -24,7 +24,7 @@ export function SettingsTabs({ tabs, active, onChange }: Props) {
 
   const onKeyDown = (e: KeyboardEvent) => {
     const i = tabs.findIndex((t) => t.id === active)
-    let next = -1
+    let next: number
     if (e.key === 'ArrowRight') next = (i + 1) % tabs.length
     else if (e.key === 'ArrowLeft') next = (i - 1 + tabs.length) % tabs.length
     else if (e.key === 'Home') next = 0

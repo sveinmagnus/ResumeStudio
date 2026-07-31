@@ -1,5 +1,5 @@
 import type {
-  ResumeStore, ResumeView, ViewSection, LocalizedString, SectionDetail,
+  ResumeStore, ResumeView, LocalizedString, SectionDetail,
   KeyQualification, KeyCompetency,
 } from '../types'
 import { SECTIONS, localizedSectionHeading } from './sections'
@@ -8,16 +8,14 @@ import { SECTION_CATALOG, type AnyItem, type CatalogCtx, type SummaryView, type 
 import type { SummaryLayout } from '../types'
 import { skillMatrixRows, fmtLastUsed, fmtProficiency } from './skillMatrix'
 import { xs, fmtYears } from './exportStrings'
-import { showcaseGroups } from './showcase'
 import { renderRichHtml, renderRichInlineHtml, plainParagraphs } from './richText'
 import { deriveTokens, resolveSectionStyle, sectionHeadingText, kqVisibility, bulletGlyph, withDefaults, withResolvedFonts, resolveFontCss, type ResolvedSectionStyle, type StyleTokens } from './viewStyle'
 import type { GlobalFonts } from './fonts'
-import { sortItems } from './sectionSort'
 import { SECTION_ICON_INNER } from '../generated/sectionIcons'
 import { withHeaderDefaults, withFooterDefaults, buildHeaderLines, buildCopyrightLine, footerLines } from './viewHeader'
 import {
   planViewSections, sectionItems, renderKeyFor,
-  isExportableSection, defaultViewDetail,
+  
 } from './viewSectionPlan'
 
 /**

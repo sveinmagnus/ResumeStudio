@@ -7,7 +7,7 @@
  * groups skills across resumes by their normalized `skillKey` — the same key the
  * skill-extraction assist interns against, and the same normalization the coming
  * instance-level registry will canonicalize on (see
- * plans/cross-resume-registries.md). When registries become instance-level, the
+ * CLAUDE.md §14). When registries become instance-level, the
  * grouping swaps from name-matching to the shared canonical id, but this
  * function's OUTPUT shape (people + rows + holders) — and the UI on top of it —
  * stays. That's why the matrix is built first: same shell, cleaner source later.

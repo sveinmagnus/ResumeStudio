@@ -12,7 +12,9 @@
 /** Collapse one free-text part (a name or a view title) into a filename-safe slug. */
 export function slugifyFilenamePart(input: string | null | undefined, fallback = 'resume'): string {
   const slug = (input ?? '')
-    // Illegal-in-Windows + control chars → separator.
+    // Illegal-in-Windows + control chars → separator. The control-character
+    // range is the point of this line, not an accident of the pattern.
+    // eslint-disable-next-line no-control-regex
     .replace(/[\\/:*?"<>|\x00-\x1f]+/g, ' ')
     .trim()
     .replace(/\s+/g, '_')

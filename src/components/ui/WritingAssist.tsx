@@ -21,7 +21,7 @@
  */
 
 import { useCallback, useMemo, useState } from 'react'
-import { PenLine, Check, X, HelpCircle, AlertTriangle } from 'lucide-react'
+import { Check, X, HelpCircle, AlertTriangle } from 'lucide-react'
 import { AssistRun } from './AssistRun'
 import { extractJson } from '../../lib/llmAssist'
 import {

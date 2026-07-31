@@ -44,7 +44,7 @@ export function ViewHeaderControls({
   // embedded (data URL) image, so it renders offline everywhere (PDF + DOCX).
   const [urlBusy, setUrlBusy] = useState(false)
   const [urlError, setUrlError] = useState<string | null>(null)
-  const useProfileImageUrl = async () => {
+  const applyProfileImageUrl = async () => {
     if (!profileImageUrl || urlBusy) return
     setUrlBusy(true)
     setUrlError(null)
@@ -170,7 +170,7 @@ export function ViewHeaderControls({
           />
           {profileImageUrl && (
             <div className="rv-hdr-url">
-              <button type="button" className="rv-hdr-url-btn" onClick={() => void useProfileImageUrl()} disabled={urlBusy}>
+              <button type="button" className="rv-hdr-url-btn" onClick={() => void applyProfileImageUrl()} disabled={urlBusy}>
                 {urlBusy ? <Loader2 size={12} className="rv-spin" /> : <Link2 size={12} />}
                 {urlBusy ? 'Fetching…' : 'Use profile image URL'}
               </button>

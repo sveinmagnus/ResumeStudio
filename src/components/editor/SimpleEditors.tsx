@@ -1289,7 +1289,8 @@ function ProfileBundleEditor({ kq }: { kq: KeyQualification }) {
                     <input type="checkbox" checked={picked.has(c.id)}
                       onChange={() => setPicked((prev) => {
                         const next = new Set(prev)
-                        next.has(c.id) ? next.delete(c.id) : next.add(c.id)
+                        if (next.has(c.id)) next.delete(c.id)
+                        else next.add(c.id)
                         return next
                       })} />
                     <span className="pcb-existing-title">{resolve(c.title, primaryLocale) || 'Untitled competency'}</span>

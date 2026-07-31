@@ -141,7 +141,7 @@ export interface Skill {
    * load, so a rename in one resume propagates to every resume that links the
    * same canonical entry. This resume's PER-PERSON facts (`proficiency`,
    * `is_highlighted`, `experience_offset_years`, `total_duration_in_years`) stay
-   * here regardless — see plans/cross-resume-registries.md §3.0. `null`/absent =
+   * here regardless — see CLAUDE.md §14 (sync) and §4. `null`/absent =
    * a purely per-resume skill (today's behaviour); the stored `name` is then
    * authoritative. Additive/optional: pre-Stage-3 data simply has no link.
    */
@@ -178,7 +178,7 @@ export interface SkillCategory {
 /**
  * The canonical, instance-owned half of a registry entry — the SHARED identity
  * a `canonical_id` link points at (see `Skill.canonical_id` and
- * plans/cross-resume-registries.md §3.0). Lives on the SERVER
+ * CLAUDE.md §14). Lives on the SERVER
  * (`server/registryDb.ts`), fetched via `api.listRegistry()`; this is the
  * client mirror. Per-person facts (proficiency, highlight, ordering) are NOT
  * here — they stay on the resume's own registry entry.

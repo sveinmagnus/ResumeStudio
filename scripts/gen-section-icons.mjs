@@ -12,7 +12,7 @@ for (const name of names) {
   const src = fs.readFileSync(file, 'utf8')
   const m = src.match(/createLucideIcon\(\s*"[^"]+",\s*(\[[\s\S]*?\])\s*\)/)
   if (!m) { console.warn('no node array', name); continue }
-  // eslint-disable-next-line no-eval
+   
   const nodes = eval(m[1])
   const inner = nodes.map(([tag, a]) => `<${tag} ${attrs(a)}/>`).join('')
   out[name] = inner

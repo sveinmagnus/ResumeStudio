@@ -414,7 +414,7 @@ export function createResumeDb(dbPath: string): ResumeDb {
       // A corrupt stored blob (e.g. after a bad cloud-folder sync) shouldn't
       // masquerade as "not found" — surface it so the API's error handler
       // returns a clean 500 rather than the client silently losing the resume.
-      throw new Error(`Corrupt data for resume ${id}: ${(err as Error).message}`)
+      throw new Error(`Corrupt data for resume ${id}: ${(err as Error).message}`, { cause: err })
     }
     return {
       meta: {
@@ -608,7 +608,7 @@ export function createResumeDb(dbPath: string): ResumeDb {
 
   // Instance-level registry (cross-resume registries, Increment 1). Shares this
   // connection; creates its own table. Additive — not yet consumed by the
-  // resume save path (see plans/cross-resume-registries.md).
+  // resume save path (see server/registryDb.ts and CLAUDE.md §14).
   const registry = createRegistryStore(db)
 
   return {

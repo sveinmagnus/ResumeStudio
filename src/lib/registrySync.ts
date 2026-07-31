@@ -8,7 +8,7 @@
  *     `canonical_id`, its shared IDENTITY (name, + skill classification/category)
  *     is reconciled FROM the canonical entry, so a rename in another resume shows
  *     up here on load. Per-person facts (proficiency, highlight, ordering) are
- *     never touched — see plans/cross-resume-registries.md §3.0.
+ *     never touched — see CLAUDE.md §14.
  *   - `planPublish` (WRITE / publish): compute what it takes to share a resume's
  *     unlinked registries — which canonical entries to CREATE (no match by key)
  *     and which existing ones to LINK to (match by key). Idempotent: an

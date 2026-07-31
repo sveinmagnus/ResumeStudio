@@ -28,7 +28,7 @@
 
 import type {
   ResumeStore, ResumeView, SpokenLanguage, WorkExperience, Education,
-  LocalizedString, YearMonth, CefrCategory,
+  YearMonth, CefrCategory,
 } from '../types'
 import { resolve } from './locales'
 import { richToPlain } from './richText'

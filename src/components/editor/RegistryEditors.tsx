@@ -1,7 +1,6 @@
 import { useState, useMemo, useRef, useEffect, useId, type ReactNode } from 'react'
 import { useStore, newId } from '../../store/useStore'
 import { useSortedItems } from '../../store/useSortedItems'
-import { useStableExpanded } from '../../store/useStableExpanded'
 import {
   loadSkillRelations, relatedSkillSuggestions, loadSkillDomains,
   loadSkillDomainModel, type SkillRelations, type SkillDomains, type SkillDomainModel,
@@ -29,31 +28,36 @@ import {
   mergeSkills, mergeRoles, mergeIndustries,
   countSkillReferences, countRoleReferences, countIndustryReferences,
 } from '../../lib/merge'
-import { usageOfSkill, usageOfRole, usageOfIndustry, isSkillUnused, isRoleUnused } from '../../lib/usage'
+import { usageOfSkill, usageOfRole, usageOfIndustry } from '../../lib/usage'
 import {
   skillExperience, roleExperience, fmtYearsMonths, splitMonths, monthsToYears,
   type ExperienceSummary,
 } from '../../lib/experience'
 import type {
   Skill, Role, Industry, Reference,
-  LocalizedString, Project, WorkExperience, Position,
+  LocalizedString, Project, WorkExperience,
 } from '../../types'
-import { X, Plus, Sparkles, Combine, Filter as FilterIcon, Briefcase, FolderKanban, Users, List, LayoutGrid, Wand2, Check } from 'lucide-react'
+import { X, Plus, Sparkles, Combine, Filter as FilterIcon, Briefcase, FolderKanban, List, LayoutGrid, Wand2, Check } from 'lucide-react'
 
 /** Filter-dropdown sentinel for "no category" — never collides with a real category uuid. */
 const UNCATEGORIZED_FILTER = '__uncategorized__'
 
 // ── Shared registry-filter bar ──────────────────────────────────────────────
-function FilterBar({
-  filter, onChange, counts, extra,
-}: {
+/**
+ * One filter chip. Declared at module level, not inside FilterBar: a component
+ * created during render is a brand-new type on every render, so React unmounts
+ * and remounts it rather than updating it — which resets any state it grows
+ * later and throws away focus. Harmless for a stateless button today, and
+ * exactly the kind of thing that stops being harmless quietly.
+ */
+function FilterBtn({ value, label, count, filter, onChange }: {
+  value: RegistryFilter
+  label: string
+  count: number
   filter: RegistryFilter
   onChange: (f: RegistryFilter) => void
-  counts: { all: number; unused: number; missing: number }
-  /** Optional right-aligned controls (e.g. the Skills category selector). */
-  extra?: ReactNode
 }) {
-  const Btn = ({ value, label, count }: { value: RegistryFilter; label: string; count: number }) => (
+  return (
     <button
       type="button"
       className={`fb-btn ${filter === value ? 'active' : ''}`}
@@ -63,12 +67,24 @@ function FilterBar({
       {label} <span className="fb-count">{count}</span>
     </button>
   )
+}
+
+function FilterBar({
+  filter, onChange, counts, extra,
+}: {
+  filter: RegistryFilter
+  onChange: (f: RegistryFilter) => void
+  counts: { all: number; unused: number; missing: number }
+  /** Optional right-aligned controls (e.g. the Skills category selector). */
+  extra?: ReactNode
+}) {
+  const chip = { filter, onChange }
   return (
     <div className="fb-wrap">
       <FilterIcon size={13} className="fb-icon" />
-      <Btn value="all" label="All" count={counts.all} />
-      <Btn value="unused" label="Unused" count={counts.unused} />
-      <Btn value="missing-translation" label="Missing translation" count={counts.missing} />
+      <FilterBtn {...chip} value="all" label="All" count={counts.all} />
+      <FilterBtn {...chip} value="unused" label="Unused" count={counts.unused} />
+      <FilterBtn {...chip} value="missing-translation" label="Missing translation" count={counts.missing} />
       {extra && <div className="fb-extra">{extra}</div>}
       <style>{`
         .fb-wrap {
@@ -555,7 +571,7 @@ function SkillEditBody({ skill, allSkills, categories, catNamesById, onMerge }: 
 }
 
 export function SkillsEditor() {
-  const { data, primaryLocale, secondaryLocale, addItem, updateItem, removeItem, replaceData } = useStore()
+  const { data, primaryLocale, addItem, updateItem, removeItem, replaceData } = useStore()
   const [filter, setFilter] = useState<RegistryFilter>('all')
   const [categoryFilter, setCategoryFilter] = useState<string>('all')
   const [view, setView] = useState<'list' | 'category'>('list')
@@ -570,7 +586,10 @@ export function SkillsEditor() {
 
   // All known categories (persisted + in-use) — empty ones included so a
   // category survives until it's explicitly deleted.
-  const knownCats = useMemo(() => skillCategoryList(data), [data.skills, data.skill_categories])
+  const knownCats = useMemo(
+    () => skillCategoryList({ skill_categories: data.skill_categories }),
+    [data.skill_categories],
+  )
   const catNamesById = useMemo(() => categoryNameIndex(knownCats, primaryLocale), [knownCats, primaryLocale])
 
   // Per-category skill counts (empty categories show as 0), plus Uncategorized
@@ -818,7 +837,7 @@ function RoleEditBody({ role, allRoles, categories, onMerge }: {
 }
 
 export function RolesEditor() {
-  const { data, primaryLocale, secondaryLocale, addItem, updateItem, removeItem, replaceData } = useStore()
+  const { data, primaryLocale, addItem, updateItem, removeItem, replaceData } = useStore()
   const [filter, setFilter] = useState<RegistryFilter>('all')
   const [view, setView] = useState<'list' | 'category'>('list')
   // Category view opens the full editor in a lightbox for the clicked role.
@@ -968,7 +987,7 @@ export function RolesEditor() {
 // ── Industry registry (A8.1) ─────────────────────────────────────────────────
 
 export function IndustriesEditor() {
-  const { data, primaryLocale, secondaryLocale, addItem, updateItem, replaceData } = useStore()
+  const { data, primaryLocale, addItem, updateItem, replaceData } = useStore()
   const [filter, setFilter] = useState<RegistryFilter>('all')
 
   const sortedItems = useSortedItems('industries')
@@ -1138,7 +1157,7 @@ function MergeRow({
 // ── References ───────────────────────────────────────────────────────────────
 
 export function ReferencesEditor() {
-  const { data, primaryLocale, addItem, updateItem } = useStore()
+  const { data, addItem, updateItem } = useStore()
   const items = data.references
   const add = () => {
     const ref: Reference = {
