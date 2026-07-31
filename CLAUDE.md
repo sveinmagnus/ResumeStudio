@@ -114,7 +114,7 @@ Wishlist: §12.
 
 | Layer | Choice | Notes |
 |---|---|---|
-| Build | Vite 5 | `npm run dev` / `npm run build` / `npm run preview` |
+| Build | Vite 8 (Rolldown) | `npm run dev` / `npm run build` / `npm run preview` |
 | Framework | React 18 + TypeScript | Strict mode on |
 | State | Zustand (single store) | See `src/store/useStore.ts` |
 | Persistence | Express + better-sqlite3 (multi-row `resumes` + scoped `resume_snapshots`) | See `server/`. Per-id localStorage fallback in `lib/localCache.ts` |
@@ -128,6 +128,15 @@ Wishlist: §12.
 
 ### Code style rules
 - **TypeScript strict mode.** `npm run typecheck` covers client + server.
+- **`npm run lint` must be clean** (CI runs it first). `eslint.config.js` is
+  deliberately NOT a style guide — no formatting opinions, no import ordering.
+  Every custom rule in it enforces an invariant written down in this file, and
+  most of them encode a bug that already happened: lucide namespace imports,
+  a static import of `lib/exporter`/`lib/pdfExporter`, `process.env` in client
+  code, `transition: all`, and `lib/exportStrings` reaching into `components/`.
+  The React Compiler rules (`react-hooks/refs`, `set-state-in-effect`) are OFF
+  with a reason recorded in the config — this is React 18 without the compiler
+  and both flag deliberate patterns.
 - **No `any`** unless interfacing with truly unknown shapes (e.g. raw imported JSON). Use `unknown` then narrow.
 - **No default exports** for components — use named exports. (`main.tsx` and `App.tsx` are the only existing default exports; new components are named.)
 - **Inline styles via `<style>` tag inside the component.** Each component owns its CSS. Tokens come from `src/index.css` (see §6). The only utility classes in `index.css` are widely-shared widgets: `.check-row`, `.skip-link`, `.sr-only`, `.pf-*` (plain-field primitives — wrap/label/input/year-stepper/ongoing). **`.pf-*` must stay in `index.css`, not a component's own `<style>` tag** — a component-scoped style block only exists in the DOM while that component is mounted, so a page using a bare `.pf-input` without ever mounting `TextField`/`DateField`/`TagField` gets an unstyled browser-default textbox (this regressed the registry `CategoryField` once already — see git history).
@@ -610,13 +619,14 @@ npm run dev              # client (Vite, 5173) + server (Express, 3001) via conc
 npm run dev:client       # just Vite      npm run dev:server   # just Express (tsx watch)
 npm run build            # production build to dist/    npm run preview  # serve dist/
 npm test                 # vitest run      npm run typecheck    # client + server tsc
+npm run lint             # eslint (CI gate)   npm run lint:fix     # eslint --fix
 npm start                # production server (NODE_ENV=production)
 npm run desktop          # build client + run the desktop launcher from source (tsx)
 npm run build:desktop    # assemble the portable release/ folder (per target OS)
 ```
 
 ### Verifying changes
-After any significant change: 1. `npm run typecheck` (clean) → 2. `npm test` (green) → 3. `npm run build` (clean — catches what tsc misses) → 4. for UI, click through the affected flow. CI runs all three. Before committing anything touching HTML/string templating, the server, auth, persistence, imports, or exports, run through the **security skill** (`.claude/skills/security-review.md`).
+After any significant change: 1. `npm run lint` (clean) → 2. `npm run typecheck` (clean) → 3. `npm test` (green) → 4. `npm run build` (clean — catches what tsc misses) → 5. for UI, click through the affected flow. CI runs all four. Before committing anything touching HTML/string templating, the server, auth, persistence, imports, or exports, run through the **security skill** (`.claude/skills/security-review.md`).
 
 ### Server / env
 - Copy `.env.example` to `.env`; set `RESUME_API_TOKEN` for a deployed instance (empty disables auth — fine for local dev).
@@ -642,24 +652,33 @@ After any significant change: 1. `npm run typecheck` (clean) → 2. `npm test` (
 
 ## 12. Future work
 
-**Recently shipped — don't re-propose.** See `.claude/feature-map.md → Recently
-shipped`, git history, and `plans/`. Highlights: multi-resume, offline editing +
-conflict safety, desktop build + JSON sync + auto-update, the section-descriptor
-catalog + export templates + BYO-LLM tailoring + ATS text/Markdown, LinkedIn +
-Europass + AI import, Quadim skill-taxonomy integration, the showcase→category
-unification (shape v6), Industry registry + generic `mergeRegistry`, career
-timeline, global search, and the v0.3.1 UX/accessibility wave. **v0.8.x–v0.9.0:**
-cross-resume shared registries (rename propagation + portable links + desktop
-sync), the **Profiles rework** (tag line as resume title, one profile per view,
-per-view "Hide tag line"), Course from/to date ranges + Course/Cert **categories**
-+ a per-section editor **type Filter**, a global per-view **sort**, cover letters,
-and **profile bundles** (a profile owns its competencies — shape v12, §4).
+**Everything not yet built lives in ONE file: `plans/open-items.md`.** It holds
+the unbuilt features with their design notes and cost, the deferred
+infrastructure with the condition that should trigger each, and — the part that
+matters most — the decisions that are CLOSED, so they stop being re-proposed.
+Read it before proposing anything; `plans/` contains nothing else, because a
+plan whose work has shipped was deleted and lives in git history.
 
-### Watchlist (deferred until forced)
-- **Cross-tab coordination** — two tabs editing one resume share a localStorage pending slot. The server `version` check makes it *safe* (second flush 409s into the conflict modal), just not tidy; a `BroadcastChannel` lock would stop the local thrash. Low priority.
-- **UI-chrome localization** — **DECIDED (July 2026): the editor UI is English-only, permanently, until the owner says otherwise.** Do not propose a `t()` layer, do not add one incrementally, and do not treat an English literal in a component as a defect. This had been deferred three times; it is now settled, and re-opening it is the owner's call alone. The reasoning is unchanged — a dictionary-based `t()` taxes every component forever — but the point of writing it down is that the deliberation itself was the recurring cost. **Export chrome is already done and is NOT this item** (v0.7.4): everything a client reads — section headings, months/"Present", header field labels, skill-matrix columns, CEFR words, publication/position/relationship picks — is localized for all 15 offered locales. The boundary is deliberate and load-bearing: a string is localized if it lands in an exported `.pdf`/`.docx`/`.txt`, and stays a hardcoded English literal if it only ever shows in the editor. Keep `lib/exportStrings.ts` out of `components/` or this decision quietly reopens itself.
-- **Image asset table (A4 Phase 2)** — auto-save PUTs and pending records still carry embedded base64 images. If measurements show quota risk, move to a content-addressed `assets` table (`hash → bytes` + `asset_id`), touching exporter/viewFilter/backup/localCache.
-- **Offline-load (PWA / service worker)** — offline *editing* shipped; *loading* the app cold with no network still fails (no SW caching the shell). Multi-day; only if "open and edit with zero connectivity" becomes a real need. See `plans/offline-editing.md` (Tier 3).
+**Recently shipped — don't re-propose.** The catalog is
+`.claude/feature-map.md → Recently shipped`. In brief: multi-resume, offline
+editing + conflict safety + three-way merge, the desktop build with JSON sync and
+auto-update, the section-descriptor catalog + export templates + BYO-LLM
+tailoring + ATS text/Markdown, LinkedIn/Europass/AI import, the Quadim
+skill-taxonomy integration, the showcase→category unification, the Industry
+registry + generic `mergeRegistry`, career timeline, global search, cross-resume
+shared registries, the Profiles rework and profile bundles, cover letters, the
+v0.3.1 UX/accessibility wave, and the v0.10 advanced-assist tier (twelve assists
++ the bilingual glossary).
+
+**Two things are settled and are not open questions:**
+
+- **UI chrome is English-only, permanently** (July 2026) — no `t()` layer, and an
+  English literal in a component is not a defect. **Export chrome is a different
+  thing and is already localized** for all 15 locales; the boundary is that a
+  string is localized if it lands in an exported `.pdf`/`.docx`/`.txt`. ESLint
+  enforces it — `lib/exportStrings.ts` cannot be imported from `src/components/**`.
+- **An application/tender log is out of scope** — it pulls the product toward
+  bid-management software. This stays a resume tool.
 
 ---
 

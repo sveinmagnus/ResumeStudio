@@ -26,11 +26,10 @@ prescriptive.
   `skillKey` across each resume's own registry, fetched client-side (fine at
   small-team scale). The panel also hosts **"Share registries across resumes"**
   (below).
-- **Cross-resume shared registries** (`plans/cross-resume-registries.md`,
-  Stage 3, additive-link path) — skills/roles/industries/categories can be
+- **Cross-resume shared registries** (Stage 3, additive-link path) — skills/roles/industries/categories can be
   linked to an instance-level canonical registry so a **rename in one resume
   propagates to all**. Reached WITHOUT a destructive migration: an additive
-  `canonical_id?` on each registry entry (§3.0 split — shared identity is the
+  `canonical_id?` on each registry entry (the split: shared identity is the
   name; per-person facts proficiency/highlight/ordering stay on the resume).
   Pieces: server `registry_entries` table + CRUD + `promoteFromResumes`
   (`server/registryDb.ts`, `/api/registry`, `server/skillKey.ts` mirrors the
@@ -42,7 +41,7 @@ prescriptive.
   debounced rename→canonical push, NAME only, never per-resume `category_id`).
   The overlay is authoritative, so a locally-diverged name self-heals to
   canonical on load. Remaining: backup portability (embed+re-intern), a
-  registry conflict surface, desktop-merge — see the plan §4/§3.
+  registry conflict surface, desktop-merge.
 - **Auto-save** to an Express + SQLite backend (debounced ~1s) — sends the
   resume payload + locales in a single PUT per mutation. **Per-id
   localStorage fallback** so a server outage never costs work.
@@ -546,7 +545,7 @@ Skill registry's own category system: `SkillCategory` entities
 forward `is_highlighted`), the Showcase reborn as a virtual view section
 deriving from highlighted+categorized skills (`lib/showcase.ts`), and
 By-category header **rename + ↑/↓ reorder** (see
-`plans/unify-showcase-into-categories.md`).
+the showcase-unification plan, now in git history).
 
 **v0.8.x–v0.9.0 wave:** **cross-resume shared registries** (Stage-3 additive
 `canonical_id` links so a rename in one resume propagates to all; portable in
@@ -636,6 +635,15 @@ writing assist on every section, a **three-way merge on save conflict**
 (`lib/threeWayMerge.ts` — non-overlapping concurrent edits merge silently
 instead of raising a whole-document keep/discard), and **real `<a href>` sidebar
 navigation** (Ctrl-click / "Open in new tab" work on every section and view).
+
+**Toolchain (July 2026):** **Vite 5 → 8** (Rolldown — the production build went
+from ~16 s to under a second, and the dev-server advisories that had no fix
+within Vite 5 are gone; `npm audit` is clean). **ESLint** added as a CI gate
+(`npm run lint`) — deliberately not a style guide: every custom rule encodes an
+invariant from CLAUDE.md, including the lucide-namespace-import ban, the
+lazy-exporter rule, no `process.env` in client code, no `transition: all`, and
+`lib/exportStrings` being unreachable from `src/components/**`. The `uuid`
+package was dropped for `crypto.randomUUID` (`lib/uuid.ts`).
 
 **Deferred / dropped:** **A4 Phase 2** (content-addressed asset table) was
 deliberately deferred — measurement infra shipped; build the table only when
