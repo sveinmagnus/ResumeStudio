@@ -16,14 +16,14 @@
  * itself.
  */
 
-import { useCallback, useState } from 'react'
+import { useState } from 'react'
 import { Lightbulb, X } from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import { useDialog } from './useDialog'
 import { AssistRun } from './AssistRun'
 import { useAdvancedAssist } from './AdvancedAssistCard'
 import { AssistFindingsPanel } from './AssistFindingsPanel'
-import { extractJson } from '../../lib/llmAssist'
+import { useAdvisorRun, jsonReply } from '../../store/useAdvisorRun'
 import { validateFindings, type FindingsResult } from '../../lib/assistFindings'
 import { buildSectionAdvicePrompt, hasAdvisableContent } from '../../lib/sectionAdvice'
 import { sectionLabel } from '../../lib/sections'
@@ -63,18 +63,13 @@ function SectionAdviceModal({ section, onClose }: { section: string; onClose: ()
   const dialogRef = useDialog(onClose)
   const data = useStore((s) => s.data)
   const locale = useStore((s) => s.primaryLocale)
-  const [result, setResult] = useState<FindingsResult | null>(null)
-  const [error, setError] = useState<string | null>(null)
   const label = sectionLabel(section)
-
-  const onResult = useCallback((text: string) => {
-    setError(null); setResult(null)
-    try {
-      setResult(validateFindings(JSON.parse(extractJson(text)), data, locale))
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'The reply could not be read.')
-    }
-  }, [data, locale])
+  // Scoped per section, and held in the run store rather than this modal's
+  // state: closing the dialog to go and look at the items it just described is
+  // the expected next move, and it used to cost you the answer.
+  const { ref, result, parseError: error, clear } = useAdvisorRun<FindingsResult>(
+    'section', jsonReply((json) => validateFindings(json, data, locale)), section,
+  )
 
   return (
     <div className="sam-overlay" role="dialog" aria-modal="true"
@@ -92,13 +87,19 @@ function SectionAdviceModal({ section, onClose }: { section: string; onClose: ()
           </p>
           <AssistRun
             buildPrompt={() => buildSectionAdvicePrompt(data, section, locale)}
-            onResult={onResult}
+            advisor={ref}
             label={`Check ${label}`}
             maxTokens={4000}
             advanced
             hasManualPath={false}
           />
           {error && <p className="sam-err" role="alert">{error}</p>}
+          {result && (
+            <div className="sam-bar">
+              <span className="sam-kept">Kept until you clear it — closing this is safe.</span>
+              <button className="sam-clear" onClick={clear}>Clear</button>
+            </div>
+          )}
           <AssistFindingsPanel result={result} emptyText={`${label} looks complete.`} />
         </div>
       </div>
@@ -123,6 +124,16 @@ function SectionAdviceModal({ section, onClose }: { section: string; onClose: ()
         .sam-body { overflow-y: auto; margin-top: 10px; display: flex; flex-direction: column; gap: 12px; }
         .sam-lede { font-size: 13px; color: var(--ink-soft); line-height: 1.55; margin: 0; }
         .sam-err { margin: 0; font-size: 12.5px; color: var(--err-ink); line-height: 1.45; }
+        .sam-bar {
+          display: flex; align-items: center; justify-content: space-between; gap: 10px;
+          font-size: 11.5px; color: var(--ink-faint);
+        }
+        .sam-clear {
+          padding: 4px 9px; border-radius: var(--r-sm); font-size: 12px; font-weight: 600;
+          border: 1px solid var(--line); background: var(--paper); color: var(--ink-soft);
+          cursor: pointer;
+        }
+        .sam-clear:hover { border-color: var(--line-strong); color: var(--ink); }
       `}</style>
     </div>
   )

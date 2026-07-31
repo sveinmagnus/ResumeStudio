@@ -13,22 +13,21 @@
  * this entire block is simply absent.
  */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useState } from 'react'
 import {
   ClipboardCheck, PenLine, Languages, Trophy, Check, CheckCheck, Square, X, Quote,
   Lock, Settings,
 } from 'lucide-react'
 import { useStore } from '../../store/useStore'
-import {
-  selectRun, unresolved, useAdvisors, type AdvisorId,
-} from '../../store/useAdvisors'
+import { unresolved } from '../../store/useAdvisors'
+import { useAdvisorRun, jsonReply } from '../../store/useAdvisorRun'
 import { AssistRun } from '../ui/AssistRun'
 import { AdvancedAssistCard, useAdvancedAssist } from '../ui/AdvancedAssistCard'
 import { AssistFindingsPanel } from '../ui/AssistFindingsPanel'
 import { AssistProposalsPanel } from '../ui/AssistProposalsPanel'
 import { CollapsibleSection } from '../ui/CollapsibleSection'
 import { JobFitPanel } from '../ui/JobFitPanel'
-import { backendName, extractJson } from '../../lib/llmAssist'
+import { backendName } from '../../lib/llmAssist'
 import { openSettings } from '../../lib/settingsBus'
 import { validateFindings, type FindingsResult } from '../../lib/assistFindings'
 import { validateProposals, type ProposalsResult } from '../../lib/assistProposals'
@@ -42,55 +41,6 @@ import {
 import { translateAchievements } from '../../lib/achievementTranslate'
 import { sectionLabel } from '../../lib/sections'
 
-/**
- * Read a stored advisor run and parse it, keeping only the suggestions the user
- * hasn't already dealt with.
- *
- * Parsing on every render rather than at reply time is deliberate: the
- * validators resolve ids against the LIVE CV, so a finding about an item you
- * deleted (or already fixed) falls out by itself, with no invalidation logic to
- * get wrong. The raw reply is the only thing stored.
- */
-function useAdvisorRun<T>(id: AdvisorId, parse: (json: unknown) => T) {
-  const resumeId = useStore((s) => s.currentResumeId) ?? ''
-  const run = useAdvisors((s) => selectRun(s.runs, id, resumeId))
-  const markSeen = useAdvisors((s) => s.markSeen)
-  const clear = useAdvisors((s) => s.clear)
-  const resolve = useAdvisors((s) => s.resolve)
-  const resolveMany = useAdvisors((s) => s.resolveMany)
-  const setCollapsed = useAdvisors((s) => s.setCollapsed)
-
-  // Looking at the panel IS seeing the result — that's what clears the toast.
-  useEffect(() => {
-    if (run && run.status !== 'running' && !run.seen) markSeen(id, resumeId)
-  }, [run, id, resumeId, markSeen])
-
-  const parsed = useMemo(() => {
-    if (!run?.raw) return { result: null as T | null, error: null as string | null }
-    try {
-      return { result: parse(JSON.parse(extractJson(run.raw))), error: null }
-    } catch (e) {
-      return { result: null, error: e instanceof Error ? e.message : 'The reply could not be read.' }
-    }
-    // `parse` closes over the live store, so re-run whenever the run changes.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [run?.raw, run?.resolved])
-
-  return {
-    resumeId,
-    run,
-    result: parsed.result,
-    parseError: parsed.error,
-    resolve: (key: string, how: 'accepted' | 'dismissed') => resolve(id, resumeId, key, how),
-    resolveMany: (keys: readonly string[], how: 'accepted' | 'dismissed') => resolveMany(id, resumeId, keys, how),
-    clear: () => clear(id, resumeId),
-    // Folded state rides with the run, so it survives the navigation that
-    // acting on a suggestion requires.
-    collapsed: run?.collapsed === true,
-    setCollapsed: (v: boolean) => setCollapsed(id, resumeId, v),
-  }
-}
-
 function ErrorLine({ error }: { error: string | null }) {
   if (!error) return null
   return <p className="cva-err" role="alert">{error}</p>
@@ -103,7 +53,7 @@ function CvReview() {
   const locale = useStore((s) => s.primaryLocale)
   const {
     resumeId, run, result, parseError, resolve, collapsed, setCollapsed,
-  } = useAdvisorRun<FindingsResult>('review', (json) => validateFindings(json, data, locale))
+  } = useAdvisorRun<FindingsResult>('review', jsonReply((json) => validateFindings(json, data, locale)))
 
   return (
     <AdvancedAssistCard
@@ -144,7 +94,7 @@ function VoicePass() {
   const locale = useStore((s) => s.primaryLocale)
   const {
     resumeId, run, result, parseError, resolveMany, collapsed, setCollapsed,
-  } = useAdvisorRun<ProposalsResult>('voice', (json) => validateProposals(json, data, locale))
+  } = useAdvisorRun<ProposalsResult>('voice', jsonReply((json) => validateProposals(json, data, locale)))
 
   return (
     <AdvancedAssistCard
@@ -186,7 +136,7 @@ function SemanticDrift() {
   const secondary = useStore((s) => s.secondaryLocale)
   const {
     resumeId, run, result, parseError, resolve, collapsed, setCollapsed,
-  } = useAdvisorRun<FindingsResult>('drift', (json) => validateFindings(json, data, primary))
+  } = useAdvisorRun<FindingsResult>('drift', jsonReply((json) => validateFindings(json, data, primary)))
 
   // Nothing to compare with one language on screen. Hidden rather than
   // disabled: the fix is the language switcher, not this panel.
@@ -236,7 +186,7 @@ function AchievementMining() {
   const [applying, setApplying] = useState(false)
   const {
     resumeId, run, result, parseError, resolveMany, collapsed, setCollapsed,
-  } = useAdvisorRun<MiningResult>('achievements', (json) => validateMining(json, data, locale))
+  } = useAdvisorRun<MiningResult>('achievements', jsonReply((json) => validateMining(json, data, locale)))
 
   // Only what the user hasn't already dealt with — accepting one suggestion
   // must not discard the other four.

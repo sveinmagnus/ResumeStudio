@@ -12,14 +12,13 @@
  * document.
  */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useState } from 'react'
 import { Target, ArrowRight, CircleCheck, CircleDashed, CircleX } from 'lucide-react'
 import { useStore } from '../../store/useStore'
-import { selectRun, useAdvisors } from '../../store/useAdvisors'
+import { useAdvisorRun, jsonReply } from '../../store/useAdvisorRun'
 import { AssistRun } from './AssistRun'
 import { AdvancedAssistCard } from './AdvancedAssistCard'
 import { CollapsibleSection } from './CollapsibleSection'
-import { extractJson } from '../../lib/llmAssist'
 import {
   buildJobFitPrompt, fitTally, hasPosting, validateJobFit,
   type FitStatus, type JobFitResult,
@@ -44,28 +43,13 @@ export function JobFitPanel() {
   const setActiveSection = useStore((s) => s.setActiveSection)
   const setExpandedItem = useStore((s) => s.setExpandedItem)
 
-  const resumeId = useStore((s) => s.currentResumeId) ?? ''
-  const run = useAdvisors((s) => selectRun(s.runs, 'jobfit', resumeId))
-  const markSeen = useAdvisors((s) => s.markSeen)
-  const clearRun = useAdvisors((s) => s.clear)
-  const setCollapsed = useAdvisors((s) => s.setCollapsed)
-  const [posting, setPosting] = useState('')
-
-  // Looking at the panel is seeing the result — that's what clears the toast.
-  useEffect(() => {
-    if (run && run.status !== 'running' && !run.seen) markSeen('jobfit', resumeId)
-  }, [run, resumeId, markSeen])
-
-  // Parsed from the stored reply on each render, so the report survives
+  // The report is parsed from the stored reply on each render, so it survives
   // navigating off to fix one of the gaps it just told you about.
-  const { result, error } = useMemo(() => {
-    if (!run?.raw) return { result: null as JobFitResult | null, error: null as string | null }
-    try {
-      return { result: validateJobFit(JSON.parse(extractJson(run.raw)), data, locale), error: null }
-    } catch (e) {
-      return { result: null, error: e instanceof Error ? e.message : 'The reply could not be read.' }
-    }
-  }, [run?.raw, data, locale])
+  const { ref, run, result, parseError: error, clear: clearRun, setCollapsed } =
+    useAdvisorRun<JobFitResult>('jobfit', jsonReply((json) => validateJobFit(json, data, locale)))
+  // Seeded from the stored run so the posting the report is about is still in
+  // the box when you come back to it.
+  const [posting, setPosting] = useState(run?.input ?? '')
 
   const jump = (section: string, itemId: string) => {
     setActiveSection(section)
@@ -103,7 +87,8 @@ export function JobFitPanel() {
         advanced
         wholeCv
         disabled={!ready}
-        advisor={{ id: 'jobfit', resumeId }}
+        advisor={ref}
+        advisorInput={posting}
         hasManualPath={false}
       />
       {!ready && posting.trim().length > 0 && (
@@ -115,7 +100,7 @@ export function JobFitPanel() {
         <div className="jfp-report">
           <div className="jfp-report-bar">
             <span className="jfp-kept">Kept until you clear it — safe to go and fix things.</span>
-            <button className="jfp-clear" onClick={() => clearRun('jobfit', resumeId)}>Clear report</button>
+            <button className="jfp-clear" onClick={clearRun}>Clear report</button>
           </div>
           {result.verdict && <p className="jfp-verdict">{result.verdict}</p>}
 
@@ -131,7 +116,7 @@ export function JobFitPanel() {
             title="Requirements"
             count={result.requirements.length}
             open={run?.collapsed !== true}
-            onToggle={(open) => setCollapsed('jobfit', resumeId, !open)}
+            onToggle={(open) => setCollapsed(!open)}
           >
           <ul className="jfp-list">
             {result.requirements.map((r) => (

@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { emptyStore, makeProject } from './fixtures'
 import type { ResumeStore } from '../src/types'
 import {
-  selectRun, unresolved, unseenRuns, hasRunning, useAdvisors,
+  selectRun, unresolved, unseenRuns, hasRunning, useAdvisors, advisorSection,
 } from '../src/store/useAdvisors'
 import { applyAchievements, validateMining } from '../src/lib/achievementMining'
 
@@ -20,13 +20,13 @@ describe('advisor runs', () => {
    * that started it, so unmounting mid-flight cannot lose a paid-for reply.
    */
   it('records a reply even though nothing is listening', async () => {
-    await useAdvisors.getState().start('review', RESUME, async () => '{"findings":[]}')
+    await useAdvisors.getState().start({ id: 'review', resumeId: RESUME }, async () => '{"findings":[]}')
     const run = selectRun(useAdvisors.getState().runs, 'review', RESUME)
     expect(run).toMatchObject({ status: 'done', raw: '{"findings":[]}', seen: false })
   })
 
   it('marks a failure without losing the run', async () => {
-    await useAdvisors.getState().start('review', RESUME, async () => { throw new Error('rate limited') })
+    await useAdvisors.getState().start({ id: 'review', resumeId: RESUME }, async () => { throw new Error('rate limited') })
     expect(selectRun(useAdvisors.getState().runs, 'review', RESUME)).toMatchObject({
       status: 'error', error: 'rate limited',
     })
@@ -34,7 +34,7 @@ describe('advisor runs', () => {
 
   it('reports in-flight runs, so the UI can show a spinner anywhere', async () => {
     let release!: (v: string) => void
-    const pending = useAdvisors.getState().start('voice', RESUME, () => new Promise<string>((r) => { release = r }))
+    const pending = useAdvisors.getState().start({ id: 'voice', resumeId: RESUME }, () => new Promise<string>((r) => { release = r }))
     expect(hasRunning(useAdvisors.getState().runs, RESUME)).toBe(true)
     release('{"edits":[]}')
     await pending
@@ -44,10 +44,10 @@ describe('advisor runs', () => {
   /** A slow first reply must not overwrite a fast second one. */
   it('lets a newer run supersede an older one', async () => {
     let releaseSlow!: (v: string) => void
-    const slow = useAdvisors.getState().start('review', RESUME, () => new Promise<string>((r) => { releaseSlow = r }))
+    const slow = useAdvisors.getState().start({ id: 'review', resumeId: RESUME }, () => new Promise<string>((r) => { releaseSlow = r }))
     // Bump the clock so the second run has a distinct startedAt.
     vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 1000)
-    await useAdvisors.getState().start('review', RESUME, async () => 'SECOND')
+    await useAdvisors.getState().start({ id: 'review', resumeId: RESUME }, async () => 'SECOND')
     releaseSlow('FIRST')
     await slow
     vi.restoreAllMocks()
@@ -55,18 +55,72 @@ describe('advisor runs', () => {
   })
 
   it('keeps runs for different resumes apart', async () => {
-    await useAdvisors.getState().start('review', 'a', async () => 'A')
-    await useAdvisors.getState().start('review', 'b', async () => 'B')
+    await useAdvisors.getState().start({ id: 'review', resumeId: 'a' }, async () => 'A')
+    await useAdvisors.getState().start({ id: 'review', resumeId: 'b' }, async () => 'B')
     expect(selectRun(useAdvisors.getState().runs, 'review', 'a')?.raw).toBe('A')
     expect(selectRun(useAdvisors.getState().runs, 'review', 'b')?.raw).toBe('B')
     expect(unseenRuns(useAdvisors.getState().runs, 'a')).toHaveLength(1)
   })
 
   it('announces a finished run until it has been looked at', async () => {
-    await useAdvisors.getState().start('review', RESUME, async () => 'x')
+    await useAdvisors.getState().start({ id: 'review', resumeId: RESUME }, async () => 'x')
     expect(unseenRuns(useAdvisors.getState().runs, RESUME)).toHaveLength(1)
-    useAdvisors.getState().markSeen('review', RESUME)
+    useAdvisors.getState().markSeen({ id: 'review', resumeId: RESUME })
     expect(unseenRuns(useAdvisors.getState().runs, RESUME)).toHaveLength(0)
+  })
+})
+
+/**
+ * Scoped advisors (D2 view intro, D3 section gaps, B4 ATS audit) can be run
+ * against several targets in one resume. Without a scope in the key, drafting an
+ * intro for the second view would silently replace the one you were reading for
+ * the first.
+ */
+describe('scoped runs', () => {
+  it('keeps runs for two views of the same resume apart', async () => {
+    const store = useAdvisors.getState()
+    await store.start({ id: 'intro', resumeId: RESUME, scope: 'view-a' }, async () => 'A')
+    await store.start({ id: 'intro', resumeId: RESUME, scope: 'view-b' }, async () => 'B')
+
+    const runs = useAdvisors.getState().runs
+    expect(selectRun(runs, 'intro', RESUME, 'view-a')?.raw).toBe('A')
+    expect(selectRun(runs, 'intro', RESUME, 'view-b')?.raw).toBe('B')
+  })
+
+  it('does not confuse a scoped run with an unscoped one', async () => {
+    await useAdvisors.getState().start({ id: 'section', resumeId: RESUME, scope: 'courses' }, async () => 'C')
+    const runs = useAdvisors.getState().runs
+    expect(selectRun(runs, 'section', RESUME)).toBeUndefined()
+    expect(selectRun(runs, 'section', RESUME, 'courses')?.raw).toBe('C')
+  })
+
+  it('clears only the scope it was asked to clear', async () => {
+    const store = useAdvisors.getState()
+    await store.start({ id: 'ats', resumeId: RESUME, scope: 'v1' }, async () => '1')
+    await store.start({ id: 'ats', resumeId: RESUME, scope: 'v2' }, async () => '2')
+    useAdvisors.getState().clear({ id: 'ats', resumeId: RESUME, scope: 'v1' })
+
+    const runs = useAdvisors.getState().runs
+    expect(selectRun(runs, 'ats', RESUME, 'v1')).toBeUndefined()
+    expect(selectRun(runs, 'ats', RESUME, 'v2')?.raw).toBe('2')
+  })
+
+  it('sends a finished section run back to the section it examined', async () => {
+    await useAdvisors.getState().start({ id: 'section', resumeId: RESUME, scope: 'courses' }, async () => 'x')
+    const run = selectRun(useAdvisors.getState().runs, 'section', RESUME, 'courses')!
+    expect(advisorSection(run)).toBe('courses')
+    // Unscoped advisors still use their static home.
+    expect(advisorSection({ id: 'review' })).toBe('overview')
+  })
+
+  it('stores the user input a report has to be read against', async () => {
+    await useAdvisors.getState().start(
+      { id: 'ats', resumeId: RESUME, scope: 'v1' },
+      async () => '{}',
+      'Kubernetes, Terraform, Go',
+    )
+    expect(selectRun(useAdvisors.getState().runs, 'ats', RESUME, 'v1')?.input)
+      .toBe('Kubernetes, Terraform, Go')
   })
 })
 
@@ -78,16 +132,16 @@ describe('per-suggestion resolution', () => {
    * Resolution is per key precisely so that can't happen.
    */
   it('keeps the rest when one suggestion is resolved', async () => {
-    await useAdvisors.getState().start('review', RESUME, async () => 'x')
-    useAdvisors.getState().resolve('review', RESUME, 'b', 'accepted')
+    await useAdvisors.getState().start({ id: 'review', resumeId: RESUME }, async () => 'x')
+    useAdvisors.getState().resolve({ id: 'review', resumeId: RESUME }, 'b', 'accepted')
 
     const run = selectRun(useAdvisors.getState().runs, 'review', RESUME)
     expect(unresolved(items, run).map((i) => i.key)).toEqual(['a', 'c'])
   })
 
   it('resolves a batch in one go', async () => {
-    await useAdvisors.getState().start('voice', RESUME, async () => 'x')
-    useAdvisors.getState().resolveMany('voice', RESUME, ['a', 'c'], 'accepted')
+    await useAdvisors.getState().start({ id: 'voice', resumeId: RESUME }, async () => 'x')
+    useAdvisors.getState().resolveMany({ id: 'voice', resumeId: RESUME }, ['a', 'c'], 'accepted')
     const run = selectRun(useAdvisors.getState().runs, 'voice', RESUME)
     expect(unresolved(items, run).map((i) => i.key)).toEqual(['b'])
   })
@@ -99,8 +153,8 @@ describe('per-suggestion resolution', () => {
 
 describe('persistence', () => {
   it('survives a reload', async () => {
-    await useAdvisors.getState().start('review', RESUME, async () => 'KEEP ME')
-    useAdvisors.getState().resolve('review', RESUME, 'a', 'dismissed')
+    await useAdvisors.getState().start({ id: 'review', resumeId: RESUME }, async () => 'KEEP ME')
+    useAdvisors.getState().resolve({ id: 'review', resumeId: RESUME }, 'a', 'dismissed')
 
     // Re-read exactly what a fresh page load would.
     const stored = JSON.parse(localStorage.getItem('rs-advisor-runs-v1') ?? '{}')
@@ -148,8 +202,8 @@ describe('persistence', () => {
   })
 
   it('clearing removes the run entirely', async () => {
-    await useAdvisors.getState().start('review', RESUME, async () => 'x')
-    useAdvisors.getState().clear('review', RESUME)
+    await useAdvisors.getState().start({ id: 'review', resumeId: RESUME }, async () => 'x')
+    useAdvisors.getState().clear({ id: 'review', resumeId: RESUME })
     expect(selectRun(useAdvisors.getState().runs, 'review', RESUME)).toBeUndefined()
   })
 })

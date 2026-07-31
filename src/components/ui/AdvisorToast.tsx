@@ -14,7 +14,7 @@
 import { Sparkles, X, ArrowRight, AlertTriangle } from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import {
-  ADVISOR_HOME, ADVISOR_LABEL, unseenRuns, useAdvisors, type AdvisorRun,
+  ADVISOR_LABEL, advisorSection, unseenRuns, useAdvisors, type AdvisorRun,
 } from '../../store/useAdvisors'
 
 export function AdvisorToast() {
@@ -28,14 +28,16 @@ export function AdvisorToast() {
   if (!pending.length) return null
 
   const show = (run: AdvisorRun) => {
-    setActiveSection(ADVISOR_HOME[run.id] ?? 'overview')
-    markSeen(run.id, run.resumeId)
+    // Scoped advisors (a view's intro, one section's gaps) know where they
+    // belong better than a static per-advisor map does.
+    setActiveSection(advisorSection(run))
+    markSeen(run)
   }
 
   return (
     <div className="atoast" role="status" aria-live="polite">
       {pending.map((run) => (
-        <div key={`${run.resumeId}:${run.id}`} className={`atoast-card${run.status === 'error' ? ' atoast-err' : ''}`}>
+        <div key={`${run.resumeId}:${run.id}:${run.scope ?? ''}`} className={`atoast-card${run.status === 'error' ? ' atoast-err' : ''}`}>
           <span className="atoast-icon">
             {run.status === 'error' ? <AlertTriangle size={15} /> : <Sparkles size={15} />}
           </span>
@@ -47,7 +49,7 @@ export function AdvisorToast() {
             <div className="atoast-detail">
               {run.status === 'error'
                 ? run.error
-                : 'Your suggestions are waiting on the Overview page.'}
+                : 'Your suggestions are waiting — “Show me” takes you there.'}
             </div>
             {run.status !== 'error' && (
               <button className="atoast-go" onClick={() => show(run)}>
@@ -57,9 +59,9 @@ export function AdvisorToast() {
           </div>
           <button
             className="atoast-x"
-            onClick={() => markSeen(run.id, run.resumeId)}
+            onClick={() => markSeen(run)}
             aria-label={`Dismiss ${ADVISOR_LABEL[run.id] ?? 'advisor'} notification`}
-            title="Dismiss — the results stay on the Overview page"
+            title="Dismiss — the results stay where they were produced"
           >
             <X size={14} />
           </button>

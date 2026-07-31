@@ -13,12 +13,12 @@
  * profile and silently reordering that would change every existing export.
  */
 
-import { useCallback, useState } from 'react'
+import { useState } from 'react'
 import { Sparkles, Check, ChevronDown, ChevronRight, Quote } from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import { AssistRun } from './AssistRun'
 import { AdvancedAssistCard } from './AdvancedAssistCard'
-import { extractJson } from '../../lib/llmAssist'
+import { useAdvisorRun, jsonReply } from '../../store/useAdvisorRun'
 import {
   applyProfileDraft, buildProfilePrompt, validateProfileDraft,
   DEFAULT_PROFILE_COUNT, type DraftProfile, type ProfileDraftResult,
@@ -31,25 +31,19 @@ export function ProfileGeneratorPanel() {
 
   const [brief, setBrief] = useState('')
   const [count, setCount] = useState(DEFAULT_PROFILE_COUNT)
-  const [result, setResult] = useState<ProfileDraftResult | null>(null)
-  const [error, setError] = useState<string | null>(null)
   const [open, setOpen] = useState<string | null>(null)
-  const [added, setAdded] = useState<Set<string>>(new Set())
 
-  const onResult = useCallback((text: string) => {
-    setError(null); setResult(null); setAdded(new Set())
-    try {
-      const parsed = validateProfileDraft(JSON.parse(extractJson(text)), data, locale)
-      setResult(parsed)
-      setOpen(parsed.profiles[0]?.key ?? null)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'The reply could not be read.')
-    }
-  }, [data, locale])
+  // Drafts live in the run store, so going to the Profiles list to look at what
+  // you just added doesn't throw away the three alternatives you didn't.
+  const { ref, run, result, parseError: error, resolve } = useAdvisorRun<ProfileDraftResult>(
+    'profile', jsonReply((json) => validateProfileDraft(json, data, locale)),
+  )
+  // "Already added" is a resolution, not component state — same reason.
+  const isAddedKey = (key: string) => run?.resolved[key] === 'accepted'
 
   const add = (draft: DraftProfile) => {
     replaceData(applyProfileDraft(data, draft, locale))
-    setAdded((prev) => new Set(prev).add(draft.key))
+    resolve(draft.key, 'accepted')
   }
 
   const ready = brief.trim().length > 0
@@ -91,7 +85,7 @@ export function ProfileGeneratorPanel() {
 
       <AssistRun
         buildPrompt={() => buildProfilePrompt(data, locale, { brief, count })}
-        onResult={onResult}
+        advisor={ref}
         label="Draft profiles"
         maxTokens={8000}
         advanced
@@ -105,8 +99,9 @@ export function ProfileGeneratorPanel() {
       {result && result.profiles.length > 0 && (
         <ul className="pgp-list">
           {result.profiles.map((p) => {
-            const isOpen = open === p.key
-            const isAdded = added.has(p.key)
+            // Nothing chosen yet → the first draft is the one worth reading.
+            const isOpen = (open ?? result.profiles[0]?.key ?? null) === p.key
+            const isAdded = isAddedKey(p.key)
             return (
               <li key={p.key} className="pgp-item">
                 <button className="pgp-head" onClick={() => setOpen(isOpen ? null : p.key)}

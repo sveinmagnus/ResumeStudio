@@ -17,14 +17,14 @@
  *    drops those proposals and says so.
  */
 
-import { useCallback, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Wand2, GitMerge, Tags, ArrowRight, AlertTriangle, Check, CheckCheck, Square } from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import { AssistRun } from './AssistRun'
 import { AdvancedAssistCard } from './AdvancedAssistCard'
 import { confirmDialog } from './ConfirmDialog'
 import { CollapsibleSection } from './CollapsibleSection'
-import { extractJson } from '../../lib/llmAssist'
+import { useAdvisorRun, jsonReply } from '../../store/useAdvisorRun'
 import {
   applyHygiene, buildHygienePrompt, hasRegistryContent, hygieneImpact, validateHygiene,
   type HygieneResult,
@@ -35,24 +35,22 @@ export function RegistryHygienePanel() {
   const locale = useStore((s) => s.primaryLocale)
   const replaceData = useStore((s) => s.replaceData)
 
-  const [result, setResult] = useState<HygieneResult | null>(null)
-  const [error, setError] = useState<string | null>(null)
   const [okMerges, setOkMerges] = useState<Set<string>>(new Set())
   const [okCats, setOkCats] = useState<Set<string>>(new Set())
   const [note, setNote] = useState<string | null>(null)
 
-  const onResult = useCallback((text: string) => {
-    setError(null); setNote(null)
-    // Every run starts from nothing selected — a previous run's ticks must not
-    // carry over onto different proposals.
-    setOkMerges(new Set()); setOkCats(new Set())
-    try {
-      setResult(validateHygiene(JSON.parse(extractJson(text)), data, locale))
-    } catch (e) {
-      setResult(null)
-      setError(e instanceof Error ? e.message : 'The reply could not be read.')
-    }
-  }, [data, locale])
+  // Proposals live in the run store: reviewing a merge means going to the Skill
+  // Registry to look at what it would delete, and coming back to an empty panel
+  // made that impossible to do carefully.
+  const { ref, run, result, parseError: error, clear } = useAdvisorRun<HygieneResult>(
+    'hygiene', jsonReply((json) => validateHygiene(json, data, locale)),
+  )
+
+  // Every run starts from nothing selected — a previous run's ticks must not
+  // carry over onto different proposals that happen to share a key.
+  useEffect(() => {
+    setOkMerges(new Set()); setOkCats(new Set()); setNote(null)
+  }, [run?.startedAt])
 
   const chosenMerges = useMemo(
     () => (result?.merges ?? []).filter((m) => okMerges.has(m.key)),
@@ -105,7 +103,7 @@ export function RegistryHygienePanel() {
         ? `Applied ${out.merged} merge(s) and ${out.categorised} category change(s). Skipped ${out.skipped.length}: ${out.skipped.join('; ')}.`
         : `Applied ${out.merged} merge(s) and ${out.categorised} category change(s).`,
     )
-    setResult(null)
+    clear()
     setOkMerges(new Set()); setOkCats(new Set())
   }
 
@@ -126,7 +124,7 @@ export function RegistryHygienePanel() {
     >
       <AssistRun
         buildPrompt={() => buildHygienePrompt(data, locale)}
-        onResult={onResult}
+        advisor={ref}
         label="Review my registries"
         maxTokens={8000}
         advanced
@@ -220,7 +218,7 @@ export function RegistryHygienePanel() {
             disabled={!chosenMerges.length && !chosenCats.length}>
             <Check size={13} /> Review and apply {chosenMerges.length + chosenCats.length || ''}
           </button>
-          <button className="rhp-discard" onClick={() => { setResult(null); setOkMerges(new Set()); setOkCats(new Set()) }}>
+          <button className="rhp-discard" onClick={() => { clear(); setOkMerges(new Set()); setOkCats(new Set()) }}>
             Discard
           </button>
         </div>

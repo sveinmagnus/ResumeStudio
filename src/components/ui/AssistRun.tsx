@@ -25,7 +25,7 @@ import { useAssistStatus } from './AdvancedAssistCard'
 import {
   providerBlurb, sizeHint, isRemote, backendName, looksWeakForWriting, MANUAL_BLURB,
 } from '../../lib/llmAssist'
-import { selectRun, startAdvisor, useAdvisors, type AdvisorId } from '../../store/useAdvisors'
+import { selectRun, startAdvisor, useAdvisors, type AdvisorRef } from '../../store/useAdvisors'
 import { confirmDialog } from './ConfirmDialog'
 
 /**
@@ -55,7 +55,13 @@ interface Props {
    * when they come back. See `store/useAdvisors.ts` — this is what stops a
    * minute-long, paid-for run being thrown away by a click.
    */
-  advisor?: { id: AdvisorId; resumeId: string }
+  advisor?: AdvisorRef
+  /**
+   * What the user typed for this run (a pasted posting, a brief), stored with
+   * it so a panel can restore the input its results are read against. See
+   * `AdvisorRun.input`.
+   */
+  advisorInput?: string
   /**
    * In-item placement: the button sits under the field it applies to, styled
    * like the Copy/Draft/Summarize chips beside it, with the provenance and
@@ -103,7 +109,7 @@ interface Props {
 
 export function AssistRun({
   buildPrompt, onResult, wholeCv = false, disabled = false,
-  label = 'Run with my AI', maxTokens, advanced = false, advisor,
+  label = 'Run with my AI', maxTokens, advanced = false, advisor, advisorInput,
   compact = false, warnWeakModel = false, hasManualPath, children,
 }: Props) {
   const status = useAssistStatus()
@@ -112,7 +118,8 @@ export function AssistRun({
 
   // With an advisor, busy/error are properties of the RUN, not of this
   // component — that's the whole point: unmounting must not lose them.
-  const storedRun = useAdvisors((s) => (advisor ? selectRun(s.runs, advisor.id, advisor.resumeId) : undefined))
+  const storedRun = useAdvisors((s) =>
+    (advisor ? selectRun(s.runs, advisor.id, advisor.resumeId, advisor.scope) : undefined))
   const busy = advisor ? storedRun?.status === 'running' : localBusy
   const err = advisor ? (storedRun?.status === 'error' ? storedRun.error ?? null : null) : localErr
   // Manual is the only path with no model, so it starts open in that case.
@@ -138,7 +145,7 @@ export function AssistRun({
     if (advisor) {
       // Fire and forget: the store owns the request from here, so this
       // component can unmount without cancelling anything.
-      void startAdvisor(advisor.id, advisor.resumeId, prompt, { maxTokens, advanced })
+      void startAdvisor(advisor, prompt, { maxTokens, advanced, input: advisorInput })
       return
     }
 
@@ -150,7 +157,7 @@ export function AssistRun({
     } finally {
       setLocalBusy(false)
     }
-  }, [buildPrompt, onResult, wholeCv, status, maxTokens, advanced, advisor])
+  }, [buildPrompt, onResult, wholeCv, status, maxTokens, advanced, advisor, advisorInput])
 
   /**
    * Announce start and completion to assistive tech.

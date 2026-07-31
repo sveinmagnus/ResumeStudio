@@ -12,10 +12,11 @@
  * field and one candidate.
  */
 
-import { useCallback, useState } from 'react'
+import { useState } from 'react'
 import { PenLine, Check, X } from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import { AssistRun } from './AssistRun'
+import { useAdvisorRun } from '../../store/useAdvisorRun'
 import { AdvancedAssistCard } from './AdvancedAssistCard'
 import { buildIntroPrompt, tidyIntro, type IntroFocus } from '../../lib/introDraft'
 import type { LocalizedString, ResumeView } from '../../types'
@@ -30,20 +31,23 @@ export function IntroDraftPanel({ view, onApply }: Props) {
   const data = useStore((s) => s.data)
   const locale = useStore((s) => s.primaryLocale)
   const [focus, setFocus] = useState<IntroFocus>({ audience: '', length: 'paragraph' })
-  const [draft, setDraft] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
 
-  const onResult = useCallback((text: string) => {
-    setError(null)
-    const tidied = tidyIntro(text)
-    if (!tidied) { setError('The model returned nothing usable.'); return }
-    setDraft(tidied)
-  }, [])
+  // Scoped to THIS view: drafting an intro for the Board CV must not overwrite
+  // the one you are still reading for the Partner CV.
+  const { ref, result: draft, parseError: error, clear } = useAdvisorRun<string>(
+    'intro',
+    (raw) => {
+      const tidied = tidyIntro(raw)
+      if (!tidied) throw new Error('The model returned nothing usable.')
+      return tidied
+    },
+    view.id,
+  )
 
   const apply = () => {
     if (!draft) return
     onApply({ ...view.introduction, [locale]: draft })
-    setDraft(null)
+    clear()
   }
 
   const current = view.introduction[locale] ?? ''
@@ -83,7 +87,7 @@ export function IntroDraftPanel({ view, onApply }: Props) {
 
       <AssistRun
         buildPrompt={() => buildIntroPrompt(data, view, locale, focus)}
-        onResult={onResult}
+        advisor={ref}
         label="Draft the introduction"
         maxTokens={1200}
         advanced
@@ -106,7 +110,7 @@ export function IntroDraftPanel({ view, onApply }: Props) {
             <button className="idp-apply" onClick={apply}>
               <Check size={13} /> {current ? 'Replace the introduction' : 'Use this introduction'}
             </button>
-            <button className="idp-discard" onClick={() => setDraft(null)}>
+            <button className="idp-discard" onClick={clear}>
               <X size={13} /> Discard
             </button>
           </div>

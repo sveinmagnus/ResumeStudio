@@ -32,6 +32,7 @@ import { api } from '../lib/api'
 
 export type AdvisorId =
   | 'review' | 'voice' | 'drift' | 'achievements' | 'jobfit'
+  | 'profile' | 'intro' | 'section' | 'ats' | 'hygiene'
 
 /** Where the results are read, so a notification can take you back to them. */
 export const ADVISOR_HOME: Record<AdvisorId, string> = {
@@ -40,6 +41,13 @@ export const ADVISOR_HOME: Record<AdvisorId, string> = {
   drift: 'overview',
   achievements: 'overview',
   jobfit: 'overview',
+  profile: 'key_qualifications',
+  intro: 'views',
+  ats: 'views',
+  hygiene: 'skills',
+  // D3 runs against whichever section you were standing in; the scope carries
+  // which one, and `advisorSection` resolves it.
+  section: 'overview',
 }
 
 export const ADVISOR_LABEL: Record<AdvisorId, string> = {
@@ -48,6 +56,23 @@ export const ADVISOR_LABEL: Record<AdvisorId, string> = {
   drift: 'Cross-language check',
   achievements: 'Achievement mining',
   jobfit: 'Job fit report',
+  profile: 'Profile generator',
+  intro: 'View introduction',
+  section: 'Section gaps',
+  ats: 'ATS keyword audit',
+  hygiene: 'Registry hygiene',
+}
+
+/**
+ * Which editor section a finished run wants you on.
+ *
+ * Scoped advisors know better than their static home: a "Section gaps" run
+ * belongs to the section it examined, and a view-scoped run belongs to that
+ * view's editor. Falls back to the static map.
+ */
+export function advisorSection(run: Pick<AdvisorRun, 'id' | 'scope'>): string {
+  if (run.id === 'section' && run.scope) return run.scope
+  return ADVISOR_HOME[run.id] ?? 'overview'
 }
 
 export type RunStatus = 'running' | 'done' | 'error'
@@ -55,11 +80,28 @@ export type RunStatus = 'running' | 'done' | 'error'
 export interface AdvisorRun {
   id: AdvisorId
   resumeId: string
+  /**
+   * What this run is ABOUT, when one advisor can be run against several things:
+   * the view id for an intro draft or an ATS audit, the section key for a "what's
+   * missing" pass. Without it, drafting an intro for the Board CV would overwrite
+   * the draft you were still reading for the Partner CV.
+   *
+   * Undefined for whole-CV advisors, which can only have one run at a time.
+   */
+  scope?: string
   status: RunStatus
   startedAt: number
   finishedAt?: number
   /** The model's reply, verbatim. Re-validated against the live CV on render. */
   raw?: string
+  /**
+   * The user's own input for this run — the pasted job posting, the brief.
+   * Kept because some results are only readable ALONGSIDE it: the ATS audit maps
+   * the model's answers onto terms derived from the posting, so a restored run
+   * with an empty textarea is a report about nothing. Not the prompt (that's
+   * rebuilt from the live CV), just the part the user typed.
+   */
+  input?: string
   error?: string
   /**
    * Suggestions the user has finished with, by the key the validator assigns.
@@ -77,18 +119,29 @@ export interface AdvisorRun {
   collapsed?: boolean
 }
 
+/**
+ * Which run we mean. `scope` narrows an advisor that can target several things
+ * (a view, a section) — see `AdvisorRun.scope`.
+ */
+export interface AdvisorRef {
+  id: AdvisorId
+  resumeId: string
+  scope?: string
+}
+
 interface AdvisorState {
   runs: Record<string, AdvisorRun>
-  start: (id: AdvisorId, resumeId: string, exec: () => Promise<string>) => Promise<void>
-  resolve: (id: AdvisorId, resumeId: string, key: string, how: 'accepted' | 'dismissed') => void
-  resolveMany: (id: AdvisorId, resumeId: string, keys: readonly string[], how: 'accepted' | 'dismissed') => void
-  markSeen: (id: AdvisorId, resumeId: string) => void
-  setCollapsed: (id: AdvisorId, resumeId: string, collapsed: boolean) => void
-  clear: (id: AdvisorId, resumeId: string) => void
+  start: (ref: AdvisorRef, exec: () => Promise<string>, input?: string) => Promise<void>
+  resolve: (ref: AdvisorRef, key: string, how: 'accepted' | 'dismissed') => void
+  resolveMany: (ref: AdvisorRef, keys: readonly string[], how: 'accepted' | 'dismissed') => void
+  markSeen: (ref: AdvisorRef) => void
+  setCollapsed: (ref: AdvisorRef, collapsed: boolean) => void
+  clear: (ref: AdvisorRef) => void
   clearResume: (resumeId: string) => void
 }
 
-const runKey = (id: AdvisorId, resumeId: string) => `${resumeId}::${id}`
+const runKey = ({ id, resumeId, scope }: AdvisorRef) =>
+  scope ? `${resumeId}::${id}::${scope}` : `${resumeId}::${id}`
 
 // ─── Persistence ─────────────────────────────────────────────────────────────
 
@@ -140,10 +193,11 @@ export const useAdvisors = create<AdvisorState>((set, get) => ({
    * the `.then` writes into this store, which the panel reads whenever it next
    * mounts. Navigating away mid-run is now free.
    */
-  async start(id, resumeId, exec) {
-    const key = runKey(id, resumeId)
+  async start(ref, exec, input) {
+    const key = runKey(ref)
     const started: AdvisorRun = {
-      id, resumeId, status: 'running', startedAt: Date.now(), resolved: {}, seen: true,
+      id: ref.id, resumeId: ref.resumeId, scope: ref.scope, input,
+      status: 'running', startedAt: Date.now(), resolved: {}, seen: true,
     }
     set((s) => {
       const runs = { ...s.runs, [key]: started }
@@ -173,14 +227,14 @@ export const useAdvisors = create<AdvisorState>((set, get) => ({
     }
   },
 
-  resolve(id, resumeId, key, how) {
-    get().resolveMany(id, resumeId, [key], how)
+  resolve(ref, key, how) {
+    get().resolveMany(ref, [key], how)
   },
 
-  resolveMany(id, resumeId, keys, how) {
+  resolveMany(ref, keys, how) {
     if (!keys.length) return
     set((s) => {
-      const k = runKey(id, resumeId)
+      const k = runKey(ref)
       const run = s.runs[k]
       if (!run) return s
       const resolved = { ...run.resolved }
@@ -191,9 +245,9 @@ export const useAdvisors = create<AdvisorState>((set, get) => ({
     })
   },
 
-  markSeen(id, resumeId) {
+  markSeen(ref) {
     set((s) => {
-      const k = runKey(id, resumeId)
+      const k = runKey(ref)
       const run = s.runs[k]
       if (!run || run.seen) return s
       const runs = { ...s.runs, [k]: { ...run, seen: true } }
@@ -202,9 +256,9 @@ export const useAdvisors = create<AdvisorState>((set, get) => ({
     })
   },
 
-  setCollapsed(id, resumeId, collapsed) {
+  setCollapsed(ref, collapsed) {
     set((s) => {
-      const k = runKey(id, resumeId)
+      const k = runKey(ref)
       const run = s.runs[k]
       if (!run || !!run.collapsed === collapsed) return s
       const runs = { ...s.runs, [k]: { ...run, collapsed } }
@@ -213,10 +267,10 @@ export const useAdvisors = create<AdvisorState>((set, get) => ({
     })
   },
 
-  clear(id, resumeId) {
+  clear(ref) {
     set((s) => {
       const runs = { ...s.runs }
-      delete runs[runKey(id, resumeId)]
+      delete runs[runKey(ref)]
       save(runs)
       return { runs }
     })
@@ -235,13 +289,14 @@ export const useAdvisors = create<AdvisorState>((set, get) => ({
 
 // ─── Selectors ───────────────────────────────────────────────────────────────
 
-/** The run for one advisor on one resume, or undefined. */
+/** The run for one advisor on one resume (and scope), or undefined. */
 export function selectRun(
   runs: Record<string, AdvisorRun>,
   id: AdvisorId,
   resumeId: string,
+  scope?: string,
 ): AdvisorRun | undefined {
-  return runs[runKey(id, resumeId)]
+  return runs[runKey({ id, resumeId, scope })]
 }
 
 /** Finished runs the user hasn't looked at yet — what the toast announces. */
@@ -270,11 +325,13 @@ export function unresolved<T extends { key: string }>(
 
 /** Convenience for a panel: start a run through the store. */
 export function startAdvisor(
-  id: AdvisorId,
-  resumeId: string,
+  ref: AdvisorRef,
   prompt: string,
-  opts: { maxTokens?: number; advanced?: boolean } = {},
+  opts: { maxTokens?: number; advanced?: boolean; input?: string } = {},
 ): Promise<void> {
-  return useAdvisors.getState().start(id, resumeId, () =>
-    api.llmComplete(prompt, opts.maxTokens, opts.advanced))
+  return useAdvisors.getState().start(
+    ref,
+    () => api.llmComplete(prompt, opts.maxTokens, opts.advanced),
+    opts.input,
+  )
 }
