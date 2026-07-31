@@ -4,8 +4,8 @@
 # re-verify a unit's accuracy, and when you change a document, update its unit here.
 kcp_version: "0.20"
 project: resume-studio
-version: 0.9.4
-updated: "2026-07-24"
+version: 0.10.2
+updated: "2026-07-31"
 language: en
 hints:
   recommended_entry_point: claude-instructions
@@ -17,7 +17,7 @@ units:
     intent: "How must an agent work in this codebase? Architecture map, data model, store patterns, conventions (incl. the v0.3.1 accessibility invariants + the version source-of-truth rule), and what not to change. Holds invariants only — the exhaustive feature catalog is in feature-map."
     scope: global
     audience: [agent, developer]
-    validated: "2026-08-02"
+    validated: "2026-07-31"
     update_frequency: weekly
     triggers: [conventions, architecture, data-model, store, persistence, sections, accessibility, routing]
     content_structure:
@@ -34,7 +34,7 @@ units:
     intent: "What features exist and how does each hang together? The exhaustive per-feature design catalog + the recently-shipped changelog, extracted from CLAUDE.md §1 to keep the instruction file lean."
     scope: global
     audience: [agent, developer]
-    validated: "2026-08-02"
+    validated: "2026-07-31"
     update_frequency: weekly
     depends_on: [claude-instructions]
     triggers: [features, changelog, skills-showcase, skill-category, registry, resume-views, import, what-exists]
@@ -286,6 +286,48 @@ units:
       token_estimate: 4100
       priority: reference
 
+  - id: plan-cross-resume-registries
+    path: plans/cross-resume-registries.md
+    intent: "Why do shared registries work across resumes the way they do? Historical design plan — canonical_id links, instance registry, desktop sync. Shipped."
+    scope: project
+    audience: [developer, agent]
+    validated: "2026-07-31"
+    update_frequency: never
+    depends_on: [claude-instructions]
+    triggers: [cross-resume, canonical-id, instance-registry, shared-registry, design-rationale]
+    not_for: ["current registry behavior"]
+    hints:
+      token_estimate: 2900
+      priority: reference
+
+  - id: plan-code-quality
+    path: plans/code-quality-cleanup.md
+    intent: "What duplication and drift was found in a full read of src/ + server/, and what was done about it? All 13 steps APPLIED. Also records what is deliberately NOT a finding (inline <style> blocks, the hand-rolled router, per-section editor repetition) — read before 'cleaning up' any of those."
+    scope: project
+    audience: [developer, agent]
+    validated: "2026-07-31"
+    update_frequency: never
+    depends_on: [claude-instructions]
+    triggers: [duplication, refactor, cleanup, drift, not-a-finding, test-flakiness]
+    not_for: ["current architecture", "bug hunting"]
+    hints:
+      token_estimate: 4600
+      priority: reference
+
+  - id: plan-high-end-assists
+    path: plans/high-end-llm-assists.md
+    intent: "The proposal menu the advanced assist tier was chosen from — what each candidate is, its effort, and why it needs a high-end model. Twelve shipped (see CLAUDE.md §15); B2/B3/C2/E1/F1/F2 remain unbuilt and this is where their design notes live."
+    scope: project
+    audience: [developer, agent]
+    validated: "2026-07-31"
+    update_frequency: as-needed
+    depends_on: [claude-instructions]
+    triggers: [advanced-assist, high-end, advisor, unbuilt-features, what-to-build-next]
+    not_for: ["current shipped assist behavior"]
+    hints:
+      token_estimate: 3900
+      priority: reference
+
   # ── End-user documentation site (GitHub Pages) ────────────────────────────
   - id: site-landing
     path: docs/index.md
@@ -302,7 +344,7 @@ units:
     intent: "What does Resume Studio do today, feature by feature? (Most current end-user feature list.)"
     scope: global
     audience: [human, agent]
-    validated: "2026-07-24"
+    validated: "2026-07-31"
     update_frequency: monthly
     triggers: [features, capabilities, what-shipped]
     not_for: ["architecture", "implementation detail"]

@@ -92,9 +92,19 @@ two-way-syncs it — URL→store then store→URL, order load-bearing). Each
 history entry also carries a **UI snapshot** (scroll + expanded card) so Back
 returns you where you were; it is stamped CONTINUOUSLY, never at `navigate()`
 time, because `setActiveSection` clears `expandedItemId` before navigation
-runs. Restore uses `openItem` (not the toggling `setExpandedItem`). Styling is
-inline `<style>` blocks per component + CSS custom properties. No Tailwind, no
-CSS-in-JS.
+runs. Restore uses `openItem` (not the toggling `setExpandedItem`).
+
+**Navigation is real links, not onClick.** Every sidebar item — each section and
+each Resume View — is an `<a href>` rendered by `<Link>`, so Ctrl/Cmd-click,
+middle-click and "Open in new tab" work; two sections of one CV side by side is a
+genuine editing need. `<Link>` intercepts only the plain left-click, and anything
+a nav item does IN ADDITION to navigating (closing the mobile drawer) must check
+`isPlainLeftClick` first, or opening a section in a second tab also moves the tab
+you're still reading. Nav items do NOT call `setActiveSection` — the URL⇄store
+effect owns that, so there is one path, not two.
+
+Styling is inline `<style>` blocks per component + CSS custom properties. No
+Tailwind, no CSS-in-JS.
 
 Wishlist: §12.
 
@@ -159,18 +169,22 @@ CLAUDE.md section carries the detail.
 src/
 ├── types/index.ts   ← single source of truth for the data model (zero runtime imports)
 ├── store/           ← useStore (Zustand + generic CRUD, currentResumeId, unloadStore),
-│                      useUndoRedo, useResumePersistence (boot+auto-save), useTranslation,
-│                      useSortedItems, useReorderGuard. See the store-and-persistence skill
+│                      useUndoRedo, useResumePersistence (boot+auto-save+3-way merge),
+│                      useTranslation, useSortedItems, useReorderGuard,
+│                      useAdvisors + useAdvisorRun (AI runs; a SEPARATE store — never
+│                      saved/synced/undone). See the store-and-persistence skill
 ├── lib/             ← PURE logic (no React); a few touch browser APIs but stay jsdom-testable
 │   │ — core: locales (resolve/bcp47/detectLocalesInData), sections (GROUP_ORDER,
 │   │   canonicalSectionKey), router (hand-rolled History API), freshStore, migrate
 │   │   (CURRENT_SHAPE_VERSION; single migration choke point), usage, merge (generic
 │   │   mergeRegistry), completeness (+ shared collectTrackedFields), drift
 │   │   (cross-language divergence; reuses collectTrackedFields), wipeLocale,
-│   │   contentSearch, careerTimeline, freshness
+│   │   contentSearch, careerTimeline, freshness, uuid (the one id generator —
+│   │   crypto.randomUUID with a non-secure-context fallback; no `uuid` package)
 │   │ — persistence/sync: api, localCache (per-id fallback+queue), connectivity,
-│   │   syncEngine (PURE boot/drain decisions), diffResume, storage (weight thresholds),
-│   │   backup (per-resume JSON), snapshotDiff, snapshotImages
+│   │   syncEngine (PURE boot/drain decisions), diffResume, threeWayMerge (base/mine/
+│   │   theirs reconciliation so a 409 over non-overlapping edits never asks the user),
+│   │   storage (weight thresholds), backup (per-resume JSON), snapshotDiff, snapshotImages
 │   │ — render/export: exportStrings (localized EXPORT chrome + xs/xt/fmtYears;
 │   │   export-only by design — see §12), sectionCatalog (one descriptor feeds ALL render adapters),
 │   │   viewFilter (applyView + buildViewHtml; escapeHtml; SECURITY-CRITICAL),
@@ -447,10 +461,26 @@ Navigation: `setActiveSection(key)` / `setExpandedItem(id)`. Undo/redo: `useUndo
   `PendingRecord` per resume in localStorage (`lib/localCache.ts`); a dirty
   record is an unsynced edit awaiting flush. **In-memory**: the Zustand store
   holds one resume at a time (`currentResumeId`).
-- **Conflict** = 409 from a stale `base_version` → non-blocking `ConflictModal`
-  (diff summary; keep mine / discard mine). Sync decisions are pure functions
-  in `lib/syncEngine.ts`; connectivity recovery is health-poll-confirmed
-  (`lib/connectivity.ts`).
+- **Conflict** = 409 from a stale `base_version`. A 409 is **not** a conflict by
+  itself: `useResumePersistence` first tries a **three-way merge**
+  (`lib/threeWayMerge.ts`) of `base` / `mine` / `theirs`, and when the two sides'
+  edits don't overlap it applies the result via `replaceData` and re-saves at the
+  server's version — silently, no modal. Only a value BOTH sides changed
+  differently reaches the non-blocking `ConflictModal`, which then lists just
+  those values (keep mine / discard mine). This is what stopped one drag in
+  another window presenting as "48 projects differ" here: `moveItem` renumbers
+  `sort_order` across a whole section, and a merge attributes every one of those
+  to the side that made them.
+  - **The base document is held in memory only** (`baseData` ref). Persisting it
+    beside the queued edit would double a pending record that already carries
+    base64 images against a ~5 MB localStorage cap. No base (offline edits queued
+    by a previous session, a reload mid-conflict) → `conflicts: null` → the modal
+    falls back to the whole-document diff, i.e. the old behaviour.
+  - Array ORDER is deliberately not merged: every sortable section displays by
+    `sort_order`, never by position in the JSON, so merging it would invent a
+    conflict nobody can see.
+  - Sync decisions are pure functions in `lib/syncEngine.ts`; connectivity
+    recovery is health-poll-confirmed (`lib/connectivity.ts`).
 - **Backup** (`lib/backup.ts`, per-resume `BackupV1`): loading one from the
   picker creates a **new** resume. Distinct from the server's whole-store sync
   file (§14).
@@ -627,7 +657,7 @@ and **profile bundles** (a profile owns its competencies — shape v12, §4).
 
 ### Watchlist (deferred until forced)
 - **Cross-tab coordination** — two tabs editing one resume share a localStorage pending slot. The server `version` check makes it *safe* (second flush 409s into the conflict modal), just not tidy; a `BroadcastChannel` lock would stop the local thrash. Low priority.
-- **UI-chrome localization** — *EDITOR* labels are English-only. A dictionary-based `t()` is plausible for the Norwegian market but taxes every component forever — decide once, record here. **Export chrome is already done and is NOT this item** (v0.7.4): everything a client reads — section headings, months/"Present", header field labels, skill-matrix columns, CEFR words, publication/position/relationship picks — is localized for all 15 offered locales. The boundary is deliberate and load-bearing: a string is localized if it lands in an exported `.pdf`/`.docx`/`.txt`, and stays a hardcoded English literal if it only ever shows in the editor. Keep `lib/exportStrings.ts` out of `components/` or this decision quietly reopens itself.
+- **UI-chrome localization** — **DECIDED (July 2026): the editor UI is English-only, permanently, until the owner says otherwise.** Do not propose a `t()` layer, do not add one incrementally, and do not treat an English literal in a component as a defect. This had been deferred three times; it is now settled, and re-opening it is the owner's call alone. The reasoning is unchanged — a dictionary-based `t()` taxes every component forever — but the point of writing it down is that the deliberation itself was the recurring cost. **Export chrome is already done and is NOT this item** (v0.7.4): everything a client reads — section headings, months/"Present", header field labels, skill-matrix columns, CEFR words, publication/position/relationship picks — is localized for all 15 offered locales. The boundary is deliberate and load-bearing: a string is localized if it lands in an exported `.pdf`/`.docx`/`.txt`, and stays a hardcoded English literal if it only ever shows in the editor. Keep `lib/exportStrings.ts` out of `components/` or this decision quietly reopens itself.
 - **Image asset table (A4 Phase 2)** — auto-save PUTs and pending records still carry embedded base64 images. If measurements show quota risk, move to a content-addressed `assets` table (`hash → bytes` + `asset_id`), touching exporter/viewFilter/backup/localCache.
 - **Offline-load (PWA / service worker)** — offline *editing* shipped; *loading* the app cold with no network still fails (no SW caching the shell). Multi-day; only if "open and edit with zero connectivity" becomes a real need. See `plans/offline-editing.md` (Tier 3).
 
@@ -763,14 +793,27 @@ component state:
 - Persisted to localStorage (7-day expiry) so a reload doesn't bin paid-for work.
   A run that was in flight when the tab closed restores as an ERROR, never as a
   spinner nothing can finish.
-- `AssistRun` takes an optional `advisor={{id, resumeId}}`: with it, the request
-  is fired into the store and the component can unmount mid-flight.
+- `AssistRun` takes an optional `advisor={ref}`: with it, the request is fired
+  into the store and the component can unmount mid-flight.
   `components/ui/AdvisorToast.tsx` is mounted at APP level so the "ready"
   notice reaches you wherever you went.
+- **Runs can be SCOPED** (`AdvisorRef.scope`): one advisor, several targets — a
+  view id for D2/B4, a section key for D3. Without it, drafting an intro for the
+  second view would silently replace the one you were still reading for the
+  first. `advisorSection(run)` sends a finished scoped run back to where it
+  belongs rather than to a static per-advisor home.
+- **`AdvisorRun.input` keeps the user's own input** (the pasted posting) where
+  the result can only be read beside it — B4 maps the model's answers onto terms
+  extracted from the posting, so a restored report with an empty textarea is a
+  table of verdicts about nothing.
 
-Wired for the five Overview advisors (A1–A4, B1). The other panels (D1/D2/D3,
-B4, C4) still hold their results locally — same mechanism applies if that
-becomes annoying.
+**Every panel reads through `store/useAdvisorRun.ts`** — the one adapter between
+the run store and a result view (parse-on-render, per-suggestion resolution,
+markSeen, collapse). It was extracted from `CvAdvisors` when the remaining five
+panels were wired; use it rather than reading `useAdvisors` directly, and use
+`jsonReply()` for the usual JSON-payload validators. All ten panels (A1–A4, B1,
+D1, D2, D3, B4, C4) now go through it, so no advisor result is lost to
+navigation any more.
 
 **A4 fills both language columns.** An accepted achievement is translated into
 the secondary locale (`lib/achievementTranslate.ts`, via the ordinary Draft path

@@ -166,7 +166,9 @@ scaffold. Old tolerant defaults stay as defense-in-depth.
 - **Generic `mergeRegistry`** — ✅ done (June 2026): refactored to a descriptor-table engine AND industries added as the real third mergeable registry kind (`Project.industry_id`, shape v3 migration interns existing/imported industry text).
 - **Cross-tab BroadcastChannel lock** (§12.5): conflict path already makes
   it safe.
-- **UI-chrome localization**: app labels are English-only. For a tool whose
+- **UI-chrome localization** — ✅ **decided (July 2026): English-only, permanently.**
+  Recorded in CLAUDE.md §12. Don't re-propose it. Original framing kept below.
+  app labels are English-only. For a tool whose
   *content* is multi-locale and whose market is Norwegian, a tiny
   dictionary-based `t()` for chrome strings is a plausible ask — but it
   taxes every component forever. Decide once, record the decision in

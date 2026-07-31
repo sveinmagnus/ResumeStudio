@@ -601,6 +601,42 @@ canonical registry create + cross-machine merge hardened (`body-parser` bumped).
 **Repo hygiene** — regenerable build output swept from the working tree; the
 committed tree carries only app code + build/release config (no personal data).
 
+**v0.10.x wave — the advanced (high-end) assist tier.** A second AI tier that
+appears only when the operator declares the configured model high-end
+(`llm_high_end`), gated in exactly two places (`AdvancedAssistCard` on the
+client, `POST /api/llm/complete` with `advanced: true` on the server). Twelve
+assists shipped: **A1** whole-CV review, **A2** consistency & voice,
+**A3** cross-language MEANING (`semanticDrift.ts` — drift.ts's missing third
+signal), **A4** achievement mining (bilingual, via `achievementTranslate.ts`),
+**D1** profile + bundle generator, **D2** view-introduction draft, **D3**
+per-section "what's missing", **B1** job-fit report, **B5** letter angles &
+critique, **C1** freeform intake (an upgrade to bulk add, not a new surface),
+**B4** ATS keyword audit (**pass 1 needs no model at all**), and **C4** registry
+hygiene (proposal-only by construction). Plus **C3**, the invisible bilingual
+glossary (`lib/glossary.ts` + `server/glossary.ts`) — NOT gated, and the thing
+that makes the small-model translate path behave. Their shared vocabulary is
+`cvFields` / `cvDigest` / `assistFindings` / `assistProposals`; build new
+advisors on those rather than forking them. See CLAUDE.md §15.
+
+**Advisor runs outlive the page** (`store/useAdvisors.ts` + `store/useAdvisorRun.ts`):
+a run costs real tokens and every result invites you to navigate away, so runs
+live in their own store — raw reply kept (re-validated on render), per-suggestion
+resolution, localStorage-persisted with a 7-day expiry, and an app-level
+`AdvisorToast`. Runs can be **scoped** (`AdvisorRef.scope`) so one advisor can
+target several things — a view's intro, a section's gaps — without collision,
+and carry the user's own `input` where the result is only readable beside it (the
+ATS audit's posting). All ten result panels read through `useAdvisorRun`.
+
+**Also in v0.10.x:** rich text has **one kind of line break** (`blockify`
+canonicalises `<br>`, raw newlines and blank lines to paragraph boundaries; the
+gap is ONE number, `PARA_GAP_LINES`, pinned across editor/HTML/DOCX/PDF by
+`tests/paragraphSpacing.test.ts`), **Back returns you where you were** (each
+history entry carries a scroll + expanded-card snapshot, stamped continuously),
+writing assist on every section, a **three-way merge on save conflict**
+(`lib/threeWayMerge.ts` — non-overlapping concurrent edits merge silently
+instead of raising a whole-document keep/discard), and **real `<a href>` sidebar
+navigation** (Ctrl-click / "Open in new tab" work on every section and view).
+
 **Deferred / dropped:** **A4 Phase 2** (content-addressed asset table) was
 deliberately deferred — measurement infra shipped; build the table only when
 real data warrants. **F4** (application log) was dropped as out of scope.

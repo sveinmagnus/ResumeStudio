@@ -82,13 +82,14 @@ you open the app — nothing here is buried behind config files.
 
 One model powers every AI feature, and you choose where it runs: a **local
 Ollama** (the app can run it in Docker for you — your CV never leaves the
-machine), **OpenAI**, or **any OpenAI-compatible endpoint** (LM Studio, Groq,
-OpenRouter, …). Every AI button states plainly whether content stays on this
-computer or goes to your provider, results are always drafts you review
-before they touch your CV, and with no model configured the buttons simply
-hide. Every feature also has a **manual path** — copy a generated prompt into
-whatever AI you already use and paste the answer back — so nothing requires
-an API key.
+machine), **OpenAI**, **Anthropic**, **Google Gemini**, **Mistral**, or **any
+OpenAI-compatible endpoint** (LM Studio, Groq, OpenRouter, …). The model field
+offers a live pick-list of what your provider actually has. Every AI button
+states plainly whether content stays on this computer or goes to your provider,
+results are always drafts you review before they touch your CV, and with no
+model configured the buttons simply hide. Every feature also has a **manual
+path** — copy a generated prompt into whatever AI you already use and paste the
+answer back — so nothing requires an API key.
 
 - **One-line summaries.** Draft a short description from a long one — per
   field, or "Bulk summarize" for a whole section at once (with a confirmation
@@ -109,6 +110,42 @@ an API key.
 - **Page-fit advice.** When a view runs over its page limit, get concrete
   suggestions for what to cut.
 - **AI import and bulk add** — see the Import section below.
+
+### The advanced assists
+
+If the model you configured is a strong one, tick **“This is a high-end model”**
+in Settings and a second tier appears. These read the *whole* CV and make
+comparative judgements about it — the kind of work a small local model answers
+fluently and wrongly, which is why you declare it rather than the app guessing.
+With the box unticked they are simply not there.
+
+- **Review my whole CV.** A prioritised list of what a reader would hold
+  against it: descriptions with no outcome, wildly uneven detail, repeated
+  phrasing, timeline gaps. Every finding links straight to the item.
+- **Consistency & voice.** One register across the document — same person, same
+  tense, technology names spelled the same way — as a batch of before/after
+  rewrites you tick to apply.
+- **Cross-language meaning check.** Does the Norwegian actually say what the
+  English says? Catches dropped sentences and terms translated three ways.
+- **Achievement mining.** Finds outcomes buried in long prose and proposes them
+  as highlights or competencies — quoting the sentence that supports each one,
+  and filling both language columns.
+- **Job fit report.** Requirement by requirement against a posting: what you can
+  evidence, what you can't, and what you *nearly* can — the gap you can close
+  honestly by naming something you already did.
+- **ATS keyword audit.** Reads the text a view actually exports and reports
+  which of a posting's terms appear in it. **The first pass needs no AI at
+  all.** Its most useful verdict is “in your CV but excluded by this view” —
+  fixed by re-including an item, with no writing.
+- **Profile generator, view introductions, and “what's missing” per section.**
+- **Registry hygiene.** Proposes skill merges and categories for the
+  uncategorised tail. Proposal-only: nothing is pre-ticked, every row states
+  what it deletes and how many references it rewrites, and a confirm names the
+  totals first.
+- **Cover-letter angles and critique.**
+
+Runs survive you walking away from them: results are kept per CV, so you can go
+and fix the thing a finding just told you about and come back to the rest.
 
 ## Multi-resume
 

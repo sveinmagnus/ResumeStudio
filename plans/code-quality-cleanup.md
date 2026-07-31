@@ -374,7 +374,15 @@ with the project's decisions, not with a generic style guide.
 
 ---
 
-## 4. Unresolved: the test suite is flaky under default parallelism
+## 4. ~~Unresolved:~~ RESOLVED — the test suite was flaky under default parallelism
+
+> **Closed (July 2026).** Option 1 was taken: `maxWorkers: 4` is set in
+> `vite.config.ts` with the reasoning below recorded beside it, and option 2
+> (`asyncUtilTimeout: 3000` in `tests/setup-rtl.ts`) went in alongside as the
+> correctness tidy-up it was — labelled as such, so nobody later mistakes it for
+> the fix. The suite has been deterministic since. The original finding is kept
+> below because the *diagnosis* is the useful part: a suite that fails on a
+> different test each run, all of which pass in isolation, is contention.
 
 Found while verifying step 4, unrelated to any of these changes.
 
