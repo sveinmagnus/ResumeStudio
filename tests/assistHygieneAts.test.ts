@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { emptyStore, makeProject, makeSkill } from './fixtures'
-import type { ResumeStore, Skill } from '../src/types'
+import type { ResumeStore } from '../src/types'
 import {
   auditCoverage, containsTerm, coverageTally, extractPostingTerms,
   validateAtsResponse, InvalidAtsResponseError,
