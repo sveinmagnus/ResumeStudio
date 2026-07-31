@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { v4 as uuidv4 } from 'uuid'
+import { uuidv4 } from '../lib/uuid'
 import type { ResumeStore, Resume, LocalizedString, RegistryEntry } from '../types'
 import { detectLocalesInData, sortLocales } from '../lib/locales'
 import { migrateStore, isNewerShape } from '../lib/migrate'

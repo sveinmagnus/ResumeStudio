@@ -22,7 +22,7 @@
  *    library, when the same capability shows up across SEVERAL items.
  */
 
-import { v4 as uuidv4 } from 'uuid'
+import { uuidv4 } from './uuid'
 import type { KeyCompetency, LocalizedString, ResumeStore } from '../types'
 import { buildCvDigest, itemLabel as labelOf } from './cvDigest'
 import { isAdvisorSection, itemsOf } from './cvFields'

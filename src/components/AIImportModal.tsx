@@ -8,6 +8,8 @@ import type { ResumeStore } from '../types'
 import { useDialog } from './ui/useDialog'
 import { AssistRun } from './ui/AssistRun'
 import { extractJson } from '../lib/llmAssist'
+import { loadSkillTaxonomy, loadSkillClassifications } from '../lib/skillTaxonomy'
+import { normalizeImportedSkills } from '../lib/skillNormalize'
 
 /** Public path the app serves the bundled template from (Vite copies public/ → dist/). */
 const TEMPLATE_PATH = '/ai-import-template.md'
@@ -119,8 +121,13 @@ export function AIImportModal({ onImported, onClose }: AIImportModalProps) {
       // (F12 pt4) before creating the resume. Best-effort — never blocks.
       let store = parsed.store
       try {
-        const { loadSkillTaxonomy, loadSkillClassifications } = await import('../lib/skillTaxonomy')
-        const { normalizeImportedSkills } = await import('../lib/skillNormalize')
+        // Imported statically on purpose. These two modules are a few hundred
+        // lines of logic; the WEIGHT is the taxonomy JSON, which `loadSkillTaxonomy`
+        // fetches lazily on first use and which stays in its own chunk either way.
+        // Dynamic-importing them here bought nothing and cost correctness: three
+        // other components import the same modules statically, so Rollup could not
+        // move them into a separate chunk and warned on every production build —
+        // a permanent warning that trains you to stop reading build output.
         const [taxonomy, classifications] = await Promise.all([
           loadSkillTaxonomy(), loadSkillClassifications(),
         ])

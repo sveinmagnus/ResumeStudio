@@ -15,7 +15,7 @@
  * boundary escapes them like all other content.
  */
 
-import { v4 as uuidv4 } from 'uuid'
+import { uuidv4 } from './uuid'
 import type {
   ResumeStore, Resume, WorkExperience, Education, SpokenLanguage,
   LocalizedString, YearMonth,

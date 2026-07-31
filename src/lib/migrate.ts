@@ -22,7 +22,7 @@ import type {
   ResumeStore, LocalizedString, ProjectRole, ProjectIndustry, KeyCompetency, KeyPoint,
   WorkExperience, Industry, Project, Skill, SkillCategory, ViewStyle, Course, Presentation, YearMonth,
 } from '../types'
-import { v4 as uuidv4 } from 'uuid'
+import { uuidv4 } from './uuid'
 
 // ─── Shape versioning ─────────────────────────────────────────────────────────
 

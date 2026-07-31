@@ -8,7 +8,7 @@
  * Both are pure (no IDs, no timestamps captured at module load) so they can be
  * called from anywhere — the store action, the picker create flow, tests.
  */
-import { v4 as uuidv4 } from 'uuid'
+import { uuidv4 } from './uuid'
 import type { ResumeStore } from '../types'
 import { CURRENT_SHAPE_VERSION } from './migrate'
 

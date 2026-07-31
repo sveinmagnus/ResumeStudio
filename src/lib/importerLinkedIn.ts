@@ -15,7 +15,7 @@
  * translates inside the app.
  */
 
-import { v4 as uuidv4 } from 'uuid'
+import { uuidv4 } from './uuid'
 import type {
   ResumeStore, Resume, Skill, WorkExperience, Education, Certification,
   SpokenLanguage, Project, Recommendation, LocalizedString, YearMonth,

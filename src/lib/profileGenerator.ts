@@ -25,7 +25,7 @@
  * shown in the preview.
  */
 
-import { v4 as uuidv4 } from 'uuid'
+import { uuidv4 } from './uuid'
 import type { KeyCompetency, KeyQualification, ResumeStore } from '../types'
 import { buildCvDigest } from './cvDigest'
 import { resolve } from './locales'

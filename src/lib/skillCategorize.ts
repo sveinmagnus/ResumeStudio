@@ -20,7 +20,7 @@ import type { SkillDomains, SkillRelations } from './skillTaxonomy'
 import {
   buildDomainIndex, matchSkillDomain, type DomainMatch, type MatchTier, type SkillDomainModel,
 } from './skillMatch'
-import { v4 as uuidv4 } from 'uuid'
+import { uuidv4 } from './uuid'
 
 /** Label for a skill with no linked category (the list card + filter). */
 export const UNCATEGORIZED_LABEL = 'Uncategorized'

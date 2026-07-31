@@ -31,7 +31,7 @@
  * values into markup anywhere.
  */
 
-import { v4 as uuidv4 } from 'uuid'
+import { uuidv4 } from './uuid'
 import type {
   ResumeStore, LocalizedString, YearMonth, Skill, Role,
   Project, ProjectRole, ProjectSkill, WorkExperience, Position, Education,

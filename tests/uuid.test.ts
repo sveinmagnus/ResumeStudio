@@ -1,0 +1,59 @@
+/**
+ * @vitest-environment jsdom
+ *
+ * The in-repo id generator that replaced the `uuid` package.
+ *
+ * The fallback path is the reason this file exists: `crypto.randomUUID` is only
+ * exposed in SECURE contexts, so a self-hosted build served over plain http on a
+ * LAN has `crypto` without it. That is a supported way to run this app, and it
+ * must still produce ids.
+ */
+
+import { describe, it, expect, afterEach, vi } from 'vitest'
+import { uuidv4 } from '../src/lib/uuid'
+
+const V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+
+afterEach(() => { vi.restoreAllMocks() })
+
+describe('uuidv4', () => {
+  it('produces a well-formed version-4 uuid', () => {
+    expect(uuidv4()).toMatch(V4)
+  })
+
+  it('does not repeat itself', () => {
+    const seen = new Set(Array.from({ length: 2000 }, () => uuidv4()))
+    expect(seen.size).toBe(2000)
+  })
+
+  it('uses the platform generator when it is available', () => {
+    const spy = vi.spyOn(globalThis.crypto, 'randomUUID')
+    uuidv4()
+    expect(spy).toHaveBeenCalled()
+  })
+
+  it('falls back to getRandomValues in a non-secure context', () => {
+    // Exactly what a plain-http LAN deployment looks like: crypto is there,
+    // randomUUID is not.
+    const original = globalThis.crypto.randomUUID
+    Object.defineProperty(globalThis.crypto, 'randomUUID', { value: undefined, configurable: true })
+    const getRandom = vi.spyOn(globalThis.crypto, 'getRandomValues')
+    try {
+      const id = uuidv4()
+      expect(getRandom).toHaveBeenCalled()
+      expect(id).toMatch(V4)
+    } finally {
+      Object.defineProperty(globalThis.crypto, 'randomUUID', { value: original, configurable: true })
+    }
+  })
+
+  it('still returns an id with no Web Crypto at all', () => {
+    const original = globalThis.crypto
+    Object.defineProperty(globalThis, 'crypto', { value: undefined, configurable: true })
+    try {
+      expect(uuidv4()).toMatch(V4)
+    } finally {
+      Object.defineProperty(globalThis, 'crypto', { value: original, configurable: true })
+    }
+  })
+})
