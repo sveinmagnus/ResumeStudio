@@ -6,7 +6,8 @@ import {
   validateAtsResponse, InvalidAtsResponseError,
 } from '../src/lib/atsAudit'
 import {
-  applyHygiene, hygieneImpact, validateHygiene, InvalidHygieneError,
+  applyHygiene, buildHygienePrompt, hasRegistryContent, hygieneImpact,
+  validateHygiene, InvalidHygieneError,
 } from '../src/lib/registryHygiene'
 import { countSkillReferences } from '../src/lib/merge'
 import {
@@ -269,6 +270,183 @@ describe('registry hygiene', () => {
       { kind: 'skills', keep_id: react, drop_id: reactJs },
     ] }, s, 'en')
     expect(hygieneImpact(merges, [])).toMatchObject({ entriesDeleted: 1, referencesRewritten: 1 })
+  })
+})
+
+/**
+ * The category half of C4, and the prompt that feeds both halves.
+ *
+ * Categories are the cheap, reversible side of registry hygiene — but the same
+ * rule applies as to merges: it only ever fills a BLANK, and it re-checks that
+ * against the store it is actually writing to.
+ */
+describe('registry hygiene — categories and prompt', () => {
+  function storeWithLooseSkills(): ResumeStore {
+    const s = emptyStore()
+    s.skills = [
+      makeSkill({ name: { en: 'Kubernetes' } }),
+      makeSkill({ name: { en: 'Terraform' } }),
+    ]
+    s.skill_categories = [
+      { id: 'cat-cloud', resume_id: 'resume-1', name: { en: 'Cloud' }, sort_order: 0 },
+    ]
+    return s
+  }
+
+  it('proposes an existing category by id', () => {
+    const s = storeWithLooseSkills()
+    const { categories, dropped } = validateHygiene({ categories: [
+      { skill_id: s.skills[0].id, category_id: 'cat-cloud', reason: 'Container orchestration.' },
+    ] }, s, 'en')
+
+    expect(dropped).toEqual([])
+    expect(categories[0]).toMatchObject({
+      skillName: 'Kubernetes', categoryId: 'cat-cloud',
+      categoryName: 'Cloud', isNewCategory: false,
+    })
+  })
+
+  it('proposes a NEW category by name, and says so', () => {
+    const s = storeWithLooseSkills()
+    const { categories } = validateHygiene({ categories: [
+      { skill_id: s.skills[1].id, category_id: null, category_name: 'Infrastructure as code' },
+    ] }, s, 'en')
+
+    expect(categories[0]).toMatchObject({
+      categoryId: null, categoryName: 'Infrastructure as code', isNewCategory: true,
+    })
+  })
+
+  it('drops a proposal naming a category that does not exist', () => {
+    const s = storeWithLooseSkills()
+    const { categories, dropped } = validateHygiene({ categories: [
+      { skill_id: s.skills[0].id, category_id: 'cat-ghost' },
+    ] }, s, 'en')
+    expect(categories).toHaveLength(0)
+    expect(dropped[0]).toMatch(/doesn't exist/i)
+  })
+
+  it('drops a proposal with no category at all', () => {
+    const s = storeWithLooseSkills()
+    const { categories, dropped } = validateHygiene({ categories: [
+      { skill_id: s.skills[0].id, category_id: null, category_name: '' },
+    ] }, s, 'en')
+    expect(categories).toHaveLength(0)
+    expect(dropped[0]).toMatch(/no category name/i)
+  })
+
+  it('keeps only the first proposal for a skill', () => {
+    const s = storeWithLooseSkills()
+    const { categories } = validateHygiene({ categories: [
+      { skill_id: s.skills[0].id, category_id: 'cat-cloud' },
+      { skill_id: s.skills[0].id, category_id: null, category_name: 'Something else' },
+    ] }, s, 'en')
+    expect(categories).toHaveLength(1)
+    expect(categories[0].categoryName).toBe('Cloud')
+  })
+
+  it('applies an existing-category proposal and creates a new one', () => {
+    const s = storeWithLooseSkills()
+    const { categories } = validateHygiene({ categories: [
+      { skill_id: s.skills[0].id, category_id: 'cat-cloud' },
+      { skill_id: s.skills[1].id, category_id: null, category_name: 'Infrastructure as code' },
+    ] }, s, 'en')
+
+    const out = applyHygiene(s, [], categories, 'en')
+    expect(out.categorised).toBe(2)
+    expect(out.data.skills[0].category_id).toBe('cat-cloud')
+    // The new category exists and the second skill is in it.
+    const created = out.data.skill_categories!.find((c) => c.name.en === 'Infrastructure as code')
+    expect(created).toBeDefined()
+    expect(out.data.skills[1].category_id).toBe(created!.id)
+    // Input store untouched — replaceData takes the new one.
+    expect(s.skills[0].category_id).toBeFalsy()
+  })
+
+  /** The panel is non-blocking: the user may categorise a skill while it sits open. */
+  it('skips a category the user filled in the meantime', () => {
+    const s = storeWithLooseSkills()
+    const { categories } = validateHygiene({ categories: [
+      { skill_id: s.skills[0].id, category_id: 'cat-cloud' },
+    ] }, s, 'en')
+
+    const edited: ResumeStore = {
+      ...s,
+      skills: s.skills.map((x, i) => (i === 0 ? { ...x, category_id: 'cat-mine' } : x)),
+    }
+    const out = applyHygiene(edited, [], categories, 'en')
+    expect(out.categorised).toBe(0)
+    expect(out.skipped[0]).toMatch(/categorised it in the meantime/i)
+    expect(out.data.skills[0].category_id).toBe('cat-mine')
+  })
+
+  it('skips a category whose skill is gone', () => {
+    const s = storeWithLooseSkills()
+    const { categories } = validateHygiene({ categories: [
+      { skill_id: s.skills[0].id, category_id: 'cat-cloud' },
+    ] }, s, 'en')
+
+    const edited: ResumeStore = { ...s, skills: s.skills.slice(1) }
+    const out = applyHygiene(edited, [], categories, 'en')
+    expect(out.categorised).toBe(0)
+    expect(out.skipped[0]).toMatch(/no longer there/i)
+  })
+
+  it('counts new categories once, however many skills go in them', () => {
+    const cats = [
+      { key: 'a', skillId: '1', skillName: 'A', categoryId: null, categoryName: 'Cloud', isNewCategory: true, reason: '' },
+      { key: 'b', skillId: '2', skillName: 'B', categoryId: null, categoryName: 'cloud', isNewCategory: true, reason: '' },
+    ]
+    expect(hygieneImpact([], cats)).toMatchObject({ skillsCategorised: 2, newCategories: 1 })
+  })
+
+  describe('buildHygienePrompt', () => {
+    it('shows each entry with its id and how used it is', () => {
+      const s = emptyStore()
+      const react = makeSkill({ name: { en: 'React' } })
+      s.skills = [react]
+      s.projects = [makeProject({ skills: [{ skill_id: react.id, name: { en: 'React' }, proficiency: 3 }] })]
+
+      const p = buildHygienePrompt(s, 'en')
+      expect(p).toContain(react.id)
+      expect(p).toContain('React')
+      expect(p).toMatch(/used: 1/)
+    })
+
+    it('lists uncategorised skills and the categories available', () => {
+      const p = buildHygienePrompt(storeWithLooseSkills(), 'en')
+      expect(p).toContain('existing categories')
+      expect(p).toContain('Cloud')
+      expect(p).toContain('skills with no category')
+      expect(p).toContain('Kubernetes')
+    })
+
+    it('says so plainly when there is nothing to categorise', () => {
+      const s = storeWithLooseSkills()
+      s.skills = s.skills.map((x) => ({ ...x, category_id: 'cat-cloud' }))
+      expect(buildHygienePrompt(s, 'en')).toContain('every skill already has a category')
+    })
+
+    it('offers to invent categories when there are none', () => {
+      const s = emptyStore()
+      s.skills = [makeSkill({ name: { en: 'Kubernetes' } })]
+      expect(buildHygienePrompt(s, 'en')).toMatch(/no categories yet/i)
+    })
+  })
+
+  describe('hasRegistryContent', () => {
+    it('is false when there is nothing worth tidying', () => {
+      const s = emptyStore()
+      expect(hasRegistryContent(s)).toBe(false)
+      s.skills = [makeSkill()]
+      expect(hasRegistryContent(s)).toBe(false) // one entry can't be merged with anything
+    })
+
+    it('is true once two entries exist, in any registry', () => {
+      const s = emptyStore()
+      s.skills = [makeSkill(), makeSkill()]
+      expect(hasRegistryContent(s)).toBe(true)
+    })
   })
 })
 
