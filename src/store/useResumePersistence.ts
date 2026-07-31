@@ -24,7 +24,7 @@ import {
   isAbortError,
 } from '../lib/api'
 import type { ResumeStore, RegistryEntry } from '../types'
-import { type SaveState } from '../components/layout/SaveStatus'
+import { type SaveState } from './saveState'
 import { loadPending, savePending, clearPending, listDirty, clearAllCaches } from '../lib/localCache'
 import { subscribeOnline, recheckConnectivity, isOnline, type Connectivity } from '../lib/connectivity'
 import { decideBoot, selectDrainTargets, type BootAction } from '../lib/syncEngine'
@@ -527,6 +527,11 @@ export function useResumePersistence(resumeId: string): ResumePersistence {
 
   return {
     loadState, saveState, cacheSavedAt, unsyncedCount, conflict, resolveConflict,
-    retry: flushToServer, remoteUpdate, reloadFromServer, submitToken,
+    // Both are async; the interface deliberately exposes them as void —
+    // each handles its own failures, and a caller has nothing to await.
+    retry: () => { void flushToServer() },
+    remoteUpdate,
+    reloadFromServer: () => { void reloadFromServer() },
+    submitToken,
   }
 }

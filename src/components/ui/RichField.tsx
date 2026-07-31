@@ -398,6 +398,8 @@ function RichColumn({ variant, locale, fieldLabel, html, onCommit, placeholder, 
           same information, no row spent on it. */}
       <div className="rf-col-head">{header}</div>
       <Toolbar onCmd={exec} active={fmt} flag={LOCALE_LABELS[locale]?.flag} />
+      {/* contentEditable is inherently focusable; the rule only looks for tabIndex. */}
+      {/* eslint-disable-next-line jsx-a11y/interactive-supports-focus -- see above */}
       <div
         ref={editorRef}
         className={`rf-input rf-${variant} ${isEmpty ? 'rf-empty' : ''}`}

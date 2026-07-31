@@ -14,6 +14,7 @@
  * 3. Aligns RTL's async timeout with the raised `testTimeout`.
  */
 import { afterEach } from 'vitest'
+// eslint-disable-next-line testing-library/no-manual-cleanup -- RTL auto-cleanup only runs when afterEach is a global, and Vitest does not register globals (see above)
 import { cleanup, configure } from '@testing-library/react'
 import '@testing-library/jest-dom/vitest'
 

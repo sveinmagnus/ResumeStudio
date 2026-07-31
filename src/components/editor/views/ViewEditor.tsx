@@ -480,6 +480,7 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
               id="rv-name-input"
               className="rv-name-input"
               value={view.name}
+              // eslint-disable-next-line jsx-a11y/no-autofocus -- appears only after the user clicks the edit affordance; not focusing what they just asked for costs a keystroke
               autoFocus
               onChange={(e) => onUpdate({ name: e.target.value })}
               onBlur={() => setEditingName(false)}
@@ -517,6 +518,7 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
                 id="rv-purpose-input"
                 className="rv-purpose-input"
                 value={view.purpose ?? ''}
+                // eslint-disable-next-line jsx-a11y/no-autofocus -- appears only after the user clicks the edit affordance; not focusing what they just asked for costs a keystroke
                 autoFocus
                 onChange={(e) => onUpdate({ purpose: e.target.value })}
                 onBlur={() => setEditingPurpose(false)}

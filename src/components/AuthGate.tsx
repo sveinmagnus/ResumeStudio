@@ -59,6 +59,7 @@ export function AuthGate({ onSubmit }: AuthGateProps) {
             spellCheck={false}
             value={tokenInput}
             onChange={(e) => setTokenInput(e.target.value)}
+            // eslint-disable-next-line jsx-a11y/no-autofocus -- this field is the entire purpose of the gate; there is nothing else to focus
             autoFocus
           />
           {authError && <div className="auth-error" role="alert">{authError}</div>}

@@ -37,6 +37,8 @@ export function SettingsTabs({ tabs, active, onChange }: Props) {
   }
 
   return (
+    // WAI-ARIA APG: a tablist is NOT focusable; the selected tab is, and the tablist delegates arrow keys to it.
+    // eslint-disable-next-line jsx-a11y/interactive-supports-focus -- see above
     <div className="sm-tabs" role="tablist" aria-label="Settings sections" ref={ref} onKeyDown={onKeyDown}>
       {tabs.map((t) => {
         const selected = t.id === active

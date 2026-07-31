@@ -277,6 +277,7 @@ export function ResumeList({ onUnauthorized }: ResumeListProps) {
                   <input
                     className="rl-rename-input"
                     value={draftName}
+                    // eslint-disable-next-line jsx-a11y/no-autofocus -- appears only after the user clicks the edit affordance; not focusing what they just asked for costs a keystroke
                     autoFocus
                     aria-label="Resume name"
                     onChange={(e) => setDraftName(e.target.value)}

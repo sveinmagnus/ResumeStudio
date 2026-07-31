@@ -109,7 +109,7 @@ export function TranslationTab() {
             </div>
           )}
 
-          <label className="sm-field-label" id="sm-langs-label">Languages to install</label>
+          <div className="sm-field-label" id="sm-langs-label">Languages to install</div>
           <p className="sm-help">
             Each language is a separate download (a few hundred MB), so only
             the ones you pick are installed. Your current editing languages

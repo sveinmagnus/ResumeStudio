@@ -144,7 +144,7 @@ describe('<WritingCoachPanel>', () => {
   it('offers no Run at all when no model is configured', async () => {
     backend(OFF)
     setup()
-    await waitFor(() => expect(screen.getByText(/no ai model is configured/i)).toBeInTheDocument())
+    expect(await screen.findByText(/no ai model is configured/i)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /strengthen this description/i })).not.toBeInTheDocument()
   })
 })

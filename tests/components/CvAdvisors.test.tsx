@@ -7,7 +7,7 @@
  * by nickname.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import { CvAdvisors } from '../../src/components/editor/CvAdvisors'
 import { resetStore } from '../helpers/store-reset'
 import { resetLlmAvailability } from '../../src/lib/llmClient'
@@ -71,8 +71,7 @@ describe('<CvAdvisors> — locked', () => {
   it('explains the high-end gate when a small model is configured', async () => {
     backend(SMALL)
     render(<CvAdvisors />)
-    await waitFor(() =>
-      expect(screen.getByText(/isn’t marked\s+as high-end/i)).toBeInTheDocument())
+    expect(await screen.findByText(/isn’t marked\s+as high-end/i)).toBeInTheDocument()
     // Still teaches what the advisors are — the gate copy replaces only the
     // "why can't I use this" paragraph.
     expect(screen.getByText('Review my whole CV')).toBeInTheDocument()

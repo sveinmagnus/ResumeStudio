@@ -146,7 +146,7 @@ function LetterEditor({ letter, onBack, onDelete, onUpdate, primaryLocale }: {
     <div className="cl-editor">
       <div className="cl-editor-top">
         <button className="cl-back" onClick={onBack}>← All cover letters</button>
-        <ExportMenu onPick={onExport} />
+        <ExportMenu onPick={(kind) => void onExport(kind)} />
         <button className="cl-btn-del cl-del-top" onClick={onDelete} title="Delete this letter">
           <Trash2 size={15} />
         </button>
@@ -159,7 +159,9 @@ function LetterEditor({ letter, onBack, onDelete, onUpdate, primaryLocale }: {
           <>
             <label className="cl-label" htmlFor="cl-name">Cover letter name</label>
             <input
-              id="cl-name" className="cl-name-input" value={letter.name} autoFocus
+              id="cl-name" className="cl-name-input" value={letter.name}
+              // eslint-disable-next-line jsx-a11y/no-autofocus -- appears only after the user clicks the edit affordance; not focusing what they just asked for costs a keystroke
+              autoFocus
               onChange={(e) => onUpdate({ name: e.target.value })}
               onBlur={() => setEditingName(false)}
               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === 'Escape') { e.preventDefault(); setEditingName(false) } }}

@@ -275,6 +275,7 @@ function CatGroup({
           {canRenameText && renaming ? (
             <input
               className="rcv-head-rename-input"
+              // eslint-disable-next-line jsx-a11y/no-autofocus -- appears only after the user clicks the edit affordance; not focusing what they just asked for costs a keystroke
               autoFocus
               value={renameText}
               onChange={(e) => setRenameText(e.target.value)}

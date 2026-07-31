@@ -203,6 +203,8 @@ export function ImageCropperModal({
 
         <div
           ref={frameRef}
+          // A deliberately keyboard-operable canvas; the aria-label documents the key map.
+          // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- see above
           tabIndex={0}
           role="application"
           aria-label="Pan with arrow keys, plus or minus to zoom, R to reset"

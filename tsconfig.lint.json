@@ -1,0 +1,9 @@
+{
+  "//": "Lint-only project so the type-aware ESLint rules can see tests and e2e specs. They are excluded from the two build tsconfigs on purpose (they must never be emitted or typechecked as app code), but a rule like no-floating-promises still needs a type program for them.",
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["node", "vitest/globals"],
+    "noEmit": true
+  },
+  "include": ["tests", "e2e", "vite.config.ts", "playwright.config.ts"]
+}

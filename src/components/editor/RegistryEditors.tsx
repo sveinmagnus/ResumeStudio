@@ -1270,7 +1270,7 @@ function ReferenceContextLink({ reference }: { reference: Reference }) {
 
   return (
     <div className="rcl-wrap">
-      <label className="rcl-label">Project or employment <span className="rcl-hint">— what was this person involved with?</span></label>
+      <div className="rcl-label">Project or employment <span className="rcl-hint">— what was this person involved with?</span></div>
       {linked ? (
         <div className="rcl-linked">
           <button
@@ -1295,6 +1295,7 @@ function ReferenceContextLink({ reference }: { reference: Reference }) {
           onPick={pick}
           placeholder="Search projects and employments by name…"
           addLabel="link"
+          ariaLabel="Search projects and employments to link"
         />
       )}
       <style>{`

@@ -1,13 +1,9 @@
 import { Check, CloudOff, Loader2, RefreshCw, HardDrive, GitMerge, CloudUpload, type LucideIcon } from 'lucide-react'
 
-export type SaveState =
-  | 'idle'        // nothing to report
-  | 'saving'      // server save in flight
-  | 'saved'       // last server save succeeded
-  | 'error'       // last server save failed; local cache holds the work
-  | 'offline'     // server confirmed unreachable; cache is the source of truth
-  | 'queued'      // online but a save didn't land; edits held locally, will retry
-  | 'conflict'    // server copy changed elsewhere; local edits held, awaiting resolve
+// The state machine lives in the store, which drives it; this component only
+// renders what it is handed. Re-exported so existing importers are unaffected.
+export type { SaveState } from '../../store/saveState'
+import type { SaveState } from '../../store/saveState'
 
 interface Props {
   state: SaveState

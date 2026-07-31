@@ -129,9 +129,14 @@ export function ViewHeaderControls({
                 <ChevronDown size={13} />
               </button>
             </div>
-            <label className="rv-hdr-show" title="Show this row">
-              <input type="checkbox" checked={f.show} onChange={(e) => setField(f.key, { show: e.target.checked })} />
-            </label>
+            <span className="rv-hdr-show">
+              <input
+                type="checkbox"
+                checked={f.show}
+                aria-label={`Show ${HEADER_FIELD_LABELS[f.key]}`}
+                onChange={(e) => setField(f.key, { show: e.target.checked })}
+              />
+            </span>
             <span className="rv-hdr-fname">{HEADER_FIELD_LABELS[f.key]}</span>
             <input
               className="rv-hdr-desc"
