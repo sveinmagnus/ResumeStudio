@@ -94,14 +94,13 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          # Node 22 LTS, not 20: Node 20 is EOL (April 2026) and
-          # better-sqlite3 v12.10+ no longer publishes Node-20 (abi115)
-          # prebuilds, so 20.x forces a from-source compile that the
-          # windows-latest VS 18 image cannot do (node-gyp can't drive it).
-          # rolldown (vitest) also requires >= 22.12. Node 22 has prebuilt
-          # better-sqlite3 binaries (abi127) on every OS. Note this is also
-          # the Node bundled into the desktop build (build-desktop copies
-          # process.execPath).
+          # Node 22 LTS, not 20: Node 20 is EOL (April 2026), better-sqlite3
+          # v13 declares engines >= 22, and rolldown (vitest) requires
+          # >= 22.12. Since v13 the addon is N-API, so its prebuilt binaries
+          # are ABI-INDEPENDENT and ship inside the package for every
+          # platform — no from-source compile, and no Node-ABI pinning to
+          # keep in step here any more. Note this is also the Node bundled
+          # into the desktop build (build-desktop copies process.execPath).
           node-version: '22'
           cache: 'npm'
 
