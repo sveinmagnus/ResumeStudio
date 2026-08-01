@@ -37,7 +37,7 @@
     "express-rate-limit": "^7.5.1",
     "fflate": "^0.8.3",
     "lucide-react": "^0.383.0",
-    "pdfmake": "^0.2.23",
+    "pdfmake": "^0.3.11",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "systray2": "^2.1.4",

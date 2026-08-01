@@ -43,7 +43,7 @@ import type { GlobalFonts } from './fonts'
 // Type-only: erased at compile time, so this does NOT pull pdfmake into any
 // bundle that imports this module — the library stays behind the lazy imports
 // in loadPdfMake().
-import type { FooterFn, PdfMakeStatic } from 'pdfmake/build/pdfmake'
+import type { FontContainer, FooterFn, PdfMakeStatic } from 'pdfmake/build/pdfmake'
 import { withHeaderDefaults, withFooterDefaults, buildHeaderLines, buildCopyrightLine, footerLines } from './viewHeader'
 import { imageInfoFromDataUrl, applyShapeMaskToDataUrl, type ImageInfo } from './image'
 import { exportFilename } from './exportFilename'
@@ -474,24 +474,30 @@ export async function buildPdfDocDefinition(
 let pdfMakePromise: Promise<PdfMakeStatic> | null = null
 function loadPdfMake(): Promise<PdfMakeStatic> {
   pdfMakePromise ??= (async () => {
-    const [pdfMakeMod, fontsMod] = await Promise.all([
+    const [pdfMakeMod, ...fontMods] = await Promise.all([
       import('pdfmake/build/pdfmake'),
-      import('pdfmake/build/vfs_fonts'),
+      // Roboto is the embedded default. Times / Helvetica / Courier are the PDF
+      // standard-14 base fonts a view's font choice maps onto (see lib/fonts.ts),
+      // so the PDF matches the family's look without shipping font binaries of
+      // our own. They are separate imports because pdfmake 0.3's browser build
+      // does NOT bundle the standard-14 metrics — it ships each family's .afm as
+      // its own font container, and a family that was never added renders as a
+      // hard "font not found" at layout time rather than silently substituting.
+      import('pdfmake/build/fonts/Roboto'),
+      import('pdfmake/build/standard-fonts/Times'),
+      import('pdfmake/build/standard-fonts/Helvetica'),
+      import('pdfmake/build/standard-fonts/Courier'),
     ])
     const pdfMake = pdfMakeMod.default
-    // pdfmake 0.2.x ships the vfs as the module default; tolerate a namespace
-    // wrapper too so a bundler interop quirk doesn't break the export.
-    const fonts = fontsMod as unknown as { default?: Record<string, string> } & Record<string, string>
-    pdfMake.vfs = fonts.default ?? fonts
-    // Roboto is embedded (bundled vfs); Times / Helvetica / Courier are the PDF
-    // standard-14 base fonts — pdfkit renders them without any embedded file, so a
-    // font choice maps onto one of these (see lib/fonts.ts) and the PDF matches
-    // the family's look without shipping extra font binaries.
-    pdfMake.fonts = {
-      Roboto: { normal: 'Roboto-Regular.ttf', bold: 'Roboto-Medium.ttf', italics: 'Roboto-Italic.ttf', bolditalics: 'Roboto-MediumItalic.ttf' },
-      Times: { normal: 'Times-Roman', bold: 'Times-Bold', italics: 'Times-Italic', bolditalics: 'Times-BoldItalic' },
-      Helvetica: { normal: 'Helvetica', bold: 'Helvetica-Bold', italics: 'Helvetica-Oblique', bolditalics: 'Helvetica-BoldOblique' },
-      Courier: { normal: 'Courier', bold: 'Courier-Bold', italics: 'Courier-Oblique', bolditalics: 'Courier-BoldOblique' },
+    // Each container carries BOTH the font files and the style→filename map, so
+    // registering it is the whole job — pdfmake 0.3 replaced the assignable
+    // `pdfMake.vfs`/`pdfMake.fonts` pair with these accumulating registrations.
+    // Taking the map from the container rather than hardcoding it also means the
+    // style→file names can't drift from the files actually loaded.
+    for (const mod of fontMods) {
+      // Tolerate a namespace wrapper so a bundler interop quirk can't break it.
+      const container = (mod as { default?: FontContainer } & FontContainer)
+      pdfMake.addFontContainer(container.default ?? container)
     }
     return pdfMake
   })()
@@ -525,19 +531,12 @@ export async function countPdfPages(
 ): Promise<number> {
   const docDefinition = await buildPdfDocDefinition(store, view, locale, globalFonts)
   const pdfMake = await loadPdfMake()
-  return new Promise<number>((resolve, reject) => {
-    let pages = 1
-    const probe: FooterFn = (_current, pageCount) => { pages = pageCount; return '' }
-    try {
-      pdfMake
-        .createPdf({ ...docDefinition, footer: probe })
-        // getBlob forces a full layout; the blob itself is thrown away. This is
-        // the cost of an honest number (tens of ms for a CV), so callers debounce.
-        .getBlob(() => resolve(Math.max(1, pages)))
-    } catch (err) {
-      reject(err instanceof Error ? err : new Error(String(err)))
-    }
-  })
+  let pages = 1
+  const probe: FooterFn = (_current, pageCount) => { pages = pageCount; return '' }
+  // getBlob forces a full layout; the blob itself is thrown away. This is the
+  // cost of an honest number (tens of ms for a CV), so callers debounce.
+  await pdfMake.createPdf({ ...docDefinition, footer: probe }).getBlob()
+  return Math.max(1, pages)
 }
 
 /**
@@ -547,7 +546,10 @@ export async function countPdfPages(
 export async function exportPdf(store: ResumeStore, view: ResumeView, locale: string, globalFonts?: GlobalFonts): Promise<void> {
   const docDefinition = await buildPdfDocDefinition(store, view, locale, globalFonts)
   const pdfMake = await loadPdfMake()
-  pdfMake.createPdf(docDefinition).download(exportFilename(store.resume?.full_name, view.name, 'pdf'))
+  // `download` lays the document out before it can hand over a file, so since
+  // 0.3 it resolves rather than blocking — awaiting it is what lets a layout
+  // failure reach the caller's error handling instead of becoming unhandled.
+  await pdfMake.createPdf(docDefinition).download(exportFilename(store.resume?.full_name, view.name, 'pdf'))
 }
 
 // ─── Cover letter ─────────────────────────────────────────────────────────────
@@ -612,5 +614,5 @@ export async function exportCoverLetterPdf(
 ): Promise<void> {
   const def = buildCoverLetterPdfDef(store, letter, locale, globalFonts)
   const pdfMake = await loadPdfMake()
-  pdfMake.createPdf(def).download(exportFilename(store.resume?.full_name, letter.name || 'cover-letter', 'pdf'))
+  await pdfMake.createPdf(def).download(exportFilename(store.resume?.full_name, letter.name || 'cover-letter', 'pdf'))
 }

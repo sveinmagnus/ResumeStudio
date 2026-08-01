@@ -31,8 +31,14 @@ const gz = (file) => gzipSync(readFileSync(file)).length / 1024
 const BUDGETS = {
   /** Entry JS + entry CSS, gzipped. What the browser must fetch before anything renders. */
   initialGzipKb: 340,
-  /** Each of these must remain a SEPARATE chunk — never folded into the entry. */
-  mustStayLazy: ['pdfmake', 'vfs_fonts', 'exporter'],
+  /**
+   * Each of these must remain a SEPARATE chunk — never folded into the entry.
+   * The font families are listed individually because pdfmake 0.3 ships one
+   * module per family instead of a single `vfs_fonts`: Roboto alone is ~470 kB
+   * gzipped, so any one of them collapsing into the entry is a bigger
+   * regression than the whole library was.
+   */
+  mustStayLazy: ['pdfmake', 'Roboto', 'Times', 'Helvetica', 'Courier', 'exporter'],
 }
 
 function main() {

@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test'
+import { readFileSync } from 'node:fs'
 
 /**
  * Smoke flows against the real production server (see playwright.config.ts).
@@ -98,6 +99,42 @@ test('a view exports a .docx — the lazy chunk loads and downloads', async ({ p
   // HTML-error "download" would not be.
   const path = await download.path()
   expect(path).toBeTruthy()
+})
+
+/**
+ * The same proof for the PDF path, which is a SEPARATE render engine (pdfmake,
+ * ~1 MB plus a font chunk per family) and fails in ways the DOCX test cannot
+ * see. Its fonts are the reason this test earns its runtime: pdfmake's browser
+ * build ships no font metrics of its own, so every family is a lazy chunk that
+ * must be fetched and registered before layout. A family that never registers
+ * throws mid-layout — and only for the users who picked that font, which is
+ * precisely the failure a stubbed unit test reports as passing.
+ */
+test('a view exports a .pdf — pdfmake and its fonts load and render', async ({ page }) => {
+  await createResume(page)
+
+  await page.getByRole('link', { name: 'Personal Details' }).click()
+  await fullName(page).fill('Pdf Person')
+  await expect(page.getByText('Saved', { exact: true })).toBeVisible({ timeout: 10_000 })
+
+  await page.getByRole('link', { name: /Resume Views/ }).click()
+  await page.getByRole('button', { name: 'New View' }).click()
+
+  await page.getByRole('button', { name: /Export view/ }).click()
+  const download = await Promise.all([
+    page.waitForEvent('download', { timeout: 30_000 }),
+    page.getByRole('menuitem', { name: /Export PDF/ }).click(),
+  ]).then(([d]) => d)
+
+  expect(download.suggestedFilename()).toMatch(/\.pdf$/)
+  // Assert the CONTENT, not just that a file arrived: a failed render can still
+  // produce a download. `%PDF-` is the format's magic number, and a real
+  // document ends with the EOF marker after its xref table.
+  const path = await download.path()
+  expect(path).toBeTruthy()
+  const bytes = readFileSync(path!)
+  expect(bytes.subarray(0, 5).toString('latin1')).toBe('%PDF-')
+  expect(bytes.subarray(-1024).toString('latin1')).toContain('%%EOF')
 })
 
 /**
