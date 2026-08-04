@@ -268,3 +268,152 @@ describe('isAbortError', () => {
     expect(isAbortError(new Error('nope'))).toBe(false)
   })
 })
+
+/**
+ * The probes behind optional features. Every one of these is called on render
+ * to decide whether a feature exists at all, so an unreachable or unhappy
+ * server has to make the feature hide quietly — never break the page and never
+ * reject into a render path.
+ */
+describe('probes that must never throw', () => {
+  const OFF_ASSIST = { configured: false, provider: '', model: '', local: false, highEnd: false }
+  const OFF_UPDATE = {
+    supported: false, state: 'idle', currentVersion: '0.0.0', latestVersion: null,
+    updateAvailable: false, downloadable: false, progress: 0, lastCheckedAt: null,
+    notes: '', htmlUrl: null, error: null,
+  }
+
+  /**
+   * [name, call, what a 500 yields, what an unreachable server yields].
+   *
+   * The connection-test probes deliberately differ between the two: "the
+   * server refused" and "there is no server" are different things to show a
+   * user who is mid-way through configuring a backend.
+   */
+  const probes: Array<[string, () => Promise<unknown>, unknown, unknown]> = [
+    ['health', () => api.health(), false, false],
+    ['backupStatus', () => api.backupStatus(), { configured: false }, { configured: false }],
+    ['llmStatus', () => api.llmStatus(), OFF_ASSIST, OFF_ASSIST],
+    ['llmModels', () => api.llmModels(), [], []],
+    ['updateStatus', () => api.updateStatus(), OFF_UPDATE, OFF_UPDATE],
+    ['testTranslate', () => api.testTranslate(),
+      { reachable: false, message: 'Test failed (500)' },
+      { reachable: false, message: 'Test request failed.' }],
+    ['testLlm', () => api.testLlm(),
+      { reachable: false, message: 'Test failed (500)' },
+      { reachable: false, message: 'Test request failed.' }],
+  ]
+
+  it.each(probes)('%s falls back when the server answers 500', async (_name, call, onRefused) => {
+    fetchMock.mockResolvedValue(mockRes({ status: 500 }))
+    expect(await call()).toEqual(onRefused)
+  })
+
+  it.each(probes)('%s falls back when the network is down', async (_name, call, _refused, onDown) => {
+    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'))
+    expect(await call()).toEqual(onDown)
+  })
+
+  it('logout swallows a failure rather than blocking sign-out', async () => {
+    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'))
+    await expect(api.logout()).resolves.toBeUndefined()
+  })
+
+  it('reports the assist as off unless the server says configured', async () => {
+    // A truthy-but-not-true value must not switch the feature on.
+    fetchMock.mockResolvedValue(mockRes({ body: { configured: 'yes', provider: 'openai' } }))
+    expect(await api.llmStatus()).toEqual(OFF_ASSIST)
+  })
+
+  it('keeps only models the server actually named', async () => {
+    fetchMock.mockResolvedValue(mockRes({ body: { models: [
+      { id: 'gpt-5' }, { id: '' }, { name: 'no id' }, null,
+    ] } }))
+    expect(await api.llmModels()).toEqual([{ id: 'gpt-5' }])
+  })
+
+  it('treats a models payload that is not a list as no models', async () => {
+    fetchMock.mockResolvedValue(mockRes({ body: { models: 'gpt-5' } }))
+    expect(await api.llmModels()).toEqual([])
+  })
+
+  it('asks the server to honour pending form values only when it has them', async () => {
+    fetchMock.mockResolvedValue(mockRes({ body: { models: [] } }))
+    await api.llmModels()
+    expect(callArgs()).toMatchObject(['/api/llm/models', { method: 'GET' }])
+
+    // Right after pasting a key, before Save — the values aren't stored yet.
+    fetchMock.mockClear()
+    await api.llmModels({ llm_api_key: 'sk-test' } as never)
+    expect(callArgs()[0]).toBe('/api/settings/llm/models')
+    expect(callArgs()[1].method).toBe('POST')
+  })
+})
+
+/**
+ * Every failing endpoint prefers the server's own `{ error }` wording, because
+ * the server knows what went wrong ("Sync folder is read-only") and the client
+ * only knows which button was pressed.
+ */
+describe('failure messages', () => {
+  it('surfaces the server message over the generic one', async () => {
+    fetchMock.mockResolvedValue(mockRes({ status: 500, body: { error: 'Sync folder is read-only' } }))
+    await expect(api.backupNow()).rejects.toThrow('Sync folder is read-only')
+  })
+
+  it('falls back to its own wording, with the status, when there is no message', async () => {
+    fetchMock.mockResolvedValue(mockRes({ status: 503, body: {} }))
+    await expect(api.backupNow()).rejects.toThrow(/\(503\)/)
+  })
+
+  it('falls back when the body is not JSON at all', async () => {
+    fetchMock.mockResolvedValue({
+      ok: false, status: 502, statusText: 'Bad Gateway',
+      json: async () => { throw new SyntaxError('Unexpected token <') },
+    } as unknown as Response)
+    await expect(api.backupNow()).rejects.toThrow(/\(502\)/)
+  })
+
+  it.each([
+    ['backupNow', () => api.backupNow()],
+    ['restoreBackup', () => api.restoreBackup()],
+    ['browseFolders', () => api.browseFolders()],
+    ['saveSettings', () => api.saveSettings({} as never)],
+    ['llmComplete', () => api.llmComplete('hi')],
+    ['importBackupFile', () => api.importBackupFile(new File(['{}'], 'b.json'))],
+  ])('%s maps 401 to UnauthorizedError', async (_name, call) => {
+    fetchMock.mockResolvedValue(mockRes({ status: 401 }))
+    await expect(call()).rejects.toBeInstanceOf(UnauthorizedError)
+  })
+})
+
+describe('endpoints that carry a payload', () => {
+  it('restoreBackup defaults to merging, never replacing', async () => {
+    fetchMock.mockResolvedValue(mockRes({ body: {} }))
+    await api.restoreBackup()
+    expect(JSON.parse(callArgs()[1].body as string)).toEqual({ mode: 'merge' })
+  })
+
+  it('browseFolders asks for the default location when given no path', async () => {
+    fetchMock.mockResolvedValue(mockRes({ body: { path: '/', entries: [] } }))
+    await api.browseFolders()
+    expect(JSON.parse(callArgs()[1].body as string)).toEqual({ path: '' })
+  })
+
+  it('llmComplete passes the advanced flag through, and refuses an empty answer', async () => {
+    fetchMock.mockResolvedValue(mockRes({ body: { text: 'drafted' } }))
+    expect(await api.llmComplete('prompt', 4096, true)).toBe('drafted')
+    expect(JSON.parse(callArgs()[1].body as string))
+      .toEqual({ prompt: 'prompt', max_tokens: 4096, advanced: true })
+
+    // A model that answers with whitespace has not answered.
+    fetchMock.mockResolvedValue(mockRes({ body: { text: '   ' } }))
+    await expect(api.llmComplete('prompt')).rejects.toThrow(/returned no text/i)
+  })
+
+  it('checkForUpdate and installUpdate report the server’s reason for refusing', async () => {
+    fetchMock.mockResolvedValue(mockRes({ status: 403, body: { error: 'Not the desktop build' } }))
+    await expect(api.checkForUpdate()).rejects.toThrow('Not the desktop build')
+    await expect(api.installUpdate()).rejects.toThrow('Not the desktop build')
+  })
+})
