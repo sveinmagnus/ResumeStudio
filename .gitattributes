@@ -1,0 +1,58 @@
+# Keep text files readable to git's own tooling, and name the real binaries.
+#
+# WHY: a single raw control character — a NUL, most often — makes git classify a
+# file as binary, and `git diff` then prints "Binary files differ" instead of
+# the change. A real edit to that file becomes invisible in review while every
+# check still reports green. This was measured, not assumed: an identical file
+# diffed as full text with `diff` set, and as "Binary files … differ" without.
+#
+# Marking a path `diff` tells git to treat it as text REGARDLESS of its content,
+# which is what keeps a stray byte from hiding a whole changeset from a reviewer.
+#
+# SCOPE, honestly: this governs git's own tooling. `grep` and ripgrep do not
+# read this file — on a NUL-bearing file they still report only
+# "Binary file … matches", suppressing the line and its number, so a match
+# survives but its content does not. The enforcement that covers every tool is
+# `npm run check:text` (scripts/check-control-chars.mjs), which fails CI on a
+# raw control byte anywhere in the tree. ESLint covers the same ground for
+# .ts/.tsx only — this and the CI check extend it to Markdown, JSON, YAML, CSS.
+#
+# Deliberately NOT setting `text=auto` here: the repo is developed with
+# core.autocrlf=true and renormalising every line ending would produce a
+# whole-tree diff that buries real changes. `diff` alone changes how git READS
+# a file, not how it stores it.
+
+# ── Source and docs: always diff as text ────────────────────────────────────
+*.ts        diff
+*.tsx       diff
+*.mjs       diff
+*.js        diff
+*.json      diff
+*.md        diff
+*.yml       diff
+*.yaml      diff
+*.css       diff
+*.html      diff
+*.txt       diff
+*.py        diff
+.gitignore  diff
+.gitattributes diff
+*.example   diff
+
+# ── Real binaries: never diff, never normalise ──────────────────────────────
+# `binary` is git's shorthand for `-diff -merge -text`. Naming them explicitly
+# keeps the rules above from ever being read as applying to a font or an image.
+*.woff2     binary
+*.woff      binary
+*.ttf       binary
+*.otf       binary
+*.png       binary
+*.jpg       binary
+*.jpeg      binary
+*.gif       binary
+*.ico       binary
+*.webp      binary
+*.pdf       binary
+*.zip       binary
+*.gz        binary
+*.node      binary

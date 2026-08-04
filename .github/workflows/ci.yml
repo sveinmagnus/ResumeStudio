@@ -38,6 +38,14 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      # ESLint forbids raw control characters, but only in .ts/.tsx. This is the
+      # same rule over everything git tracks — Markdown, JSON, YAML, CSS — which
+      # is where the last one actually escaped: a NUL written into CLAUDE.md
+      # while the ESLint rule for it was being documented. A file carrying one is
+      # binary to git and grep, so recursive searches skip it silently.
+      - name: No raw control characters
+        run: npm run check:text
+
       - name: Typecheck
         run: npm run typecheck
 
