@@ -1,9 +1,75 @@
 import { describe, it, expect } from 'vitest'
-import { computeCompleteness, computeSectionCoverage } from '../src/lib/completeness'
+import type { ResumeStore } from '../src/types'
+import { computeCompleteness, computeSectionCoverage, collectTrackedFields } from '../src/lib/completeness'
 import {
   emptyStore, makeProject, makeWork, makeEducation, makeKQ, makeCourse, makeSkill, makeRole,
-  makeSkillCategory,
+  makeSkillCategory, makeCertification, makeResume,
 } from './fixtures'
+
+describe('collectTrackedFields()', () => {
+  /**
+   * Every content section applies the same rule: a soft-deleted item ships in
+   * no export, so its untranslated fields must not drag the score down. The
+   * check is written out per section, so it can be lost from one of them
+   * without any aggregate number moving much.
+   */
+  it('excludes a disabled item in every section that has one', () => {
+    const cases: Array<[string, Partial<ResumeStore>]> = [
+      ['key_qualifications', { key_qualifications: [makeKQ({ summary: { en: 'x' }, disabled: true })] }],
+      ['projects', { projects: [makeProject({ long_description: { en: 'x' }, disabled: true })] }],
+      ['work_experiences', { work_experiences: [makeWork({ long_description: { en: 'x' }, disabled: true })] }],
+      ['educations', { educations: [makeEducation({ description: { en: 'x' }, disabled: true })] }],
+      ['courses', { courses: [makeCourse({ description: { en: 'x' }, disabled: true })] }],
+      ['certifications', { certifications: [makeCertification({ description: { en: 'x' }, disabled: true })] }],
+    ]
+    for (const [name, over] of cases) {
+      const store = { ...emptyStore(), resume: undefined as never, ...over }
+      expect(collectTrackedFields(store as ResumeStore), name).toEqual([])
+    }
+  })
+
+  it('tracks certifications, which nothing else reaches', () => {
+    const store = {
+      ...emptyStore(),
+      resume: undefined as never,
+      certifications: [makeCertification({ name: { en: 'CKA' }, description: { en: 'Kubernetes admin.' } })],
+    }
+    const fields = collectTrackedFields(store as ResumeStore)
+    // Only the name, exactly as for courses — the description is deliberately
+    // out of scope for both reports.
+    expect(fields.map((f) => f.meta.fieldLabel)).toEqual(['Name'])
+    expect(fields[0].meta.section).toBe('certifications')
+    expect(fields[0].prose).toBe(false)
+  })
+
+  /**
+   * `prose` is what drift.ts uses to decide whether comparing two lengths says
+   * anything. A name is not prose: "Acme" and "Acme" differing in length is
+   * meaningless, and marking it prose would fill the drift report with noise.
+   */
+  it('marks long-form fields as prose and identity fields as not', () => {
+    const store = {
+      ...emptyStore(),
+      resume: makeResume({ title: { en: 'Architect' } }),
+      projects: [makeProject({ customer: { en: 'Acme' }, long_description: { en: 'Ran the work.' } })],
+      work_experiences: [makeWork({ employer: { en: 'BigCo' }, long_description: { en: 'Led a team.' } })],
+      key_qualifications: [makeKQ({ summary: { en: 'A summary.' }, tag_line: { en: 'Architect' } })],
+    }
+    const byLabel = Object.fromEntries(
+      collectTrackedFields(store as ResumeStore).map((f) => [`${f.meta.section}.${f.meta.fieldLabel}`, f.prose]),
+    )
+    expect(byLabel['projects.Long description']).toBe(true)
+    expect(byLabel['work_experiences.Long description']).toBe(true)
+    expect(byLabel['key_qualifications.Summary']).toBe(true)
+    expect(byLabel['key_qualifications.Tagline']).toBe(false)
+    expect(byLabel['header.Title']).toBe(false)
+  })
+
+  it('reads nothing from the resume record when there isn\'t one', () => {
+    const store = { ...emptyStore(), resume: undefined } as unknown as ResumeStore
+    expect(collectTrackedFields(store)).toEqual([])
+  })
+})
 
 describe('computeCompleteness()', () => {
   it('returns 100% for every locale when there are no tracked fields', () => {

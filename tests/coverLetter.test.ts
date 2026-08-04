@@ -55,6 +55,40 @@ describe('resolveLetterParts()', () => {
     const letter = makeCoverLetter({ role_applied: { en: 'Architect', no: 'Arkitekt' } })
     expect(resolveLetterParts(storeWith(), letter, 'no').subject).toBe('Søknad på stillingen Arkitekt')
   })
+
+  it('trims every field it lifts, and drops the ones left empty', () => {
+    // Padding survives a copy-paste from a job ad and would otherwise be baked
+    // into a letterhead that is supposed to look typeset.
+    const store = storeWith({
+      resume: makeResume({
+        full_name: '  Ada Lovelace  ', email: '  ada@x.io  ', phone: '   ', website_url: '',
+      }),
+    })
+    const letter = makeCoverLetter({
+      company: { en: '  Equinor  ' }, recipient: { en: '   ' },
+      role_applied: { en: '  Architect  ' }, greeting: { en: '  Dear Manager,  ' },
+      closing: { en: '  Sincerely,  ' }, place_dated: '   ',
+    })
+    const p = resolveLetterParts(store, letter, 'en', new Date('2026-07-17T00:00:00Z'))
+
+    expect(p.senderName).toBe('Ada Lovelace')
+    expect(p.senderContact).toEqual(['ada@x.io'])   // blank phone/website omitted, not blank lines
+    expect(p.recipient).toEqual(['Equinor'])        // no recipient name — the company stands alone
+    expect(p.subject).toBe('Application for Architect')
+    expect(p.greeting).toBe('Dear Manager,')
+    expect(p.closing).toBe('Sincerely,')
+    // A whitespace-only dateline is no dateline, so the generated one stands in.
+    expect(p.dateline).toMatch(/2026/)
+  })
+
+  it('works from a store with no resume record at all', () => {
+    // Every letterhead field is optional chaining for this case; without it the
+    // cover-letter editor throws instead of rendering an empty letterhead.
+    const store = { ...storeWith(), resume: undefined } as unknown as ResumeStore
+    const p = resolveLetterParts(store, makeCoverLetter(), 'en')
+    expect(p.senderName).toBe('')
+    expect(p.senderContact).toEqual([])
+  })
 })
 
 describe('buildCoverLetterText()', () => {
