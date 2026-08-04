@@ -116,7 +116,7 @@ Wishlist: §12.
 |---|---|---|
 | Runtime | **Node 24+** (hard requirement) | `node:sqlite` is flagged on 22 and below. `engines` + CI + `build-desktop.mjs` all enforce it |
 | Build | Vite 8 (Rolldown) | `npm run dev` / `npm run build` / `npm run preview` |
-| Framework | React 18 + TypeScript | Strict mode on |
+| Framework | React 19 + TypeScript | Strict mode on |
 | State | Zustand (single store) | See `src/store/useStore.ts` |
 | Persistence | Express + **`node:sqlite`** (multi-row `resumes` + scoped `resume_snapshots`) | See `server/`. `server/sqlite.ts` is the only module that touches it. Per-id localStorage fallback in `lib/localCache.ts` |
 | Routing | Hand-rolled History API hook | `src/lib/router.ts` — `useRoute()`, `navigate()`, `<Link>`. No dep. |
@@ -151,7 +151,7 @@ Wishlist: §12.
   - **Test correctness** (`@vitest/eslint-plugin`, `testing-library`): a
     `findBy*` without `await` is always truthy and always passes.
   Rules that are OFF are off with a recorded reason, never silently: the React
-  Compiler rules (React 18, no compiler), three jsx-a11y interaction rules
+  Compiler rules (no compiler adopted), three jsx-a11y interaction rules
   (enlarged hit-areas next to real controls — adding tabIndex would create a
   duplicate tab stop, which is worse), and three testing-library/vitest rules
   that fight this suite's deliberate style. Read the config before adding to it.
