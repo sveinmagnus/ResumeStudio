@@ -233,7 +233,7 @@ describe('itemsMatchingTypeFilter()', () => {
   })
 
   it('returns an empty set for a stale key that no longer matches', () => {
-    const match = itemsMatchingTypeFilter('courses', items, 'en', { roles: [] }, 'Categorynope')
+    const match = itemsMatchingTypeFilter('courses', items, 'en', { roles: [] }, 'Category\u001Fnope')
     expect(match && match.size).toBe(0)
   })
 })
