@@ -56,6 +56,16 @@ describe('savePending / loadPending round-trip', () => {
     expect(loadPending(ID)).toBeNull()
   })
 
+  it('returns null for well-formed JSON that is not a record', () => {
+    // Each of these parses fine and then has to be refused: a record with no
+    // `data` would otherwise be handed to the store as an empty resume and
+    // overwrite the server copy on the next flush.
+    for (const junk of ['null', '"a string"', '42', '[]', '{}', '{"saved_at":"2026-01-01T00:00:00Z"}']) {
+      localStorage.setItem(KEY, junk)
+      expect(loadPending(ID), junk).toBeNull()
+    }
+  })
+
   it('preserves dirty_since across successive dirty writes, resets on clean→dirty', async () => {
     savePending(ID, input({ dirty: true }))
     const first = loadPending(ID)!.dirty_since

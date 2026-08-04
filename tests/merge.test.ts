@@ -120,6 +120,22 @@ describe('mergeRoles()', () => {
     expect(out.positions[1].role_ids).toEqual(['tgt'])
   })
 
+  it('leaves a position that never referenced the source alone', () => {
+    // The rewrite is gated on `includes`; without the gate every position is
+    // rebuilt, and one carrying no role_ids at all becomes a changed object for
+    // no reason — which the diff then shows the user as a conflict.
+    const store = emptyStore()
+    store.roles.push(makeRole({ id: 'src' }), makeRole({ id: 'tgt' }))
+    const untouched = makePosition({ id: 'pos1', role_ids: ['other'] })
+    const legacy = makePosition({ id: 'pos2' })
+    delete (legacy as unknown as Record<string, unknown>).role_ids
+    store.positions.push(untouched, legacy)
+
+    const out = mergeRoles(store, 'src', 'tgt')
+    expect(out.positions[0]).toBe(untouched)   // same object, not a copy
+    expect(out.positions[1]).toBe(legacy)      // a position with no role_ids at all
+  })
+
   it('is a no-op when either id is missing', () => {
     const store = emptyStore()
     store.roles.push(makeRole({ id: 'only' }))

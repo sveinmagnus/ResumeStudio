@@ -27,6 +27,32 @@ describe('paramsOf()', () => {
     expect(paramsOf('my-org/custom:latest')).toBeNull()
     expect(paramsOf('')).toBeNull()
   })
+
+  it('reads multi-digit and spaced sizes, and stops at the unit', () => {
+    // A 70B tag is the difference between the small budget and the large one,
+    // and a single-digit pattern would read it as 7 — or miss it entirely.
+    expect(paramsOf('llama3.1:70b')).toBe(70)
+    expect(paramsOf('qwen:110b')).toBe(110)
+    // A mixture-of-experts tag has no separator before the per-expert size, so
+    // it reads as unsized — which lands on the conservative budget, not a wrong
+    // one.
+    expect(paramsOf('mixtral:8x7b')).toBeNull()
+    // Some tags space the unit off.
+    expect(paramsOf('local-model:13 b')).toBe(13)
+    expect(paramsOf('smollm2:1700m')).toBeCloseTo(1.7)
+  })
+
+  it('needs a separator before the size, so a version number is not a size', () => {
+    // 'llama3b-tuned' has no separator; reading "3b" out of a name like this
+    // would size a model from its version string.
+    expect(paramsOf('llama3.2')).toBeNull()
+    expect(paramsOf('bert')).toBeNull()
+  })
+
+  it('reads only a size that ends at a word boundary', () => {
+    // ':3bx' is not three billion parameters.
+    expect(paramsOf('weird:3bx')).toBeNull()
+  })
 })
 
 describe('inputBudget()', () => {
