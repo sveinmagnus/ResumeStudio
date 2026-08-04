@@ -145,6 +145,81 @@ describe('validateFindings', () => {
     expect(() => validateFindings({ nope: true }, s, 'en')).toThrow(InvalidFindingsError)
     expect(() => validateFindings('text', s, 'en')).toThrow(InvalidFindingsError)
   })
+
+  /**
+   * Two different failures with two different fixes: a reply that isn't an
+   * object at all (the model wrote prose) versus one shaped right but carrying
+   * no findings array. Asserting only the error TYPE cannot tell them apart.
+   */
+  it('says which of the two malformed replies it got', () => {
+    const s = emptyStore()
+    expect(() => validateFindings(null, s, 'en')).toThrow(/not a JSON object/i)
+    expect(() => validateFindings('text', s, 'en')).toThrow(/not a JSON object/i)
+    expect(() => validateFindings({ nope: true }, s, 'en')).toThrow(/no "findings" array/i)
+  })
+
+  it('keeps a finding that has only one of title and detail', () => {
+    const s = storeWithProject()
+    const { findings, dropped } = validateFindings(ok([
+      { section: 'projects', item_id: null, detail: 'Detail but no title.' },
+      { section: 'projects', item_id: null, title: 'Title but no detail' },
+      { section: 'projects', item_id: null, title: '   ', detail: '' },
+    ]), s, 'en')
+
+    expect(dropped).toEqual(['Finding 3 had no text.'])
+    // A missing title falls back to the head of the detail, so the panel always
+    // has something to show in the collapsed row.
+    expect(findings.map((f) => f.title)).toEqual(['Detail but no title.', 'Title but no detail'])
+  })
+
+  it('numbers each drop and names the section it could not find', () => {
+    const s = storeWithProject()
+    const { dropped } = validateFindings(ok([
+      'not an object',
+      { section: '', item_id: null, title: 'T', detail: 'd' },
+      { section: 'nope', item_id: null, title: 'T', detail: 'd' },
+    ]), s, 'en')
+    expect(dropped).toEqual([
+      'Finding 1 was not an object.',
+      'Finding 2 named an unknown section ("—").',
+      'Finding 3 named an unknown section ("nope").',
+    ])
+  })
+
+  it('reads "null" and blank ids as "about the whole section"', () => {
+    // Models write the string "null" for an absent id surprisingly often;
+    // treating it as an id would drop a perfectly good section-level finding.
+    const s = storeWithProject()
+    const { findings, dropped } = validateFindings(ok([
+      { section: 'projects', item_id: 'null', title: 'A', detail: 'x' },
+      { section: 'projects', item_id: '   ', title: 'B', detail: 'x' },
+      { section: 'projects', item_id: `  ${pid(s)}  `, title: 'C', detail: 'x' },
+    ]), s, 'en')
+
+    expect(dropped).toHaveLength(0)
+    expect(findings.map((f) => f.itemId)).toEqual([null, null, pid(s)])
+  })
+
+  it('trims and caps model text, and defaults severity and kind', () => {
+    const s = storeWithProject()
+    const { findings } = validateFindings(ok([{
+      severity: 'catastrophic', section: 'projects', item_id: null,
+      title: `  ${'t'.repeat(250)}  `, detail: `  ${'d'.repeat(1200)}  `,
+    }]), s, 'en')
+
+    expect(findings[0].title).toBe('t'.repeat(200))
+    expect(findings[0].detail).toBe('d'.repeat(1000))
+    // An unknown severity must not sort as if it were the worst thing found.
+    expect(findings[0]).toMatchObject({ severity: 'medium', kind: 'note' })
+  })
+
+  it('caps a flood of findings', () => {
+    const s = storeWithProject()
+    const many = Array.from({ length: 70 }, (_, n) => ({
+      section: 'projects', item_id: null, title: `T${n}`, detail: 'x',
+    }))
+    expect(validateFindings(ok(many), s, 'en').findings).toHaveLength(60)
+  })
 })
 
 describe('validateProposals', () => {
@@ -204,6 +279,111 @@ describe('applyProposals', () => {
     expect(data.projects[0].long_description.no).toBe('Ansvarlig for arbeid.')
     // The input store is untouched — replaceData takes the new one.
     expect(s.projects[0].long_description.en).toBe('Was responsible for various work.')
+  })
+
+  it('says which of the two malformed replies it got', () => {
+    const s = emptyStore()
+    expect(() => validateProposals(null, s, 'en')).toThrow(/not a JSON object/i)
+    expect(() => validateProposals('text', s, 'en')).toThrow(/not a JSON object/i)
+    expect(() => validateProposals({ nope: true }, s, 'en')).toThrow(/no "edits" array/i)
+  })
+
+  it('numbers every drop and names what it could not resolve', () => {
+    const s = storeWithProject()
+    const { proposals, dropped } = validateProposals({ edits: [
+      'not an object',
+      { section: '', item_id: pid(s), field: 'long_description', proposed: 'x' },
+      { section: 'projects', item_id: 'gone', field: 'long_description', proposed: 'x' },
+      { section: 'projects', item_id: pid(s), field: 'nonsense', proposed: 'x' },
+      { section: 'projects', item_id: pid(s), field: 'long_description', proposed: '   ' },
+    ] }, s, 'en')
+
+    expect(proposals).toHaveLength(0)
+    expect(dropped).toEqual([
+      'Edit 1 was not an object.',
+      'Edit 2 named an unknown section ("—").',
+      "Edit 3 pointed at an item that isn't in projects.",
+      'Edit 4 named an unknown field ("nonsense").',
+      'Edit 5 had no replacement text.',
+    ])
+  })
+
+  /**
+   * The guard that matters: a rewritten customer name reads perfectly and is a
+   * lie. Highlights are prose but a list, which needs an op this doesn't have.
+   */
+  it('refuses identity fields and list fields by name', () => {
+    const s = storeWithProject()
+    const { dropped } = validateProposals({ edits: [
+      { section: 'projects', item_id: pid(s), field: 'customer', proposed: 'Globex' },
+      { section: 'projects', item_id: pid(s), field: 'highlights', proposed: 'A bullet' },
+    ] }, s, 'en')
+    expect(dropped).toEqual([
+      'Edit 1 tried to rewrite "Customer", which is not free prose.',
+      'Edit 2 tried to rewrite "Highlights", which is not free prose.',
+    ])
+  })
+
+  it('drops an edit that proposes the text already there', () => {
+    const s = storeWithProject()
+    const { proposals, dropped } = validateProposals({ edits: [{
+      section: 'projects', item_id: pid(s), field: 'long_description',
+      proposed: 'Was responsible for various work.',
+    }] }, s, 'en')
+    // Not a drop with a reason — there is nothing wrong with it, it is just
+    // not an edit, and reporting it as a problem would be noise.
+    expect(proposals).toHaveLength(0)
+    expect(dropped).toHaveLength(0)
+  })
+
+  it('compares normalised text, so padding alone is not an edit', () => {
+    // Both sides are trimmed before the no-op check. Without that, a model
+    // echoing the text back with different surrounding space would look like a
+    // rewrite and be offered as one. (The markup half of this normalisation is
+    // richToPlain's own business, and needs a DOM this suite does not run in.)
+    const s = storeWithProject({ long_description: { en: '  Ran the platform.  ' } })
+    const { proposals } = validateProposals({ edits: [{
+      section: 'projects', item_id: pid(s), field: 'long_description', proposed: 'Ran the platform.',
+    }] }, s, 'en')
+    expect(proposals).toHaveLength(0)
+  })
+
+  it('trims and caps the proposed text', () => {
+    const s = storeWithProject()
+    const { proposals } = validateProposals({ edits: [{
+      section: 'projects', item_id: pid(s), field: 'long_description',
+      proposed: `  ${'p'.repeat(4500)}  `, why: `  ${'w'.repeat(250)}  `,
+    }] }, s, 'en')
+    expect(proposals[0].proposed).toBe('p'.repeat(4000))
+    expect(proposals[0].why).toBe('w'.repeat(200))
+  })
+
+  it('skips a proposal for a section or item that has gone', () => {
+    const s = storeWithProject()
+    const { proposals } = validateProposals({ edits: [{
+      section: 'projects', item_id: pid(s), field: 'long_description', proposed: 'Ran the work.',
+    }] }, s, 'en')
+
+    const noSection = { ...s, projects: undefined } as unknown as ResumeStore
+    expect(applyProposals(noSection, proposals).skipped).toHaveLength(1)
+
+    const noItem = { ...s, projects: [] }
+    expect(applyProposals(noItem, proposals).skipped).toHaveLength(1)
+  })
+
+  it('returns the very same store when nothing was accepted', () => {
+    const s = storeWithProject()
+    const out = applyProposals(s, [])
+    expect(out.data).toBe(s)
+    expect(out).toMatchObject({ applied: 0, skipped: [] })
+  })
+
+  it('caps a runaway reply rather than validating all of it', () => {
+    const s = storeWithProject()
+    const many = Array.from({ length: 90 }, (_, n) => ({
+      section: 'projects', item_id: pid(s), field: 'long_description', proposed: `Rewrite ${n}.`,
+    }))
+    expect(validateProposals({ edits: many }, s, 'en').proposals).toHaveLength(80)
   })
 
   /**
