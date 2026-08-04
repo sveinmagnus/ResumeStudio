@@ -152,28 +152,44 @@ describe('footer note placement', () => {
 
 describe('countPdfPages', () => {
   beforeEach(() => { vi.resetModules(); __resetPdfMakeForTests() })
-  afterEach(() => { vi.doUnmock('pdfmake/build/pdfmake'); vi.doUnmock('pdfmake/build/vfs_fonts') })
+  const FONT_MODULES = [
+    'pdfmake/build/fonts/Roboto',
+    'pdfmake/build/standard-fonts/Times',
+    'pdfmake/build/standard-fonts/Helvetica',
+    'pdfmake/build/standard-fonts/Courier',
+  ]
+  afterEach(() => {
+    vi.doUnmock('pdfmake/build/pdfmake')
+    for (const m of FONT_MODULES) vi.doUnmock(m)
+  })
 
   /**
    * Stand in for pdfmake: run the doc's footer callback the way real pagination
    * does (once per page, with the total), so we can assert we read the count
-   * out of it. Captures the doc definition it was handed.
+   * out of it. Captures the doc definition it was handed, and every font
+   * container registered — the standard-14 families are separate modules since
+   * 0.3, and a missing one only fails at layout time in a real render.
    */
   function stubPdfMake(pages: number) {
-    const seen: { doc?: Record<string, unknown> } = {}
-    vi.doMock('pdfmake/build/vfs_fonts', () => ({ default: {} }))
+    const seen: { doc?: Record<string, unknown>, fonts: string[] } = { fonts: [] }
+    for (const m of FONT_MODULES) {
+      const family = m.split('/').pop()!
+      vi.doMock(m, () => ({ default: { vfs: {}, fonts: { [family]: {} } } }))
+    }
     vi.doMock('pdfmake/build/pdfmake', () => ({
       default: {
-        vfs: {}, fonts: {},
+        addFontContainer(container: { fonts: Record<string, unknown> }) {
+          seen.fonts.push(...Object.keys(container.fonts))
+        },
         createPdf(doc: Record<string, unknown>) {
           seen.doc = doc
           return {
-            getBlob(cb: (b: Blob) => void) {
+            async getBlob() {
               const footer = doc.footer as ((c: number, t: number, s: unknown) => unknown) | undefined
               for (let p = 1; p <= pages; p++) footer?.(p, pages, { width: 595, height: 842 })
-              cb(new Blob())
+              return new Blob()
             },
-            download() {}, open() {},
+            async download() {}, async open() {},
           }
         },
       },
@@ -208,5 +224,16 @@ describe('countPdfPages', () => {
     stubPdfMake(0)
     const { countPdfPages } = await import('../src/lib/pdfExporter')
     await expect(countPdfPages(store(), makeView(), 'en')).resolves.toBe(1)
+  })
+
+  it('registers every font family a view can select', async () => {
+    // lib/fonts.ts maps each catalog family onto one of these four. pdfmake's
+    // browser build bundles none of them, so an unregistered family is not a
+    // silent substitution — it throws mid-layout, and only for the users who
+    // picked that font. Pin all four rather than trusting the import list.
+    const seen = stubPdfMake(1)
+    const { countPdfPages } = await import('../src/lib/pdfExporter')
+    await countPdfPages(store(), makeView(), 'en')
+    expect(seen.fonts.sort()).toEqual(['Courier', 'Helvetica', 'Roboto', 'Times'])
   })
 })

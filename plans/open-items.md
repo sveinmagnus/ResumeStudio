@@ -126,6 +126,31 @@ merge landed, non-overlapping edits reconcile silently instead of prompting. A
 `BroadcastChannel` lock would stop the local thrash, not a correctness bug.
 **Trigger:** the thrash becomes visible in practice. Low priority.
 
+### better-sqlite3 v13 — blocked upstream, NOT an oversight
+`better-sqlite3` v12 pulls the deprecated **`prebuild-install`**. v13 removes it
+(N-API, prebuilt binaries shipped inside the package), and the upgrade was tried
+and reverted — the deprecation warning is the lesser evil, so don't "fix" it
+again without re-testing the case below.
+
+npm only learns a package opts out of the implicit `node-gyp rebuild` (v13's
+`"gypfile": false`, added in 13.0.2 for exactly this) when it resolves the
+package **from the registry**. Installing from a committed `package-lock.json`
+skips that resolution, so npm compiles from source instead of using the shipped
+prebuild. That means `npm ci` **and** a plain `npm install` on a fresh clone both
+fail on any machine without a full C++ toolchain — including Windows dev boxes
+without Visual Studio, and the `windows-latest` release runner whose node-gyp
+limitation is already documented in `release.yml`. Only a lockfile-less
+`npm install` succeeds, which is not how anyone consumes this repo.
+
+Upstream: WiseLibs/better-sqlite3#1503 (the yarn workaround there,
+`dependenciesMeta.built: false`, has no npm equivalent).
+**Trigger:** better-sqlite3 ships a no-op `install` script (which suppresses
+npm's implicit gyp build), or npm persists `gypfile` in the lockfile. Verify by
+running `npm ci` on a machine with **no** Visual Studio / Python before landing.
+The heavier alternative — dropping the native dep for node:sqlite — is a real
+option but a separate migration (server/db.ts + registryDb.ts, and CI moves to
+Node 24 since Node 22 gates it behind `--experimental-sqlite`).
+
 ---
 
 ## 3. Closed — do not re-propose

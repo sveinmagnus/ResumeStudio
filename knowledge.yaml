@@ -236,10 +236,10 @@ units:
   # ── Open work (the only plan file; finished plans live in git history) ────
   - id: plan-open-items
     path: plans/open-items.md
-    intent: "What is NOT built, and what has been decided against? Unbuilt features with design notes and cost (B3 interview brief, F1 staffing fit, C2 native multi-language authoring, F2 registry harmonisation, B2 per-view rewrites, E1 fit-by-tightening), deferred infrastructure with the trigger condition for each (image asset table, PWA offline-load, Electron, cross-tab lock), and CLOSED decisions that must not be re-proposed (English-only UI, no application log). Also carries the 'deliberately not a defect' list salvaged from the code-quality review."
+    intent: "What is NOT built, and what has been decided against? Unbuilt features with design notes and cost (B3 interview brief, F1 staffing fit, C2 native multi-language authoring, F2 registry harmonisation, B2 per-view rewrites, E1 fit-by-tightening), deferred infrastructure with the trigger condition for each (image asset table, PWA offline-load, Electron, cross-tab lock, better-sqlite3 v13), and CLOSED decisions that must not be re-proposed (English-only UI, no application log). Also carries the 'deliberately not a defect' list salvaged from the code-quality review."
     scope: global
     audience: [human, developer, agent]
-    validated: "2026-07-31"
+    validated: "2026-08-04"
     update_frequency: as-needed
     depends_on: [claude-instructions, feature-map]
     triggers: [what-to-build-next, unbuilt, deferred, roadmap, do-not-propose, out-of-scope, priorities]
