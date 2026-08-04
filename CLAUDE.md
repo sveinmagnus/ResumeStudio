@@ -140,9 +140,10 @@ Wishlist: §12.
     `components/`, redefining a `.pf-*` primitive in a component `<style>`
     block (§6), and `font-size` below the 11px minimum (§6).
   - **A raw control character in a string literal** (`Literal[raw=…]`). A NUL
-    makes git and grep treat the whole FILE as binary, so every recursive text
-    search silently skips it — a security sweep or rename audit misses the file
-    and nothing reports a problem. Write `\u0000`. Three instances existed when
+    makes git and grep treat the whole FILE as binary: `git diff` hides the
+    change behind "Binary files differ", and `grep`/ripgrep report only
+    "Binary file … matches" without the line or its number — so an edit escapes
+    review and a sweep returns something that does not read as a hit. Write `\u0000`. Three instances existed when
     the rule was added. It matches the RAW source, so the escape is legal and
     the raw byte is not.
   - **Conventions that were previously discipline-only**, each measured at zero
@@ -180,9 +181,14 @@ Wishlist: §12.
   enforces a ratchet (global ~76 %, `src/lib` ~86 %) set just below current so it
   catches decay, not noise; `npm run test:mutation` (Stryker, `src/lib` only) is
   an **audit you run before a release**, not a CI gate — it reports which
-  assertions aren't there. CI also runs CodeQL (`security-extended`) and gitleaks.
+  assertions aren't there. `npm run check:text` fails on a raw control character
+  anywhere git tracks — ESLint covers the same ground for `.ts`/`.tsx` only, and
+  the last stray NUL landed in CLAUDE.md, outside its reach. `.gitattributes`
+  backs it up on git's side (`diff` keeps a file textual to `git diff`/`git grep`
+  regardless of content), but plain grep ignores that file, so the CI check is
+  the enforcement. CI also runs CodeQL (`security-extended`) and gitleaks.
 - **No `any`** unless interfacing with truly unknown shapes (e.g. raw imported JSON). Use `unknown` then narrow.
-- **No default exports** for components — use named exports. (`main.tsx` and `App.tsx` are the only existing default exports; new components are named.)
+- **No default exports** for components — use named exports, now enforced by `import-x/no-default-export` in `components/`/`lib/`/`store/`. (`main.tsx` and `App.tsx` are the only existing default exports; they are entry points and sit outside those paths.)
 - **Inline styles via `<style>` tag inside the component.** Each component owns its CSS. Tokens come from `src/index.css` (see §6). The only utility classes in `index.css` are widely-shared widgets: `.check-row`, `.skip-link`, `.sr-only`, `.pf-*` (plain-field primitives — wrap/label/input/year-stepper/ongoing). **`.pf-*` must stay in `index.css`, not a component's own `<style>` tag** — a component-scoped style block only exists in the DOM while that component is mounted, so a page using a bare `.pf-input` without ever mounting `TextField`/`DateField`/`TagField` gets an unstyled browser-default textbox (this regressed the registry `CategoryField` once already — see git history).
 - **Accessibility conventions (v0.3.1)** — hold these invariants when touching UI:
   - Every form control gets a programmatic name (`htmlFor`/`useId`, or
