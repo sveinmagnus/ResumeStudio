@@ -111,6 +111,65 @@ describe('validateBackup()', () => {
     expect(() => validateBackup(b)).toThrow(/profile/)
   })
 
+  it('names the one problem in its message, and counts several', () => {
+    // The importer shows this string when it cannot list the issues.
+    expect(() => validateBackup(42)).toThrow('(root): expected a JSON object')
+    expect(new InvalidBackupError([
+      { path: 'a', reason: 'x' }, { path: 'b', reason: 'y' },
+    ]).message).toMatch(/2/)
+  })
+
+  it('rejects a registries or sections block that is not an object', () => {
+    // Never executed before: a string here would be indexed by key and yield
+    // characters, which is worse than being refused.
+    for (const key of ['registries', 'sections']) {
+      const b = good()
+      b[key] = 'not an object'
+      expect(() => validateBackup(b)).toThrow(new RegExp(key))
+    }
+  })
+
+  it('treats an absent registries or sections block as empty, not broken', () => {
+    const b = good()
+    delete b['registries']
+    b['sections'] = null
+    expect(() => validateBackup(b)).not.toThrow()
+  })
+
+  it('flags an entry with no usable id, by exact path', () => {
+    const b = good()
+    b['views'] = [{ id: 'v1' }, { id: '' }, { id: 42 }, 'not an object']
+    try {
+      validateBackup(b)
+      throw new Error('should have thrown')
+    } catch (e) {
+      expect((e as InvalidBackupError).issues.map((i) => i.path)).toEqual([
+        'views[1].id', 'views[2].id', 'views[3]',
+      ])
+    }
+  })
+
+  it('flags a malformed id deep inside registries and sections', () => {
+    const b = good()
+    b['registries'] = { skills: [{ id: '' }] }
+    b['sections'] = { projects: [{ id: '' }], technology_categories: 'not an array' }
+    try {
+      validateBackup(b)
+      throw new Error('should have thrown')
+    } catch (e) {
+      const paths = (e as InvalidBackupError).issues.map((i) => i.path)
+      expect(paths).toContain('registries.skills[0].id')
+      expect(paths).toContain('sections.projects[0].id')
+      expect(paths).toContain('sections.technology_categories')
+    }
+  })
+
+  it('rejects a canonical_registry that is not an array', () => {
+    const b = good()
+    b['canonical_registry'] = { skills: [] }
+    expect(() => validateBackup(b)).toThrow(/canonical_registry/)
+  })
+
   it('tolerates a null profile and omitted optional collections', () => {
     // Older/partial backups: profile null, no industries/skill_categories, no views.
     const b = {

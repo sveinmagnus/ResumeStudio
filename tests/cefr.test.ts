@@ -13,6 +13,16 @@ describe('cefrSummary()', () => {
       .toBe('B2 (Listening, Reading) · C1 (Writing)')
   })
 
+  /**
+   * A bare "B2" claims all five categories. When only two are filled in, the
+   * summary has to say which — otherwise a half-finished entry reads as a
+   * complete assessment.
+   */
+  it('spells out which categories a lone level covers when not all are set', () => {
+    expect(cefrSummary({ listening: 'B2', reading: 'B2' })).toBe('B2 (Listening, Reading)')
+    expect(cefrSummary({ writing: 'C1' })).toBe('C1 (Writing)')
+  })
+
   it('is empty for no set levels', () => {
     expect(cefrSummary(undefined)).toBe('')
     expect(cefrSummary({})).toBe('')

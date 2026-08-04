@@ -53,6 +53,16 @@ describe('lane packing (overlap handling)', () => {
     expect(m.employment.bars.every((b) => b.lane === 0)).toBe(true)
   })
 
+  it('reuses a lane for a job starting the month the last one ended', () => {
+    // The boundary the lane packer turns on: with a strict comparison this
+    // stacks two consecutive jobs into two lanes and doubles the chart height.
+    const store = emptyStore()
+    store.work_experiences.push(makeWork({ id: 'a', start: { year: 2018, month: 1 }, end: { year: 2019, month: 6 } }))
+    store.work_experiences.push(makeWork({ id: 'b', start: { year: 2019, month: 6 }, end: { year: 2020, month: 1 } }))
+    const m = buildCareerTimeline(store, 'en', { ...opts, includeProjects: false })
+    expect(m.employment.lanes).toBe(1)
+  })
+
   it('stacks overlapping employments into separate lanes', () => {
     const store = emptyStore()
     store.work_experiences.push(makeWork({ id: 'a', start: { year: 2018, month: 1 }, end: { year: 2020, month: 1 } }))
@@ -82,6 +92,26 @@ describe('employment gaps', () => {
     store.work_experiences.push(makeWork({ id: 'b', start: { year: 2019, month: 7 }, end: { year: 2020, month: 1 } })) // contiguous
     store.work_experiences.push(makeWork({ id: 'c', start: { year: 2020, month: 2 }, end: { year: 2021, month: 1 } })) // 0-month gap
     const m = buildCareerTimeline(store, 'en', { ...opts, includeProjects: false, minGapMonths: 2 })
+    expect(m.gaps).toEqual([])
+  })
+
+  it('reports a gap of exactly the threshold', () => {
+    // Only the far side was tested, so moving the comparison a month was
+    // invisible — and a two-month gap is precisely what a user asks about.
+    const store = emptyStore()
+    store.work_experiences.push(makeWork({ id: 'a', start: { year: 2018, month: 1 }, end: { year: 2019, month: 6 } }))
+    store.work_experiences.push(makeWork({ id: 'b', start: { year: 2019, month: 9 }, end: { year: 2020, month: 1 } }))
+    const m = buildCareerTimeline(store, 'en', { ...opts, includeProjects: false, minGapMonths: 2 })
+    expect(m.gaps.map((g) => g.months)).toEqual([2])
+  })
+
+  it('never calls contiguous jobs a gap, even with no threshold at all', () => {
+    // With minGapMonths 0 the threshold cannot mask an off-by-one in the
+    // "is there anything uncovered here" test, which is the point.
+    const store = emptyStore()
+    store.work_experiences.push(makeWork({ id: 'a', start: { year: 2018, month: 1 }, end: { year: 2019, month: 6 } }))
+    store.work_experiences.push(makeWork({ id: 'b', start: { year: 2019, month: 7 }, end: { year: 2020, month: 1 } }))
+    const m = buildCareerTimeline(store, 'en', { ...opts, includeProjects: false, minGapMonths: 0 })
     expect(m.gaps).toEqual([])
   })
 
@@ -141,6 +171,33 @@ describe('projects track', () => {
     store.projects.push(makeProject({ id: 'p1', start: { year: 2021, month: 1 }, end: { year: 2021, month: 6 } }))
     expect(buildCareerTimeline(store, 'en', opts).projects.bars).toHaveLength(1)
     expect(buildCareerTimeline(store, 'en', { ...opts, includeProjects: false }).projects.bars).toHaveLength(0)
+  })
+
+  it('skips a disabled project and one with no start date', () => {
+    // Same rule as employment, on its own code path — a soft-deleted project
+    // must not reappear on the chart.
+    const store = emptyStore()
+    store.projects.push(makeProject({ id: 'p1', start: { year: 2021, month: 1 }, end: { year: 2021, month: 6 }, disabled: true }))
+    store.projects.push(makeProject({ id: 'p2', start: null, end: { year: 2021, month: 6 } }))
+    expect(buildCareerTimeline(store, 'en', opts).projects.bars).toEqual([])
+  })
+
+  it('labels a project by customer, falling back to its name', () => {
+    const store = emptyStore()
+    store.projects.push(makeProject({
+      id: 'p1', customer: { en: 'Acme' }, description: { en: 'Payments' },
+      start: { year: 2021, month: 1 }, end: { year: 2021, month: 6 },
+    }))
+    store.projects.push(makeProject({
+      id: 'p2', customer: {}, description: { en: 'Internal tooling' },
+      start: { year: 2021, month: 1 }, end: { year: 2021, month: 6 },
+    }))
+    store.projects.push(makeProject({
+      id: 'p3', customer: {}, description: {},
+      start: { year: 2021, month: 1 }, end: { year: 2021, month: 6 },
+    }))
+    const labels = buildCareerTimeline(store, 'en', opts).projects.bars.map((b) => b.label)
+    expect(labels).toEqual(['Acme', 'Internal tooling', 'Project'])
   })
 
   it('projects do not contribute to employment gaps', () => {

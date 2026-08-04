@@ -254,6 +254,14 @@ function runOne(base, tests) {
  *
  * This is the part you actually act on: each line is a change to the source
  * that every test still passed through, i.e. an assertion nobody wrote.
+ *
+ * ONE CAVEAT, and it matters when reading the list: a module is measured
+ * against ITS OWN test file only (that scoping is what makes the run finish at
+ * all — see the header). A mutant killed by some OTHER file is reported here as
+ * surviving. Real example: emptying a CEFR group's label map is caught by
+ * tests/localeCoverage.test.ts, which the cefr run never loads, so cefr's
+ * report lists it as alive. Before writing a test for a survivor, consider
+ * whether another suite already covers it.
  */
 function printSurvivors(base) {
   const file = detailPath(base)
@@ -290,6 +298,8 @@ function printSurvivors(base) {
     const tally = Object.entries(byMutator).sort((a, b) => b[1] - a[1])
       .map(([k, n]) => `${k} ${n}`).join(', ')
     if (tally) console.log(`  — by mutator: ${tally}`)
+    console.log('  — measured against this module\'s own test only; a mutant another'
+      + ' suite kills still shows as alive here.')
   }
 }
 
