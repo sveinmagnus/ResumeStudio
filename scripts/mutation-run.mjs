@@ -8,10 +8,15 @@
  * tests, so that alone blew past Stryker's timeout and the run died having
  * measured nothing. Raising the timeout only converts a crash into a long wait.
  *
- * The fix is to stop making it read the whole suite. Each `src/lib/x.ts` has a
- * `tests/x.test.ts`, so this runs Stryker once per source file against ONLY the
- * matching test file: the dry run drops from minutes to about a second, and the
- * mutants that survive are the ones that file's own tests should have killed.
+ * The fix is to stop making it read the whole suite. This runs Stryker once per
+ * source file against ONLY the tests that exercise it — its own
+ * `tests/x.test.ts` where that exists, otherwise whichever test files import
+ * it. The dry run drops from minutes to about a second, and the mutants that
+ * survive are the ones those tests should have killed.
+ *
+ * The module list is READ OFF DISK every run (`src/lib/*.ts`) — there is no
+ * checked-in list to fall out of date — and anything no test touches is
+ * reported by name rather than quietly left out of the numbers.
  *
  * Properties that matter, each learned the hard way:
  *  - **One file per process.** A crash costs that file, not the run.
@@ -56,13 +61,54 @@ const limitIdx = argv.indexOf('--limit')
 const limit = limitIdx >= 0 ? Number(argv[limitIdx + 1]) : Infinity
 const names = argv.filter((a, i) => !a.startsWith('--') && !(limitIdx >= 0 && i === limitIdx + 1))
 
-/** Every src/lib/*.ts that has a tests/<name>.test.ts beside it. */
-function candidates() {
+/** Every module in src/lib, read off disk each run — never a checked-in list. */
+function libModules() {
   return readdirSync(path.join(ROOT, 'src', 'lib'))
-    .filter((f) => f.endsWith('.ts'))
+    .filter((f) => f.endsWith('.ts') && !f.endsWith('.d.ts'))
     .map((f) => f.replace(/\.ts$/, ''))
-    .filter((base) => existsSync(path.join(ROOT, 'tests', `${base}.test.ts`)))
     .sort()
+}
+
+/** Every tests/**\/*.test.ts(x), with its text — walked once per process. */
+let testFiles = null
+function allTestFiles() {
+  if (testFiles) return testFiles
+  const out = []
+  const walk = (rel) => {
+    for (const e of readdirSync(path.join(ROOT, rel), { withFileTypes: true })) {
+      const child = `${rel}/${e.name}`
+      if (e.isDirectory()) walk(child)
+      else if (/\.test\.tsx?$/.test(e.name)) out.push({ path: child, text: readFileSync(path.join(ROOT, child), 'utf8') })
+    }
+  }
+  walk('tests')
+  testFiles = out
+  return out
+}
+
+/**
+ * The test files that exercise src/lib/<base>.ts.
+ *
+ * Preferred: its own tests/<base>.test.ts — that one-to-one pairing is what
+ * makes a scoped run cheap. But 27 of the 101 lib modules have no same-name
+ * test (the whole advanced-assist family: cvReview, jobFit, atsAudit, …), and
+ * the old rule skipped them SILENTLY — a full run reported 74 files and never
+ * mentioned the 27 it had not measured. So fall back to whichever test files
+ * import the module; for these that is usually one or two files, so the dry
+ * run stays cheap.
+ */
+function testsFor(base) {
+  const own = [`tests/${base}.test.ts`, `tests/${base}.test.tsx`]
+    .filter((p) => existsSync(path.join(ROOT, p)))
+  if (own.length) return own
+  const escaped = base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const imports = new RegExp(`lib/${escaped}['"]`)
+  return allTestFiles().filter((f) => imports.test(f.text)).map((f) => f.path)
+}
+
+/** Modules that can be measured, i.e. some test somewhere touches them. */
+function candidates() {
+  return libModules().filter((base) => testsFor(base).length > 0)
 }
 
 const loadReport = () => {
@@ -83,7 +129,7 @@ const saveReport = (report) => {
  *  - a stryker config pointing at it, because `vitest.configFile` is a config
  *    key with no CLI equivalent.
  */
-function writeScopedConfigs(base) {
+function writeScopedConfigs(base, tests) {
   const vitestFile = path.join(ROOT, `vitest.mutation.${base}.config.ts`)
   writeFileSync(vitestFile, [
     "/// <reference types=\"vitest\" />",
@@ -103,7 +149,7 @@ function writeScopedConfigs(base) {
     '  ...baseConfig,',
     '  test: {',
     '    ...baseConfig.test,',
-    `    include: ['tests/${base}.test.ts'],`,
+    `    include: [${tests.map((t) => `'${t}'`).join(', ')}],`,
     '    // Replaces the base coverage block entirely, thresholds included: a',
     '    // one-file run can never meet whole-suite thresholds, and the non-zero',
     '    // exit reads as "something went wrong in the initial test run".',
@@ -125,7 +171,14 @@ function writeScopedConfigs(base) {
     jsonReporter: { fileName: `reports/mutation/files/${base}.json` },
     coverageAnalysis: 'perTest',
     mutate: [`src/lib/${base}.ts`],
-    ignorePatterns: ['dist', 'release', 'coverage', 'reports', '.stryker-tmp'],
+    // `.claude` is load-bearing, not tidiness: Stryker copies the project into
+    // a sandbox per file, and `.claude/worktrees/*` holds full checkouts that
+    // OTHER live sessions are editing. A file that vanishes between the scan
+    // and the copy fails the whole run with `ENOENT … copyfile`, which is what
+    // killed competencyBundles mid-batch. Worktrees are excluded through
+    // .git/info/exclude, which Stryker does not read.
+    // `data` is the same hazard: a live SQLite DB with WAL files being written.
+    ignorePatterns: ['dist', 'release', 'release-dist', 'coverage', 'reports', '.stryker-tmp', '.claude', 'data'],
     concurrency: 2,
     timeoutMS: 60000,
     dryRunTimeoutMinutes: 5,
@@ -152,8 +205,8 @@ function parseScore(output) {
   }
 }
 
-function runOne(base) {
-  const { vitestFile, strykerFile } = writeScopedConfigs(base)
+function runOne(base, tests) {
+  const { vitestFile, strykerFile } = writeScopedConfigs(base, tests)
   const started = Date.now()
   const secs = () => Math.round((Date.now() - started) / 1000)
   try {
@@ -254,6 +307,21 @@ function summarise(report) {
     console.log(`\n${stale.length} file(s) have a score but no mutant detail (measured before the`
       + ` json reporter). A plain run re-measures them:\n  ${stale.join(' ')}`)
   }
+  reportUnmeasurable()
+}
+
+/**
+ * Say out loud which lib modules no test touches.
+ *
+ * An unmeasured module is the one thing a mutation report cannot show you: it
+ * has no score, so it is not in the table, so it looks like it isn't there.
+ * These are worse than a low score — nothing exercises them at all.
+ */
+function reportUnmeasurable() {
+  const orphans = libModules().filter((base) => testsFor(base).length === 0)
+  if (!orphans.length) return
+  console.log(`\n${orphans.length} lib module(s) have NO test that imports them — not measurable,`
+    + ` and not in the numbers above:\n  ${orphans.join(' ')}`)
 }
 
 function main() {
@@ -279,14 +347,24 @@ function main() {
   if (!todo.length) {
     console.log('Nothing to do — everything is measured. --force to re-measure, --report to print,\n'
       + '--survivors [file…] to list the mutants no test killed.')
+    reportUnmeasurable()
     return
   }
   console.log(`Measuring ${todo.length} file(s); results are saved after each one.\n`)
 
   for (const [i, base] of todo.entries()) {
-    process.stdout.write(`[${i + 1}/${todo.length}] ${base} … `)
-    const result = runOne(base)
-    report.files[base] = { ...result, at: new Date().toISOString() }
+    const tests = testsFor(base)
+    if (!tests.length) {
+      // Named explicitly on the command line but nothing tests it.
+      console.log(`[${i + 1}/${todo.length}] ${base} … SKIPPED — no test imports it`)
+      continue
+    }
+    // Show the test set when it isn't the obvious same-name one, so a surprising
+    // score (or runtime) is traceable to what actually ran.
+    const via = tests.length === 1 && tests[0] === `tests/${base}.test.ts` ? '' : ` (via ${tests.join(', ')})`
+    process.stdout.write(`[${i + 1}/${todo.length}] ${base}${via} … `)
+    const result = runOne(base, tests)
+    report.files[base] = { ...result, tests, at: new Date().toISOString() }
     saveReport(report) // after EVERY file, so an interrupt keeps what it measured
     console.log(result.error
       ? `ERROR — ${result.error} [${result.seconds}s]`

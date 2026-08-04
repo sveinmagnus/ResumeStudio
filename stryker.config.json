@@ -18,6 +18,8 @@
     "means re-running the affected tests), which is exactly why it is not in CI \u2014",
     "it is something you do before a release, read, and act on.",
     "",
+    "ignorePatterns carries two entries that are load-bearing rather than tidiness. '.claude' — Stryker copies the project into a sandbox, and .claude/worktrees/* holds full git checkouts that OTHER live sessions are editing; a file that vanishes between the scan and the copy fails the whole run with 'ENOENT ... copyfile'. Those worktrees are excluded through .git/info/exclude, which Stryker does not read. 'data' is the same hazard, a live SQLite DB with WAL files being written underneath the copy.",
+    "",
     "dryRunTimeoutMinutes is raised from Stryker's 5-minute default on purpose: the dry run executes the WHOLE 2600-test suite once per test-runner process, instrumented, and four of those in parallel do not finish in five minutes. The symptom is 'Initial test run timed out!' before a single mutant is tried, which reads like a broken config rather than a budget."
   ],
   "packageManager": "npm",
@@ -41,9 +43,12 @@
   "ignorePatterns": [
     "dist",
     "release",
+    "release-dist",
     "coverage",
     "reports",
-    ".stryker-tmp"
+    ".stryker-tmp",
+    ".claude",
+    "data"
   ],
   "thresholds": {
     "high": 80,
