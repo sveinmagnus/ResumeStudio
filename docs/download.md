@@ -53,7 +53,9 @@ exposed to your network.
 ## Build from source
 
 If you'd rather build your own copy, or you're on a platform we don't ship a
-binary for yet, all you need is Node.js 22+ and Git.
+binary for yet, all you need is Node.js 24+ and Git. (24 is a hard floor, not a
+recommendation — the database is Node's built-in `node:sqlite`, which older
+releases keep behind a flag.)
 
 ```bash
 git clone {{ site.repo_url }}.git
