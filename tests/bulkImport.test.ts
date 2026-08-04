@@ -87,6 +87,48 @@ describe('the spec table', () => {
       expect(() => spec.dupKeys(item), spec.key).not.toThrow()
     }
   })
+
+  /**
+   * The preview label falls back across locales. A batch written only in
+   * Norwegian, previewed in English, would otherwise show a column of blank
+   * rows and look like it had imported nothing.
+   */
+  it('labels a preview row from another locale when the asked-for one is empty', () => {
+    const ctx = { resumeId: 'r1', defaultLocale: 'en', internSkill: () => 's', internRole: () => 'r' }
+    const spec = BULK_SPECS.find((s) => s.key === 'projects')!
+
+    const both = spec.make({ customer: { en: 'Acme', no: 'Acme AS' } }, ctx)
+    expect(spec.title(both, 'en')).toBe('Acme')
+    expect(spec.title(both, 'no')).toBe('Acme AS')
+
+    const norwegianOnly = spec.make({ customer: { no: 'Statens vegvesen' } }, ctx)
+    expect(spec.title(norwegianOnly, 'en')).toBe('Statens vegvesen')
+
+    // Nothing to show is empty, not a crash — including when the value isn't a
+    // localized object at all, which is what a legacy or hand-built item looks
+    // like. The preview must never be the thing that throws.
+    expect(spec.title(spec.make({}, ctx), 'en')).toBe('')
+    expect(spec.title({ customer: 'a bare string' }, 'en')).toBe('')
+    expect(spec.title({ customer: null }, 'en')).toBe('')
+  })
+
+  it('keys a duplicate on every locale name, and on the date when there is one', () => {
+    const ctx = { resumeId: 'r1', defaultLocale: 'en', internSkill: () => 's', internRole: () => 'r' }
+    const spec = BULK_SPECS.find((s) => s.key === 'courses')!
+
+    // One key per distinct name — a name repeated across locales is not two.
+    const two = spec.dupKeys(spec.make({ name: { en: 'Kubernetes', no: 'Kubernetes' } }, ctx))
+    expect(two).toHaveLength(1)
+    expect(spec.dupKeys(spec.make({ name: { en: 'Kubernetes', no: 'Containere' } }, ctx))).toHaveLength(2)
+
+    // A year with no month must not key the same as a year with one, or an
+    // undated entry would collide with every dated one.
+    // The paste field is "completed"; the mapper puts it on the range's end.
+    const undated = spec.dupKeys(spec.make({ name: 'Kubernetes' }, ctx))
+    const dated = spec.dupKeys(spec.make({ name: 'Kubernetes', completed: { year: 2024, month: 3 } }, ctx))
+    const yearOnly = spec.dupKeys(spec.make({ name: 'Kubernetes', completed: 2024 }, ctx))
+    expect(new Set([...undated, ...dated, ...yearOnly]).size).toBe(3)
+  })
 })
 
 describe('isBulkImportFormat()', () => {
@@ -166,6 +208,37 @@ describe('validateBulkImport()', () => {
   it('is lenient about unknown extra keys the mapper ignores', () => {
     expect(() => validateBulkImport(file('courses', [{ name: 'X', vibes: 'immaculate' }]), 'courses'))
       .not.toThrow()
+  })
+
+  it('takes a scalar or null for a text field, but not a list', () => {
+    // A model answering 2019 for a name is sloppy, not unusable; an array is a
+    // different shape and would be dropped silently by the mapper.
+    expect(() => validateBulkImport(file('courses', [
+      { name: 2019 }, { name: true }, { name: null }, { program: undefined },
+    ]), 'courses')).not.toThrow()
+    expect(() => validateBulkImport(file('courses', [{ name: ['a', 'b'] }]), 'courses'))
+      .toThrow(/expected a string, or an object of locale/)
+  })
+
+  it('checks the keys of a per-locale object are locale codes', () => {
+    // A model that keys by language NAME produces text nothing will ever read,
+    // because no locale resolves to "english".
+    expect(() => validateBulkImport(file('courses', [{ name: { english: 'Kubernetes' } }]), 'courses'))
+      .toThrow(/expected a locale code/)
+    expect(() => validateBulkImport(file('courses', [{ name: { 'en-GB': 'Kubernetes' } }]), 'courses'))
+      .not.toThrow()
+  })
+
+  it('rejects a locale slot holding something other than text', () => {
+    expect(() => validateBulkImport(file('courses', [{ name: { en: { nested: 'no' } } }]), 'courses'))
+      .toThrow(/items\[0\].name.en/)
+    // A number in a locale slot is still text as far as the mapper cares.
+    expect(() => validateBulkImport(file('courses', [{ name: { en: 2019 } }]), 'courses')).not.toThrow()
+  })
+
+  it('names the single problem in its message rather than counting to one', () => {
+    expect(() => validateBulkImport(file('courses', [{ name: ['a'] }]), 'courses'))
+      .toThrow(/items\[0\]\.name:/)
   })
 })
 
