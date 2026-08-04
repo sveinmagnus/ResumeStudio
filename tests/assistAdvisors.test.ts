@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { emptyStore, makeEducation, makeProject, makeWork } from './fixtures'
+import {
+  emptyStore, makeCertification, makeCourse, makeEducation, makeKQ, makeProject, makeWork,
+} from './fixtures'
 import type { KeyCompetency, ResumeStore } from '../src/types'
 import { buildCvDigest, buildBilingualDigest, itemLabel } from '../src/lib/cvDigest'
-import { fieldOf, isAdvisorSection, itemsOf } from '../src/lib/cvFields'
+import { CV_SECTIONS, fieldOf, fieldsOf, isAdvisorSection, itemsOf } from '../src/lib/cvFields'
 import { validateFindings, InvalidFindingsError, FINDINGS_SCHEMA } from '../src/lib/assistFindings'
 import {
   validateProposals, applyProposals, InvalidProposalsError,
@@ -50,6 +52,60 @@ describe('cvFields', () => {
     s.projects[0].disabled = true
     expect(itemsOf(s, 'projects')).toHaveLength(0)
   })
+
+  /**
+   * The field map is a table, and a table with only spot checks can lose or
+   * mistype an entry silently. Two properties matter and neither is visible in
+   * a single lookup: a key that doesn't exist on the item makes any proposal
+   * naming it unwritable, and an identity field marked `prose` becomes
+   * rewritable — which is how an employer's name gets "improved".
+   */
+  it('names only keys that exist on the section it belongs to', () => {
+    // The summary fields are optional on their types and are absent until
+    // something writes one, so they can't be required to exist on a fixture.
+    const optional = new Set(['summary_short', 'short_description'])
+    const s = {
+      ...emptyStore(),
+      key_qualifications: [makeKQ()], key_competencies: [], projects: [makeProject()],
+      work_experiences: [makeWork()], educations: [makeEducation()], courses: [makeCourse()],
+      certifications: [makeCertification()],
+    } as ResumeStore
+    for (const section of CV_SECTIONS) {
+      const [item] = itemsOf(s, section)
+      if (!item) continue // sections with no fixture here are covered elsewhere
+      for (const f of fieldsOf(section)) {
+        if (optional.has(f.key)) continue
+        expect(f.key in item, `${section}.${f.key}`).toBe(true)
+      }
+    }
+  })
+
+  it('marks every identity field as non-prose', () => {
+    // The rewriting passes only ever touch prose. These are the fields whose
+    // value is a fact about someone, not a way of saying something.
+    const identity: Array<[string, string]> = [
+      ['projects', 'customer'], ['projects', 'description'],
+      ['work_experiences', 'employer'], ['work_experiences', 'role_title'],
+      ['educations', 'school'], ['educations', 'degree'],
+      ['positions', 'name'], ['positions', 'organisation'],
+      ['courses', 'name'], ['certifications', 'name'], ['certifications', 'organiser'],
+      ['publications', 'title'], ['publications', 'publisher'],
+      ['key_qualifications', 'tag_line'], ['key_competencies', 'title'],
+    ]
+    for (const [section, key] of identity) {
+      expect(fieldOf(section, key)?.prose, `${section}.${key}`).toBe(false)
+    }
+  })
+
+  it('covers the content sections and no registry or language section', () => {
+    // A registry name is a shared vocabulary entry, and CEFR levels are not
+    // prose at all; a rewrite pass reaching either has nothing useful to say.
+    expect([...CV_SECTIONS].sort()).toEqual([
+      'certifications', 'courses', 'educations', 'honor_awards', 'key_competencies',
+      'key_qualifications', 'positions', 'presentations', 'projects', 'publications',
+      'recommendations', 'work_experiences',
+    ])
+  })
 })
 
 describe('buildCvDigest', () => {
@@ -67,6 +123,39 @@ describe('buildCvDigest', () => {
     const s = storeWithProject()
     expect(itemLabel('projects', s.projects[0] as unknown as Record<string, unknown>, 'en'))
       .toBe('Acme — Payments platform')
+  })
+
+  /**
+   * Dates orient the model in time — "which of these is the recent one" is a
+   * question several advisors answer. An ongoing role has to read as ongoing;
+   * showing a blank end would make current work look finished.
+   */
+  it('dates each item, marking an ongoing one as present', () => {
+    const s = emptyStore()
+    s.work_experiences = [
+      makeWork({ id: 'w1', employer: { en: 'Past' }, start: { year: 2019, month: 6 }, end: { year: 2021, month: 3 } }),
+      makeWork({ id: 'w2', employer: { en: 'Now' }, start: { year: 2021, month: null }, end: null }),
+      makeWork({ id: 'w3', employer: { en: 'Undated' }, start: null, end: null }),
+    ]
+    const digest = buildCvDigest(s, { locale: 'en' })
+    expect(digest).toContain('2019-06 → 2021-03')  // month padded to two digits
+    expect(digest).toContain('2021 → present')     // year-only start, still open
+    // An item with no dates at all says nothing about time — neither an open
+    // range nor a pair of question marks.
+    expect(digest).not.toContain('?')
+  })
+
+  it('caps a long field rather than sending the whole essay', () => {
+    const s = storeWithProject({ long_description: { en: 'x'.repeat(4000) } })
+    const digest = buildCvDigest(s, { locale: 'en', maxFieldChars: 100 })
+    expect(digest).toContain(`${'x'.repeat(100)}…`)
+    expect(digest).not.toContain('x'.repeat(101))
+  })
+
+  it('leaves out the short fields when the pass ignores them', () => {
+    const s = storeWithProject({ short_description: { en: 'A short line.' } })
+    expect(buildCvDigest(s, { locale: 'en', includeShort: true })).toContain('A short line.')
+    expect(buildCvDigest(s, { locale: 'en', includeShort: false })).not.toContain('A short line.')
   })
 })
 
@@ -702,6 +791,23 @@ describe('prompt builders', () => {
     const prompt = buildCvReviewPrompt(s, 'en')
     expect(prompt).toContain('Kubernetes')
     expect(prompt).toContain(FINDINGS_SCHEMA)
+  })
+
+  it('the review says so plainly when the skill registry is empty', () => {
+    // An empty list rendered as nothing would leave the model reading the
+    // heading with no items under it, and inventing "missing" skills freely.
+    const prompt = buildCvReviewPrompt(storeWithProject(), 'en')
+    expect(prompt).toContain('(none yet)')
+  })
+
+  it('the review lists skills in the language being reviewed', () => {
+    const s = storeWithProject()
+    s.skills = [{
+      id: 'sk-1', resume_id: 'resume-1', name: { en: 'Cloud architecture', no: 'Skyarkitektur' },
+      total_duration_in_years: 0, proficiency: 3, is_highlighted: false,
+      created_at: new Date().toISOString(),
+    }]
+    expect(buildCvReviewPrompt(s, 'no')).toContain('Skyarkitektur')
   })
 
   /**

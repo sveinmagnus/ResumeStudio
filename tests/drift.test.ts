@@ -73,6 +73,20 @@ describe('numberDiff()', () => {
     // Both sides carry a number and they disagree → a real discrepancy.
     expect(numberDiff('Led 5 people', 'Ledet 3 personer')).toEqual({ onlyA: ['5'], onlyB: ['3'] })
   })
+
+  it('reads a percent sign only where it actually follows the number', () => {
+    // "40 %" with a space is the Norwegian convention and still salient; a %
+    // somewhere later in the sentence must not make a bare 5 salient.
+    expect(numberDiff('cut costs 40 %', 'kuttet kostnader')).toEqual({ onlyA: ['40'], onlyB: [] })
+    expect(numberDiff('5 people, all % of the team', 'personer')).toEqual({ onlyA: [], onlyB: [] })
+  })
+
+  it('reports both sides in a stable order when each has extras', () => {
+    // The panel lists these; unsorted, the same disagreement reads differently
+    // depending on the order the sentence happened to use.
+    expect(numberDiff('300 and 200 and 7', 'Ledet 900 og 800 og 7'))
+      .toEqual({ onlyA: ['200', '300'], onlyB: ['800', '900'] })
+  })
 })
 
 describe('wordCount()', () => {

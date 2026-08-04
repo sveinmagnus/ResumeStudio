@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { diffStores } from '../src/lib/diffResume'
+import { diffStores, sectionLabel } from '../src/lib/diffResume'
 import { emptyStore, makeResume, makeProject, makeSkill, makeSkillCategory } from './fixtures'
 
 describe('diffStores', () => {
@@ -98,5 +98,16 @@ describe('diffStores', () => {
     const theirs = { ...emptyStore(), resume: null }
     const d = diffStores(mine, theirs)
     expect(d.profileFields).toContainEqual({ field: 'Full name', mine: 'Has Name', theirs: '' })
+  })
+
+  it('names every section the conflict modal can show', () => {
+    // Both halves of the modal call this, so a key with no label must fall back
+    // to something rather than render blank.
+    expect(sectionLabel('projects')).toBe('Projects')
+    expect(sectionLabel('skill_categories')).toBe('Skill categories')
+    // `resume` is not a section array, so it has its own name.
+    expect(sectionLabel('resume')).toBe('Personal details')
+    // A section added since this map was written still names itself.
+    expect(sectionLabel('brand_new_section')).toBe('brand_new_section')
   })
 })

@@ -36,6 +36,62 @@ describe('freshnessReport — certifications', () => {
     expect(freshnessReport(store, NOW, 'en').total).toBe(0)
   })
 
+  it('places the two boundaries: expiring this month, and the last month in the window', () => {
+    // "now" is June 2026 and the window is a number of months, so both edges
+    // are a single month wide and neither was covered from both sides.
+    const within = emptyStore()
+    within.certifications.push(makeCertification({ id: 'now', expires: { year: 2026, month: 6 } }))
+    const r = freshnessReport(within, NOW, 'en')
+    // Expiring THIS month has not expired yet.
+    expect(r.expiringCerts.map((c) => c.id)).toEqual(['now'])
+    expect(r.expiredCerts).toEqual([])
+
+    const edge = emptyStore()
+    const last = 6 + DEFAULT_FRESHNESS.expiringWithinMonths
+    edge.certifications.push(makeCertification({ id: 'edge', expires: { year: 2026, month: last } }))
+    expect(freshnessReport(edge, NOW, 'en').expiringCerts.map((c) => c.id)).toEqual(['edge'])
+
+    const past = emptyStore()
+    past.certifications.push(makeCertification({ id: 'past', expires: { year: 2026, month: last + 1 } }))
+    expect(freshnessReport(past, NOW, 'en').total).toBe(0)
+  })
+
+  it('holds a snoozed warning back until the snooze lapses', () => {
+    const store = emptyStore()
+    store.certifications.push(makeCertification({ id: 'c1', name: { en: 'AWS SA' }, expires: { year: 2025, month: 1 } }))
+    store.resume = {
+      ...emptyStore().resume!,
+      ...(makeWork() as never),
+      attention_dismissals: { [certWarningKey('c1')]: '2026-09-01T00:00:00Z' },
+    } as never
+
+    const r = freshnessReport(store, NOW, 'en')
+    expect(r.expiredCerts).toEqual([])
+    expect(r.snoozed.map((s) => s.label)).toEqual(['AWS SA'])
+
+    // Once the date passes, the warning comes back rather than staying hidden.
+    const later = freshnessReport(store, new Date('2026-09-02T00:00:00Z'), 'en')
+    expect(later.expiredCerts.map((c) => c.id)).toEqual(['c1'])
+    expect(later.snoozed).toEqual([])
+  })
+
+  it('ignores an unparseable snooze date rather than hiding the warning forever', () => {
+    const store = emptyStore()
+    store.certifications.push(makeCertification({ id: 'c1', expires: { year: 2025, month: 1 } }))
+    store.resume = {
+      ...emptyStore().resume!,
+      attention_dismissals: { [certWarningKey('c1')]: 'not a date' },
+    } as never
+    expect(freshnessReport(store, NOW, 'en').expiredCerts.map((c) => c.id)).toEqual(['c1'])
+  })
+
+  it('reports on a store with no resume record', () => {
+    // The dismissals live on the resume; without one there are simply none.
+    const store = { ...emptyStore(), resume: null }
+    store.certifications.push(makeCertification({ id: 'c1', expires: { year: 2025, month: 1 } }))
+    expect(freshnessReport(store, NOW, 'en').expiredCerts.map((c) => c.id)).toEqual(['c1'])
+  })
+
   it('ignores disabled certs and those with no expiry', () => {
     const store = emptyStore()
     store.certifications.push(makeCertification({ expires: { year: 2025, month: 1 }, disabled: true }))
