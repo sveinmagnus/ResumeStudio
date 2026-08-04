@@ -60,6 +60,61 @@ describe('connectivity machine', () => {
     expect(seen).toEqual(['online', 'offline', 'online'])
   })
 
+  it('does not re-announce a state it is already in', () => {
+    // Two offline events (a flaky NIC) are one transition. Re-emitting would
+    // make every subscriber redo its offline handling.
+    const seen: string[] = []
+    subscribeOnline((s) => seen.push(s))
+    window.dispatchEvent(new Event('offline'))
+    window.dispatchEvent(new Event('offline'))
+    expect(seen).toEqual(['online', 'offline'])
+  })
+
+  it('stops polling once it is back online', async () => {
+    const health = vi.spyOn(api, 'health').mockResolvedValue(true)
+    subscribeOnline(() => {})
+    window.dispatchEvent(new Event('offline'))
+
+    await vi.advanceTimersByTimeAsync(15_000)
+    expect(isOnline()).toBe(true)
+
+    // Recovered: the poll must be torn down, not left running for the session.
+    health.mockClear()
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(health).not.toHaveBeenCalled()
+  })
+
+  it('starts from the NIC state, and only once', () => {
+    // A second subscriber must not re-read navigator.onLine and stomp the
+    // state the machine has since established.
+    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
+    __resetConnectivityForTests()
+    vi.spyOn(api, 'health').mockResolvedValue(false)
+
+    subscribeOnline(() => {})
+    expect(isOnline()).toBe(false)
+
+    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true)
+    const seen: string[] = []
+    subscribeOnline((s) => seen.push(s))
+    expect(seen).toEqual(['offline'])
+  })
+
+  it('polls from the start when the app loads with no connection', async () => {
+    // Booting offline gets no 'online' event if the server was already
+    // reachable by the time we started, so the poll has to be running already.
+    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
+    __resetConnectivityForTests()
+    const health = vi.spyOn(api, 'health').mockResolvedValue(true)
+
+    subscribeOnline(() => {})
+    expect(isOnline()).toBe(false)
+
+    await vi.advanceTimersByTimeAsync(15_000)
+    expect(health).toHaveBeenCalled()
+    expect(isOnline()).toBe(true)
+  })
+
   it('while offline it keeps polling health to catch recovery without an event', async () => {
     const health = vi.spyOn(api, 'health').mockResolvedValue(false)
     subscribeOnline(() => {})

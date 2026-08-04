@@ -19,6 +19,12 @@ describe('chipDragId / parseChipDragId', () => {
     expect(parseChipDragId('nopipe')).toBeNull()
     expect(parseChipDragId('group|')).toBeNull()
   })
+
+  it('accepts an empty group, which is where the separator sits at index 0', () => {
+    // The one position a "no separator" test cannot reach: index 0 is a real
+    // separator, and treating it as missing loses the drop entirely.
+    expect(parseChipDragId('|c1')).toEqual({ group: '', competencyId: 'c1' })
+  })
 })
 
 describe('reassignCompetency', () => {
@@ -76,5 +82,29 @@ describe('reassignCompetency', () => {
 
   it('ignores an empty competency id', () => {
     expect(reassignCompetency(profiles(), 'p1', 'p3', '')).toEqual([])
+  })
+
+  it('handles a drop naming a profile that no longer exists', () => {
+    // Both ends are ids from the DOM, so either can be stale after a delete.
+    // An unknown TARGET resolves to no profile and so behaves exactly like the
+    // Unassigned bucket: detach, with nothing to attach to.
+    expect(reassignCompetency(profiles(), 'p1', 'deleted', 'c2'))
+      .toEqual([{ profileId: 'p1', competency_ids: ['c1'] }])
+    // An unknown SOURCE has nothing to detach from, so only the attach lands.
+    expect(reassignCompetency(profiles(), 'deleted', 'p3', 'c2'))
+      .toEqual([{ profileId: 'p3', competency_ids: ['c2'] }])
+  })
+
+  it('does not detach a competency the source profile never held', () => {
+    // A stale drag id would otherwise write the source's bundle back unchanged,
+    // which is a mutation the undo stack has to carry for no reason.
+    expect(reassignCompetency(profiles(), 'p3', 'p1', 'c9'))
+      .toEqual([{ profileId: 'p1', competency_ids: ['c1', 'c2', 'c9'] }])
+  })
+
+  it('treats a profile with no bundle field as an empty one', () => {
+    const legacy = [makeKQ({ id: 'p1', competency_ids: undefined as unknown as string[] })]
+    expect(reassignCompetency(legacy, UNASSIGNED_GROUP, 'p1', 'c1'))
+      .toEqual([{ profileId: 'p1', competency_ids: ['c1'] }])
   })
 })

@@ -27,7 +27,20 @@ describe('cloudModelCatalog', () => {
   })
 
   it('still gives Ollama a concrete example — its tags are ours to know', () => {
+    // Both Ollama providers, and only those: a hosted provider showing an
+    // Ollama tag is the hardcoded-model-id problem coming back in disguise.
     expect(modelPlaceholder('ollama_docker')).toMatch(/llama/i)
+    expect(modelPlaceholder('ollama_remote')).toMatch(/llama/i)
+    expect(modelPlaceholder('openai')).not.toMatch(/llama/i)
+  })
+
+  it('tells an Ollama user to pull a model, not to enter a key', () => {
+    for (const p of ['ollama_docker', 'ollama_remote']) {
+      // There is no key to enter, so the hosted wording would be a dead end.
+      expect(noModelsHint(p, false)).toMatch(/pulled yet/i)
+      expect(noModelsHint(p, true)).toMatch(/pulled yet/i)
+    }
+    expect(noModelsHint('openai', false)).not.toMatch(/pulled yet/i)
   })
 
   it('tells the user how to get a list, differently before and after a key', () => {

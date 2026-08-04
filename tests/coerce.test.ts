@@ -100,6 +100,17 @@ describe('coerce', () => {
       expect(issues({ year: 12 })[0].path).toBe('x.start.year')
     })
 
+    it('accepts the years at the edge of the plausible range', () => {
+      // Only the far side was tested, so moving either bound by one year was
+      // invisible — and 1000/3000 are the bounds, not 1001/2999.
+      for (const y of [1000, 3000]) {
+        expect(issues(y), `bare ${y}`).toEqual([])
+        expect(issues({ year: y }), `object ${y}`).toEqual([])
+      }
+      expect(issues(999)).toHaveLength(1)
+      expect(issues({ year: 3001 })).toHaveLength(1)
+    })
+
     it('flags an out-of-range month on its own path', () => {
       const [issue] = issues({ year: 2019, month: 13 })
       expect(issue.path).toBe('x.start.month')
