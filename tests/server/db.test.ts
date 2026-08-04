@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
@@ -618,5 +618,148 @@ describe('createResumeDb — close()', () => {
   it('close() is safe on an in-memory DB', () => {
     const db = freshDb()
     expect(() => db.close()).not.toThrow()
+  })
+})
+
+/**
+ * Upgrading a database written by an OLDER install.
+ *
+ * These exercise a real file on disk rather than ':memory:', because that is
+ * where the risk actually lives: storage moved from better-sqlite3 to
+ * `node:sqlite` (server/sqlite.ts), and the connection-level settings that
+ * carry real consequences — foreign keys, journal mode, the checkpoint on
+ * close — are applied via PRAGMA, which is exactly the kind of thing a driver
+ * swap can silently stop honouring. None of them fail loudly when dropped: FKs
+ * off means orphaned snapshot rows, and journal mode is the documented guard
+ * against corrupting a DB kept in a cloud-synced folder.
+ */
+describe('createResumeDb — upgrading an existing database file', () => {
+  const rmQuiet = (dir: string) => {
+    try { fs.rmSync(dir, { recursive: true, force: true }) } catch { /* ignore */ }
+  }
+
+  /** A DB as an install predating `version`, `saved_by` and multi-resume left it. */
+  const writeLegacyDb = (file: string) => {
+    const legacy = new DatabaseSync(file)
+    legacy.exec('PRAGMA journal_mode = WAL')
+    // The pre-multi-resume table createResumeDb drops on sight.
+    legacy.exec('CREATE TABLE resume_store (id INTEGER PRIMARY KEY, data TEXT)')
+    legacy.exec("INSERT INTO resume_store VALUES (1, '{\"legacy\":true}')")
+    legacy.exec(`CREATE TABLE resumes (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL, data TEXT NOT NULL,
+      primary_locale TEXT NOT NULL DEFAULT 'en', secondary_locale TEXT,
+      saved_at TEXT NOT NULL, created_at TEXT NOT NULL)`)
+    legacy.exec(`CREATE TABLE resume_snapshots (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      resume_id TEXT NOT NULL REFERENCES resumes(id) ON DELETE CASCADE,
+      data TEXT NOT NULL, saved_at TEXT NOT NULL)`)
+    legacy.prepare('INSERT INTO resumes VALUES (?,?,?,?,?,?,?)')
+      .run('r1', 'My CV', '{"shape_version":9}', 'no', 'en', '2026-01-01', '2026-01-01')
+    legacy.prepare('INSERT INTO resume_snapshots (resume_id, data, saved_at) VALUES (?,?,?)')
+      .run('r1', '{"old":"snap"}', '2026-01-01')
+    legacy.close()
+  }
+
+  it('migrates a legacy file in place, keeping every resume and snapshot', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rs-upg-'))
+    const file = path.join(dir, 'resume.db')
+    writeLegacyDb(file)
+
+    const db = createResumeDb(file)
+    // The added columns take their defaults rather than nulling the row out:
+    // an in-flight client must see a clean first save, not version undefined.
+    expect(db.listResumes()).toEqual([{
+      id: 'r1', name: 'My CV', primary_locale: 'no', secondary_locale: 'en',
+      saved_at: '2026-01-01', created_at: '2026-01-01', version: 1, saved_by: null,
+    }])
+    expect(db.getResume('r1')?.data).toEqual({ shape_version: 9 })
+    expect(db.listSnapshots('r1')).toHaveLength(1)
+
+    // The migrated file is writable, and versioning starts from the default.
+    expect(db.saveResume('r1', { shape_version: 9, x: 1 })).toMatchObject({ status: 'saved', version: 2 })
+    db.close()
+    rmQuiet(dir)
+  })
+
+  it('drops the pre-multi-resume resume_store table', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rs-upg-drop-'))
+    const file = path.join(dir, 'resume.db')
+    writeLegacyDb(file)
+
+    const db = createResumeDb(file)
+    db.close()
+
+    const check = new DatabaseSync(file)
+    const stale = check.prepare("SELECT name FROM sqlite_master WHERE name = 'resume_store'").get()
+    check.close()
+    expect(stale).toBeUndefined()
+    rmQuiet(dir)
+  })
+
+  it('enforces foreign keys on a migrated file, so deletes leave no orphan snapshots', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rs-upg-fk-'))
+    const file = path.join(dir, 'resume.db')
+    writeLegacyDb(file)
+
+    const db = createResumeDb(file)
+    expect(db.listSnapshots('r1')).toHaveLength(1)
+    expect(db.deleteResume('r1')).toBe(true)
+    db.close()
+
+    // Read with a fresh connection: an orphan row is invisible through the API
+    // that just deleted its parent, so assert against the table itself.
+    const check = new DatabaseSync(file)
+    const { c } = check.prepare('SELECT count(*) c FROM resume_snapshots').get() as { c: number }
+    check.close()
+    expect(c).toBe(0)
+    rmQuiet(dir)
+  })
+
+  it('leaves no -wal/-shm sidecars behind after close()', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rs-upg-wal-'))
+    const file = path.join(dir, 'resume.db')
+    writeLegacyDb(file)
+
+    const db = createResumeDb(file)
+    db.saveResume('r1', { shape_version: 9, y: 2 })
+    db.close()
+
+    // The point of the checkpoint on close: the .db is self-contained at rest,
+    // which is what makes it safe for a backup (or a cloud sync client) to copy.
+    expect(fs.readdirSync(dir).sort()).toEqual(['resume.db'])
+    rmQuiet(dir)
+  })
+
+  /**
+   * Asserted through the sidecars rather than `PRAGMA journal_mode`, because
+   * only WAL records the mode IN THE FILE — the rollback modes are a property
+   * of the connection, so a fresh connection always reports the default and an
+   * assertion on it would pass or fail for the wrong reason. The sidecars are
+   * also the thing the setting actually exists to control.
+   */
+  it('defaults to WAL, which keeps a -wal sidecar while the DB is open', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rs-upg-wal2-'))
+    const file = path.join(dir, 'resume.db')
+
+    const db = createResumeDb(file)
+    db.createResume({ name: 'A' })
+    expect(fs.existsSync(`${file}-wal`)).toBe(true)
+    db.close()
+    rmQuiet(dir)
+  })
+
+  it('honours RESUME_DB_JOURNAL=TRUNCATE for a DB kept in a cloud-synced folder', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rs-upg-journal-'))
+    const file = path.join(dir, 'resume.db')
+    vi.stubEnv('RESUME_DB_JOURNAL', 'TRUNCATE')
+
+    const db = createResumeDb(file)
+    db.createResume({ name: 'A' })
+    // The whole point: no long-lived sidecar for a sync client to upload at an
+    // inconsistent moment, which is how a cloud-synced DB gets corrupted.
+    expect(fs.existsSync(`${file}-wal`)).toBe(false)
+    db.close()
+    vi.unstubAllEnvs()
+    rmQuiet(dir)
   })
 })
