@@ -90,39 +90,81 @@ describe('<ImportScreen>', () => {
     expect(onImported).not.toHaveBeenCalled()
   })
 
-  it('restores a whole-store (resumestudio-store) backup with content intact, not an empty resume', async () => {
+  // ── Identity-bearing backups go to the server's merge-by-id endpoint ──────
+  //
+  // The bug this pins: dropping the sync file on the picker (the obvious way to
+  // set up a second computer) used to run every resume through `createResume`,
+  // minting a NEW id for each — which then synced back and duplicated the first
+  // machine too. These files name their resumes, so they must be MERGED, never
+  // recreated.
+
+  it.each([
+    ['the legacy combined store backup', 'resume-studio-backup.json', {
+      $schema: 'resumestudio-store/v1', format_version: 1,
+      exported_at: '2026-07-22T15:33:04.502Z', generator: 'resume-studio',
+      resumes: [{
+        id: 'r1', name: 'Ada — CV', saved_at: '2026-07-22T00:00:00Z',
+        data: { shape_version: 13, resume: { id: 'p1', full_name: 'Ada Lovelace' } },
+      }],
+    }],
+    ['a per-resume sync file', 'ada-cv__r1.json', {
+      $schema: 'resumestudio-resume/v1', format_version: 1,
+      exported_at: '2026-08-01T00:00:00Z', generator: 'resume-studio',
+      resume: {
+        id: 'r1', name: 'Ada — CV', saved_at: '2026-07-22T00:00:00Z',
+        data: { shape_version: 13, resume: { id: 'p1', full_name: 'Ada Lovelace' } },
+      },
+      registry: [],
+    }],
+  ])('merges %s server-side instead of creating a resume', async (_label, filename, body) => {
     const onImported = vi.fn()
-    const { container } = render(<ImportScreen onStartFresh={() => {}} onImported={onImported} />)
-    // The desktop cloud-sync file: every resume in one envelope, each entry's
-    // `data` a FLAT ResumeStore. Regression — this used to fall through to the
-    // CVpartner importer and yield an empty resume.
-    const file = new File(
-      [JSON.stringify({
-        $schema: 'resumestudio-store/v1', format_version: 1,
-        exported_at: '2026-07-22T15:33:04.502Z', generator: 'resume-studio',
-        resumes: [{
-          id: 'r1', name: 'Ada — CV', saved_at: '2026-07-22T00:00:00Z',
-          data: {
-            shape_version: 13,
-            resume: { id: 'p1', full_name: 'Ada Lovelace' },
-            projects: [{ id: 'proj1', customer: { en: 'Acme' } }],
-            skills: [{ id: 's1', name: 'Analytical Engines' }],
-          },
-        }],
-      })],
-      'resume-studio-backup.json',
-      { type: 'application/json' },
+    const onRestored = vi.fn()
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ ok: true, inserted: 0, updated: 1, skipped: 0, deleted: 0 }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }),
     )
+    const { container } = render(
+      <ImportScreen onStartFresh={() => {}} onImported={onImported} onRestored={onRestored} />,
+    )
+    const file = new File([JSON.stringify(body)], filename, { type: 'application/json' })
     const input = container.querySelector('input[type="file"]') as HTMLInputElement
     await userEvent.upload(input, file)
-    await waitFor(() => expect(onImported).toHaveBeenCalledTimes(1))
-    const [store, name] = onImported.mock.calls[0]
-    expect(name).toBe('Ada — CV')
-    expect(store.projects).toHaveLength(1)
-    expect(store.skills).toHaveLength(1)
-    // Missing collections were backfilled so nothing downstream iterates undefined.
-    expect(store.cover_letters).toEqual([])
-    expect(store.industries).toEqual([])
+
+    await waitFor(() => expect(onRestored).toHaveBeenCalledTimes(1))
+    expect(fetchSpy).toHaveBeenCalledWith('/api/backup/import', expect.objectContaining({ method: 'POST' }))
+    // Crucially: nothing was created. The resumes were updated in place by id.
+    expect(onImported).not.toHaveBeenCalled()
+    expect(onRestored.mock.calls[0][0]).toMatchObject({ updated: 1 })
+    expect(await screen.findByText(/1 updated/)).toBeInTheDocument()
+    fetchSpy.mockRestore()
+  })
+
+  it('sends a backup .zip to the same merge endpoint (not the LinkedIn importer)', async () => {
+    const { zipSync, strToU8 } = await import('fflate')
+    const zip = zipSync({
+      'ada-cv__r1.json': strToU8(JSON.stringify({
+        $schema: 'resumestudio-resume/v1', format_version: 1,
+        resume: { id: 'r1', name: 'Ada — CV', saved_at: '2026-07-22T00:00:00Z', data: {} },
+        registry: [],
+      })),
+    })
+    const onImported = vi.fn()
+    const onRestored = vi.fn()
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ ok: true, inserted: 2, updated: 0, skipped: 0, deleted: 0 }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }),
+    )
+    const { container } = render(
+      <ImportScreen onStartFresh={() => {}} onImported={onImported} onRestored={onRestored} />,
+    )
+    const file = new File([zip], 'resume-studio-backup-2026-08-04.zip', { type: 'application/zip' })
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement
+    await userEvent.upload(input, file)
+
+    await waitFor(() => expect(onRestored).toHaveBeenCalledTimes(1))
+    expect(onImported).not.toHaveBeenCalled()
+    expect(await screen.findByText(/2 added/)).toBeInTheDocument()
+    fetchSpy.mockRestore()
   })
 
   it('rejects a non-object JSON file with a clear message', async () => {

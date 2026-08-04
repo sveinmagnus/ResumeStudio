@@ -88,21 +88,34 @@ describe('<SettingsModal>', () => {
       expect.stringMatching(/local \(Docker/i),
       expect.stringMatching(/remote URL/i),
     ]))
-    // The folder + one-off export live on the Sync tab.
+    // The folder + both manual backup actions live on the Sync tab.
     await openTab(/sync/i)
     expect(screen.getByLabelText(/Backup folder/i)).toBeInTheDocument()
-    // The "Save to file" action moved here from the top bar, beside the folder.
-    expect(screen.getByRole('button', { name: /save to file/i })).toBeInTheDocument()
+    // The whole-set backup (a zip, one file per resume) and the single-resume
+    // copy are distinct actions and both need to be reachable.
+    expect(screen.getByRole('button', { name: /export all resumes/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /save this resume to a file/i })).toBeInTheDocument()
   })
 
-  it('downloads a portable backup from "Save to file"', async () => {
+  it('downloads a portable copy of the open resume from "Save this resume to a file"', async () => {
     resetStore()
     useStore.setState({ data: { ...emptyStore(), resume: makeResume() }, hasData: true })
     vi.spyOn(api, 'getSettings').mockResolvedValue(managedStatus())
     const spy = vi.spyOn(backup, 'downloadBackup').mockImplementation(() => {})
     render(<SettingsModal onClose={() => {}} onChanged={() => {}} onUnauthorized={() => {}} />)
     await openTab(/sync/i)
-    await userEvent.click(await screen.findByRole('button', { name: /save to file/i }))
+    await userEvent.click(await screen.findByRole('button', { name: /save this resume to a file/i }))
+    expect(spy).toHaveBeenCalledOnce()
+  })
+
+  it('"Export all resumes" downloads the whole-set zip', async () => {
+    resetStore()
+    useStore.setState({ data: { ...emptyStore(), resume: makeResume() }, hasData: true })
+    vi.spyOn(api, 'getSettings').mockResolvedValue(managedStatus())
+    const spy = vi.spyOn(api, 'exportBackupZip').mockResolvedValue()
+    render(<SettingsModal onClose={() => {}} onChanged={() => {}} onUnauthorized={() => {}} />)
+    await openTab(/sync/i)
+    await userEvent.click(await screen.findByRole('button', { name: /export all resumes/i }))
     expect(spy).toHaveBeenCalledOnce()
   })
 

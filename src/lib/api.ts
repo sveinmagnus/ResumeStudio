@@ -2,6 +2,7 @@ import type { ResumeStore, LocalizedString, RegistryEntry, RegistryKind } from '
 import type { StorageStats } from './storage'
 import type { LiveModel } from './modelPicker'
 import type { GlossaryPayload } from './glossary'
+import { downloadBlob } from './download'
 
 // ─── Auth ──────────────────────────────────────────────────────────────────────
 //
@@ -158,33 +159,42 @@ export interface LocaleUpdate {
   secondary_locale: string | null
 }
 
-/** Whole-store sync/backup status (desktop build). */
+/** Sync-folder status (desktop build). The folder holds one file per resume. */
 export type BackupStatus =
   | { configured: false }
   | {
       configured: true
       /** The configured sync folder (e.g. a Google Drive path). */
       dir: string
-      /** Absolute path of the backup file inside `dir`. */
-      file: string
-      /** Whether the backup file exists yet. */
+      /** Whether the folder holds any resume files yet. */
       exists: boolean
-      /** ISO timestamp of the file's last write, or null if it doesn't exist. */
+      /** ISO timestamp of the folder's most recent write, or null if empty. */
       lastBackupAt: string | null
-      /** True when the on-disk backup matches the live store. */
+      /** True when every resume this machine holds is current in the folder. */
       upToDate: boolean
       /** Resumes currently in this machine's DB. */
       resumeCount: number
-      /** Resumes in the backup file, or null if it doesn't exist. */
+      /** Resumes across the folder's files, or null when the folder is empty. */
       backupResumeCount: number | null
+      /** Resume files found in the folder. */
+      fileCount: number
+      /**
+       * Name of the pre-split combined backup file, when the folder still has
+       * one. It is retired automatically on the next write.
+       */
+      legacyFile: string | null
+      /** Files that couldn't be read (mid-sync writes) — informational. */
+      unreadable: string[]
     }
 
-/** Result of merging the synced backup into this DB. */
+/** Result of merging a backup (folder or upload) into this DB. */
 export interface RestoreSummary {
   inserted: number
   updated: number
   skipped: number
   deleted: number
+  /** Shared-registry entries added/updated by the same merge. */
+  registry?: { added: number; updated: number }
 }
 
 /** `llm` reuses the app's configured AI model — see server/translate.ts. */
@@ -556,13 +566,13 @@ export const api = {
     }, { configured: false })
   },
 
-  /** Write the whole store to the sync folder now. Throws ServerError on failure. */
-  async backupNow(): Promise<{ file: string; bytes: number; resumeCount: number }> {
+  /** Publish every resume to the sync folder now. Throws ServerError on failure. */
+  async backupNow(): Promise<{ bytes: number; resumeCount: number; removed: number }> {
     const res = await request('POST', '/api/backup/now')
     if (!res.ok) {
       await fail(res, 'Backup failed')
     }
-    return await res.json() as { file: string; bytes: number; resumeCount: number }
+    return await res.json() as { bytes: number; resumeCount: number; removed: number }
   },
 
   /**
@@ -576,6 +586,48 @@ export const api = {
       await fail(res, 'Restore failed')
     }
     return await res.json() as RestoreSummary
+  },
+
+  // ── Manual backup (every build) — the same per-resume files, in one zip ───
+
+  /**
+   * Download every resume as one zip: one file per person plus `registry.json`,
+   * byte-identical in layout to the sync folder. Streams straight to the
+   * browser's downloads; throws ServerError on failure.
+   */
+  async exportBackupZip(): Promise<void> {
+    const res = await request('GET', '/api/backup/export')
+    if (!res.ok) {
+      await fail(res, 'Export failed')
+    }
+    // Prefer the server's filename (it carries the date) over reinventing one.
+    const disposition = res.headers.get('Content-Disposition') ?? ''
+    const match = /filename="([^"]+)"/.exec(disposition)
+    downloadBlob(await res.blob(), match?.[1] ?? 'resume-studio-backup.zip')
+  },
+
+  /**
+   * Merge a backup FILE into this machine — a zip from `exportBackupZip`, a
+   * single per-resume sync file, or a legacy combined backup.
+   *
+   * Identity is preserved: the server merges by resume id (newest `saved_at`
+   * wins), so re-importing updates the resumes named in the file instead of
+   * creating copies of them. That is the whole reason this exists rather than
+   * routing our own backups through `createResume`.
+   */
+  async importBackupFile(file: File): Promise<RestoreSummary & { unreadable?: string[] }> {
+    const isZip = /\.zip$/i.test(file.name)
+    const res = await fetch('/api/backup/import', {
+      method: 'POST',
+      headers: { 'Content-Type': isZip ? 'application/zip' : 'application/json' },
+      credentials: 'same-origin',
+      body: file,
+    })
+    if (res.status === 401) throw new UnauthorizedError()
+    if (!res.ok) {
+      await fail(res, 'Import failed')
+    }
+    return await res.json() as RestoreSummary & { unreadable?: string[] }
   },
 
   // ── Settings (desktop build) ─────────────────────────────────────────────

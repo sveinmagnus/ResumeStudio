@@ -19,11 +19,11 @@ interface SyncPanelProps {
  * sync folder is configured (the desktop build's RESUME_BACKUP_DIR) — on a
  * web/VPS deployment the whole panel is absent, so nothing changes there.
  *
- * Surfaces the synced store-backup: where it lives, whether it's current, and
- * two actions — "Back up now" (write the store to the folder) and "Restore"
- * (merge the folder's backup into this machine). The merge is newest-wins per
- * resume, so restoring is safe to run on a second computer to pull edits made
- * on the first.
+ * Surfaces the sync folder: where it lives, how many resume files are in it,
+ * whether it's current, and two actions — "Back up now" (publish every resume
+ * to the folder) and "Restore" (merge the folder into this machine). The folder
+ * holds one file per resume, so the merge is newest-wins per resume and safe to
+ * run on a second computer to pull edits made on the first.
  */
 export function SyncPanel({ onRestored, onUnauthorized, standalone }: SyncPanelProps) {
   const [status, setStatus] = useState<BackupStatus | null>(null)
@@ -40,7 +40,11 @@ export function SyncPanel({ onRestored, onUnauthorized, standalone }: SyncPanelP
     setBusy('backup'); setMsg(null)
     try {
       const r = await api.backupNow()
-      setMsg({ kind: 'ok', text: `Backed up ${r.resumeCount} resume${r.resumeCount === 1 ? '' : 's'} to your sync folder.` })
+      setMsg({
+        kind: 'ok',
+        text: `Backed up ${r.resumeCount} resume${r.resumeCount === 1 ? '' : 's'} ` +
+          `to your sync folder — one file each.`,
+      })
       refresh()
     } catch (err) {
       if (err instanceof UnauthorizedError) { onUnauthorized(); return }
@@ -54,9 +58,10 @@ export function SyncPanel({ onRestored, onUnauthorized, standalone }: SyncPanelP
     const ok = await confirmDialog({
       title: 'Restore from your sync folder?',
       message:
-        'This merges the backup into this computer: any resume that is newer in the ' +
-        'backup replaces the local copy, and resumes you don\'t have yet are added. ' +
-        'Nothing is deleted. A snapshot is kept so you can undo a restore from History.',
+        'This merges the folder into this computer: any resume that is newer in the ' +
+        'folder replaces the local copy, and resumes you don\'t have yet are added. ' +
+        'Resumes deleted on another computer are removed here too. A snapshot is kept ' +
+        'so you can undo a restore from History.',
       confirmLabel: 'Restore',
     })
     if (!ok) return
@@ -66,7 +71,8 @@ export function SyncPanel({ onRestored, onUnauthorized, standalone }: SyncPanelP
       const parts: string[] = []
       if (r.inserted) parts.push(`${r.inserted} added`)
       if (r.updated) parts.push(`${r.updated} updated`)
-      if (!r.inserted && !r.updated) parts.push('already up to date')
+      if (r.deleted) parts.push(`${r.deleted} removed`)
+      if (!parts.length) parts.push('already up to date')
       setMsg({ kind: 'ok', text: `Restore complete — ${parts.join(', ')}.` })
       refresh()
       onRestored()
@@ -102,9 +108,16 @@ export function SyncPanel({ onRestored, onUnauthorized, standalone }: SyncPanelP
       <div className="sp-meta">
         {status.exists
           ? <>Last backup {status.lastBackupAt ? fmtRelativeTime(status.lastBackupAt) : 'unknown'}
-              {status.backupResumeCount != null && ` · ${status.backupResumeCount} resume${status.backupResumeCount === 1 ? '' : 's'} in backup`}</>
-          : 'No backup written to this folder yet.'}
+              {status.backupResumeCount != null && ` · ${status.backupResumeCount} resume${status.backupResumeCount === 1 ? '' : 's'}, one file each`}</>
+          : 'No resume files written to this folder yet.'}
       </div>
+      {status.legacyFile && (
+        <div className="sp-meta sp-legacy">
+          This folder still has the old combined backup file
+          (<code>{status.legacyFile}</code>). It will be replaced by one file per
+          resume the next time this computer backs up.
+        </div>
+      )}
 
       {msg && (
         <div className={`sp-msg ${msg.kind === 'ok' ? 'sp-msg-ok' : 'sp-msg-err'}`} role={msg.kind === 'ok' ? 'status' : 'alert'}>{msg.text}</div>
@@ -150,6 +163,8 @@ export function SyncPanel({ onRestored, onUnauthorized, standalone }: SyncPanelP
           word-break: break-all;
         }
         .sp-meta { margin-top: 5px; font-size: 12px; color: var(--ink-faint); }
+        .sp-legacy { color: var(--warn-ink); }
+        .sp-legacy code { font-size: 11.5px; }
         .sp-msg { margin-top: 10px; padding: 8px 12px; border-radius: var(--r-sm); font-size: 12.5px; }
         .sp-msg-ok { background: var(--ok-wash); color: var(--ok-ink); }
         .sp-msg-err { background: var(--err-wash); color: var(--err-ink); }

@@ -127,6 +127,13 @@ export function ResumeList({ onUnauthorized }: ResumeListProps) {
     await create(suggested, store)
   }, [create])
 
+  // A backup that carried resume ids was merged server-side — nothing to create
+  // and nowhere to navigate to; just show the picker's new truth.
+  const onRestored = useCallback(() => {
+    setShowAdd(false)
+    reload()
+  }, [reload])
+
   const onDelete = useCallback(async (id: string, name: string) => {
     const ok = await confirmDialog({
       title: `Delete "${name}"?`,
@@ -226,7 +233,7 @@ export function ResumeList({ onUnauthorized }: ResumeListProps) {
           <UpdateBanner onUnauthorized={onUnauthorized} />
         </div>
         <SyncPanel key={syncRefreshKey} standalone onRestored={reload} onUnauthorized={onUnauthorized} />
-        <ImportScreen onStartFresh={onStartFresh} onImported={onImported} />
+        <ImportScreen onStartFresh={onStartFresh} onImported={onImported} onRestored={onRestored} />
         <style>{`
           .rl-prelude { max-width: 720px; margin: 40px auto 0; width: calc(100% - 80px); }
           .rl-prelude .ub-banner { margin-bottom: 0; }
@@ -264,7 +271,7 @@ export function ResumeList({ onUnauthorized }: ResumeListProps) {
 
         {showAdd && (
           <div className="rl-add-panel">
-            <ImportScreen compact onStartFresh={onStartFresh} onImported={onImported} />
+            <ImportScreen compact onStartFresh={onStartFresh} onImported={onImported} onRestored={onRestored} />
           </div>
         )}
 

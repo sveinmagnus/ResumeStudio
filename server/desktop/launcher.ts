@@ -29,7 +29,8 @@ import { createApp } from '../app.js'
 import { getDefaultDb, closeDefaultDb } from '../db.js'
 import { resolvePaths } from '../config.js'
 import { loadOrInitSettings } from '../settings.js'
-import { readStoreBackup } from '../backup.js'
+import { scanBackupDir } from '../backupFiles.js'
+import { applyTombstoneRules } from '../backupWatcher.js'
 import { initBackupRuntime, reconfigureBackup, flushBackup, stopBackup } from '../backupRuntime.js'
 import { startTranslate } from '../translateDocker.js'
 import { findFreePort } from './freePort.js'
@@ -114,17 +115,27 @@ async function main(): Promise<void> {
   // Non-destructive merge (newest-wins per resume) — safe to run every launch.
   if (backupDir) {
     try {
-      const backup = readStoreBackup(backupDir)
-      if (backup) {
-        const summary = db.restoreResumes(backup.resumes) // merge mode
+      const scan = scanBackupDir(backupDir)
+      if (scan.resumes.length) {
+        // Erasures first, so a tombstone from another machine isn't undone by a
+        // stale file for the same resume still sitting in the folder.
+        const { keep, pending } = applyTombstoneRules(scan.resumes, scan.tombstones)
+        const summary = db.restoreResumes(keep) // merge mode
         // Merge the shared registry too so synced resumes' canonical links resolve.
-        const reg = db.mergeRegistry(backup.registry)
+        const reg = db.mergeRegistry(scan.registry)
+        const localSavedAt = new Map(db.dumpResumes().map((e) => [e.id, e.saved_at]))
+        let erased = 0
+        for (const t of pending) {
+          const savedAt = localSavedAt.get(t.id)
+          if (savedAt !== undefined && savedAt <= t.deleted_at && db.deleteResume(t.id)) erased++
+        }
         log(
           `  sync-in    : +${summary.inserted} new, ${summary.updated} updated, ` +
-          `${summary.skipped} already current; registry +${reg.added}/${reg.updated}`,
+          `${erased} erased, ${summary.skipped} already current; ` +
+          `registry +${reg.added}/${reg.updated}`,
         )
       } else {
-        log('  sync-in    : no backup file yet (first run on this sync folder)')
+        log('  sync-in    : no resume files yet (first run on this sync folder)')
       }
     } catch (err) {
       // A bad/foreign file must not block startup — just skip the merge.

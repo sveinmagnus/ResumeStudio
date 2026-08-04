@@ -402,49 +402,50 @@ export function importFromBackup(backup: AnyBackup): ResumeStore {
   return store
 }
 
-// ─── Store-backup (whole-store desktop-sync file) ─────────────────────────────
+// ─── Sync-folder files (server-merged, identity-preserving) ───────────────────
 //
-// The DESKTOP build writes a WHOLE-STORE backup into a cloud-synced folder —
-// EVERY resume in one file (`server/backup.ts`, `resumestudio-store/v1`). This is
-// a DIFFERENT envelope from the per-resume `resumestudio/v1` above: its top level
-// is `resumes[]`, each entry `{ id, name, …, data: ResumeStore }` (the data is a
-// FLAT ResumeStore, not the profile/sections grouping).
+// The desktop build keeps a cloud-synced folder holding ONE FILE PER RESUME
+// (`server/backupFiles.ts`, `resumestudio-resume/v1`) plus a shared
+// `registry.json` (`resumestudio-registry/v1`); older installs still have the
+// pre-split combined file (`resumestudio-store/v1`). The manual "export all"
+// zip carries exactly the same files.
 //
-// Users reach for this file to "restore a resume" just as readily as the
-// per-resume export — it's the biggest, most obvious backup in their sync folder.
-// If the import path doesn't recognise it, its `$schema` ("resumestudio-store/…")
-// slips past `isBackupFormat` (which matches only "resumestudio/…") and it falls
-// through to the CVpartner importer, which maps none of these fields and yields
-// an EMPTY resume. Reading it here is the fix.
+// Users reach for these to "restore a resume" just as readily as the per-resume
+// export — they're the most obvious backups in the sync folder. Two things must
+// happen when one is dropped on the picker:
+//
+//  1. It must be RECOGNISED. These schemas ("resumestudio-resume/…",
+//     "resumestudio-store/…") slip past `isBackupFormat` (which matches only
+//     "resumestudio/…"); without a detector such a file used to fall through to
+//     the CVpartner importer, which maps none of its fields and yielded an EMPTY
+//     resume.
+//  2. It must keep each resume's IDENTITY. These files carry the resume's id, so
+//     the import merges by id server-side (`POST /api/backup/import`) instead of
+//     minting a new resume per import — which is what made setting up a second
+//     computer from the sync file duplicate every resume, and then sync the
+//     duplicates back to the first.
+//
+// The detector below is the routing half of (1)+(2); `api.importBackupFile`
+// hands the raw file to the server, which owns the merge.
 
-/** One resume entry inside a store backup (client-side mirror of the server shape). */
-interface StoreBackupEntry {
-  id?: unknown
-  name?: unknown
-  data?: unknown
-}
-
-/** The whole-store backup envelope, as far as the client needs to read it. */
-export interface StoreBackupFileV1 {
-  $schema: string
-  format_version: number
-  resumes: StoreBackupEntry[]
-  /** Instance-level canonical registry (cross-resume shared skills/roles). Optional. */
-  registry?: RegistryEntry[]
-}
+/** Schema prefixes of every file the server can merge by resume id. */
+const MERGEABLE_SCHEMA_PREFIXES = [
+  'resumestudio-resume/',   // one resume, the sync folder's unit
+  'resumestudio-registry/', // the shared registry
+  'resumestudio-store/',    // the legacy pre-split combined backup
+] as const
 
 /**
- * Lenient router (mirrors `isBackupFormat`): is this parsed JSON a whole-store
- * backup? Keyed on the `resumestudio-store/` schema prefix + a `resumes` array,
- * so it can't be confused with the per-resume `resumestudio/` backup.
+ * Is this parsed JSON one of our identity-bearing backup files — i.e. something
+ * the server should MERGE rather than something the client should turn into a
+ * new resume? Lenient router (mirrors `isBackupFormat`), keyed on the schema
+ * prefix so it can't be confused with the per-resume `resumestudio/` export.
  */
-export function isStoreBackupFormat(json: unknown): json is StoreBackupFileV1 {
+export function isMergeableBackupFormat(json: unknown): boolean {
   if (!json || typeof json !== 'object') return false
-  const obj = json as Record<string, unknown>
-  if (typeof obj['$schema'] !== 'string') return false
-  if (!String(obj['$schema']).startsWith('resumestudio-store/')) return false
-  if (typeof obj['format_version'] !== 'number') return false
-  return Array.isArray(obj['resumes'])
+  const schema = (json as Record<string, unknown>)['$schema']
+  if (typeof schema !== 'string') return false
+  return MERGEABLE_SCHEMA_PREFIXES.some((prefix) => schema.startsWith(prefix))
 }
 
 /** Top-level collections a ResumeStore must carry as arrays for the app to iterate them. */
@@ -493,40 +494,6 @@ export function looksLikeResumeStore(json: unknown): boolean {
   const collections = ['projects', 'skills', 'work_experiences', 'educations', 'views']
   const hits = collections.filter((k) => Array.isArray(json[k])).length
   return hits >= 2
-}
-
-/** One restored resume from a store backup: its saved name + a shape-normalized store. */
-export interface RestoredResume {
-  /** The resume's saved name, or '' if the backup entry had none (caller derives one). */
-  name: string
-  store: ResumeStore
-}
-
-/**
- * Read every resume out of a whole-store backup. Throws
- * `UnsupportedBackupVersionError` for a newer envelope and `InvalidBackupError`
- * if it isn't a store backup or carries no usable resume entry. Each entry's flat
- * `data` is normalized (`normalizeStoreShape`) so an older/partial backup still
- * restores fully; `migrateStore` finishes the job at load. A single malformed
- * entry is skipped, not fatal — as many resumes as possible are recovered.
- */
-export function resumesFromStoreBackup(json: unknown): RestoredResume[] {
-  if (!isStoreBackupFormat(json)) {
-    throw new InvalidBackupError([{ path: '(root)', reason: 'not a Resume Studio store backup' }])
-  }
-  if (json.format_version !== 1) {
-    throw new UnsupportedBackupVersionError(json.format_version)
-  }
-  const out: RestoredResume[] = []
-  json.resumes.forEach((entry) => {
-    if (!isObj(entry) || !isObj(entry.data)) return // skip a malformed row, keep the rest
-    const name = typeof entry.name === 'string' && entry.name.trim() ? entry.name.trim() : ''
-    out.push({ name, store: normalizeStoreShape(entry.data) })
-  })
-  if (!out.length) {
-    throw new InvalidBackupError([{ path: 'resumes', reason: 'contains no readable resume entries' }])
-  }
-  return out
 }
 
 // ─── Download helper ──────────────────────────────────────────────────────────

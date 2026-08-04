@@ -3,7 +3,7 @@ import {
   isBackupFormat, exportToBackup, importFromBackup,
   migrateBackup, UnsupportedBackupVersionError, CURRENT_FORMAT_VERSION,
   validateBackup, InvalidBackupError,
-  isStoreBackupFormat, resumesFromStoreBackup, normalizeStoreShape, looksLikeResumeStore,
+  isMergeableBackupFormat, normalizeStoreShape, looksLikeResumeStore,
   type AnyBackup,
 } from '../src/lib/backup'
 import { CURRENT_SHAPE_VERSION } from '../src/lib/migrate'
@@ -330,77 +330,40 @@ describe('migrateBackup() & UnsupportedBackupVersionError', () => {
   })
 })
 
-// ─── Whole-store (desktop-sync) backup ────────────────────────────────────────
+// ─── Identity-bearing backups (routed to the server's merge-by-id) ────────────
 //
-// Regression: the `resumestudio-store/v1` file (every resume in one JSON, written
-// by the desktop build into a sync folder) used to slip past `isBackupFormat`
-// (which matches only "resumestudio/") and fall through to the CVpartner
-// importer, restoring an EMPTY resume. These pin the format's own reader.
+// The sync folder's per-resume files, the "export all" zip's contents, and the
+// legacy combined store file all NAME the resumes they carry. Recognising them
+// is what stops two bugs: falling through to the CVpartner importer (which maps
+// none of their fields and restored an EMPTY resume), and — the reason the
+// detector exists at all — running them through `createResume`, which gave every
+// re-import a brand-new resume id and duplicated a second machine's whole list.
 
-function storeBackup(resumes: unknown[], extra: Record<string, unknown> = {}) {
-  return {
-    $schema: 'resumestudio-store/v1',
-    format_version: 1,
-    exported_at: '2026-07-22T15:33:04.502Z',
-    generator: 'resume-studio',
-    resumes,
-    ...extra,
-  }
-}
-
-function storeEntry(data: unknown, name = 'Someone — CV') {
-  return {
-    id: 'entry-1', name, primary_locale: 'no', secondary_locale: 'en',
-    saved_at: '2026-07-22T15:32:37.594Z', created_at: '2026-06-05T17:59:49.311Z',
-    data,
-  }
-}
-
-describe('isStoreBackupFormat()', () => {
-  it('accepts a whole-store backup envelope', () => {
-    expect(isStoreBackupFormat(storeBackup([]))).toBe(true)
+describe('isMergeableBackupFormat()', () => {
+  it('accepts a per-resume sync file', () => {
+    expect(isMergeableBackupFormat({
+      $schema: 'resumestudio-resume/v1', format_version: 1,
+      resume: { id: 'r1', saved_at: '2026-07-22T00:00:00Z', data: {} },
+    })).toBe(true)
   })
 
-  it('rejects a per-resume backup (resumestudio/ — not resumestudio-store/)', () => {
-    expect(isStoreBackupFormat(exportToBackup(emptyStore()))).toBe(false)
+  it('accepts the shared registry file and the legacy combined backup', () => {
+    expect(isMergeableBackupFormat({ $schema: 'resumestudio-registry/v1', registry: [] })).toBe(true)
+    expect(isMergeableBackupFormat({
+      $schema: 'resumestudio-store/v1', format_version: 1, resumes: [],
+    })).toBe(true)
   })
 
-  it('rejects null, non-objects, and a missing resumes array', () => {
-    expect(isStoreBackupFormat(null)).toBe(false)
-    expect(isStoreBackupFormat('x')).toBe(false)
-    expect(isStoreBackupFormat({ $schema: 'resumestudio-store/v1', format_version: 1 })).toBe(false)
-  })
-})
-
-describe('resumesFromStoreBackup()', () => {
-  it('restores each resume with its content INTACT (the empty-resume regression)', () => {
-    const store = { ...emptyStore(), projects: [makeProject('p1'), makeProject('p2')] }
-    const restored = resumesFromStoreBackup(storeBackup([storeEntry(store, 'Jane — CV')]))
-    expect(restored).toHaveLength(1)
-    expect(restored[0].name).toBe('Jane — CV')
-    expect(restored[0].store.projects).toHaveLength(2)
+  it('REJECTS the per-resume download (resumestudio/ — it carries no identity)', () => {
+    // This one legitimately creates a new resume, so it must not be merged by id.
+    expect(isMergeableBackupFormat(exportToBackup(emptyStore()))).toBe(false)
   })
 
-  it('recovers as many resumes as possible, skipping a malformed entry', () => {
-    const good = storeEntry({ ...emptyStore(), work_experiences: [makeWork('w1')] })
-    const restored = resumesFromStoreBackup(storeBackup([good, { id: 'x' /* no data */ }, null]))
-    expect(restored).toHaveLength(1)
-    expect(restored[0].store.work_experiences).toHaveLength(1)
-  })
-
-  it('throws InvalidBackupError when nothing readable is inside', () => {
-    expect(() => resumesFromStoreBackup(storeBackup([{ id: 'x' }, null])))
-      .toThrow(InvalidBackupError)
-  })
-
-  it('throws InvalidBackupError for a non-store-backup', () => {
-    expect(() => resumesFromStoreBackup(exportToBackup(emptyStore())))
-      .toThrow(InvalidBackupError)
-  })
-
-  it('throws UnsupportedBackupVersionError for a newer envelope', () => {
-    expect(() => resumesFromStoreBackup(storeBackup([storeEntry(emptyStore())], { format_version: 2 })))
-      .toThrow(UnsupportedBackupVersionError)
+  it('rejects null, non-objects, and foreign schemas', () => {
+    expect(isMergeableBackupFormat(null)).toBe(false)
+    expect(isMergeableBackupFormat('x')).toBe(false)
+    expect(isMergeableBackupFormat({ $schema: 'something-else/v1' })).toBe(false)
+    expect(isMergeableBackupFormat({ format_version: 1 })).toBe(false)
   })
 })
 
