@@ -205,7 +205,7 @@ export interface FacetGroupSet {
 
 /** Separator for an opaque type-filter key (facet name + facet value). A group's
  *  "No type" value is '' — still distinct once prefixed by the facet name. */
-const TYPE_FILTER_SEP = ''
+const TYPE_FILTER_SEP = '\u001F'
 
 /** Build the opaque key the editor type filter stores for a facet+value pair. */
 export function typeFilterKey(facet: string, value: string): string {

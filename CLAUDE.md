@@ -136,8 +136,22 @@ Wishlist: §12.
   - **Project invariants** (`no-restricted-syntax` / `no-restricted-imports`):
     lucide namespace imports, a static import of `lib/exporter`/`lib/pdfExporter`,
     `process.env` in client code, `transition: all`, `dangerouslySetInnerHTML`,
-    `target="_blank"` without `rel`, and `lib/exportStrings` reaching into
-    `components/`.
+    `target="_blank"` without `rel`, `lib/exportStrings` reaching into
+    `components/`, redefining a `.pf-*` primitive in a component `<style>`
+    block (§6), and `font-size` below the 11px minimum (§6).
+  - **A raw control character in a string literal** (`Literal[raw=…]`). A NUL
+    makes git and grep treat the whole FILE as binary, so every recursive text
+    search silently skips it — a security sweep or rename audit misses the file
+    and nothing reports a problem. Write `\u0000`. Three instances existed when
+    the rule was added. It matches the RAW source, so the escape is legal and
+    the raw byte is not.
+  - **Conventions that were previously discipline-only**, each measured at zero
+    violations before being switched on: `eqeqeq` (with `{ null: 'ignore' }` —
+    the `== null` nullish check stays idiomatic), `import-x/no-default-export`
+    in `components/`/`lib/`/`store/` (§2; `main.tsx` and `App.tsx` sit outside
+    those and need no exception), and `consistent-type-imports` — which is a
+    layering rule, not a style one: an unmarked type-only import is a real
+    runtime module edge, and those are what `no-cycle` and §3 police.
   - **The §3 layering, mechanically** (`import-x/no-restricted-paths`): lib/ may
     not import components/ or store/; types/ imports nothing; store/ may not
     import components/ **except** `ui/ConfirmDialog` (imperative by design).

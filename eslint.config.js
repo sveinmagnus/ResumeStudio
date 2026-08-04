@@ -25,6 +25,28 @@ import globals from 'globals'
  * server / tests), because the rules genuinely differ per layer — `any` is a
  * smell in `src/lib` and a tool in a test.
  */
+/**
+ * A RAW control character in a string literal — a NUL, most often — makes git
+ * and grep classify the WHOLE FILE as binary, so every recursive text search
+ * silently skips it. That is how a security sweep or a rename audit misses a
+ * file without anyone noticing. Write the escape instead: `'\u0000'` is the
+ * same string and keeps the file readable as text.
+ *
+ * This has happened once (AtsAuditPanel's `gaps.join()` separator), and nothing
+ * else catches it: the type checker is perfectly happy, and the tool you would
+ * use to go looking is the tool that skips the file.
+ *
+ * Shared because it must hold for server and tests too, and `no-restricted-syntax`
+ * options REPLACE rather than merge across config blocks — so it is spliced into
+ * every array that sets the rule rather than declared once.
+ */
+const noRawControlChars = {
+  selector: 'Literal[raw=/[\\x00-\\x08\\x0B\\x0C\\x0E-\\x1F]/]',
+  message:
+    'Write control characters as escapes (\\u0000), never as raw bytes — a raw one ' +
+    'makes the file binary to git and grep, so text searches skip it entirely.',
+}
+
 export default tseslint.config(
   {
     // Build output, deps, and the coverage report are not ours to lint.
@@ -52,6 +74,35 @@ export default tseslint.config(
     rules: {
       '@eslint-community/eslint-comments/require-description': ['error', {
         ignore: ['eslint-enable'],
+      }],
+
+      /**
+       * `==` coerces, `===` does not. This is a ratchet rather than a cleanup:
+       * the codebase is already 100% consistent, and every one of the 54 loose
+       * comparisons in it is the deliberate `== null` nullish check, which this
+       * configuration keeps legal. It costs nothing today and stops the one
+       * `==` that would eventually be written against a number or a string.
+       */
+      eqeqeq: ['error', 'always', { null: 'ignore' }],
+
+      'no-restricted-syntax': ['error', noRawControlChars],
+
+      /**
+       * Not a style preference — a layering one. An unmarked type-only import is
+       * a REAL runtime module edge: the bundler keeps it, which is how a cycle
+       * appears between modules that only ever referenced each other's types,
+       * and how `types/` (CLAUDE.md §3: zero runtime imports) quietly acquires
+       * one. `import type` is erased, so marking it makes the import graph the
+       * linter checks the same graph that ships.
+       */
+      '@typescript-eslint/consistent-type-imports': ['error', {
+        prefer: 'type-imports',
+        fixStyle: 'inline-type-imports',
+        // Inline `import('x').T` annotations stay legal: they are how the
+        // systray2 CJS/ESM interop and `keyof import('../types').Resume` are
+        // expressed, and they are already erased — there is no runtime edge to
+        // police, which is the entire point of this rule.
+        disallowTypeAnnotations: false,
       }],
     },
   },
@@ -194,6 +245,45 @@ export default tseslint.config(
 
       'no-restricted-syntax': [
         'error',
+        noRawControlChars,
+        {
+          /**
+           * CLAUDE.md §6: the `.pf-*` plain-field primitives live in index.css,
+           * NOT in a component's <style> block. A component-scoped style block
+           * only exists in the DOM while that component is mounted, so a page
+           * using a bare `.pf-input` without mounting TextField/DateField gets an
+           * unstyled browser default — which regressed the registry CategoryField
+           * once already.
+           *
+           * The collision is the other half of the same hazard, and it was live
+           * when this rule was written: PageFitPanel defined its own `.pf-wrap`
+           * (there "pf" meant PageFit), globally overriding the shared primitive
+           * that Fields, SimpleEditors and RegistryEditors all use, for as long
+           * as that panel was mounted. Component <style> blocks are not scoped.
+           *
+           * USING the class is fine — this only matches a template literal, i.e.
+           * a style block DEFINING it. className="pf-wrap" is a plain string.
+           */
+          selector: 'TemplateElement[value.raw=/\\.pf-/]',
+          message:
+            'The .pf-* primitives are defined in src/index.css (CLAUDE.md §6). ' +
+            'Do not define or override them in a component <style> block — those ' +
+            'are global and only present while the component is mounted. Use your ' +
+            "own prefix for a component's classes.",
+        },
+        {
+          /**
+           * CLAUDE.md §6: minimum text size is 11px. Below that the UI stops
+           * being readable for the people who need it most, and it is the kind
+           * of thing that arrives one 10px label at a time. Same shape as the
+           * `transition: all` rule — the styles are template literals, so this
+           * catches it where it actually lives.
+           */
+          selector: 'TemplateElement[value.raw=/font-size:\\s*([0-9]|10)(\\.[0-9]+)?px/]',
+          message:
+            'Minimum text size is 11px (CLAUDE.md §6). Anything smaller is not ' +
+            'readable enough to ship.',
+        },
         {
           /**
            * CLAUDE.md §2 + §13: lucide icons are imported BY NAME. A namespace
@@ -446,6 +536,22 @@ export default tseslint.config(
       '@typescript-eslint/no-misused-promises': 'off',
       '@typescript-eslint/require-await': 'off',
     },
+  },
+
+  /**
+   * CLAUDE.md §2: "No default exports for components — use named exports."
+   *
+   * A default export renames itself at every import site, so the name in a
+   * stack trace, a mock, or a lazy() chunk need not match the file — and a
+   * typo'd import silently binds to the wrong thing rather than failing. The
+   * two sanctioned defaults, `main.tsx` and `App.tsx`, are Vite/React entry
+   * points and sit OUTSIDE these three directories, so no exception is needed
+   * and this costs nothing today.
+   */
+  {
+    files: ['src/components/**/*.{ts,tsx}', 'src/lib/**/*.ts', 'src/store/**/*.ts'],
+    plugins: { 'import-x': importX },
+    rules: { 'import-x/no-default-export': 'error' },
   },
 
   // Playwright, not Vitest — the vitest plugin's globals don't apply.

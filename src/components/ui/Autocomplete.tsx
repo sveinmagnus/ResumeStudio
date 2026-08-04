@@ -1,4 +1,4 @@
-import { useId, useState, useRef, useEffect, useMemo, KeyboardEvent } from 'react'
+import { useId, useState, useRef, useEffect, useMemo, type KeyboardEvent } from 'react'
 import { Plus } from 'lucide-react'
 
 /**
