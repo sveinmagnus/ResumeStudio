@@ -126,6 +126,30 @@ merge landed, non-overlapping edits reconcile silently instead of prompting. A
 `BroadcastChannel` lock would stop the local thrash, not a correctness bug.
 **Trigger:** the thrash becomes visible in practice. Low priority.
 
+### TypeScript 7 — waiting on an API that does not exist yet
+We are on **TypeScript 6.0.3**, the newest release the toolchain supports. This
+is not staleness, so don't "upgrade" it without reading this.
+
+TypeScript 7.0 is the native (Go) port and **ships no programmatic API at
+all** — Microsoft's own announcement says 7.1 is expected to bring a new and
+different one. Everything that reads types through the compiler API is
+therefore stuck on 6.0, `typescript-eslint` included: it hard-*errors* on TS 7
+rather than degrading, so `npm run lint` — a CI gate, and the thing that
+enforces this file's invariants mechanically — stops running entirely.
+typescript-eslint's tracking issue (#10940) is locked with "there is nothing we
+can do" pending that API.
+
+The repo does typecheck cleanly under 7.0.2 (that was tested), and Microsoft
+documents a side-by-side arrangement — `typescript` aliased to
+`@typescript/typescript6` for the tools, TS 7 installed as `@typescript/native`
+for the `tsc` binary — which was also tried and works. It was not kept: it buys
+compile speed only, at the cost of two compilers in the toolchain and an alias
+that makes the name `typescript` mean "version 6", to be unwound at 7.1.
+
+**Trigger:** TypeScript 7.1 ships a stable API *and* typescript-eslint releases
+support for it. Not the 7.1 nightlies (`7.1.0-dev.<date>`, republished daily) —
+a CI type-check gate must not float on a compiler that changes under it.
+
 ---
 
 ## 3. Closed — do not re-propose
