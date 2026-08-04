@@ -119,6 +119,41 @@ describe('foldRoleDescriptions()', () => {
     expect(out.projects[0].long_description.en).toBe('EN bg.\n\nLead: Did EN.')
     expect(out.projects[0].long_description.no).toBe('NO bg.\n\nLeder: Gjorde NO.')
   })
+
+  /**
+   * The legacy fields are stripped whether or not they held anything, but only
+   * text is folded in. A role carrying an EMPTY long_description must not add a
+   * bare "Lead:" line to the project — which is what folding on key-presence
+   * rather than on content would produce.
+   */
+  it('strips empty legacy fields without appending a heading for them', () => {
+    const store = emptyStore()
+    store.projects.push(makeProject({
+      long_description: { en: 'EN bg.' },
+      roles: [legacyRole({ name: { en: 'Lead' }, long_description: { en: '   ' }, summary: {} })],
+    }))
+    const out = foldRoleDescriptions(store)
+    expect(out.projects[0].long_description.en).toBe('EN bg.')
+    // …and the role is still rebuilt clean, so the migration is not a no-op.
+    expect(out).not.toBe(store)
+    expect('long_description' in out.projects[0].roles[0]).toBe(false)
+  })
+
+  it('folds a role that carries only a summary', () => {
+    // Two legacy field names existed and EITHER alone must trigger the
+    // migration. Written out rather than via legacyRole(), which always adds
+    // both keys and so cannot tell the two conditions apart.
+    const store = emptyStore()
+    store.projects.push(makeProject({
+      long_description: { en: 'EN bg.' },
+      roles: [{
+        id: 'pr-1', role_id: 'r-1', name: { en: 'Lead' }, sort_order: 0, disabled: false,
+        summary: { en: 'Ran it.' },
+      } as never],
+    }))
+    expect(foldRoleDescriptions(store).projects[0].long_description.en)
+      .toContain('Ran it.')
+  })
 })
 
 // Build a KQ carrying the legacy key_points sub-list that older imports left
@@ -666,6 +701,32 @@ describe('migrateCourseDates (v11)', () => {
     expect(out.courses[0].start).toBeNull()
     expect(out.courses[0].end).toBeNull()
   })
+
+  /**
+   * The shape-sniff needs BOTH keys. A half-migrated course — one written by a
+   * build that added `start` before `end` existed — must be finished, not
+   * skipped, or its `completed` date is stranded and the course loses its date.
+   */
+  it('finishes a half-migrated course carrying only one of the two keys', () => {
+    const store = emptyStore()
+    const halfStart = { ...makeCourse({ id: 'c1' }) } as Record<string, unknown>
+    delete halfStart.end
+    halfStart.completed = { year: 2022, month: 3 }
+
+    const halfEnd = { ...makeCourse({ id: 'c2' }) } as Record<string, unknown>
+    delete halfEnd.start
+    halfEnd.end = { year: 2021, month: 9 }
+    // Both present: the range's own end must win over the legacy field.
+    halfEnd.completed = { year: 1999, month: 1 }
+
+    store.courses = [halfStart as never, halfEnd as never]
+    const out = migrateCourseDates(store)
+    expect(out).not.toBe(store)
+    expect(out.courses[0].end).toEqual({ year: 2022, month: 3 })
+    expect(out.courses[1].start).toBeNull()
+    // An `end` already present wins over the legacy field.
+    expect(out.courses[1].end).toEqual({ year: 2021, month: 9 })
+  })
 })
 
 describe('migratePresentationDates (v13)', () => {
@@ -686,6 +747,20 @@ describe('migratePresentationDates (v13)', () => {
     store.presentations = [makePresentation({ id: 'p1', start: { year: 2019, month: 1 }, end: { year: 2022, month: 6 } })]
     const out = migratePresentationDates(store)
     expect(out).toBe(store)
+  })
+
+  it('finishes a half-migrated presentation carrying only one of the two keys', () => {
+    // Same sniff as Courses: one key present is not "already migrated", and
+    // treating it as such strands the legacy date.
+    const store = emptyStore()
+    const half = { ...makePresentation({ id: 'p1' }) } as Record<string, unknown>
+    delete half.end
+    half.date = { year: 2021, month: 9 }
+    store.presentations = [half as never]
+
+    const out = migratePresentationDates(store)
+    expect(out).not.toBe(store)
+    expect(out.presentations[0].end).toEqual({ year: 2021, month: 9 })
   })
 
   it('handles a legacy presentation with no date (both range ends null)', () => {
