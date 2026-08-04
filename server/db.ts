@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3'
+import { openDatabase } from './sqlite.js'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import { randomUUID } from 'crypto'
@@ -213,7 +213,7 @@ export interface ResumeDb extends RegistryStore {
  * production uses the lazy singleton below.
  */
 export function createResumeDb(dbPath: string): ResumeDb {
-  const db = new Database(dbPath)
+  const db = openDatabase(dbPath)
   // WAL improves concurrent reads on a file DB; it's a no-op for ':memory:'.
   // It's the right default for the normal case (DB in a local app-data dir).
   // A power user who relocates the live DB into a cloud-synced folder should

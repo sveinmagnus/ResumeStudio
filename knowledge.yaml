@@ -17,7 +17,7 @@ units:
     intent: "How must an agent work in this codebase? Architecture map, data model, store patterns, conventions (incl. the v0.3.1 accessibility invariants + the version source-of-truth rule), and what not to change. Holds invariants only — the exhaustive feature catalog is in feature-map."
     scope: global
     audience: [agent, developer]
-    validated: "2026-07-31"
+    validated: "2026-08-04"
     update_frequency: weekly
     triggers: [conventions, architecture, data-model, store, persistence, sections, accessibility, routing]
     content_structure:
@@ -53,7 +53,7 @@ units:
     intent: "What is Resume Studio and how do I install, run, and configure it?"
     scope: global
     audience: [human, agent]
-    validated: "2026-07-24"
+    validated: "2026-08-04"
     update_frequency: monthly
     triggers: [overview, quickstart, install, configuration, env]
     not_for: ["architecture", "data model", "code conventions"]
@@ -66,7 +66,7 @@ units:
     intent: "How does the portable desktop build work — building, data dirs, cloud-folder sync, tray, tabbed in-app settings (translation + AI assist), and auto-update?"
     scope: project
     audience: [human, developer, agent]
-    validated: "2026-07-24"
+    validated: "2026-08-04"
     update_frequency: monthly
     depends_on: [readme]
     triggers: [desktop, launcher, portable, tray, auto-update, sync, backup-folder]
@@ -182,7 +182,7 @@ units:
     intent: "How do this repo's CI (ci.yml: typecheck/test/build/e2e/depcheck) and tag-driven release pipeline (release.yml) work, and how do you triage a red check or a failed release build?"
     scope: project
     audience: [agent, developer]
-    validated: "2026-07-24"
+    validated: "2026-08-04"
     depends_on: [ci-policy, release-policy, skill-software-testing]
     triggers: [ci-failure, red-check, release-build, triage, workflow, version-drift, updater-asset, sha256-sidecar]
     hints:

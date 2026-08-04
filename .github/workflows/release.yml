@@ -46,7 +46,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: '22'
+          node-version: '24'
 
       # Verify BEFORE creating anything: a version mismatch must fail with no
       # release published, not leave an empty one behind. Mirrors the per-build
@@ -94,15 +94,16 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          # Node 22 LTS, not 20: Node 20 is EOL (April 2026) and
-          # better-sqlite3 v12.10+ no longer publishes Node-20 (abi115)
-          # prebuilds, so 20.x forces a from-source compile that the
-          # windows-latest VS 18 image cannot do (node-gyp can't drive it).
-          # rolldown (vitest) also requires >= 22.12. Node 22 has prebuilt
-          # better-sqlite3 binaries (abi127) on every OS. Note this is also
-          # the Node bundled into the desktop build (build-desktop copies
-          # process.execPath).
-          node-version: '22'
+          # Node 24 is REQUIRED, not merely preferred: storage is
+          # `node:sqlite`, which Node 22 and below gate behind
+          # --experimental-sqlite. This is also the Node bundled into the
+          # desktop build (build-desktop copies process.execPath), so building
+          # on anything older ships a release that dies on first save —
+          # build-desktop.mjs probes for that and hard-fails.
+          # There is no longer a native addon to compile, which is what used to
+          # pin this job: the windows-latest image cannot drive node-gyp, so a
+          # from-source build failed the Windows release outright.
+          node-version: '24'
           cache: 'npm'
 
       # Single source of truth for a PUBLISHED build's version = the git tag.
@@ -137,7 +138,7 @@ jobs:
         run: npm run typecheck && npm test
 
       # Builds the React client + assembles the portable release/ folder with
-      # the bundled Node binary and better-sqlite3 native addon for THIS OS,
+      # the bundled Node binary (which carries SQLite) for THIS OS,
       # and emits release-dist/resume-studio-<os>-<arch>.tar.gz (updater asset).
       - name: Build desktop bundle
         run: npm run build:desktop

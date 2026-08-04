@@ -10,12 +10,13 @@
  *     app/
  *       launcher.cjs             ← the whole server, bundled by esbuild
  *       dist/                    ← the built React client
- *       node_modules/            ← only the native deps esbuild can't bundle
+ *       node_modules/            ← only the deps esbuild can't bundle
  *
- * IMPORTANT: the Node binary and better-sqlite3's compiled `.node` are
- * platform-specific, so run this ON EACH target OS (Windows build on Windows,
- * Linux build on Linux, …). Run `npm run build:desktop` (which builds the
- * client first, then this script).
+ * IMPORTANT: the bundled Node binary is platform-specific, so run this ON EACH
+ * target OS (Windows build on Windows, Linux build on Linux, …). Run
+ * `npm run build:desktop` (which builds the client first, then this script).
+ * SQLite itself is no longer a factor — it lives inside the Node binary
+ * (`node:sqlite`), so there is no compiled `.node` addon to match per platform.
  *
  * Plain ESM, run directly by Node — no TS, no bundling of itself.
  */
@@ -69,9 +70,9 @@ fs.rmSync(release, { recursive: true, force: true })
 fs.mkdirSync(appDir, { recursive: true })
 
 // ── 2. Bundle the server (+ launcher) into one CJS file ─────────────────────
-// better-sqlite3 is a native addon esbuild can't inline; keep it external and
-// ship its package subtree under app/node_modules so the bundle's
-// `require('better-sqlite3')` resolves at runtime.
+// Everything the server needs is inlined here except systray2 (below). SQLite
+// comes from the Node binary itself, so there is no native addon to keep
+// external and no package subtree to ship for it.
 log('bundling server with esbuild …')
 await esbuild.build({
   entryPoints: [path.join(root, 'server', 'desktop', 'launcher.ts')],
@@ -79,11 +80,11 @@ await esbuild.build({
   bundle: true,
   platform: 'node',
   format: 'cjs',
-  target: 'node20',
-  // better-sqlite3 is a native addon; systray2 spawns a helper binary and does
-  // stdio/readline wiring that esbuild's bundling breaks — both run from a
-  // vendored node_modules instead (see below).
-  external: ['better-sqlite3', 'systray2'],
+  target: 'node24',
+  // systray2 spawns a helper binary and does stdio/readline wiring that
+  // esbuild's bundling breaks — it runs from a vendored node_modules instead
+  // (see below). `node:sqlite` is a builtin, so esbuild leaves it alone.
+  external: ['systray2'],
   legalComments: 'none',
   logLevel: 'warning',
   // app.ts / db.ts read import.meta.url for their __dirname, but only use it for
@@ -130,13 +131,13 @@ if (!assetFiles.some((f) => /^skillDomainModel-.*\.js$/.test(f))) failGuard('ski
 log('skill-library data present in bundle ✓')
 
 // ── 4. Vendor the deps esbuild left external ────────────────────────────────
-// better-sqlite3's closure (itself + bindings + file-uri-to-path) and systray2's
-// closure (itself + debug/ms + fs-extra/graceful-fs/jsonfile/universalify). The
-// bundle's require()s resolve these from app/node_modules at runtime.
-// (prebuild-install is install-time only, so it's intentionally omitted.)
-const requiredDeps = new Set(['better-sqlite3'])
+// Only systray2's closure remains (itself + debug/ms +
+// fs-extra/graceful-fs/jsonfile/universalify). The bundle's require()s resolve
+// these from app/node_modules at runtime. SQLite used to be vendored here too;
+// it now comes from the Node binary, so nothing in this list is required —
+// systray2 is best-effort by design (its absence only costs the tray icon).
+const requiredDeps = new Set()
 const vendoredDeps = [
-  'better-sqlite3', 'bindings', 'file-uri-to-path',
   'systray2', 'debug', 'ms', 'fs-extra', 'graceful-fs', 'jsonfile', 'universalify',
 ]
 const nmOut = path.join(appDir, 'node_modules')
@@ -165,11 +166,19 @@ if (fs.existsSync(trayDir)) {
     try { fs.chmodSync(path.join(trayDir, keepTrayBin), 0o755) } catch { /* best-effort */ }
   }
 }
-// Sanity-check the compiled native binary made it across.
-const nodeAddon = path.join(nmOut, 'better-sqlite3', 'build', 'Release', 'better_sqlite3.node')
-if (!fs.existsSync(nodeAddon)) {
-  console.error('[build-desktop] WARNING: better_sqlite3.node not found in the copied ' +
-    'package. The build may not run. Was better-sqlite3 compiled (npm install)?')
+// Sanity-check that the Node runtime we're about to ship can actually open a
+// database. This replaced a check for the compiled .node addon, and it guards a
+// failure that is easier to miss: SQLite now comes from the Node binary, and
+// Node 22 and below gate `node:sqlite` behind --experimental-sqlite. Building
+// on one of those produces a release that unpacks, launches, and then dies the
+// first time it touches storage. Probing process.execPath is what makes the
+// check honest — that is the exact binary copied in step 5 below.
+try {
+  execFileSync(process.execPath, ['-e', "require('node:sqlite').DatabaseSync"], { stdio: 'pipe' })
+} catch {
+  console.error(`[build-desktop] the Node runtime being bundled (${process.version}) has no ` +
+    'usable node:sqlite — the shipped app would fail on first save. Build on Node 24+.')
+  process.exit(1)
 }
 
 // ── 5. Copy the Node runtime ────────────────────────────────────────────────

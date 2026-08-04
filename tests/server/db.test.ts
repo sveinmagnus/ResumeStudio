@@ -2,14 +2,14 @@ import { describe, it, expect } from 'vitest'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
-import Database from 'better-sqlite3'
+import { DatabaseSync } from 'node:sqlite'
 import { createResumeDb, MAX_SNAPSHOTS, type ResumeBackupEntry } from '../../server/db'
 
 // Each test gets its own isolated in-memory database.
 const freshDb = () => createResumeDb(':memory:')
 
 describe('createResumeDb — file permissions', () => {
-  // Best-effort: better-sqlite3 keeps the file handle open, so Windows can't
+  // Best-effort: the connection keeps the file handle open, so Windows can't
   // unlink it mid-test. The assertions are what matter; tmp hygiene is not.
   const rmQuiet = (dir: string) => {
     try { fs.rmSync(dir, { recursive: true, force: true }) } catch { /* ignore */ }
@@ -293,7 +293,7 @@ describe('createResumeDb — additive version migration', () => {
     const file = path.join(dir, 'old.db')
 
     // Hand-build the pre-offline-editing schema (no `version` column) + a row.
-    const raw = new Database(file)
+    const raw = new DatabaseSync(file)
     raw.exec(`
       CREATE TABLE resumes (
         id TEXT PRIMARY KEY, name TEXT NOT NULL, data TEXT NOT NULL,

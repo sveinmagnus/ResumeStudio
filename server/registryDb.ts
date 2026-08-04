@@ -15,11 +15,11 @@
  * (the reference-rewrite is Increment 2, landed together with the client so
  * `main` never breaks).
  *
- * Shares the caller's better-sqlite3 connection (createResumeDb wires it in), so
+ * Shares the caller's SQLite connection (createResumeDb wires it in), so
  * registry + resume writes can share a transaction later.
  */
 
-import type { Database } from 'better-sqlite3'
+import type { SqliteDatabase } from './sqlite.js'
 import { randomUUID } from 'crypto'
 import { skillKey, normalizeKey } from './skillKey.js'
 
@@ -130,7 +130,7 @@ export interface RegistryStore {
  * Create the registry table (idempotent) and return the registry operations
  * bound to `db`. Called by createResumeDb with its own connection.
  */
-export function createRegistryStore(db: Database): RegistryStore {
+export function createRegistryStore(db: SqliteDatabase): RegistryStore {
   db.exec(`
     CREATE TABLE IF NOT EXISTS registry_entries (
       id         TEXT PRIMARY KEY,

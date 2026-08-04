@@ -1,6 +1,6 @@
 ---
 name: ci-and-release
-description: How Resume Studio's GitHub Actions CI and release pipeline actually work, and how to triage a failing check. Use when a CI job (typecheck/test/build/e2e/depcheck) is red, when a `v*` release build fails or ships wrong artifacts, when cutting a release, or when touching .github/workflows/ci.yml or release.yml. Encodes the real failure modes these workflows were built to prevent (version drift, split releases, missing update sidecars, better-sqlite3 prebuilds).
+description: How Resume Studio's GitHub Actions CI and release pipeline actually work, and how to triage a failing check. Use when a CI job (typecheck/test/build/e2e/depcheck) is red, when a `v*` release build fails or ships wrong artifacts, when cutting a release, or when touching .github/workflows/ci.yml or release.yml. Encodes the real failure modes these workflows were built to prevent (version drift, split releases, missing update sidecars, the SQLite runtime requirement).
 ---
 
 # CI & release pipeline
@@ -39,8 +39,11 @@ environmental (the harness noise in `software-testing` §6 is about *local* runs
   (undeclared) imports. Act on real findings; never "fix" CI by making it
   blocking. It's the cheap guardrail chosen instead of migrating npm→pnpm.
 
-Node is pinned to **22** across all jobs (see release.yml comment for why 20 is
-out: EOL + no better-sqlite3 abi115 prebuilds + rolldown needs ≥22.12).
+Node is pinned to **24** across all jobs, and it is a hard requirement rather
+than a preference: storage is `node:sqlite`, which Node 22 and below gate behind
+`--experimental-sqlite`. The desktop build bundles whatever Node it runs on, so
+`build-desktop.mjs` probes `process.execPath` for a usable `node:sqlite` and
+hard-fails instead of shipping a release that dies on first save.
 
 **Workflow-level hardening (don't regress):** `ci.yml` runs with
 `permissions: contents: read` (least privilege — CI never writes), a
@@ -114,9 +117,12 @@ Release. Structure and the races it was built to avoid:
 - **Field builds stopped updating** → the `.sha256` sidecar upload was dropped,
   or `assetNameFor`/`checksumNameFor` in `updater.ts` drifted from
   `build-desktop.mjs`. Keep those name-builders in sync (CLAUDE.md §14).
-- **Windows build compiles better-sqlite3 from source and fails** → Node
-  dropped below 22 somewhere, so no prebuilt abi127 binary. Keep `node-version:
-  '22'` everywhere.
+- **Windows build fails compiling a native addon** → should be impossible now
+  that SQLite comes from the Node binary. If it returns, something re-added a
+  native dependency; the windows-latest image cannot drive node-gyp, so that is
+  a blocker, not a slow build.
+- **Desktop build hard-fails on `node:sqlite`** → the runner dropped below Node
+  24. Keep `node-version: '24'` everywhere.
 
 ## 5. Reference
 
