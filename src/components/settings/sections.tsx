@@ -5,27 +5,65 @@
  */
 
 import { useState } from 'react'
-import { Download, Type } from 'lucide-react'
+import { Download, Type, Archive, Loader2 } from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import { downloadBackup } from '../../lib/backup'
+import { api, UnauthorizedError } from '../../lib/api'
 import { fontOptions, fontInstallInfo, type GlobalFonts } from '../../lib/fonts'
 import { getDefaultFonts, setDefaultFonts } from '../../lib/appPrefs'
 
 /**
- * Download a portable JSON backup of the CURRENT resume. Moved here from the
- * top bar (it's an occasional action, not something done every session).
- * Distinct from the auto-sync backup FOLDER: this is a manual, one-off copy of
- * the open resume that can be re-imported from the picker as a new resume.
+ * The two manual backup actions, which answer different questions.
+ *
+ * "Save this resume" is a COPY tool: one JSON of the open resume, no identity,
+ * re-importing it creates a new resume. That's the point — it's how you fork a
+ * CV or hand one to someone.
+ *
+ * "Export all resumes" is the BACKUP: a zip holding one file per resume plus the
+ * shared registry, in exactly the layout the sync folder uses. Each person is
+ * their own file inside it, so a single CV can be pulled out (or a single
+ * person's data deleted) without touching anyone else's — the erasure story that
+ * a single combined file made impossible. Re-importing it merges by resume id,
+ * so it restores your resumes rather than duplicating them.
  */
 export function SaveToFileSection() {
   const resume = useStore((s) => s.data.resume)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  const exportAll = async () => {
+    setBusy(true); setErr(null)
+    try {
+      await api.exportBackupZip()
+    } catch (e) {
+      setErr(e instanceof UnauthorizedError ? 'Your session expired — reload and try again.' : (e as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <section className="sm-sec">
-      <div className="sm-sec-head"><Download size={15} /> Save this resume to a file</div>
+      <div className="sm-sec-head"><Download size={15} /> Backup &amp; export</div>
       <p className="sm-help">
-        Download a portable JSON copy of the resume you're editing. Load it later
-        from the resume picker — it creates a new resume. This is a manual, one-off
-        copy, separate from the auto-synced backup folder.
+        <strong>Export all resumes</strong> downloads a .zip holding one file per
+        resume plus the shared skill/role registry — the same layout as the sync
+        folder, so a single person's CV can be lifted out or removed on its own.
+        Import it from the resume picker to restore: resumes are matched by
+        identity and updated in place, never duplicated.
+      </p>
+      <div className="sm-btn-row">
+        <button className="sm-btn" onClick={() => void exportAll()} disabled={busy}>
+          {busy ? <Loader2 size={13} className="sm-spin" /> : <Archive size={13} />}
+          Export all resumes (.zip)
+        </button>
+      </div>
+      {err && <div className="sm-msg sm-err" role="alert">{err}</div>}
+
+      <p className="sm-help" style={{ marginTop: 14 }}>
+        <strong>Save this resume</strong> downloads a portable JSON copy of the
+        resume you're editing. Loading it from the picker creates a <em>new</em>
+        {' '}resume — it's a way to fork or hand over one CV, not a backup.
       </p>
       <div className="sm-btn-row">
         <button
@@ -33,9 +71,14 @@ export function SaveToFileSection() {
           onClick={() => void downloadBackup(useStore.getState().data)}
           disabled={!resume}
         >
-          <Download size={13} /> Save to file
+          <Download size={13} /> Save this resume to a file
         </button>
       </div>
+
+      <style>{`
+        .sm-spin { animation: sm-spin 1s linear infinite; }
+        @keyframes sm-spin { to { transform: rotate(360deg); } }
+      `}</style>
     </section>
   )
 }

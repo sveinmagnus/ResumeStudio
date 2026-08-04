@@ -1,12 +1,12 @@
 import { useRef, useState } from 'react'
 import { Upload, FileJson, Sparkles, FilePlus, Wand2 } from 'lucide-react'
 import {
-  isBackupFormat, importFromBackup, isStoreBackupFormat, resumesFromStoreBackup,
+  isBackupFormat, importFromBackup, isMergeableBackupFormat,
   normalizeStoreShape, looksLikeResumeStore,
   UnsupportedBackupVersionError, InvalidBackupError,
 } from '../lib/backup'
-import { reinternBackupLinks, collectReferencedCanonical } from '../lib/registryReintern'
-import { api } from '../lib/api'
+import { reinternBackupLinks } from '../lib/registryReintern'
+import { api, ServerError, type RestoreSummary } from '../lib/api'
 import { importFromCVPartner, isCVPartnerFormat } from '../lib/importer'
 import {
   isAIImportFormat, validateAIImport, importFromAIDraft, InvalidAIImportError,
@@ -18,7 +18,7 @@ import {
 import { AIImportModal } from './AIImportModal'
 import { loadSkillTaxonomy, loadSkillClassifications } from '../lib/skillTaxonomy'
 import { normalizeImportedSkills } from '../lib/skillNormalize'
-import type { ResumeStore, CanonicalSnapshot, RegistryEntry } from '../types'
+import type { ResumeStore, CanonicalSnapshot } from '../types'
 
 const YEAR = new Date().getFullYear()
 
@@ -46,6 +46,13 @@ export interface ImportScreenProps {
   onStartFresh: () => void | Promise<void>
   /** Called with the parsed store + a suggested name derived from the file. */
   onImported: (store: ResumeStore, suggestedName: string) => void | Promise<void>
+  /**
+   * Called after an identity-bearing backup (a sync file, an export zip, a
+   * legacy combined backup) has been MERGED server-side. Separate from
+   * `onImported` because nothing new was created: existing resumes were updated
+   * in place by id, which is what stops a re-import duplicating them.
+   */
+  onRestored?: (summary: RestoreSummary) => void | Promise<void>
 }
 
 function deriveName(store: ResumeStore, fallback: string): string {
@@ -54,30 +61,25 @@ function deriveName(store: ResumeStore, fallback: string): string {
 }
 
 /**
- * Import Resume Studio's OWN content — the dispatcher's default target. Handles
- * every self-export shape, current or older:
- *   - a whole-store desktop-sync backup (`resumestudio-store/…`, every resume);
- *   - a per-resume backup envelope (`resumestudio/…`);
+ * Import Resume Studio's OWN content that carries NO resume identity — the
+ * dispatcher's default target. These files describe a resume's contents, not
+ * which resume it is, so each one legitimately becomes a NEW resume:
+ *   - a per-resume backup envelope (`resumestudio/…`, the "Save this resume to
+ *     a file" download — explicitly a copy-making tool);
  *   - a bare/legacy `ResumeStore` object (an older self-export without an
  *     envelope).
- * Shared-registry links are re-interned against THIS instance (store backups
- * carry a top-level `registry`; per-resume backups embed `canonical_registry`
- * snapshots). Anything that isn't recognisable as our content throws a clear
- * error — we never silently create an empty resume.
+ * Shared-registry links are re-interned against THIS instance from the backup's
+ * embedded `canonical_registry` snapshots. Anything that isn't recognisable as
+ * our content throws a clear error — we never silently create an empty resume.
+ *
+ * Files that DO carry identity (the sync folder's per-resume files, an export
+ * zip, a legacy combined backup) never reach here: `handleFile` routes them to
+ * the server's merge-by-id endpoint instead. See `isMergeableBackupFormat`.
  */
 async function importResumeStudio(
   json: unknown,
   onImported: (store: ResumeStore, name: string) => void | Promise<void>,
 ): Promise<void> {
-  if (isStoreBackupFormat(json)) {
-    const registry = (json as { registry?: RegistryEntry[] }).registry
-    for (const { name, store } of resumesFromStoreBackup(json)) {
-      const embedded = registry?.length ? collectReferencedCanonical(store, registry) : undefined
-      const reinterned = await reinternBackupLinks(store, embedded, api).catch(() => store)
-      await onImported(reinterned, name || deriveName(reinterned, 'Imported resume'))
-    }
-    return
-  }
   if (isBackupFormat(json)) {
     // importFromBackup validates the structure and throws InvalidBackupError
     // (with a field path) on anything malformed.
@@ -102,30 +104,56 @@ async function importResumeStudio(
   )
 }
 
-export function ImportScreen({ compact = false, onStartFresh, onImported }: ImportScreenProps) {
+export function ImportScreen({ compact = false, onStartFresh, onImported, onRestored }: ImportScreenProps) {
   const [error, setError]       = useState<string | null>(null)
+  const [notice, setNotice]     = useState<string | null>(null)
   const [dragging, setDragging] = useState(false)
   const [showAI, setShowAI]     = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
+  /**
+   * Hand an identity-bearing backup to the server, which merges it BY RESUME ID
+   * (newest save wins) and unions the shared registry. The whole file goes over
+   * the wire untouched — the server already owns this format for folder sync, so
+   * there is exactly one merge implementation rather than a second, subtly
+   * different one in the browser.
+   */
+  const restoreFromFile = async (file: File) => {
+    const summary = await api.importBackupFile(file)
+    const parts: string[] = []
+    if (summary.inserted) parts.push(`${summary.inserted} added`)
+    if (summary.updated) parts.push(`${summary.updated} updated`)
+    if (summary.deleted) parts.push(`${summary.deleted} removed`)
+    // "Already up to date" is a SUCCESS, and the most likely outcome of
+    // re-importing a backup. Saying so is what tells the user their resumes were
+    // recognised rather than silently ignored.
+    setNotice(`Restored from ${file.name} — ${parts.length ? parts.join(', ') : 'everything was already up to date'}.`)
+    await onRestored?.(summary)
+  }
+
   const handleFile = async (file: File) => {
     setError(null)
+    setNotice(null)
     try {
-      // LinkedIn data export: a ZIP of CSVs. fflate is lazy-loaded so the
-      // unzip code only ships when someone actually drops a .zip.
       if (/\.zip$/i.test(file.name)) {
+        // Two kinds of zip arrive here: a LinkedIn data export (CSVs) and our own
+        // "export all resumes" archive (per-resume JSON). LinkedIn has a positive
+        // detector, so check that first and treat everything else as ours — the
+        // server gives a precise error if it isn't.
+        // fflate is lazy-loaded so the unzip code only ships when someone
+        // actually drops a .zip.
         const { unzipSync, strFromU8 } = await import('fflate')
         const entries = unzipSync(new Uint8Array(await file.arrayBuffer()))
         const files: Record<string, string> = {}
         for (const [name, bytes] of Object.entries(entries)) {
           if (/\.csv$/i.test(name)) files[name] = strFromU8(bytes)
         }
-        if (!isLinkedInExport(files)) {
-          setError('That ZIP doesn’t look like a LinkedIn data export (no Profile/Positions/Skills CSVs found).')
+        if (isLinkedInExport(files)) {
+          const store = await normalizeImported(importFromLinkedIn(files))
+          await onImported(store, deriveName(store, 'LinkedIn import'))
           return
         }
-        const store = await normalizeImported(importFromLinkedIn(files))
-        await onImported(store, deriveName(store, 'LinkedIn import'))
+        await restoreFromFile(file)
         return
       }
 
@@ -139,6 +167,14 @@ export function ImportScreen({ compact = false, onStartFresh, onImported }: Impo
       }
 
       const json = JSON.parse(text) as unknown
+
+      // Our identity-bearing files go to the server's merge-by-id endpoint FIRST,
+      // ahead of every other detector: they name the resumes they carry, so
+      // re-importing one must update those resumes rather than clone them.
+      if (isMergeableBackupFormat(json)) {
+        await restoreFromFile(file)
+        return
+      }
 
       // Third-party formats each have a POSITIVE detector that routes to their
       // own importer. Anything NOT matched here defaults to the Resume Studio
@@ -167,6 +203,10 @@ export function ImportScreen({ compact = false, onStartFresh, onImported }: Impo
       const msg = e instanceof UnsupportedBackupVersionError
         || e instanceof InvalidAIImportError
         || e instanceof InvalidBackupError
+        // The server's import errors are already written for a human ("No
+        // Resume Studio backup files found in that upload.") — don't bury them
+        // under a parse-failure prefix that misdescribes them.
+        || e instanceof ServerError
         ? e.message
         : `Could not parse file: ${(e as Error).message}`
       setError(msg)
@@ -216,7 +256,7 @@ export function ImportScreen({ compact = false, onStartFresh, onImported }: Impo
         >
           <div className="is-drop-icon"><Upload size={28} /></div>
           <div className="is-drop-title">Drop your resume file here</div>
-          <div className="is-drop-sub">or click to browse — Resume Studio backups, CVpartner exports, LinkedIn data exports (.zip), Europass (.xml/.json), or AI import files</div>
+          <div className="is-drop-sub">or click to browse — Resume Studio backups (.json or .zip), CVpartner exports, LinkedIn data exports (.zip), Europass (.xml/.json), or AI import files</div>
           <input
             ref={inputRef}
             type="file"
@@ -227,10 +267,11 @@ export function ImportScreen({ compact = false, onStartFresh, onImported }: Impo
         </div>
 
         {error && <div className="is-error" role="alert">{error}</div>}
+        {notice && <div className="is-notice" role="status">{notice}</div>}
 
         {!compact && (
           <div className="is-features">
-            <div className="is-feat"><FileJson size={16} /> Resume Studio backup (.json) — restore a previous session</div>
+            <div className="is-feat"><FileJson size={16} /> Resume Studio backup (.json or .zip) — restores your resumes in place, without duplicating them</div>
             <div className="is-feat"><FileJson size={16} /> CVpartner export (.json) — import projects, employment, education, skills &amp; more</div>
             <div className="is-feat"><FileJson size={16} /> LinkedIn data export (.zip) and Europass CV (.xml / .json)</div>
             <div className="is-feat"><Wand2 size={16} /> Start from a PDF/Word CV with your own AI — no account or API key needed</div>
@@ -314,6 +355,10 @@ export function ImportScreen({ compact = false, onStartFresh, onImported }: Impo
         .is-error {
           margin-top: 14px; padding: 10px 14px; background: var(--accent-wash);
           color: var(--accent); border-radius: var(--r-sm); font-size: 13px; text-align: left;
+        }
+        .is-notice {
+          margin-top: 14px; padding: 10px 14px; background: var(--ok-wash);
+          color: var(--ok-ink); border-radius: var(--r-sm); font-size: 13px; text-align: left;
         }
 
         /* Feature list */

@@ -24,10 +24,11 @@ export function SyncTab() {
           <div className="sm-sec-head"><FolderSync size={15} /> Backup &amp; sync folder</div>
           <p className="sm-help">
             Point Resume Studio at a cloud-synced folder (Google Drive / Dropbox /
-            OneDrive). It keeps one backup file there and, while running, writes
-            your edits out and merges newer content back in — so pointing a second
-            computer at the <strong>same</strong> folder shares your CVs across
-            both. Leave blank to turn sync off.
+            OneDrive). It keeps <strong>one file per resume</strong> there and,
+            while running, writes your edits out and merges newer content back in
+            — so pointing a second computer at the <strong>same</strong> folder
+            shares your CVs across both. One file per person means a single CV can
+            be handed over, or removed, on its own. Leave blank to turn sync off.
           </p>
           <div className="sm-field-row">
             <input

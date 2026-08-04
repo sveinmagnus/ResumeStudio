@@ -17,7 +17,7 @@ units:
     intent: "How must an agent work in this codebase? Architecture map, data model, store patterns, conventions (incl. the v0.3.1 accessibility invariants + the version source-of-truth rule), and what not to change. Holds invariants only — the exhaustive feature catalog is in feature-map."
     scope: global
     audience: [agent, developer]
-    validated: "2026-07-31"
+    validated: "2026-08-04"
     update_frequency: weekly
     triggers: [conventions, architecture, data-model, store, persistence, sections, accessibility, routing]
     content_structure:
@@ -34,7 +34,7 @@ units:
     intent: "What features exist and how does each hang together? The exhaustive per-feature design catalog + the recently-shipped changelog, extracted from CLAUDE.md §1 to keep the instruction file lean."
     scope: global
     audience: [agent, developer]
-    validated: "2026-07-31"
+    validated: "2026-08-04"
     update_frequency: weekly
     depends_on: [claude-instructions]
     triggers: [features, changelog, skills-showcase, skill-category, registry, resume-views, import, what-exists]
@@ -63,10 +63,10 @@ units:
 
   - id: desktop-guide
     path: DESKTOP.md
-    intent: "How does the portable desktop build work — building, data dirs, cloud-folder sync, tray, tabbed in-app settings (translation + AI assist), and auto-update?"
+    intent: "How does the portable desktop build work — building, data dirs, cloud-folder sync (one file per resume, with per-person erasure), manual zip backup/restore, tray, tabbed in-app settings (translation + AI assist), and auto-update?"
     scope: project
     audience: [human, developer, agent]
-    validated: "2026-07-24"
+    validated: "2026-08-04"
     update_frequency: monthly
     depends_on: [readme]
     triggers: [desktop, launcher, portable, tray, auto-update, sync, backup-folder]
@@ -134,11 +134,11 @@ units:
 
   - id: skill-security-review
     path: .claude/skills/security-review.md
-    intent: "What escaping/sanitising rules protect the render pipeline, server, auth, imports, and the LLM proxy (translate/summarize/llm routes, AssistRun honesty contract) — and how to review changes against them?"
+    intent: "What escaping/sanitising rules protect the render pipeline, server, auth, imports (incl. the backup zip/folder merge), and the LLM proxy (translate/summarize/llm routes, AssistRun honesty contract) — and how to review changes against them?"
     kind: policy
     scope: project
     audience: [agent]
-    validated: "2026-07-17"
+    validated: "2026-08-04"
     depends_on: [claude-instructions]
     triggers: [security, xss, escaping, sanitise, auth, csp, untrusted-input]
     hints:

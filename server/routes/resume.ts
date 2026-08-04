@@ -4,6 +4,7 @@ import {
   deleteResume, renameResume, listSnapshots, getSnapshot,
   storageStats,
 } from '../db.js'
+import { configuredBackupDir, recordDeletion } from '../backupFiles.js'
 
 const router = Router()
 
@@ -190,13 +191,27 @@ router.patch('/:id', (req: Request<IdParams>, res: Response): void => {
   res.json({ ok: true })
 })
 
-/** DELETE /api/resumes/:id — hard delete (snapshots cascade). */
+/**
+ * DELETE /api/resumes/:id — hard delete (snapshots cascade).
+ *
+ * A resume is one identified person's data, so deleting it has to mean deleting
+ * it — including from the sync folder, and on the other machines syncing that
+ * folder. `recordDeletion` removes this resume's file(s) and leaves a tombstone
+ * (id + timestamp only, no personal data) for the other machines' watchers.
+ * Without it the next machine to sync would simply publish the resume back and
+ * the erasure would silently undo itself.
+ *
+ * Best-effort by design: the DB row is already gone, so an unwritable sync
+ * folder (offline network share) must not turn a completed delete into an error.
+ */
 router.delete('/:id', (req: Request<IdParams>, res: Response): void => {
   const ok = deleteResume(req.params.id)
   if (!ok) {
     res.status(404).json({ error: 'Resume not found' })
     return
   }
+  const dir = configuredBackupDir()
+  if (dir) recordDeletion(dir, req.params.id)
   res.json({ ok: true })
 })
 

@@ -1,9 +1,10 @@
 /**
- * Periodic store-backup writer for the desktop build.
+ * Periodic sync-folder writer for the desktop build.
  *
  * Polls the DB on an interval; when the store's signature has moved since the
- * last write, it writes a fresh atomic backup to the sync folder. Signature-
- * gating means an idle app never rewrites the file (no pointless Drive churn),
+ * last write, it publishes one file per resume plus `registry.json` (see
+ * `backupFiles.ts` for the layout and why it is split per person). Signature-
+ * gating means an idle app never rewrites anything (no pointless Drive churn),
  * while an actively-edited app keeps the synced copy current within one tick.
  *
  * Kept deliberately small and dependency-light so the launcher can own one
@@ -11,17 +12,35 @@
  * a failing backup must not take down the editor.
  */
 
-import { backupSignature, buildStoreBackup, writeBackupAtomic } from './backup.js'
+import { backupSignature } from './backup.js'
+import { writeResumeFiles } from './backupFiles.js'
 import type { ResumeDb } from './db.js'
+import type { RegistryEntry } from './registryDb.js'
 
 export interface BackupSchedulerOptions {
   db: ResumeDb
-  /** Sync folder to write the backup into (e.g. a Google Drive path). */
+  /** Sync folder to write into (e.g. a Google Drive path). */
   dir: string
   /** Poll interval in ms. Default 60s. */
   intervalMs?: number
   /** Diagnostic sink — defaults to console.log. */
   log?: (msg: string) => void
+}
+
+/**
+ * The write gate: resumes AND the registry, since `registry.json` is now its own
+ * file and a canonical rename can land without any resume's `saved_at` moving
+ * (it used to ride along with the one file the resume signature already gated).
+ */
+export function storeSignature(
+  entries: Parameters<typeof backupSignature>[0],
+  registry: RegistryEntry[],
+): string {
+  const reg = registry
+    .map((e) => `${e.id}:${e.updated_at}`)
+    .sort()
+    .join('|')
+  return `${backupSignature(entries)}#${reg}`
 }
 
 export class BackupScheduler {
@@ -39,14 +58,10 @@ export class BackupScheduler {
     this.log = opts.log ?? ((m) => console.log(m))
   }
 
-  /** Begin polling. Seeds `lastSignature` from the existing file's content if
-   * the very first tick should be skipped — but simplest correct behaviour is
-   * to let the first tick write a fresh backup, guaranteeing the synced file
-   * matches the live DB at startup. */
+  /** Begin polling. The first tick runs immediately so a freshly-launched app
+   * publishes its current state, then it settles into the interval. */
   start(): void {
     if (this.timer) return
-    // Run once promptly so a freshly-launched app publishes its current state,
-    // then settle into the interval.
     this.tick()
     this.timer = setInterval(() => this.tick(), this.intervalMs)
     // Don't keep the process alive solely for the backup timer.
@@ -57,13 +72,15 @@ export class BackupScheduler {
   private tick(): void {
     try {
       const entries = this.db.dumpResumes()
-      const sig = backupSignature(entries)
+      const registry = this.db.listRegistry()
+      const sig = storeSignature(entries, registry)
       if (sig === this.lastSignature) return
-      // The registry rides along (a canonical rename always coincides with the
-      // editing resume's save, so the resume signature already gates the write).
-      const { file, bytes } = writeBackupAtomic(this.dir, buildStoreBackup(entries, this.db.listRegistry()))
+      const { written, bytes, removed } = writeResumeFiles(this.dir, entries, registry)
       this.lastSignature = sig
-      this.log(`[backup] wrote ${entries.length} resume(s), ${bytes} bytes → ${file}`)
+      this.log(
+        `[backup] wrote ${written} resume file(s), ${bytes} bytes → ${this.dir}` +
+        (removed.length ? ` (removed ${removed.length} superseded file(s))` : ''),
+      )
     } catch (err) {
       this.log(`[backup] write failed: ${(err as Error).message}`)
     }
@@ -73,9 +90,10 @@ export class BackupScheduler {
   flush(): void {
     try {
       const entries = this.db.dumpResumes()
-      const { file } = writeBackupAtomic(this.dir, buildStoreBackup(entries, this.db.listRegistry()))
-      this.lastSignature = backupSignature(entries)
-      this.log(`[backup] final flush → ${file}`)
+      const registry = this.db.listRegistry()
+      const { written } = writeResumeFiles(this.dir, entries, registry)
+      this.lastSignature = storeSignature(entries, registry)
+      this.log(`[backup] final flush → ${written} resume file(s) in ${this.dir}`)
     } catch (err) {
       this.log(`[backup] final flush failed: ${(err as Error).message}`)
     }

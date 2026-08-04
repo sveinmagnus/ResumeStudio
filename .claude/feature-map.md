@@ -478,15 +478,26 @@ prescriptive.
 - **Downloadable desktop build** — a portable folder (bundled Node + esbuild'd
   server + built client) with a double-clickable launcher that boots the app on
   a free loopback port and opens the browser. Data lives in a stable per-user OS
-  folder; an optional **whole-store JSON backup** written to a cloud-synced
-  folder (Google Drive/Dropbox/OneDrive) syncs CVs across computers via a
-  newest-wins merge — kept current in BOTH directions **continuously while the
-  app runs** (`backupScheduler` writes out; `backupWatcher` = fs.watch + a
-  poll backstop merges other machines' edits in), not only at launch. The open
-  editor polls its resume's `version` and shows `RemoteUpdateNotice` when a
-  background merge advances it. Build with `npm run build:desktop`. See
-  CLAUDE.md §8/§14 and `DESKTOP.md`. The persistence architecture is unchanged,
-  so a later move to Electron is repackaging, not a rewrite.
+  folder; an optional cloud-synced folder (Google Drive/Dropbox/OneDrive) holding
+  **one JSON file per resume** (`<slug>__<id>.json`) plus `registry.json` syncs
+  CVs across computers via a newest-wins-by-id merge — kept current in BOTH
+  directions **continuously while the app runs** (`backupScheduler` writes out;
+  `backupWatcher` = fs.watch + a folder-fingerprint poll backstop merges other
+  machines' edits in), not only at launch. The open editor polls its resume's
+  `version` and shows `RemoteUpdateNotice` when a background merge advances it.
+  Build with `npm run build:desktop`. See CLAUDE.md §8/§14 and `DESKTOP.md`. The
+  persistence architecture is unchanged, so a later move to Electron is
+  repackaging, not a rewrite.
+- **Per-person backup files + right to be forgotten** — the sync folder's unit is
+  one identified person, so a single CV can be handed over or deleted as one
+  file. Deleting a resume removes its file and writes an id-only tombstone
+  (`deleted-resumes.json`) that other machines honour, so an erasure can't be
+  undone by the next machine to sync; a copy edited *after* the deletion is
+  treated as a revival and kept. **Export all resumes (.zip)** in Settings
+  bundles the same files into one archive, and importing that zip (or any single
+  resume file) **merges by resume id** instead of duplicating — the bug that made
+  setting up a second computer clone the whole list. `server/backupFiles.ts`,
+  `server/backupZip.ts`, `POST /api/backup/import`.
 - **Automatic updates (desktop build)** — the system-tray "Check for updates"
   item (plus an in-app picker banner + Settings → Updates) checks GitHub
   Releases daily / on demand, toggles to "Install update (vX.Y.Z)" when a newer
@@ -635,6 +646,24 @@ writing assist on every section, a **three-way merge on save conflict**
 (`lib/threeWayMerge.ts` — non-overlapping concurrent edits merge silently
 instead of raising a whole-document keep/discard), and **real `<a href>` sidebar
 navigation** (Ctrl-click / "Open in new tab" work on every section and view).
+
+**Per-person backup files (August 2026).** The sync folder went from one
+`resume-studio-backup.json` holding everybody to **one file per resume**
+(`server/backupFiles.ts`: `<slug>__<resume-id>.json` + `registry.json` +
+`deleted-resumes.json`), because a resume is one identified person's data and
+GDPR erasure has to be actionable at that granularity on disk, not only in the
+DB. Identity is the id INSIDE the file, so a rename moves the file rather than
+adding a second one and two machines converge on one resume. Deleting a resume
+now removes its file and writes an **id-only tombstone** that other machines
+honour — with the "an edit after the delete is a revival" rule so a stale
+deletion can't destroy newer work. Each resume file also embeds the canonical
+registry entries it references in full, so one file alone can rebuild them
+elsewhere. **Manual backup is now a zip** of exactly those files
+(`server/backupZip.ts`, Settings → Backup & export), and — the bug this fixes —
+**every inbound path merges by resume id** (`POST /api/backup/import`), where
+dropping the sync file on the picker used to run each resume through
+`createResume`, mint a new id, and duplicate the whole list back onto the first
+machine. The legacy combined file is still read, then retired once superseded.
 
 **Toolchain (July 2026):** **Vite 5 → 8** (Rolldown — the production build went
 from ~16 s to under a second, and the dev-server advisories that had no fix

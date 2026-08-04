@@ -167,9 +167,25 @@ immediately.
 This is the recommended way to use one set of CVs on several machines.
 
 **How it works.** In **Settings → Backup & sync folder**, set a cloud-synced
-folder (Google Drive / Dropbox / OneDrive). Resume Studio then keeps a single
-JSON file, `resume-studio-backup.json`, in that folder containing **all** your
-resumes. It is written atomically (so the sync client never sees a half file):
+folder (Google Drive / Dropbox / OneDrive). Resume Studio then keeps **one JSON
+file per resume** in that folder, named after the resume and its permanent id:
+
+```
+…/Google Drive/ResumeStudio/
+  bjorn-odegard-cv__3f2a1b2c-….json     ← one person, standalone and portable
+  ada-lovelace-cv__7c9e0d41-….json
+  registry.json                         ← the shared skill/role registry
+  deleted-resumes.json                  ← erasure markers (ids + times only)
+```
+
+A resume is one identified person's data, so it gets its own file: you can hand
+a single CV to someone by sending one file, and you can remove one person from
+your backups by deleting one file — without touching anybody else's. Each
+resume file also embeds the registry entries it links to (full name, id and
+all), so a file lifted out on its own can still recreate them when imported
+somewhere new.
+
+Files are written atomically (so the sync client never sees a half file):
 
 - once at startup,
 - whenever the store changes while running (about once a minute, only if
@@ -177,8 +193,19 @@ resumes. It is written atomically (so the sync client never sees a half file):
 - once on a clean shutdown,
 - and on demand from the picker's **Sync & backup** panel ("Back up now").
 
-Resume Studio **merges in** anything newer from that file continuously while it
-runs — not only at launch. It watches the backup file (and re-checks it on a
+The filename's `__<id>` suffix is the resume's permanent identity. Renaming a
+resume renames its file (the old one is removed, never left behind as a second
+copy), and every machine derives the same name from the same resume — so two
+computers converge on one file rather than accumulating one each.
+
+> **Upgrading an existing folder.** Older versions kept everything in a single
+> `resume-studio-backup.json`. That file is still read, so nothing is lost; once
+> every resume in it has been written out as its own file, it is removed. Leaving
+> it would keep a copy of every person's CV in a file that per-person deletion
+> can't act on.
+
+Resume Studio **merges in** anything newer from that folder continuously while it
+runs — not only at launch. It watches the folder (and re-checks it on a
 short interval as a backstop, since cloud-drive folders don't always fire file
 events), so edits made on another computer land here within seconds of the sync
 service delivering them, even if this machine has been left running for days.
@@ -193,13 +220,13 @@ It still also merges once at startup. So the typical flow is:
    another device — Reload"** notice appears above the editor.
 
 **Merge rules (safe by design).** Merging is *newest-wins per resume*, keyed on
-each resume's last-saved time, and a union across machines:
+each resume's permanent id and last-saved time, and a union across machines:
 
-- A resume that's newer in the backup replaces the local copy.
+- A resume that's newer in the folder replaces the local copy.
 - A resume you don't have yet is added.
 - A resume that's newer locally is kept.
-- **Nothing is ever deleted** by a normal restore. (A restore also drops a
-  snapshot first, so you can undo it from History.)
+- **Nothing is deleted** by a restore except resumes you explicitly deleted (see
+  below). A restore also drops a snapshot first, so you can undo it from History.
 - Your **shared skill registry** ("who knows what") rides along too, so if you
   share skills across resumes on one machine, the links come through on the
   others — merged by skill, newest name wins, never deleted.
@@ -208,22 +235,56 @@ This means it's last-writer-wins if you edit the *same* resume on two machines
 without syncing in between — fine for a single person hopping between computers,
 but it is not a real-time multi-writer collaboration system.
 
+### Deleting a person's data everywhere
+
+Deleting a resume in the app deletes it here *and* in the sync folder: the
+resume's file is removed and a marker is written into `deleted-resumes.json`
+recording only its id and the time. Other computers see that marker and remove
+their copy too, instead of helpfully syncing the resume back — which is what
+would otherwise make a deletion silently undo itself.
+
+The marker deliberately contains no name and no content, so the record that
+propagates an erasure isn't itself a copy of the data being erased. Markers
+expire after a year (long enough for a laptop that's been offline).
+
+One exception, on purpose: a resume that was **edited after** the deletion is
+kept. A delete is treated as just another timestamped change, so newer still
+wins and a stale deletion can't destroy work someone did afterwards.
+
+If you delete a resume file from the folder by hand *without* deleting the
+resume in the app, the app will publish it again on its next backup — the app's
+copy is still there. Delete it in the app to remove it for good.
+
 ### Why not just put the database in Google Drive?
 
 Because a live SQLite file (plus its `-wal`/`-shm` sidecars) inside a cloud-sync
 folder is a known corruption trap: the sync client uploads the pieces at
-inconsistent moments and two machines can clobber each other. The JSON backup
-sidesteps that entirely — only a plain, atomically-written file syncs, and the
+inconsistent moments and two machines can clobber each other. The JSON files
+sidestep that entirely — only plain, atomically-written files sync, and the
 merge is deterministic. (If you really want the live DB in a synced folder
 anyway, set `RESUME_DB_JOURNAL=TRUNCATE` so no WAL sidecars are left around —
-but the JSON-backup route above is strongly preferred.)
+but the JSON route above is strongly preferred.)
 
 ### Manual / portable backups
 
-Independent of the sync folder, the in-editor **Export backup** button still
-downloads a single resume's portable JSON, and **History** keeps server-side
-snapshots. The sync folder backup is the *whole store*; the export button is
-*one resume*.
+Independent of the sync folder, **Settings → Backup & export** offers two
+different things:
+
+- **Export all resumes (.zip)** — the backup. One archive holding exactly the
+  same files the sync folder does: one JSON per resume, plus `registry.json`.
+  Each person is still their own file inside it, so a single CV can be pulled
+  out or left out. Drop the zip on the resume picker to restore: resumes are
+  matched by their permanent id and **updated in place, never duplicated**, so
+  re-importing the same backup twice is harmless. You can also drop a single
+  resume file from the archive (or from the sync folder) on the picker.
+- **Save this resume to a file** — a copy. One resume's portable JSON with no
+  identity attached; loading it creates a *new* resume. That's the point: it's
+  how you fork a CV or hand one to somebody, not how you back up.
+
+**History** keeps server-side snapshots per resume, independently of both.
+
+> Available on every build, including a VPS deployment — the zip needs no
+> configured sync folder.
 
 ---
 
@@ -293,8 +354,8 @@ first run, then overrides them.
 | Variable | Purpose | Default |
 |----------|---------|---------|
 | `RESUME_DATA_DIR` | Where the live DB + log live | per-user OS folder (§3) |
-| `RESUME_BACKUP_DIR` | Cloud-synced folder for the store backup (usually set via Settings) | unset (sync off) |
-| `RESUME_BACKUP_INTERVAL_MS` | How often to refresh the backup when changed | `60000` |
+| `RESUME_BACKUP_DIR` | Cloud-synced folder for the per-resume backup files (usually set via Settings) | unset (sync off) |
+| `RESUME_BACKUP_INTERVAL_MS` | How often to refresh the backup files when changed | `60000` |
 | `LIBRETRANSLATE_URL` | LibreTranslate base URL (usually set via Settings) | unset (translate off) |
 | `LIBRETRANSLATE_API_KEY` | Optional LibreTranslate key | unset |
 | `LLM_PROVIDER` / `LLM_MODEL` / `LLM_HIGH_END` (+ per-provider URL/key vars) | AI-assist backend seed values (usually set via Settings → AI assist; see `.env.example`). Pre-rename `SUMMARIZE_*` names still read as a fallback. | unset (AI assist off) |
@@ -320,10 +381,15 @@ your local network.
 - **Nothing opened in the browser.** The window/log prints the URL — open it
   manually. Pop-up/launch blockers can stop the auto-open.
 - **Where are the logs?** `resume-studio.log` in the data folder (§3).
-- **"Restore from folder" is greyed out.** No backup file exists in the sync
+- **"Restore from folder" is greyed out.** No resume files exist in the sync
   folder yet — click **Back up now** on the first machine first (or let it run a
-  minute), and make sure the cloud client has finished syncing the file down to
+  minute), and make sure the cloud client has finished syncing the files down to
   this machine.
+- **The same resume appears twice.** Older builds created a *new* resume every
+  time a backup was dropped on the picker, so setting up a second computer that
+  way duplicated the list — and then synced the duplicates back. Imports now
+  match on each resume's permanent id and update in place, so this can't recur;
+  delete the extra copies once and they stay gone.
 - **Moved the app and lost data?** You didn't — data is in the per-user folder
   (§3), not in `release/`. Set the same backup folder in Settings on the new copy
   if you also want the synced backup.
