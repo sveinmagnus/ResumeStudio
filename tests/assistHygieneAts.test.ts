@@ -577,6 +577,48 @@ describe('glossary', () => {
     expect(buildGlossary(bilingualStore(), 'no', 'no').terms).toHaveLength(0)
   })
 
+  it('takes a two-character term but not a one-character one', () => {
+    // "IT" and "AI" are the edge the floor is set for; a single character
+    // matches inside half the words in the text.
+    const s = emptyStore()
+    s.skills = [
+      makeSkill({ name: { no: 'IT', en: 'IT-drift' } }),
+      makeSkill({ name: { no: 'C', en: 'C-språket' } }),
+    ]
+    const from = buildGlossary(s, 'no', 'en').terms.map((t) => t.from)
+    expect(from).toContain('IT')
+    expect(from).not.toContain('C')
+  })
+
+  it('drops a term longer than a term could sensibly be', () => {
+    const s = emptyStore()
+    s.skills = [makeSkill({ name: { no: 'x'.repeat(61), en: 'Long' } })]
+    expect(buildGlossary(s, 'no', 'en').terms).toEqual([])
+  })
+
+  it('ignores a "term" made only of punctuation or digits', () => {
+    // The two columns must DIFFER, or the identical-value rule rejects them
+    // first and the letter test is never what did the work. A model told to
+    // render "2024" as "2025" is a corruption, not a glossary entry.
+    const s = emptyStore()
+    s.skills = [
+      makeSkill({ name: { no: '2024', en: '2025' } }),
+      makeSkill({ name: { no: '- -', en: '--' } }),
+    ]
+    expect(buildGlossary(s, 'no', 'en').terms).toEqual([])
+  })
+
+  it('flattens whitespace before comparing the two columns', () => {
+    // `keep` comes from identity fields on items. The two columns are typed
+    // separately, so without normalising, the same employer with a stray double
+    // space reads as a pair to TRANSLATE rather than a name to leave alone.
+    const s = bilingualStore()
+    s.work_experiences[0].employer = { no: '  Statens   vegvesen ', en: 'Statens vegvesen' }
+    const g = buildGlossary(s, 'no', 'en')
+    expect(g.keep).toContain('Statens vegvesen')
+    expect(g.terms.some((t) => t.from.includes('vegvesen'))).toBe(false)
+  })
+
   it('will not match a term inside a longer Norwegian word', () => {
     expect(mentions('Skydriften vår', 'Skydrift')).toBe(false)
     expect(mentions('Vår Skydrift er god', 'Skydrift')).toBe(true)
