@@ -20,12 +20,17 @@
  *    still leaves everything it measured — the earlier whole-directory attempts
  *    produced nothing at all when they died.
  *  - **Resumable.** Files already measured are skipped unless --force.
+ *  - **The surviving mutants are kept, not just the score.** Stryker's json
+ *    report lands in reports/mutation/files/<name>.json per file. A score of
+ *    62% tells you nothing you can act on; the mutant list is the actual
+ *    output, and the first full run produced only the score.
  *
  * Usage:
  *   node scripts/mutation-run.mjs                 # every lib file with a test
  *   node scripts/mutation-run.mjs richText merge  # just these
  *   node scripts/mutation-run.mjs --limit 10      # the next 10 unmeasured
  *   node scripts/mutation-run.mjs --report        # print what's been measured
+ *   node scripts/mutation-run.mjs --survivors x   # print x's UNKILLED mutants
  */
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, rmSync } from 'node:fs'
@@ -33,12 +38,20 @@ import path from 'node:path'
 
 const ROOT = process.cwd()
 const REPORT = path.join(ROOT, 'reports', 'mutation', 'summary.json')
-/** Generous — a big file with slow tests still finishes well inside this. */
-const PER_FILE_TIMEOUT_MS = 20 * 60 * 1000
+/** Per-file mutant detail, written by Stryker's own json reporter. */
+const detailPath = (base) => path.join(ROOT, 'reports', 'mutation', 'files', `${base}.json`)
+/**
+ * Generous on purpose: richText measured 1,995s (33 min) in the first full run,
+ * which is ABOVE the 20 minutes this used to allow. A file that trips the
+ * timeout is recorded as an error and loses its mutant detail, so the ceiling
+ * has to sit clear of the worst real file rather than near it.
+ */
+const PER_FILE_TIMEOUT_MS = 60 * 60 * 1000
 
 const argv = process.argv.slice(2)
 const force = argv.includes('--force')
 const reportOnly = argv.includes('--report')
+const survivorsOnly = argv.includes('--survivors')
 const limitIdx = argv.indexOf('--limit')
 const limit = limitIdx >= 0 ? Number(argv[limitIdx + 1]) : Infinity
 const names = argv.filter((a, i) => !a.startsWith('--') && !(limitIdx >= 0 && i === limitIdx + 1))
@@ -105,7 +118,11 @@ function writeScopedConfigs(base) {
     packageManager: 'npm',
     testRunner: 'vitest',
     vitest: { configFile: path.basename(vitestFile) },
-    reporters: ['clear-text'],
+    // The json report is the only record of WHICH mutants survived. Without it
+    // a finished run leaves a score and nothing to act on — you know richText
+    // is at 62% and not one thing to write a test about.
+    reporters: ['clear-text', 'json'],
+    jsonReporter: { fileName: `reports/mutation/files/${base}.json` },
     coverageAnalysis: 'perTest',
     mutate: [`src/lib/${base}.ts`],
     ignorePatterns: ['dist', 'release', 'coverage', 'reports', '.stryker-tmp'],
@@ -167,6 +184,50 @@ function runOne(base) {
   }
 }
 
+/**
+ * Print the surviving (and uncovered) mutants for a measured file.
+ *
+ * This is the part you actually act on: each line is a change to the source
+ * that every test still passed through, i.e. an assertion nobody wrote.
+ */
+function printSurvivors(base) {
+  const file = detailPath(base)
+  if (!existsSync(file)) {
+    console.log(`\n${base}: no detail report — measured before the json reporter existed. `
+      + `Re-run: node scripts/mutation-run.mjs --force ${base}`)
+    return
+  }
+  let report
+  try {
+    report = JSON.parse(readFileSync(file, 'utf8'))
+  } catch {
+    // A run killed mid-write leaves a truncated file; say so rather than throw
+    // and take the other 73 files' output down with it.
+    console.log(`\n${base}: detail report is unreadable — re-run with --force.`)
+    return
+  }
+  for (const [name, entry] of Object.entries(report.files ?? {})) {
+    const lines = String(entry.source ?? '').split('\n')
+    const mutants = entry.mutants ?? []
+    const open = mutants.filter((m) => m.status === 'Survived' || m.status === 'NoCoverage')
+    console.log(`\n${name} — ${open.length} unkilled of ${mutants.length}`)
+    for (const m of [...open].sort((a, b) => a.location.start.line - b.location.start.line)) {
+      const src = (lines[m.location.start.line - 1] ?? '').trim()
+      const to = String(m.replacement ?? '').replace(/\s+/g, ' ').slice(0, 60)
+      console.log(`  L${String(m.location.start.line).padStart(4)} ${m.status === 'NoCoverage' ? 'uncov' : 'alive'} `
+        + `${String(m.mutatorName).padEnd(22)} → ${to}\n         ${src.slice(0, 100)}`)
+    }
+    // A tally is the triage step: 200 StringLiteral mutants in one file is a
+    // different problem (and often a deliberate non-problem) from 20 surviving
+    // ConditionalExpression mutants, which are always missing assertions.
+    const byMutator = {}
+    for (const m of open) byMutator[m.mutatorName] = (byMutator[m.mutatorName] ?? 0) + 1
+    const tally = Object.entries(byMutator).sort((a, b) => b[1] - a[1])
+      .map(([k, n]) => `${k} ${n}`).join(', ')
+    if (tally) console.log(`  — by mutator: ${tally}`)
+  }
+}
+
 function summarise(report) {
   const measured = Object.entries(report.files).filter(([, v]) => !v.error)
   if (measured.length) {
@@ -188,18 +249,36 @@ function summarise(report) {
     console.log(`\n${failed.length} file(s) could not be measured:`)
     for (const [name, v] of failed) console.log(`  ${name}: ${v.error}`)
   }
+  const stale = measured.filter(([name]) => !existsSync(detailPath(name))).map(([name]) => name)
+  if (stale.length) {
+    console.log(`\n${stale.length} file(s) have a score but no mutant detail (measured before the`
+      + ` json reporter). A plain run re-measures them:\n  ${stale.join(' ')}`)
+  }
 }
 
 function main() {
   const report = loadReport()
   if (reportOnly) { summarise(report); return }
+  if (survivorsOnly) {
+    const bases = names.length
+      ? names
+      : Object.keys(report.files).filter((b) => !report.files[b].error).sort()
+    for (const b of bases) printSurvivors(b)
+    return
+  }
 
   let todo = names.length ? names : candidates()
-  if (!force) todo = todo.filter((b) => !report.files[b] || report.files[b].error)
+  // "Measured" means a score AND the mutant detail that makes the score
+  // actionable. A run from before the json reporter left only the former, and
+  // skipping those would resume into a state you still can't act on.
+  if (!force) {
+    todo = todo.filter((b) => !report.files[b] || report.files[b].error || !existsSync(detailPath(b)))
+  }
   todo = todo.slice(0, limit)
 
   if (!todo.length) {
-    console.log('Nothing to do — everything is measured. --force to re-measure, --report to print.')
+    console.log('Nothing to do — everything is measured. --force to re-measure, --report to print,\n'
+      + '--survivors [file…] to list the mutants no test killed.')
     return
   }
   console.log(`Measuring ${todo.length} file(s); results are saved after each one.\n`)
