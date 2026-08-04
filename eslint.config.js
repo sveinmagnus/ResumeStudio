@@ -114,7 +114,7 @@ export default tseslint.config(
 
       /**
        * eslint-plugin-react-hooks v7 promoted the React Compiler rules into
-       * `recommended`. This app is React 18 WITHOUT the compiler, and these two
+       * `recommended`. This app does NOT use the compiler, and these two
        * flag patterns it uses on purpose:
        *
        *  - `refs`: `useStableExpanded` and `useRegistryFilter` read and write a
@@ -122,7 +122,7 @@ export default tseslint.config(
        *    re-sorts under it. Moving that to state + an effect reintroduces a
        *    frame of lag, which is the exact jump those hooks exist to prevent.
        *  - `set-state-in-effect`: syncing component state from an external store
-       *    or from props is the ordinary React 18 pattern here (restoring a
+       *    or from props is the ordinary pattern here (restoring a
        *    stored advisor run, seeding a form from the server).
        *
        * Off rather than warn: a rule nobody is going to act on is noise, and

@@ -115,10 +115,11 @@ Wishlist: §12.
 
 | Layer | Choice | Notes |
 |---|---|---|
+| Runtime | **Node 24+** (hard requirement) | `node:sqlite` is flagged on 22 and below. `engines` + CI + `build-desktop.mjs` all enforce it |
 | Build | Vite 8 (Rolldown) | `npm run dev` / `npm run build` / `npm run preview` |
-| Framework | React 18 + TypeScript | Strict mode on |
+| Framework | React 19 + TypeScript | Strict mode on |
 | State | Zustand (single store) | See `src/store/useStore.ts` |
-| Persistence | Express + better-sqlite3 (multi-row `resumes` + scoped `resume_snapshots`) | See `server/`. Per-id localStorage fallback in `lib/localCache.ts` |
+| Persistence | Express + **`node:sqlite`** (multi-row `resumes` + scoped `resume_snapshots`) | See `server/`. `server/sqlite.ts` is the only module that touches it. Per-id localStorage fallback in `lib/localCache.ts` |
 | Routing | Hand-rolled History API hook | `src/lib/router.ts` — `useRoute()`, `navigate()`, `<Link>`. No dep. |
 | Tests | Vitest (+ jsdom for browser-tied tests) | `npm test`, `npm run test:watch`, `npm run test:coverage` |
 | Icons | lucide-react | **Tree-shaken**: import each icon by name, never `import * as` |
@@ -151,7 +152,7 @@ Wishlist: §12.
   - **Test correctness** (`@vitest/eslint-plugin`, `testing-library`): a
     `findBy*` without `await` is always truthy and always passes.
   Rules that are OFF are off with a recorded reason, never silently: the React
-  Compiler rules (React 18, no compiler), three jsx-a11y interaction rules
+  Compiler rules (no compiler adopted), three jsx-a11y interaction rules
   (enlarged hit-areas next to real controls — adding tabIndex would create a
   duplicate tab stop, which is worse), and three testing-library/vitest rules
   that fight this suite's deliberate style. Read the config before adding to it.
@@ -264,6 +265,8 @@ server/              ← Express API + SQLite persistence
 ├── index.ts (VPS/dev entry) + app.ts (createApp: security headers, routers, static serving)
 ├── auth.ts (cookie OR Bearer; constant-time; env read lazily) · db.ts (createResumeDb +
 │   lazy singleton; snapshots; dump/restore; close checkpoints WAL) · config.ts (PURE paths)
+├── sqlite.ts (THE connection: node:sqlite behind a better-sqlite3-shaped facade —
+│   adds pragma()/transaction(), copies null-prototype rows. No native addon)
 ├── registryDb.ts (instance-level cross-resume registry: canonical entries,
 │   promoteFromResumes, mergeRegistry for desktop sync) · skillKey.ts
 │   (server mirror of the client skill key; cross-check test guards drift)
@@ -741,7 +744,7 @@ If a request is large or touches many files, propose a plan first, then proceed 
 Full end-user + build docs in **`DESKTOP.md`**. Load-bearing invariants for working here:
 
 - **Two server entries, one app.** `server/index.ts` (VPS/dev, `tsx`) and `server/desktop/launcher.ts` (desktop) both call `createApp()`. Don't fork app logic per entry — differences are env/wiring only.
-- **The launcher is bundled to CJS** (esbuild, `better-sqlite3` external). So **launcher code must not use `import.meta`/`__dirname`** — it uses env + `process.cwd()`. `app.ts`/`db.ts` guard `import.meta.url` (`import.meta.url ? … : process.cwd()`) because esbuild emits `""` for it; don't "simplify" that back or the bundle crashes at boot.
+- **The launcher is bundled to CJS** (esbuild; only `systray2` is external — there is no native addon left to keep out). So **launcher code must not use `import.meta`/`__dirname`** — it uses env + `process.cwd()`. `app.ts`/`db.ts` guard `import.meta.url` (`import.meta.url ? … : process.cwd()`) because esbuild emits `""` for it; don't "simplify" that back or the bundle crashes at boot.
 - **Paths come from `server/config.ts`** (pure). The launcher sets `RESUME_DB_PATH` + `RESUME_CLIENT_DIR` before `createApp()`/first DB use. **Data dir** is per-user OS-standard (`%APPDATA%\ResumeStudio`, `~/Library/Application Support/ResumeStudio`, `~/.local/share/resume-studio`), overridable via `RESUME_DATA_DIR` — matches Electron's `app.getPath('userData')`.
 - **Sync model = ONE FILE PER RESUME, NOT the live DB in the cloud folder.** `RESUME_BACKUP_DIR` holds `<slug>__<resume-id>.json` per resume (`resumestudio-resume/v1`), plus `registry.json` (`resumestudio-registry/v1`) and `deleted-resumes.json` (`resumestudio-tombstones/v1`), each written atomically — see `server/backupFiles.ts`. **One file per person because erasure has to be actionable per person:** a resume is one identified individual's data, and with a monolith "remove this person from the backups" meant rewriting a file containing everybody else. Merge is **newest-wins per resume by `saved_at`, union** (`db.restoreResumes`, `merge` mode). Live SQLite in a sync folder is intentionally avoided (corruption); `RESUME_DB_JOURNAL=TRUNCATE` is the documented escape hatch.
 - **Identity is the id INSIDE the file; the filename is a hint.** `scanBackupDir` keys on `resume.id`, so two machines converge on one resume even mid-rename, and `writeResumeFiles` deletes the stale-named file afterwards. The slug is ASCII-folded (Nordic letters transliterated, combining marks stripped) so Windows/macOS/Linux derive byte-identical names from the same resume. A write pass **never deletes a file for an id it doesn't hold** — another machine may have just published a resume this one hasn't merged, and treating "not in my DB" as "delete" would make two machines erase each other's new work every round.

@@ -126,34 +126,55 @@ merge landed, non-overlapping edits reconcile silently instead of prompting. A
 `BroadcastChannel` lock would stop the local thrash, not a correctness bug.
 **Trigger:** the thrash becomes visible in practice. Low priority.
 
-### better-sqlite3 v13 — blocked upstream, NOT an oversight
-`better-sqlite3` v12 pulls the deprecated **`prebuild-install`**. v13 removes it
-(N-API, prebuilt binaries shipped inside the package), and the upgrade was tried
-and reverted — the deprecation warning is the lesser evil, so don't "fix" it
-again without re-testing the case below.
+### TypeScript 7 — waiting on an API that does not exist yet
+We are on **TypeScript 6.0.3**, the newest release the toolchain supports. This
+is not staleness, so don't "upgrade" it without reading this.
 
-npm only learns a package opts out of the implicit `node-gyp rebuild` (v13's
-`"gypfile": false`, added in 13.0.2 for exactly this) when it resolves the
-package **from the registry**. Installing from a committed `package-lock.json`
-skips that resolution, so npm compiles from source instead of using the shipped
-prebuild. That means `npm ci` **and** a plain `npm install` on a fresh clone both
-fail on any machine without a full C++ toolchain — including Windows dev boxes
-without Visual Studio, and the `windows-latest` release runner whose node-gyp
-limitation is already documented in `release.yml`. Only a lockfile-less
-`npm install` succeeds, which is not how anyone consumes this repo.
+TypeScript 7.0 is the native (Go) port and **ships no programmatic API at
+all** — Microsoft's own announcement says 7.1 is expected to bring a new and
+different one. Everything that reads types through the compiler API is
+therefore stuck on 6.0, `typescript-eslint` included: it hard-*errors* on TS 7
+rather than degrading, so `npm run lint` — a CI gate, and the thing that
+enforces this file's invariants mechanically — stops running entirely.
+typescript-eslint's tracking issue (#10940) is locked with "there is nothing we
+can do" pending that API.
 
-Upstream: WiseLibs/better-sqlite3#1503 (the yarn workaround there,
-`dependenciesMeta.built: false`, has no npm equivalent).
-**Trigger:** better-sqlite3 ships a no-op `install` script (which suppresses
-npm's implicit gyp build), or npm persists `gypfile` in the lockfile. Verify by
-running `npm ci` on a machine with **no** Visual Studio / Python before landing.
-The heavier alternative — dropping the native dep for node:sqlite — is a real
-option but a separate migration (server/db.ts + registryDb.ts, and CI moves to
-Node 24 since Node 22 gates it behind `--experimental-sqlite`).
+The repo does typecheck cleanly under 7.0.2 (that was tested), and Microsoft
+documents a side-by-side arrangement — `typescript` aliased to
+`@typescript/typescript6` for the tools, TS 7 installed as `@typescript/native`
+for the `tsc` binary — which was also tried and works. It was not kept: it buys
+compile speed only, at the cost of two compilers in the toolchain and an alias
+that makes the name `typescript` mean "version 6", to be unwound at 7.1.
+
+**Trigger:** TypeScript 7.1 ships a stable API *and* typescript-eslint releases
+support for it. Not the 7.1 nightlies (`7.1.0-dev.<date>`, republished daily) —
+a CI type-check gate must not float on a compiler that changes under it.
 
 ---
 
 ## 3. Closed — do not re-propose
+
+### A native SQLite driver — **removed on purpose, do not bring one back**
+Storage is `node:sqlite`, reached only through `server/sqlite.ts`. Do not
+reintroduce `better-sqlite3` (or any native addon) for performance or for an
+API convenience — the facade already supplies the two things that were actually
+used, `pragma()` and `transaction()`, and extending it is cheaper than the cost
+being re-taken on.
+
+That cost is not hypothetical. v12 pulled the deprecated `prebuild-install`.
+v13 dropped it but, because npm only honours its `"gypfile": false` opt-out
+when resolving **from the registry**, every install from the committed
+lockfile — `npm ci` *and* a plain `npm install` on a fresh clone — compiled
+from source instead. That fails on any machine without a C++ toolchain,
+including Windows dev boxes without Visual Studio and the `windows-latest`
+release runner, which cannot drive node-gyp at all
+(WiseLibs/better-sqlite3#1503). A builtin has no prebuild to fetch, no ABI to
+match per Node release, and nothing to vendor into the desktop bundle.
+
+The price paid for that, knowingly: **Node 24+ is now a hard floor** (22 and
+below gate `node:sqlite` behind `--experimental-sqlite`), enforced in
+`engines`, in every CI job, and by a probe in `build-desktop.mjs` — which
+matters because the desktop build ships whatever Node it was built on.
 
 ### UI-chrome localization — **decided, English-only**
 The editor UI is English-only, permanently, until the owner says otherwise. Do

@@ -31,7 +31,10 @@ const EXACT_PAGES_MS = 700
 
 export interface ViewPreview {
   html: string
-  iframeRef: RefObject<HTMLIFrameElement>
+  // Nullable because that is what `useRef<T>(null)` actually holds: null until
+  // React attaches the node, and again after unmount. React 19's types stopped
+  // hiding that behind a non-null RefObject.
+  iframeRef: RefObject<HTMLIFrameElement | null>
   /** Best available page count: the exact one if it has landed, else the estimate. */
   pageCount: number | null
   /** The exact count alone — null until pdfmake has run. */

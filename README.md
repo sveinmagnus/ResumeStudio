@@ -159,9 +159,9 @@ The full feature tour lives on the
 ## Architecture
 
 ```
-React 18 + TypeScript + Vite
+React 19 + TypeScript + Vite
   ├── Zustand store (one resume in memory at a time)
-  ├── Express + better-sqlite3 (multi-row `resumes` + per-resume `resume_snapshots`)
+  ├── Express + node:sqlite (multi-row `resumes` + per-resume `resume_snapshots`)
   └── localStorage offline queue (per-resume fallback + reconnect outbox)
 ```
 

@@ -34,13 +34,14 @@ release/
   app/
     launcher.cjs                 ← the whole server, bundled by esbuild
     dist/                        ← the built React client
-    node_modules/                ← only better-sqlite3 + its native deps
+    node_modules/                ← only systray2 + its deps
 ```
 
 Zip `release/`, hand it to a user, and they unzip + double-click. No install.
 
-> **Build on each target OS.** The bundled Node binary and better-sqlite3's
-> compiled `.node` addon are platform-specific. Run `npm run build:desktop` on
+> **Build on each target OS.** The bundled Node binary is platform-specific
+> (SQLite lives inside it — there is no native addon any more, so nothing else
+> is). Run `npm run build:desktop` on
 > Windows to make the Windows build, on Linux for Linux, on macOS for macOS.
 > There is no cross-compilation step.
 

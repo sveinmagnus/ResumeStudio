@@ -53,7 +53,7 @@ units:
     intent: "What is Resume Studio and how do I install, run, and configure it?"
     scope: global
     audience: [human, agent]
-    validated: "2026-07-24"
+    validated: "2026-08-04"
     update_frequency: monthly
     triggers: [overview, quickstart, install, configuration, env]
     not_for: ["architecture", "data model", "code conventions"]
@@ -182,7 +182,7 @@ units:
     intent: "How do this repo's CI (ci.yml: typecheck/test/build/e2e/depcheck) and tag-driven release pipeline (release.yml) work, and how do you triage a red check or a failed release build?"
     scope: project
     audience: [agent, developer]
-    validated: "2026-07-24"
+    validated: "2026-08-04"
     depends_on: [ci-policy, release-policy, skill-software-testing]
     triggers: [ci-failure, red-check, release-build, triage, workflow, version-drift, updater-asset, sha256-sidecar]
     hints:
