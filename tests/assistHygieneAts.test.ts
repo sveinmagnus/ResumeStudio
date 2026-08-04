@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { emptyStore, makeProject, makeSkill } from './fixtures'
+import { emptyStore, makeProject, makeRole, makeSkill } from './fixtures'
 import type { ResumeStore } from '../src/types'
 import {
   auditCoverage, containsTerm, coverageTally, extractPostingTerms,
@@ -32,6 +32,15 @@ describe('term matching', () => {
   it('handles terms with regex-special characters', () => {
     expect(containsTerm('We write C++ and .NET', 'C++')).toBe(true)
     expect(containsTerm('We write C++ and .NET', '.NET')).toBe(true)
+  })
+
+  it('never matches on an empty or blank term', () => {
+    // Both would compile to a pattern that matches between any two non-letters,
+    // marking terms as covered on the strength of a space. The haystack has to
+    // contain such a position or the bug is invisible.
+    expect(containsTerm('C++ / .NET', '')).toBe(false)
+    expect(containsTerm('C++ / .NET', ' ')).toBe(false)
+    expect(containsTerm('C++ / .NET', '   ')).toBe(false)
   })
 })
 
@@ -78,6 +87,61 @@ describe('posting term extraction', () => {
     const terms = extractPostingTerms('Requirements:\n- Kubernetes in production\n- Terraform', s, 'en')
     expect(terms).toContain('Kubernetes')
     expect(terms).toContain('Terraform')
+  })
+
+  it('picks up registry ROLES the posting mentions, not only skills', () => {
+    // Roles are half the registry evidence and were never read here.
+    const s = emptyStore()
+    s.roles = [makeRole({ name: { en: 'Solutions Architect' } }), makeRole({ name: { en: 'Scrum Master' } })]
+    const terms = extractPostingTerms('We need a solutions architect for the platform.', s, 'en')
+    expect(terms).toContain('Solutions Architect')
+    expect(terms).not.toContain('Scrum Master')
+  })
+
+  it('strips trailing punctuation off a term', () => {
+    const s = emptyStore()
+    s.skills = [makeSkill({ name: { en: 'Kubernetes' } })]
+    // The registry name arrives clean, but a capitalised run does not: without
+    // the strip the report lists "Kubernetes," and "Kubernetes" separately.
+    const terms = extractPostingTerms('Stack: Kubernetes, Terraform.', s, 'en')
+    expect(terms).toContain('Terraform')
+    expect(terms.some((t) => /[.,]$/.test(t))).toBe(false)
+  })
+
+  it('drops boilerplate whatever its capitalisation, and bare numbers', () => {
+    const s = emptyStore()
+    const terms = extractPostingTerms('Requirements: 2026 Experience and Qualifications.', s, 'en')
+    expect(terms).not.toContain('Requirements')
+    expect(terms).not.toContain('Experience')
+    expect(terms).not.toContain('Qualifications')
+    // A year is not a requirement.
+    expect(terms).not.toContain('2026')
+  })
+
+  it('holds terms to a sane length', () => {
+    const s = emptyStore()
+    const long = `L${'o'.repeat(70)}ng`
+    // Mid-sentence on purpose: after a full stop the sentence-start rule would
+    // drop it anyway, and the length ceiling would never be what was tested.
+    const terms = extractPostingTerms(`Stack: ${long} and Go daily.`, s, 'en')
+    expect(terms).toContain('Go') // exactly the two-character floor, and a real technology
+    expect(terms).not.toContain(long)
+  })
+
+  it('keeps the spelling it saw first when a term repeats', () => {
+    const s = emptyStore()
+    // Counting the entries proves nothing — the map is keyed by the lowercased
+    // term either way. Which SPELLING survives is the actual behaviour.
+    const terms = extractPostingTerms('KUBERNETES everywhere. We prefer Kubernetes here.', s, 'en')
+    expect(terms).toContain('KUBERNETES')
+    expect(terms).not.toContain('Kubernetes')
+  })
+
+  it('reads only the first 20,000 characters of a posting', () => {
+    const s = emptyStore()
+    // Not preceded by a full stop, so only the cap can keep it out.
+    const terms = extractPostingTerms(`${'filler filler '.repeat(2000)}using Kubernetes`, s, 'en')
+    expect(terms).not.toContain('Kubernetes')
   })
 })
 
