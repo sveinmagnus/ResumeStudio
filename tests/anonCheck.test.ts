@@ -9,7 +9,7 @@ import {
   InvalidAnonCheckError, ANON_CHECK_SCHEMA,
 } from '../src/lib/anonCheck'
 import { buildViewSections } from '../src/lib/viewFilter'
-import { emptyStore, makeProject, makeView, makeResume, makeWork } from './fixtures'
+import { emptyStore, makeProject, makeView, makeResume, makeWork, makeReference } from './fixtures'
 import type { ResumeStore, ResumeView } from '../src/types'
 
 /** A store whose project prose names the real client the alias hides. */
@@ -141,6 +141,95 @@ describe('findKnownLeaks() — pass 1, no model', () => {
   })
 })
 
+/**
+ * The context window is the only thing that lets a user FIND the leak once it
+ * is reported — a finding that says "Acme Corporation appears somewhere" is
+ * barely a finding. None of its behaviour was asserted, so mutation testing
+ * killed nothing here: the window arithmetic, the whitespace collapsing and the
+ * ellipsis markers could all be wrong and every test still passed.
+ */
+describe('finding context — how the user locates the leak', () => {
+  const longProse = (leak: string) => store({
+    projects: [makeProject({
+      customer: { en: 'Acme Corporation' },
+      customer_anonymized: { en: 'A large retailer' },
+      long_description: { en: `<p>${leak}</p>` },
+    })],
+  })
+
+  it('includes the words BEFORE the name, not just the name', () => {
+    const s = longProse('We spent eighteen months rebuilding the platform for Acme Corporation last year.')
+    const [f] = findKnownLeaks(s, anonView(), 'en')
+    expect(f.context).toContain('Acme Corporation')
+    expect(f.context).toMatch(/rebuilding the platform for/i)
+  })
+
+  it('includes the words AFTER the name', () => {
+    const s = longProse('Acme Corporation asked us to rebuild their ordering platform from scratch.')
+    const [f] = findKnownLeaks(s, anonView(), 'en')
+    expect(f.context).toMatch(/asked us to rebuild/i)
+  })
+
+  it('collapses whitespace so a multi-line description stays readable', () => {
+    const messy = ['Rebuilt   the', '', '  platform  for Acme Corporation   over', '  two years.'].join(String.fromCharCode(10))
+    const s = longProse(messy)
+    const [f] = findKnownLeaks(s, anonView(), 'en')
+    expect(f.context).not.toMatch(/\s{2,}/)
+    expect(f.context).not.toContain(String.fromCharCode(10))
+  })
+
+  it('marks a truncated start and end with an ellipsis', () => {
+    // Padding on both sides pushes the match outside the 40-char window, so the
+    // context is a slice of a longer text and must say so.
+    const pad = 'x'.repeat(200)
+    const s = longProse(`${pad} Acme Corporation ${pad}`)
+    const [f] = findKnownLeaks(s, anonView(), 'en')
+    expect(f.context.startsWith('…')).toBe(true)
+    expect(f.context.endsWith('…')).toBe(true)
+  })
+
+  it('does not claim truncation that did not happen', () => {
+    // The whole rendered view is short here, so nothing is cut off the end.
+    const s = longProse('Acme Corporation migration.')
+    const [f] = findKnownLeaks(s, anonView(), 'en')
+    expect(f.context.endsWith('…')).toBe(false)
+  })
+})
+
+describe('reference identities — the other thing anonymising hides', () => {
+  const withReference = () => store({
+    references: [makeReference({ name: 'Jane Doe', company: 'Globex Industries' })],
+  })
+
+  it('collects a reference company, labelled as such', () => {
+    const names = knownNames(withReference(), 'en')
+    expect(names.find((n) => n.name === 'Globex Industries')?.origin).toBe('Reference company')
+  })
+
+  it('collects a reference person, labelled as such', () => {
+    const names = knownNames(withReference(), 'en')
+    expect(names.find((n) => n.name === 'Jane Doe')?.origin).toBe('Reference name')
+  })
+})
+
+describe('the minimum-name-length boundary', () => {
+  // MIN_NAME_LEN is 3 and the comparison is `>=`. Only the far side was tested
+  // (a 1-character name), so flipping it to `>` changed nothing observable.
+  it('KEEPS a name of exactly the minimum length', () => {
+    const s = store({
+      projects: [makeProject({ customer: { en: 'IBM' }, customer_anonymized: { en: 'A vendor' } })],
+    })
+    expect(knownNames(s, 'en').map((n) => n.name)).toContain('IBM')
+  })
+
+  it('drops a name one character shorter', () => {
+    const s = store({
+      projects: [makeProject({ customer: { en: 'BP' }, customer_anonymized: { en: 'An energy firm' } })],
+    })
+    expect(knownNames(s, 'en').map((n) => n.name)).not.toContain('BP')
+  })
+})
+
 describe('buildAnonCheckPrompt()', () => {
   it('includes the rendered CV and asks for the schema', () => {
     const p = buildAnonCheckPrompt(store(), anonView(), 'en')
@@ -160,6 +249,22 @@ describe('validateAnonCheck()', () => {
 
   it('accepts an empty list — "nothing found" is a real answer', () => {
     expect(validateAnonCheck({ names: [] })).toEqual([])
+  })
+
+  it('drops non-string entries rather than trusting the reply shape', () => {
+    // The model is asked for strings; it is not obliged to comply, and a number
+    // reaching the findings list would render as "[object Object]" to the user.
+    expect(validateAnonCheck({ names: ['Globex', 42, null, { a: 1 }] })).toEqual(['Globex'])
+  })
+
+  it('trims surrounding whitespace off each name', () => {
+    // The names are matched against the rendered text; an untrimmed one never
+    // matches, so the leak is silently dropped.
+    expect(validateAnonCheck({ names: ['  Globex  '] })).toEqual(['Globex'])
+  })
+
+  it('drops entries that are blank once trimmed', () => {
+    expect(validateAnonCheck({ names: ['Globex', '   ', ''] })).toEqual(['Globex'])
   })
 
   it('rejects a malformed reply', () => {
@@ -196,6 +301,23 @@ describe('modelFindings() — pass 2 residual', () => {
     // Models hallucinate plausible client names; reporting one would send the
     // user hunting for text that does not exist.
     expect(modelFindings(['Initech'], s, v, 'en', [])).toEqual([])
+  })
+
+  it('drops a model name too short to match safely', () => {
+    // Same floor as pass 1: a two-letter "name" matches half the CV.
+    expect(modelFindings(['AB'], s, v, 'en', [])).toEqual([])
+  })
+
+  it('reports each distinct occurrence of a known name once per position', () => {
+    const repeated = store({
+      projects: [makeProject({
+        customer: { en: 'Acme Corporation' },
+        customer_anonymized: { en: 'Retailer' },
+        long_description: { en: '<p>Acme Corporation began it. Acme Corporation finished it.</p>' },
+      })],
+    })
+    // Two separate mentions are two separate places the user must go and fix.
+    expect(findKnownLeaks(repeated, anonView(), 'en')).toHaveLength(2)
   })
 
   it('dedupes repeated names from one reply', () => {

@@ -27,14 +27,33 @@
  *   node scripts/mutation-run.mjs --limit 10      # the next 10 unmeasured
  *   node scripts/mutation-run.mjs --report        # print what's been measured
  */
-import { execFileSync } from 'node:child_process'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
+
+const execFileAsync = promisify(execFile)
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, rmSync } from 'node:fs'
 import path from 'node:path'
 
 const ROOT = process.cwd()
 const REPORT = path.join(ROOT, 'reports', 'mutation', 'summary.json')
-/** Generous — a big file with slow tests still finishes well inside this. */
-const PER_FILE_TIMEOUT_MS = 20 * 60 * 1000
+/**
+ * Two levels of parallelism, and the outer one is what makes this finish.
+ *
+ * Stryker's own `concurrency` only parallelises mutants WITHIN one file, and a
+ * small file cannot saturate a 12-core machine — the first batch averaged one
+ * file per 20 minutes with ten cores idle. Since each file is scoped to its own
+ * test, files are independent, so several run at once: FILE_PARALLELISM files x
+ * STRYKER_CONCURRENCY mutant workers each.
+ */
+const FILE_PARALLELISM = Number(process.env.MUTATION_FILES ?? 3)
+const STRYKER_CONCURRENCY = Number(process.env.MUTATION_WORKERS ?? 2)
+/**
+ * Lower than it was. A file that cannot be measured in 10 minutes is telling
+ * you something (usually that its own test file is slow); spending 20 minutes
+ * to learn the same thing just costs the batch an extra ten. Timeouts are
+ * recorded and retried on the next run, so nothing is lost by being impatient.
+ */
+const PER_FILE_TIMEOUT_MS = Number(process.env.MUTATION_TIMEOUT_MIN ?? 10) * 60 * 1000
 
 const argv = process.argv.slice(2)
 const force = argv.includes('--force')
@@ -94,10 +113,16 @@ function writeScopedConfigs(base) {
     reporters: ['clear-text'],
     coverageAnalysis: 'perTest',
     mutate: [`src/lib/${base}.ts`],
-    ignorePatterns: ['dist', 'release', 'coverage', 'reports', '.stryker-tmp'],
-    concurrency: 2,
+    // Its OWN sandbox. Stryker copies the project into a temp dir before
+    // mutating it, and the default name is shared — so parallel runs deleted
+    // each other's sandbox mid-flight and failed with
+    // "ENOENT: no such file or directory, copyfile". This is what makes
+    // file-level parallelism safe at all.
+    tempDirName: `.stryker-tmp-${base}`,
+    ignorePatterns: ['dist', 'release', 'coverage', 'reports', '.stryker-tmp*'],
+    concurrency: STRYKER_CONCURRENCY,
     timeoutMS: 60000,
-    dryRunTimeoutMinutes: 5,
+    dryRunTimeoutMinutes: 10,
     thresholds: { high: 80, low: 60, break: null },
   }, null, 2) + '\n')
 
@@ -121,7 +146,7 @@ function parseScore(output) {
   }
 }
 
-function runOne(base) {
+async function runOne(base) {
   const { vitestFile, strykerFile } = writeScopedConfigs(base)
   const started = Date.now()
   const secs = () => Math.round((Date.now() - started) / 1000)
@@ -129,11 +154,11 @@ function runOne(base) {
     // Stryker's own entry via THIS node, not `npx`: spawning `npx.cmd` on
     // Windows fails with EINVAL unless a shell is used, and a shell would
     // reintroduce quoting problems on paths.
-    const out = execFileSync(
+    const { stdout: out } = await execFileAsync(
       process.execPath,
       [path.join(ROOT, 'node_modules', '@stryker-mutator', 'core', 'bin', 'stryker.js'),
         'run', path.basename(strykerFile)],
-      { cwd: ROOT, encoding: 'utf8', timeout: PER_FILE_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'pipe'] },
+      { cwd: ROOT, encoding: 'utf8', timeout: PER_FILE_TIMEOUT_MS, maxBuffer: 64 * 1024 * 1024 },
     )
     const parsed = parseScore(out)
     return parsed ? { ...parsed, seconds: secs() } : { error: 'no score in output', seconds: secs() }
@@ -150,6 +175,7 @@ function runOne(base) {
   } finally {
     rmSync(vitestFile, { force: true })
     rmSync(strykerFile, { force: true })
+    rmSync(path.join(ROOT, `.stryker-tmp-${base}`), { recursive: true, force: true })
   }
 }
 
@@ -176,7 +202,7 @@ function summarise(report) {
   }
 }
 
-function main() {
+async function main() {
   const report = loadReport()
   if (reportOnly) { summarise(report); return }
 
@@ -188,18 +214,33 @@ function main() {
     console.log('Nothing to do — everything is measured. --force to re-measure, --report to print.')
     return
   }
-  console.log(`Measuring ${todo.length} file(s); results are saved after each one.\n`)
+  console.log(`Measuring ${todo.length} file(s), ${FILE_PARALLELISM} at a time; `
+    + 'results are saved after each one.\n')
 
-  for (const [i, base] of todo.entries()) {
-    process.stdout.write(`[${i + 1}/${todo.length}] ${base} … `)
-    const result = runOne(base)
-    report.files[base] = { ...result, at: new Date().toISOString() }
-    saveReport(report) // after EVERY file, so an interrupt keeps what it measured
-    console.log(result.error
-      ? `ERROR — ${result.error} [${result.seconds}s]`
-      : `${result.score}% (${result.killed} killed, ${result.survived} survived, ${result.noCoverage} no-cov) [${result.seconds}s]`)
+  // A worker pool over FILES. Stryker's own concurrency only parallelises
+  // mutants within one file, which left ten of twelve cores idle and averaged
+  // one file per 20 minutes. Files are independent here (each is scoped to its
+  // own test), so they run several at a time.
+  let next = 0
+  let done = 0
+  const worker = async () => {
+    for (;;) {
+      const i = next++
+      if (i >= todo.length) return
+      const base = todo[i]
+      const result = await runOne(base)
+      report.files[base] = { ...result, at: new Date().toISOString() }
+      saveReport(report) // after EVERY file, so an interrupt keeps what it measured
+      done++
+      console.log(`[${String(done).padStart(3)}/${todo.length}] ${base.padEnd(24)} `
+        + (result.error
+          ? `ERROR — ${result.error} [${result.seconds}s]`
+          : `${String(result.score).padStart(6)}% (${result.killed} killed, ${result.survived} survived, ${result.noCoverage} no-cov) [${result.seconds}s]`))
+    }
   }
+  await Promise.all(Array.from({ length: Math.min(FILE_PARALLELISM, todo.length) }, worker))
+
   summarise(report)
 }
 
-main()
+await main()
