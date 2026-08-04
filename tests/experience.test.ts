@@ -39,6 +39,38 @@ describe('unionMonths()', () => {
       { start: ym(2022, 1), end: ym(2022, 6) },  // 6
     ])).toBe(18)
   })
+
+  it('merges ranges given out of order', () => {
+    // The input is whatever order the projects happen to be in, so the sort is
+    // load-bearing: unsorted, these two read as disjoint and double-count.
+    expect(unionMonths([
+      { start: ym(2021, 1), end: ym(2021, 12) },
+      { start: ym(2020, 1), end: ym(2021, 6) },
+    ])).toBe(24)
+  })
+
+  it('counts a month shared by two ranges once', () => {
+    // Touching at exactly one month is the boundary the merge turns on: with a
+    // strict comparison December is counted twice.
+    expect(unionMonths([
+      { start: ym(2020, 1), end: ym(2020, 12) },
+      { start: ym(2020, 12), end: ym(2021, 5) },
+    ])).toBe(17)
+  })
+
+  it('keeps a gap of a single month a gap', () => {
+    // Jan–Jun and Aug–Dec: July belongs to neither.
+    expect(unionMonths([
+      { start: ym(2020, 1), end: ym(2020, 6) },
+      { start: ym(2020, 8), end: ym(2020, 12) },
+    ])).toBe(11)
+  })
+
+  it('survives a range whose end precedes its start', () => {
+    // Bad data, not a crash: the end is clamped up to the start, so the range
+    // counts as the single month it names.
+    expect(unionMonths([{ start: ym(2020, 6), end: ym(2019, 1) }])).toBe(1)
+  })
 })
 
 describe('skillExperience()', () => {
