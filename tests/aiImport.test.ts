@@ -34,11 +34,69 @@ describe('isAIImportFormat()', () => {
     expect(isAIImportFormat([{ $schema: AI_IMPORT_SCHEMA }])).toBe(false)
     expect(isAIImportFormat('resumestudio-ai/v1')).toBe(false)
   })
+
+  it('rejects a non-string schema rather than trying to read it', () => {
+    expect(isAIImportFormat({ $schema: 7 })).toBe(false)
+    expect(isAIImportFormat({})).toBe(false)
+  })
 })
+
+/** The issues a bad draft produces, by path — fails loudly if it was accepted. */
+function issuePaths(json: unknown): string[] {
+  try {
+    validateAIImport(json)
+  } catch (e) {
+    return (e as InvalidAIImportError).issues.map((i) => i.path)
+  }
+  throw new Error('expected validateAIImport to throw')
+}
 
 describe('validateAIImport()', () => {
   it('passes a minimal valid object', () => {
     expect(() => validateAIImport(draft())).not.toThrow()
+  })
+
+  /**
+   * The message is what the modal shows when it can't list the issues, so the
+   * single-problem case has to name the problem rather than count it.
+   */
+  it('names a lone problem, and counts several', () => {
+    expect(() => validateAIImport(42)).toThrow('(root): expected a JSON object')
+    expect(new InvalidAIImportError([
+      { path: 'a', reason: 'x' }, { path: 'b', reason: 'y' },
+    ]).message).toBe('Found 2 problems in the AI import file.')
+  })
+
+  it('flags a profile that is not an object, and accepts an absent or null one', () => {
+    expect(issuePaths(draft({ profile: ['not an object'] as unknown as never }))).toEqual(['profile'])
+    // Absent and explicitly-null both mean "no profile", not "broken profile".
+    expect(() => validateAIImport(draft({ profile: null as unknown as never }))).not.toThrow()
+    expect(() => validateAIImport(draft())).not.toThrow()
+  })
+
+  it('treats a section that is present but null as absent', () => {
+    expect(() => validateAIImport(draft({ projects: null as unknown as never }))).not.toThrow()
+  })
+
+  it('checks the date fields each section actually has', () => {
+    expect(issuePaths(draft({ courses: [{ completed: { year: 'nope' } as unknown as never }] })))
+      .toEqual(['courses[0].completed.year'])
+    expect(issuePaths(draft({ certifications: [{
+      issued: { year: 'x' } as unknown as never, expires: { year: 'y' } as unknown as never,
+    }] }))).toEqual(['certifications[0].issued.year', 'certifications[0].expires.year'])
+    expect(issuePaths(draft({ educations: [{
+      start: { year: 'x' } as unknown as never, end: { year: 'y' } as unknown as never,
+    }] }))).toEqual(['educations[0].start.year', 'educations[0].end.year'])
+  })
+
+  it('takes any scalar as a list entry, and flags a structured one by index', () => {
+    // A model that answers with numbers or booleans is sloppy, not unusable.
+    expect(() => validateAIImport(draft({
+      projects: [{ bullets: ['shipped it', 2, true, null] as unknown as never }],
+    }))).not.toThrow()
+    expect(issuePaths(draft({
+      projects: [{ bullets: ['ok', { text: 'nested' }] as unknown as never }],
+    }))).toEqual(['projects[0].bullets[1]'])
   })
 
   it('throws on a non-object root', () => {
@@ -143,6 +201,12 @@ describe('normalizeImportLocale()', () => {
     expect(normalizeImportLocale('')).toBe('en')
     expect(normalizeImportLocale('zz')).toBe('en')
     expect(normalizeImportLocale(42)).toBe('en')
+  })
+
+  it('ignores the whitespace and case a model leaves around a code', () => {
+    expect(normalizeImportLocale('  NB  ')).toBe('no')
+    expect(normalizeImportLocale('\tEN-gb\n')).toBe('en')
+    expect(normalizeImportLocale('   ')).toBe('en')
   })
 })
 

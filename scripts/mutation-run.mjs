@@ -38,7 +38,7 @@
  *   node scripts/mutation-run.mjs --survivors x   # print x's UNKILLED mutants
  */
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync, rmSync } from 'node:fs'
 import path from 'node:path'
 
 const ROOT = process.cwd()
@@ -205,6 +205,18 @@ function parseScore(output) {
   }
 }
 
+/**
+ * Failures that say nothing about the tests — the environment moved underneath
+ * the run.
+ *
+ * Both seen in practice, both mid-batch, both costing a module that was fine:
+ * a file copied into the sandbox vanished as another session rewrote the tree
+ * (`ENOENT ... copyfile`), and a sandbox that came up without its test file, so
+ * Stryker found nothing to run and exited ("No tests were executed"). Neither
+ * is a verdict on the module, so neither should be recorded as one.
+ */
+const TRANSIENT = /No tests were executed|ENOENT|EBUSY|EPERM|EACCES|Initial test run timed out/i
+
 function runOne(base, tests) {
   const { vitestFile, strykerFile } = writeScopedConfigs(base, tests)
   const started = Date.now()
@@ -359,11 +371,28 @@ function main() {
       console.log(`[${i + 1}/${todo.length}] ${base} … SKIPPED — no test imports it`)
       continue
     }
+    // Read the test files right before handing them to Stryker. If one is
+    // missing or empty NOW, "No tests were executed" is the symptom and this is
+    // the cause — say so here rather than leaving it to be guessed at later.
+    const unusable = tests.filter((t) => {
+      try { return statSync(path.join(ROOT, t)).size === 0 } catch { return true }
+    })
+    if (unusable.length) {
+      console.log(`[${i + 1}/${todo.length}] ${base} … SKIPPED — missing or empty: ${unusable.join(', ')}`)
+      continue
+    }
     // Show the test set when it isn't the obvious same-name one, so a surprising
     // score (or runtime) is traceable to what actually ran.
     const via = tests.length === 1 && tests[0] === `tests/${base}.test.ts` ? '' : ` (via ${tests.join(', ')})`
     process.stdout.write(`[${i + 1}/${todo.length}] ${base}${via} … `)
-    const result = runOne(base, tests)
+    let result = runOne(base, tests)
+    if (result.error && TRANSIENT.test(result.error)) {
+      // The environment, not the module. Retry once rather than record a
+      // verdict the module didn't earn — a 10-hour batch shouldn't lose a file
+      // because another process touched the tree for a moment.
+      process.stdout.write('(environment failure, retrying) ')
+      result = runOne(base, tests)
+    }
     report.files[base] = { ...result, tests, at: new Date().toISOString() }
     saveReport(report) // after EVERY file, so an interrupt keeps what it measured
     console.log(result.error

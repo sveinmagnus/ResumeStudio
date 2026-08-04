@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { emptyStore, makeProject } from './fixtures'
+import { emptyStore, makeEducation, makeProject, makeWork } from './fixtures'
 import type { KeyCompetency, ResumeStore } from '../src/types'
 import { buildCvDigest, buildBilingualDigest, itemLabel } from '../src/lib/cvDigest'
 import { fieldOf, isAdvisorSection, itemsOf } from '../src/lib/cvFields'
@@ -7,7 +7,10 @@ import { validateFindings, InvalidFindingsError, FINDINGS_SCHEMA } from '../src/
 import {
   validateProposals, applyProposals, InvalidProposalsError,
 } from '../src/lib/assistProposals'
-import { validateMining, applyAchievements } from '../src/lib/achievementMining'
+import {
+  validateMining, applyAchievements, buildMiningPrompt, InvalidMiningError,
+  MINING_SCHEMA, MINING_SECTIONS, type Achievement,
+} from '../src/lib/achievementMining'
 import { validateProfileDraft, applyProfileDraft } from '../src/lib/profileGenerator'
 import { tidyIntro } from '../src/lib/introDraft'
 import { buildCvReviewPrompt } from '../src/lib/cvReview'
@@ -230,6 +233,97 @@ describe('achievement mining', () => {
     evidence: 'We moved from weekly to daily releases.', ...over,
   })
 
+  it('asks for the schema by name, and mines only the sections describing work', () => {
+    const s = storeWithProject()
+    s.educations = [makeEducation({ description: { en: 'Studied things at length.' } })]
+
+    // Written out rather than compared to the constant: `toContain(MINING_SCHEMA)`
+    // passes trivially if the constant is ever emptied.
+    expect(MINING_SCHEMA).toBe('resumestudio-achievements/v1')
+    expect(MINING_SECTIONS).toEqual(['projects', 'work_experiences', 'positions'])
+
+    const prompt = buildMiningPrompt(s, 'en')
+    expect(prompt).toContain('"$schema":"resumestudio-achievements/v1"')
+    expect(prompt).toContain('## projects')
+    // Education is prose too, but nothing there is an achievement to promote.
+    expect(prompt).not.toContain('## educations')
+  })
+
+  it('refuses a reply that is not an object or carries no achievements array', () => {
+    const s = storeWithProject()
+    expect(() => validateMining(null, s, 'en')).toThrow(InvalidMiningError)
+    expect(() => validateMining('{}', s, 'en')).toThrow(/not a JSON object/i)
+    expect(() => validateMining({}, s, 'en')).toThrow(/no "achievements" array/i)
+    expect(() => validateMining({ achievements: {} }, s, 'en')).toThrow(/no "achievements" array/i)
+  })
+
+  /**
+   * Every drop is reported with the entry number the user can count to, so a
+   * reply that half-worked can be checked against what was sent.
+   */
+  it('drops what it cannot place, naming the entry and the reason', () => {
+    const s = storeWithProject()
+    const { achievements, dropped } = validateMining({
+      achievements: [
+        'not an object',
+        entry({ section: 'nope', item_id: pid(s) }),
+        entry({ section: '', item_id: pid(s) }),
+        entry({ item_id: 'no-such-item' }),
+        entry({ item_id: pid(s), text: '   ' }),
+        entry({ item_id: pid(s), text: 42 }),
+      ],
+    }, s, 'en')
+
+    expect(achievements).toHaveLength(0)
+    expect(dropped).toEqual([
+      'Entry 1 was not an object.',
+      'Entry 2 named an unknown section ("nope").',
+      'Entry 3 named an unknown section ("—").',
+      "Entry 4 pointed at an item that isn't in projects.",
+      'Entry 5 had no text.',
+      // A non-string is missing text, not a crash.
+      'Entry 6 had no text.',
+    ])
+  })
+
+  it('drops a highlight aimed at a section that has none, but keeps a competency', () => {
+    const s = storeWithProject()
+    s.work_experiences = [makeWork({ long_description: { en: 'Ran the platform team.' } })]
+    const item_id = s.work_experiences[0].id
+
+    const bad = validateMining({
+      achievements: [entry({ section: 'work_experiences', item_id })],
+    }, s, 'en')
+    expect(bad.achievements).toHaveLength(0)
+    expect(bad.dropped[0]).toBe('Entry 1 proposed a highlight for work_experiences, which has no highlights.')
+
+    // The same item is a fine source for a competency — that lands in the library.
+    const ok = validateMining({
+      achievements: [entry({ target: 'competency', section: 'work_experiences', item_id, detail: 'Leads teams.' })],
+    }, s, 'en')
+    expect(ok.achievements).toHaveLength(1)
+  })
+
+  it('trims and caps model text, and keeps a detail only for a competency', () => {
+    const s = storeWithProject()
+    const { achievements } = validateMining({
+      achievements: [
+        entry({ item_id: pid(s), text: `  ${'x'.repeat(400)}  `, detail: 'meaningless on a highlight' }),
+        entry({ target: 'competency', item_id: pid(s), detail: '  Owns delivery cadence.  ' }),
+      ],
+    }, s, 'en')
+
+    expect(achievements[0].text).toBe('x'.repeat(300))
+    expect(achievements[0].detail).toBe('')
+    expect(achievements[1].detail).toBe('Owns delivery cadence.')
+  })
+
+  it('caps a flood of proposals rather than applying all of them', () => {
+    const s = storeWithProject()
+    const many = Array.from({ length: 45 }, () => entry({ item_id: pid(s) }))
+    expect(validateMining({ achievements: many }, s, 'en').achievements).toHaveLength(40)
+  })
+
   it('drops any proposal that quotes no supporting text', () => {
     const s = storeWithProject()
     const { achievements, dropped } = validateMining({
@@ -258,6 +352,67 @@ describe('achievement mining', () => {
     const twice = applyAchievements(once, achievements, 'en')
     expect(twice.highlights).toBe(0)
     expect(twice.data.projects[0].highlights).toHaveLength(1)
+  })
+
+  it('hands back the very same store when nothing was accepted', () => {
+    const s = storeWithProject()
+    const out = applyAchievements(s, [], 'en')
+    // Same reference, not a copy: an empty apply must not look like an edit.
+    expect(out.data).toBe(s)
+    expect(out).toMatchObject({ highlights: 0, competencies: 0 })
+  })
+
+  it('ignores an achievement whose section or item no longer exists', () => {
+    const s = storeWithProject()
+    const base: Achievement = {
+      key: 'k', target: 'highlight', section: 'projects', itemId: pid(s),
+      itemLabel: 'Acme', text: 'New line', detail: '', evidence: 'Evidence.',
+    }
+    const out = applyAchievements(s, [
+      { ...base, section: 'not_a_section' },
+      { ...base, itemId: 'deleted-since-the-run' },
+    ], 'en')
+
+    expect(out.highlights).toBe(0)
+    expect(out.data.projects[0].highlights ?? []).toHaveLength(0)
+  })
+
+  it('leaves a language column out rather than writing an empty one', () => {
+    const s = storeWithProject()
+    const { achievements } = validateMining({ achievements: [entry({ item_id: pid(s) })] }, s, 'en')
+    // Nothing configured to translate with → the panel hands over blanks.
+    const blank: Achievement = { ...achievements[0], translations: { no: { text: '   ', detail: '' } } }
+
+    const { data } = applyAchievements(s, [blank], 'en')
+    expect(data.projects[0].highlights?.[0]).toEqual({ en: 'Cut release time to a day' })
+  })
+
+  it('joins a new competency to the resume its siblings belong to', () => {
+    const s = storeWithProject()
+    s.resume.id = 'resume-99'
+    const mine = () => validateMining({
+      achievements: [entry({ target: 'competency', item_id: pid(s), detail: 'Owns cadence.' })],
+    }, s, 'en').achievements
+
+    // Empty library: nothing to copy from, so the open resume's own id.
+    expect(applyAchievements(s, mine(), 'en').data.key_competencies[0].resume_id).toBe('resume-99')
+
+    // An existing row wins — the library is what new entries are joining.
+    const withLibrary: ResumeStore = {
+      ...s,
+      key_competencies: [{
+        id: 'comp-0', resume_id: 'resume-7', title: { en: 'Existing' }, description: {},
+        sort_order: 0, starred: false, disabled: false,
+      } as KeyCompetency],
+    }
+    const grown = applyAchievements(withLibrary, mine(), 'en').data.key_competencies
+    expect(grown[1].resume_id).toBe('resume-7')
+    // Appended at the end, ordered after what was already there.
+    expect(grown[1].sort_order).toBe(1)
+
+    // A store with no resume record at all still applies, with no id to inherit.
+    const orphan = { ...s, resume: undefined } as unknown as ResumeStore
+    expect(applyAchievements(orphan, mine(), 'en').data.key_competencies[0].resume_id).toBe('')
   })
 
   it('creates a competency unstarred, at the end, and in no profile bundle', () => {

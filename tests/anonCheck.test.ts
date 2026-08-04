@@ -9,6 +9,7 @@ import {
   InvalidAnonCheckError, ANON_CHECK_SCHEMA,
 } from '../src/lib/anonCheck'
 import { buildViewSections } from '../src/lib/viewFilter'
+import { buildViewText } from '../src/lib/viewText'
 import { emptyStore, makeProject, makeView, makeResume, makeWork, makeReference } from './fixtures'
 import type { ResumeStore, ResumeView } from '../src/types'
 
@@ -47,11 +48,23 @@ describe('knownNames()', () => {
   })
 
   it('orders longest first so the fullest name is reported', () => {
+    // Stored shortest-first on purpose: an assertion that only checks the head
+    // of an already-ordered list passes just as well with no sort at all.
     const s = store({
       projects: [
-        makeProject({ customer: { en: 'Acme Corporation' }, customer_anonymized: { en: 'R' } }),
-        makeProject({ customer: { en: 'Acme' }, customer_anonymized: { en: 'R2' } }),
+        makeProject({ customer: { en: 'Bee' }, customer_anonymized: { en: 'R1' } }),
+        makeProject({ customer: { en: 'Acme Corporation' }, customer_anonymized: { en: 'R2' } }),
+        makeProject({ customer: { en: 'Delta Ltd' }, customer_anonymized: { en: 'R3' } }),
       ],
+    })
+    expect(knownNames(s, 'en').map((n) => n.name)).toEqual(['Acme Corporation', 'Delta Ltd', 'Bee'])
+  })
+
+  it('trims a name before measuring or matching it', () => {
+    // Padding would otherwise count toward the length floor and, worse, be
+    // baked into the regex, so the name would never match the prose.
+    const s = store({
+      projects: [makeProject({ customer: { en: '  Acme Corporation  ' }, customer_anonymized: { en: 'R' } })],
     })
     expect(knownNames(s, 'en')[0].name).toBe('Acme Corporation')
   })
@@ -194,6 +207,31 @@ describe('finding context — how the user locates the leak', () => {
     const [f] = findKnownLeaks(s, anonView(), 'en')
     expect(f.context.endsWith('…')).toBe(false)
   })
+
+  it('does not mark a start that was not truncated either', () => {
+    // A name inside the first 40 characters of the rendered CV starts at the
+    // beginning of the text, so there is nothing before it to have cut off.
+    const s = store()
+    const v = anonView()
+    const head = buildViewText(s, v, 'en').slice(0, 30).trim().split(/\s+/)[0]
+    const [f] = modelFindings([head], s, v, 'en', [])
+    expect(f.context.startsWith('…')).toBe(false)
+  })
+
+  it('never starts or ends the context on whitespace', () => {
+    // The 40-character window opens wherever it opens. 'word ' repeats every 5
+    // characters, so shifting the text immediately before the name by 0–4
+    // characters walks the window's opening edge through every phase — one of
+    // them necessarily lands on a space. Padding the FRONT of the prose would
+    // not: it leaves the distance from the name to the window unchanged.
+    const pad = 'word '.repeat(60)
+    for (const shift of ['', 'z', 'zz', 'zzz', 'zzzz']) {
+      const s = longProse(`${pad}${shift} Acme Corporation ${shift} ${pad}`)
+      const [f] = findKnownLeaks(s, anonView(), 'en')
+      const inner = f.context.replace(/^…/, '').replace(/…$/, '')
+      expect(inner).toBe(inner.trim())
+    }
+  })
 })
 
 describe('reference identities — the other thing anonymising hides', () => {
@@ -306,6 +344,21 @@ describe('modelFindings() — pass 2 residual', () => {
   it('drops a model name too short to match safely', () => {
     // Same floor as pass 1: a two-letter "name" matches half the CV.
     expect(modelFindings(['AB'], s, v, 'en', [])).toEqual([])
+  })
+
+  it('keeps a name of exactly the minimum length, padding and all', () => {
+    // Both sides of the floor: only the short side was tested, so moving the
+    // comparison a character changed nothing observable. 'Globex' padded also
+    // pins that the model's own whitespace is stripped before matching.
+    const short = store({
+      projects: [makeProject({
+        customer: { en: 'Acme Corporation' },
+        customer_anonymized: { en: 'Retailer' },
+        long_description: { en: '<p>Ran the ABC integration for them.</p>' },
+      })],
+    })
+    expect(modelFindings(['ABC'], short, v, 'en', []).map((f) => f.text)).toEqual(['ABC'])
+    expect(modelFindings(['  Globex  '], s, v, 'en', []).map((f) => f.text)).toEqual(['Globex'])
   })
 
   it('reports each distinct occurrence of a known name once per position', () => {
