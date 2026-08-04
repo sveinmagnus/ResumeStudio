@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { emptyStore, makeProject } from './fixtures'
+import { emptyStore, makeEducation, makeProject, makeSkill, makeView } from './fixtures'
 import type { CoverLetter, ResumeStore } from '../src/types'
 import {
   buildJobFitPrompt, validateJobFit, fitTally, hasPosting, InvalidJobFitError,
@@ -9,6 +9,7 @@ import {
   validateLetterAngles, validateLetterCritique, InvalidLetterAdviceError,
 } from '../src/lib/letterAdvice'
 import { intakeInstructions, bulkSpec } from '../src/lib/bulkImport'
+import { buildViewSections } from '../src/lib/viewFilter'
 
 function storeWithProject(): ResumeStore {
   const s = emptyStore()
@@ -108,6 +109,29 @@ describe('job fit', () => {
     expect(prompt).toContain('Containerised the services with Docker and Helm.')
     expect(prompt).toMatch(/adjacent/)
   })
+
+  it('measures the posting after trimming, at exactly the threshold', () => {
+    // Pasting from a job board brings a lot of surrounding whitespace; counting
+    // it would arm the Run button on nothing.
+    expect(hasPosting(' '.repeat(200))).toBe(false)
+    expect(hasPosting(`  ${'x'.repeat(41)}  `)).toBe(true)
+    // 40 is the floor, and it is exclusive.
+    expect(hasPosting('x'.repeat(40))).toBe(false)
+    expect(hasPosting('x'.repeat(41))).toBe(true)
+  })
+
+  it('names the registry skills in the language being reviewed', () => {
+    const s = storeWithProject()
+    s.skills = [makeSkill({ name: { en: 'Cloud architecture', no: 'Skyarkitektur' } })]
+    expect(buildJobFitPrompt(s, 'no', 'Vi søker en arkitekt.')).toContain('Skyarkitektur')
+  })
+
+  it('trims and caps the posting it sends', () => {
+    const s = storeWithProject()
+    const prompt = buildJobFitPrompt(s, 'en', `   ${'p'.repeat(20_050)}   `)
+    expect(prompt).toContain('p'.repeat(20_000))
+    expect(prompt).not.toContain('p'.repeat(20_001))
+  })
 })
 
 // ── B5: letter angles & critique ─────────────────────────────────────────────
@@ -128,6 +152,47 @@ describe('letter angles', () => {
     expect(hasLetterContext(makeLetter({ posting: '', role_applied: {} }))).toBe(false)
     expect(hasLetterContext(makeLetter({ posting: '', role_applied: { en: 'Platform lead' } }))).toBe(true)
     expect(hasLetterContext(makeLetter())).toBe(true)
+  })
+
+  /**
+   * The evidence must be the CV this letter TRAVELS WITH. A letter pitching a
+   * project the attached view excluded reads as a different person's
+   * application — and the view lookup had never been exercised at all.
+   */
+  it('grounds the letter in the attached view, not the master CV', () => {
+    const s = storeWithProject()
+    s.educations = [makeEducation({ description: { en: 'Studied at length.' } })]
+    const view = makeView({
+      id: 'v1', name: 'Consultant CV',
+      sections: buildViewSections().map((sec) => (
+        sec.key === 'educations' ? { ...sec, detail: 'off' as const } : sec
+      )),
+    })
+    s.views = [view]
+
+    const prompt = buildLetterAnglesPrompt(s, makeLetter({ view_id: 'v1' }), 'en')
+    expect(prompt).toContain('CV VERSION ATTACHED: "Consultant CV"')
+    expect(prompt).toContain('Containerised the services with Docker and Helm.')
+    expect(prompt).not.toContain('Studied at length.')
+  })
+
+  it('falls back to the master CV when no view is attached, or the id is stale', () => {
+    const s = storeWithProject()
+    s.views = [makeView({ id: 'v1', name: 'Consultant CV' })]
+
+    for (const viewId of [null, 'deleted-view']) {
+      const prompt = buildLetterAnglesPrompt(s, makeLetter({ view_id: viewId }), 'en')
+      expect(prompt, String(viewId)).toContain('CV VERSION: the full master CV')
+      expect(prompt, String(viewId)).not.toContain('CV VERSION ATTACHED')
+    }
+  })
+
+  it('says plainly when the letter names no company, role or posting', () => {
+    const s = storeWithProject()
+    const bare = makeLetter({ company: {}, role_applied: {}, posting: '   ' })
+    const prompt = buildLetterAnglesPrompt(s, bare, 'en')
+    expect(prompt).toContain('(unnamed company)')
+    expect(prompt).toMatch(/no posting text was provided/)
   })
 
   it('keeps each angle whole and names what is being chosen between', () => {
