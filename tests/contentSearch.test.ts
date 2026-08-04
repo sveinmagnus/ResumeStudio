@@ -85,6 +85,45 @@ describe('searchStore', () => {
     expect(searchStore(store, 'searchable-id-xyz', 'en')).toEqual([])
   })
 
+  it('searches inside arrays of text, not just single values', () => {
+    // Highlights are a LocalizedString[]; without recursing into the array the
+    // bullets a user writes are unsearchable, which is most of a good project.
+    const store = emptyStore()
+    store.projects.push(makeProject({
+      id: 'p', customer: { en: 'Acme' },
+      highlights: [{ en: 'Cut deploy time to minutes' }, { en: 'Ran the migration' }],
+    }))
+    expect(searchStore(store, 'deploy time', 'en').map((h) => h.id)).toEqual(['p'])
+  })
+
+  it('trims a match and skips whitespace-only text', () => {
+    const store = emptyStore()
+    store.projects.push(makeProject({
+      id: 'p', customer: { en: '   ' }, description: { en: '   Azure migration   ' },
+    }))
+    const [hit] = searchStore(store, 'azure', 'en')
+    // The snippet is the trimmed value; a blank field contributes nothing at all.
+    expect(hit.snippet.startsWith(' ')).toBe(false)
+    expect(hit.snippet.endsWith(' ')).toBe(false)
+  })
+
+  /**
+   * A long field with the match near the end must show the MATCH, not the
+   * opening of the text — otherwise the hit looks wrong and the user cannot
+   * see why it matched.
+   */
+  it('centres a long snippet on the match, marking both cuts', () => {
+    const store = emptyStore()
+    const pad = 'x'.repeat(200)
+    store.projects.push(makeProject({
+      id: 'p', customer: { en: 'Acme' }, long_description: { en: `${pad} Azure ${pad}` },
+    }))
+    const hit = searchStore(store, 'azure', 'en').find((h) => h.snippet.toLowerCase().includes('azure'))!
+    expect(hit.snippet.startsWith('…')).toBe(true)
+    expect(hit.snippet.endsWith('…')).toBe(true)
+    expect(hit.snippet.length).toBeLessThan(120)
+  })
+
   it('finds a matching skill category name under the Skill Registry section', () => {
     const store = richStore()
     store.skill_categories.push(makeSkillCategory({ id: 'cat1', name: { en: 'Cloud Platforms' } }))
