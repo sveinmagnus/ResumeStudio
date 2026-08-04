@@ -122,6 +122,30 @@ describe('upload guard rejects non-raster files (before any decode)', () => {
     const pdf = new File(['%PDF'], 'cv.pdf', { type: 'application/pdf' })
     await expect(fileToResizedDataUrl(pdf)).rejects.toThrow(/PNG, JPEG/i)
   })
+
+  it('accepts the raster types and refuses everything else, by MIME prefix', async () => {
+    // The guard runs before any decode. A raster type gets PAST it and then
+    // fails on the DOM this suite doesn't have, which is a different error —
+    // that difference is what distinguishes "allowed" from "rejected" here.
+    const rejection = async (type: string) => {
+      try {
+        await fileToResizedDataUrl(new File(['x'], 'f', { type }))
+        return null
+      } catch (e) {
+        return (e as Error).message
+      }
+    }
+    const guarded = /SVG is not supported|PNG, JPEG/i
+
+    for (const type of ['image/png', 'image/jpeg', 'image/gif', 'image/webp']) {
+      expect(await rejection(type), type).not.toMatch(guarded)
+    }
+    // 'x-image/png' contains "image/" but does not START with it — a substring
+    // test would let it through to the decoder.
+    for (const type of ['image/svg+xml', 'application/pdf', 'text/plain', '', 'x-image/png']) {
+      expect(await rejection(type), type || '(empty)').toMatch(guarded)
+    }
+  })
 })
 
 describe('clampCropRect()', () => {

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
-  emptyStore, makeCertification, makeCourse, makeEducation, makeKQ, makeProject, makeWork,
+  emptyStore, makeCertification, makeCourse, makeEducation, makeKQ, makeProject, makeView,
+  makeWork,
 } from './fixtures'
 import type { KeyCompetency, ResumeStore } from '../src/types'
 import { buildCvDigest, buildBilingualDigest, itemLabel } from '../src/lib/cvDigest'
@@ -14,8 +15,9 @@ import {
   MINING_SCHEMA, MINING_SECTIONS, type Achievement,
 } from '../src/lib/achievementMining'
 import { validateProfileDraft, applyProfileDraft } from '../src/lib/profileGenerator'
-import { tidyIntro } from '../src/lib/introDraft'
+import { tidyIntro, buildIntroPrompt, DEFAULT_INTRO_FOCUS } from '../src/lib/introDraft'
 import { buildCvReviewPrompt } from '../src/lib/cvReview'
+import { buildViewSections } from '../src/lib/viewFilter'
 import { buildVoicePassPrompt } from '../src/lib/voicePass'
 
 /** A store with one project carrying text in both languages. */
@@ -777,6 +779,57 @@ describe('tidyIntro', () => {
     expect(tidyIntro('"Hello there."')).toBe('Hello there.')
     // Unlike tidyLine, more than one line survives.
     expect(tidyIntro('One.\n\nTwo.')).toBe('One.\n\nTwo.')
+  })
+})
+
+describe('buildIntroPrompt', () => {
+  const viewOf = (over: Parameters<typeof makeView>[0] = {}) =>
+    makeView({ sections: buildViewSections(), ...over })
+
+  it('shows only what THIS version contains, and asks for the stated length', () => {
+    const s = storeWithProject()
+    s.key_qualifications = [makeKQ({
+      tag_line: { en: 'Platform architect' }, summary: { en: 'Builds payment platforms.' },
+    })]
+    // In the master CV but excluded from this view.
+    s.educations = [makeEducation({ description: { en: 'Studied computing.' } })]
+
+    const view = viewOf({
+      sections: buildViewSections().map((sec) => (
+        sec.key === 'educations' ? { ...sec, detail: 'off' as const } : sec
+      )),
+    })
+    const line = buildIntroPrompt(s, view, 'en', { audience: 'A bank CTO', length: 'line' })
+    expect(line).toContain('A bank CTO')
+    expect(line).toMatch(/ONE sentence/)
+    expect(line).toContain('Platform architect')
+    // The profile is quoted so the model can avoid restating it.
+    expect(line).toContain('Builds payment platforms.')
+    // The evidence is the FILTERED document. The master CV has an education
+    // this view leaves out, and promising what the reader cannot find below is
+    // exactly what the prompt tells the model not to do.
+    expect(line).toContain('## projects')
+    expect(line).not.toContain('## educations')
+
+    const para = buildIntroPrompt(s, viewOf(), 'en', { audience: '', length: 'paragraph' })
+    expect(para).toMatch(/2–4 sentences/)
+    // No audience stated is said out loud, rather than leaving a blank line.
+    expect(para).toMatch(/not stated/)
+  })
+
+  it('leaves out the profile blocks when the view presents no profile', () => {
+    const prompt = buildIntroPrompt(storeWithProject(), viewOf(), 'en', DEFAULT_INTRO_FOCUS)
+    expect(prompt).not.toContain('PROFILE TAG LINE')
+    expect(prompt).not.toContain('do not restate')
+  })
+
+  it('caps the profile it quotes rather than pasting an essay', () => {
+    const s = storeWithProject()
+    // Plain text on purpose: flattening markup needs a DOM this suite lacks.
+    s.key_qualifications = [makeKQ({ summary: { en: 'x'.repeat(2000) } })]
+    const prompt = buildIntroPrompt(s, viewOf(), 'en', DEFAULT_INTRO_FOCUS)
+    expect(prompt).toContain('x'.repeat(800))
+    expect(prompt).not.toContain('x'.repeat(801))
   })
 })
 
