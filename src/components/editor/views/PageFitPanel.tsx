@@ -55,8 +55,8 @@ export function PageFitPanel({ view, locale, pages, limit, onUpdate }: Props) {
   })
 
   return (
-    <div className="pf-wrap">
-      <div className="pf-head">
+    <div className="pgf-wrap">
+      <div className="pgf-head">
         <Scissors size={13} />
         {pages} page{pages !== 1 ? 's' : ''} — {limit} allowed
       </div>
@@ -69,29 +69,29 @@ export function PageFitPanel({ view, locale, pages, limit, onUpdate }: Props) {
         maxTokens={700}
         hasManualPath={false}
       />
-      <p className="pf-hint">
+      <p className="pgf-hint">
         Suggests whole items to leave out of <em>this view</em> — it never rewrites or
         shortens your text. Applying is the same as unticking them by hand.
       </p>
-      {error && <p className="pf-hint pf-err" role="alert">{error}</p>}
+      {error && <p className="pgf-hint pgf-err" role="alert">{error}</p>}
 
       {cuts && (
-        <div className="pf-result">
-          {cuts.length === 0 && <p className="pf-hint">No cuts suggested — you may need to raise the limit.</p>}
+        <div className="pgf-result">
+          {cuts.length === 0 && <p className="pgf-hint">No cuts suggested — you may need to raise the limit.</p>}
           {cuts.map((c) => (
-            <label key={c.itemId} className="pf-row">
+            <label key={c.itemId} className="pgf-row">
               <input type="checkbox" checked={picked.has(c.itemId)} onChange={() => toggle(c.itemId)} />
-              <span className="pf-text">
+              <span className="pgf-text">
                 <strong>{c.title}</strong>
-                <span className="pf-sec">{c.section}</span>
-                {c.why && <span className="pf-why">{c.why}</span>}
+                <span className="pgf-sec">{c.section}</span>
+                {c.why && <span className="pgf-why">{c.why}</span>}
               </span>
             </label>
           ))}
           {cuts.length > 0 && (
-            <div className="pf-actions">
-              <button className="pf-btn" onClick={() => setCuts(null)}>Discard</button>
-              <button className="pf-btn pf-primary" onClick={apply} disabled={picked.size === 0}>
+            <div className="pgf-actions">
+              <button className="pgf-btn" onClick={() => setCuts(null)}>Discard</button>
+              <button className="pgf-btn pgf-primary" onClick={apply} disabled={picked.size === 0}>
                 Exclude {picked.size}
               </button>
             </div>
@@ -100,31 +100,31 @@ export function PageFitPanel({ view, locale, pages, limit, onUpdate }: Props) {
       )}
 
       <style>{`
-        .pf-wrap {
+        .pgf-wrap {
           display: flex; flex-direction: column; gap: 7px;
           padding: 11px 12px; margin-top: 10px;
           border: 1px solid var(--warn-ink); border-radius: var(--r-sm);
           background: var(--warn-wash);
         }
-        .pf-head { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; color: var(--warn-ink); }
-        .pf-hint { font-size: 11.5px; color: var(--ink-soft); margin: 0; line-height: 1.45; }
-        .pf-err { color: var(--err-ink); }
-        .pf-result {
+        .pgf-head { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; color: var(--warn-ink); }
+        .pgf-hint { font-size: 11.5px; color: var(--ink-soft); margin: 0; line-height: 1.45; }
+        .pgf-err { color: var(--err-ink); }
+        .pgf-result {
           display: flex; flex-direction: column; gap: 5px;
           padding: 8px; border-radius: var(--r-sm); background: var(--paper);
         }
-        .pf-row { display: flex; align-items: flex-start; gap: 8px; font-size: 12.5px; cursor: pointer; }
-        .pf-row input { accent-color: var(--accent); width: 14px; height: 14px; margin-top: 3px; flex-shrink: 0; }
-        .pf-text { display: flex; flex-direction: column; gap: 1px; }
-        .pf-sec { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-faint); }
-        .pf-why { font-size: 11.5px; color: var(--ink-soft); font-style: italic; }
-        .pf-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px; }
-        .pf-btn {
+        .pgf-row { display: flex; align-items: flex-start; gap: 8px; font-size: 12.5px; cursor: pointer; }
+        .pgf-row input { accent-color: var(--accent); width: 14px; height: 14px; margin-top: 3px; flex-shrink: 0; }
+        .pgf-text { display: flex; flex-direction: column; gap: 1px; }
+        .pgf-sec { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-faint); }
+        .pgf-why { font-size: 11.5px; color: var(--ink-soft); font-style: italic; }
+        .pgf-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px; }
+        .pgf-btn {
           padding: 5px 11px; font-size: 12.5px; border: 1px solid var(--line-strong);
           border-radius: var(--r-sm); background: var(--paper-raised); cursor: pointer;
         }
-        .pf-primary { background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 600; }
-        .pf-primary:disabled { opacity: .5; cursor: default; }
+        .pgf-primary { background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 600; }
+        .pgf-primary:disabled { opacity: .5; cursor: default; }
       `}</style>
     </div>
   )
