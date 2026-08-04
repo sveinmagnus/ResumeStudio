@@ -41,6 +41,28 @@ describe('font catalog', () => {
     expect(cats.indexOf('serif')).toBeLessThan(cats.indexOf('mono'))
   })
 
+  it('keeps each group contiguous and alphabetised inside it', () => {
+    // indexOf only proves the FIRST of each category is ordered; a dropdown
+    // needs every entry in its own block, sorted, or it reads as shuffled.
+    const opts = fontOptions()
+    const rank = { sans: 0, serif: 1, mono: 2 }
+    const ranks = opts.map((o) => rank[o.category])
+    expect(ranks).toEqual([...ranks].sort((a, b) => a - b))
+
+    for (const cat of ['sans', 'serif', 'mono'] as const) {
+      const labels = opts.filter((o) => o.category === cat).map((o) => o.label)
+      expect(labels, cat).toEqual([...labels].sort((a, b) => a.localeCompare(b)))
+    }
+  })
+
+  it('does not hand out the catalog itself', () => {
+    // A caller sorting or splicing the returned array must not reorder the
+    // catalog for everyone else.
+    const first = fontOptions()
+    first.reverse()
+    expect(fontOptions().map((o) => o.id)).not.toEqual(first.map((o) => o.id))
+  })
+
   it('has sensible defaults', () => {
     expect(CATALOG_DEFAULT_FONTS).toEqual({ heading: DEFAULT_HEADING_FONT, body: DEFAULT_BODY_FONT })
   })
