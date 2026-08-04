@@ -130,14 +130,13 @@ if (!assetFiles.some((f) => /^skillDomainModel-.*\.js$/.test(f))) failGuard('ski
 log('skill-library data present in bundle ✓')
 
 // ── 4. Vendor the deps esbuild left external ────────────────────────────────
-// better-sqlite3 (self-contained since v13 — the N-API rewrite dropped the
-// bindings/file-uri-to-path closure and ships its prebuilt binaries inside the
-// package itself) and systray2's closure (itself + debug/ms +
-// fs-extra/graceful-fs/jsonfile/universalify). The bundle's require()s resolve
-// these from app/node_modules at runtime.
+// better-sqlite3's closure (itself + bindings + file-uri-to-path) and systray2's
+// closure (itself + debug/ms + fs-extra/graceful-fs/jsonfile/universalify). The
+// bundle's require()s resolve these from app/node_modules at runtime.
+// (prebuild-install is install-time only, so it's intentionally omitted.)
 const requiredDeps = new Set(['better-sqlite3'])
 const vendoredDeps = [
-  'better-sqlite3',
+  'better-sqlite3', 'bindings', 'file-uri-to-path',
   'systray2', 'debug', 'ms', 'fs-extra', 'graceful-fs', 'jsonfile', 'universalify',
 ]
 const nmOut = path.join(appDir, 'node_modules')
@@ -166,25 +165,11 @@ if (fs.existsSync(trayDir)) {
     try { fs.chmodSync(path.join(trayDir, keepTrayBin), 0o755) } catch { /* best-effort */ }
   }
 }
-// Prune better-sqlite3's prebuilt addons to this platform's (~2 MB each, 8
-// shipped — the N-API rewrite publishes every platform in the one tarball).
-// `lib/binding.js` resolves `prebuilds/<platform>-<arch>.node`, so keeping only
-// that name is enough; on Linux we keep the musl twin too, because which of the
-// pair loads is decided at RUNTIME (glibc detection), not at build time.
-const prebuildDir = path.join(nmOut, 'better-sqlite3', 'prebuilds')
-const keepPrebuilds = new Set([`${process.platform}-${process.arch}.node`])
-if (process.platform === 'linux') keepPrebuilds.add(`linuxmusl-${process.arch}.node`)
-if (fs.existsSync(prebuildDir)) {
-  for (const f of fs.readdirSync(prebuildDir)) {
-    if (!keepPrebuilds.has(f)) fs.rmSync(path.join(prebuildDir, f), { force: true })
-  }
-}
-// Sanity-check the native binary for THIS platform made it across. A build
-// whose addon is missing starts and then dies on the first query.
-const nodeAddon = path.join(prebuildDir, `${process.platform}-${process.arch}.node`)
+// Sanity-check the compiled native binary made it across.
+const nodeAddon = path.join(nmOut, 'better-sqlite3', 'build', 'Release', 'better_sqlite3.node')
 if (!fs.existsSync(nodeAddon)) {
-  console.error(`[build-desktop] WARNING: ${path.basename(nodeAddon)} not found in the copied ` +
-    'package. The build may not run. Was better-sqlite3 installed (npm install)?')
+  console.error('[build-desktop] WARNING: better_sqlite3.node not found in the copied ' +
+    'package. The build may not run. Was better-sqlite3 compiled (npm install)?')
 }
 
 // ── 5. Copy the Node runtime ────────────────────────────────────────────────
