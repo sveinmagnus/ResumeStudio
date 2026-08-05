@@ -55,6 +55,16 @@ describe('resolve()', () => {
     expect(resolve({ se: 'Hej', dk: 'Hej' }, 'no')).toBe('Hej')
   })
 
+  it('prefers the fallback locale over whatever key happens to come first', () => {
+    // With only one other key present, "fall back to en" and "take the first
+    // value" give the same answer — so the middle rung of the chain has to be
+    // tested with the fallback NOT in first position.
+    expect(resolve({ no: 'Hei', en: 'Hello' }, 'se')).toBe('Hello')
+    expect(resolve({ dk: 'Hej', no: 'Hei' }, 'se', 'no')).toBe('Hei')
+    // …and an empty fallback value still drops through to the next rung.
+    expect(resolve({ no: 'Hei', en: '' }, 'se')).toBe('Hei')
+  })
+
   it('returns empty string for undefined or empty input', () => {
     expect(resolve(undefined, 'en')).toBe('')
     expect(resolve({}, 'en')).toBe('')

@@ -167,6 +167,52 @@ describe('buildViewMarkdown', () => {
     expect(md).toContain('- Led the team')
   })
 
+  it('keeps italic runs, and marks a run that is both', () => {
+    const store = sampleStore()
+    store.projects[0].long_description = {
+      en: '<p>Ran <em>quietly</em> and <strong><em>decisively</em></strong>.</p>',
+    }
+    const md = buildViewMarkdown(store, makeView({ sections: buildViewSections() }), 'en')
+    expect(md).toContain('*quietly*')
+    expect(md).toContain('***decisively***')
+  })
+
+  it('emits no markdown syntax in the plain-text export', () => {
+    // The same runs go through both formats; the ATS text file must carry the
+    // words without the asterisks that mark them up.
+    const store = sampleStore()
+    store.projects[0].long_description = {
+      en: '<p>Ran <em>quietly</em> and <strong>decisively</strong>.</p>',
+    }
+    const text = buildViewText(store, makeView({ sections: buildViewSections() }), 'en')
+    expect(text).toContain('Ran quietly and decisively.')
+    expect(text).not.toContain('*')
+  })
+
+  it('separates paragraphs with a blank line but keeps a list together', () => {
+    // Markdown merges two adjacent lines into one paragraph, so the blank line
+    // is what makes the export say what the editor showed — while consecutive
+    // list items must NOT be split, or every bullet becomes its own list.
+    const store = sampleStore()
+    store.projects[0].long_description = {
+      en: '<p>First para.</p><p>Second para.</p><ul><li>One</li><li>Two</li></ul>',
+    }
+    const md = buildViewMarkdown(store, makeView({ sections: buildViewSections() }), 'en')
+    expect(md).toContain('First para.\n\nSecond para.')
+    expect(md).toContain('- One\n- Two')
+  })
+
+  it('drops a whitespace-only block instead of opening a gap', () => {
+    // An empty paragraph between two real ones would otherwise render as a
+    // double blank line — a visible hole in the exported document.
+    const store = sampleStore()
+    store.projects[0].long_description = {
+      en: '<p>First para.</p><p>&nbsp;</p><p>Second para.</p>',
+    }
+    const md = buildViewMarkdown(store, makeView({ sections: buildViewSections() }), 'en')
+    expect(md).not.toMatch(/\n\n\n/)
+  })
+
   it('quotes recommendations with > blocks', () => {
     const store = sampleStore()
     store.recommendations.push(makeRecommendation({
