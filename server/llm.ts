@@ -259,15 +259,15 @@ export function llmInfo(config?: LlmConfig): LlmInfo {
  * app's `no` is Bokmål, per the CVpartner convention) so the target is
  * unmistakable.
  *
- * `directive` is the same instruction WRITTEN IN THAT LANGUAGE. Naming the
- * target in English three times was not enough on 8B-class models (it kept
- * coming back Swedish), and the reason is mechanical: an all-English prompt
- * leaves every token the model has seen so far pointing at English-adjacent
- * output, so the first generated token is decided by a single content word.
- * A sentence in the target language moves that prior — the model is already
- * "speaking" Bokmål before it reaches the text. It is also the one signal that
- * distinguishes bokmål from svenska WITHOUT naming the wrong language, which
- * would only prime it (never write "not Swedish" into a prompt).
+ * `directive` is the same instruction WRITTEN IN THAT LANGUAGE, and it is what
+ * an all-English prompt cannot do however many times it names the target: every
+ * token the model has read still points at English-adjacent output, leaving the
+ * first generated token to a single content word. A sentence in the target
+ * language moves that prior — the model is already "speaking" Bokmål before it
+ * reaches the text. On 8B-class models the difference is the whole bug:
+ * Norwegian requests answered in Swedish. It also separates bokmål from svenska
+ * WITHOUT naming the wrong language, which would only prime it — never write
+ * "not Swedish" into a prompt.
  */
 interface LangEntry { name: string; directive: string }
 

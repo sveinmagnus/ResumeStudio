@@ -30,10 +30,10 @@ function isPreamble(line: string): boolean {
  * quotes, drop an announcing preamble, collapse to one line, and cap the length.
  * LLMs add a preamble or quotes despite instructions — this keeps the field sane.
  *
- * The preamble skip is not cosmetic. This takes the FIRST usable line, so a reply
- * of "Here is the summary:\n\nLed the cloud migration." used to land the label in
- * the CV field and throw the summary away — a failure that reads as "the AI
- * writes nonsense" rather than as a parsing bug.
+ * The preamble skip is not cosmetic: only the first usable line survives, so
+ * without it a reply of "Here is the summary:\n\nLed the cloud migration." puts
+ * the label in the CV field and discards the summary — which reads as a model
+ * writing nonsense rather than as a parsing bug.
  */
 export function tidyLine(raw: string): string {
   let s = raw.trim()
@@ -49,17 +49,18 @@ export function tidyLine(raw: string): string {
 }
 
 /**
- * The instructions. Three failures shaped this, all reported on small models:
+ * The instructions, each rule defending against one way a small model fails
+ * this task:
  *
- *  1. The line restated the entry's heading ("Consultant for Statoil") because
- *     nothing told the model that the customer/employer/title is printed
- *     directly above it. So the rule leads with what the reader ALREADY sees,
- *     and `context` names those exact words when the caller can supply them.
- *  2. It padded with hedges ("might have been involved in…") when the source
- *     was thin. A hedge in a CV is worse than a shorter line, so hedging is
- *     banned by name and "write less" is given as the explicit escape hatch —
- *     a model told only "don't hedge" still has to put SOMETHING there.
- *  3. It answered with a preamble. `tidyLine` cleans that up, but asking for a
+ *  1. It restates the entry's heading ("Consultant for Statoil") — the most
+ *     salient thing it reads — unless told that the customer/employer/title is
+ *     already printed directly above the line. Hence the opening rule, and
+ *     `context` naming those exact words when the caller can supply them.
+ *  2. It pads with hedges ("might have been involved in…") when the source is
+ *     thin. A hedge in a CV is worse than a shorter line, so hedging is banned
+ *     by name AND "write less" is spelled out as the escape — a model told only
+ *     "don't hedge" still has to put something there.
+ *  3. It answers with a preamble. `tidyLine` survives that, but asking for a
  *     bare line costs nothing.
  *
  * No worked example, deliberately: an exemplar with invented specifics is how a
@@ -114,8 +115,8 @@ export async function summarize(
   const language = languageName(locale)
   // The task is restated in the USER turn, after the source, for the same
   // reason the system prompt closes with the native directive: what a small
-  // model reads LAST is what it follows. The system prompt alone left the
-  // reply drifting back into "restate the heading".
+  // model reads LAST is what it follows, and a system message on its own leaves
+  // the reply drifting back into restating the heading.
   const directive = languageDirective(locale)
   const user = `${contextBlock(context)}Entry description:\n"""\n${text}\n"""\n\n`
     + `Write the one-line short description of that entry in ${language}, `

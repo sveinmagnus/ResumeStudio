@@ -336,12 +336,11 @@ export async function translate(
  * text and once as the closing instruction below it, in the target language
  * itself (see `languageDirective`).
  *
- * The previous version said all of this in the system prompt only, and it was
- * not enough on 8B-class local models — the reported failure (English→Norwegian
- * answered in Swedish) kept happening. Chat templates render the system message
- * far from the generation point and some Ollama modelfiles dilute or drop it
- * altogether, so an instruction that lives only there is the weakest place to
- * put the one thing that must not be got wrong.
+ * The system prompt is the weakest place to put the one thing that must not be
+ * got wrong: chat templates render it far from the generation point and some
+ * Ollama modelfiles dilute or drop it altogether. On 8B-class local models an
+ * instruction that lives only there yields English→Norwegian answered in
+ * Swedish.
  *
  * Note what is NOT here: the languages it must avoid. Writing "not Swedish"
  * into the prompt puts Swedish tokens in the context, which is the opposite of
@@ -380,7 +379,7 @@ const LLM_TRANSLATE_INSIST =
  *
  * The `###` markers the prompt wraps the source in are stripped too: delimiters
  * are what make a weak model treat the text as data rather than instructions,
- * and the price is that it sometimes echoes them back around its answer.
+ * at the price of it sometimes echoing them back around its answer.
  */
 export function tidyTranslation(raw: string): string {
   let s = raw.trim()
@@ -506,11 +505,10 @@ async function translateLlm(
 
   try {
     let out = await ask(false)
-    // One retry, and only on hard evidence (see looksWrongLanguage). Prompting
-    // alone has been tried twice for this failure; a model that has already
-    // answered in the wrong language is best given the instruction again with
-    // its mistake named, and if it insists we hand back the second attempt
-    // rather than a third round-trip the user is waiting on.
+    // One retry, and only on hard evidence (see looksWrongLanguage): a model
+    // that has already answered in the wrong language responds to being told
+    // so, and if it insists, the second attempt goes back rather than a third
+    // round-trip the user is waiting on.
     if (out && looksWrongLanguage(out, target)) {
       // A failed retry must not lose the answer we already have: a suspect
       // draft the user can fix beats an error message, and the whole feature is
