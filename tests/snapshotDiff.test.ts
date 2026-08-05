@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { describeSnapshotChanges } from '../src/lib/snapshotDiff'
-import { emptyStore, makeProject, makeRole, makeResume, makeSkill, makeSkillCategory } from './fixtures'
+import {
+  emptyStore, makeProject, makeRole, makeResume, makeSkill, makeSkillCategory, makeWork,
+} from './fixtures'
 
 describe('describeSnapshotChanges', () => {
   it('reports an added item with its title', () => {
@@ -44,6 +46,38 @@ describe('describeSnapshotChanges', () => {
     const prev = emptyStore(); prev.projects = [base]
     const next = emptyStore(); next.projects = [{ ...base, description: { en: 'Hello' } }]
     expect(describeSnapshotChanges(prev, next, 'en')[0].details).toEqual(['Description (English): −6 chars'])
+  })
+
+  it('labels a field with no entry in the table by tidying its key', () => {
+    // The fallback path: underscores become spaces and the first letter is
+    // capitalised, so a field added since the table was written still reads as
+    // a label rather than as `company_url`.
+    const base = makeProject({ id: 'p1', customer: { en: 'Acme' } })
+    const prev = emptyStore(); prev.projects = [base]
+    const next = emptyStore()
+    next.projects = [{ ...base, company_url: 'https://example.com' } as never]
+    const [change] = describeSnapshotChanges(prev, next, 'en')
+    expect(change.details?.[0]).toMatch(/^Company url\b/)
+  })
+
+  it('names a language the label table does not know by its code', () => {
+    const base = makeProject({ id: 'p1', customer: { en: 'Acme' }, description: { xx: 'Old' } })
+    const prev = emptyStore(); prev.projects = [base]
+    const next = emptyStore()
+    next.projects = [{ ...base, description: { xx: 'Old and longer' } }]
+    expect(describeSnapshotChanges(prev, next, 'en')[0].details?.[0]).toContain('(xx)')
+  })
+
+  it('does not treat an array of strings as a localized value', () => {
+    // isLocalized decides whether a change is reported per language box, and
+    // an array of strings satisfies "every value is a string" — so without the
+    // Array check, role_ids is described as edits to languages "0" and "1".
+    const base = makeWork({ id: 'w1', employer: { en: 'BigCo' }, role_ids: ['r1'] })
+    const prev = emptyStore(); prev.work_experiences = [base]
+    const next = emptyStore()
+    next.work_experiences = [{ ...base, role_ids: ['r1', 'r2'] }]
+    const [change] = describeSnapshotChanges(prev, next, 'en')
+    expect(JSON.stringify(change?.details ?? [])).not.toMatch(/\((0|1)\)/)
   })
 
   it('ignores pure reordering (sort_order only) — no entries', () => {
