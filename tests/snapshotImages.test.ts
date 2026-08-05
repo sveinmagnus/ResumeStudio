@@ -58,6 +58,40 @@ describe('reattachImages', () => {
     expect(out.views[0].header.photo_override).toBeNull()
   })
 
+  it('fills each image independently of the other', () => {
+    // The two resume images have their own checks, and the same for the two
+    // header overrides. Restoring both together hides a check that has stopped
+    // running — which shows up as one image quietly missing after a restore.
+    const current = currentStore()
+
+    const onlyPhotoStripped = JSON.parse(JSON.stringify(current)) as ResumeStore
+    delete (onlyPhotoStripped.resume as unknown as Record<string, unknown>).profile_photo
+    onlyPhotoStripped.resume!.company_logo = 'data:image/png;base64,SNAPSHOT-LOGO'
+    const a = reattachImages(onlyPhotoStripped, current)
+    expect(a.resume?.profile_photo).toBe(PHOTO)                       // filled
+    expect(a.resume?.company_logo).toBe('data:image/png;base64,SNAPSHOT-LOGO') // kept
+
+    const onlyLogoStripped = JSON.parse(JSON.stringify(current)) as ResumeStore
+    delete (onlyLogoStripped.resume as unknown as Record<string, unknown>).company_logo
+    onlyLogoStripped.resume!.profile_photo = 'data:image/jpeg;base64,SNAPSHOT-PHOTO'
+    const b = reattachImages(onlyLogoStripped, current)
+    expect(b.resume?.company_logo).toBe(LOGO)
+    expect(b.resume?.profile_photo).toBe('data:image/jpeg;base64,SNAPSHOT-PHOTO')
+  })
+
+  it('leaves the views alone when either side has none', () => {
+    // A snapshot from before views existed, and a current store with none.
+    const current = currentStore()
+    const noViews = stripped(current)
+    delete (noViews as unknown as Record<string, unknown>).views
+    expect(() => reattachImages(noViews, current)).not.toThrow()
+
+    const currentNoViews = { ...current } as unknown as Record<string, unknown>
+    delete currentNoViews.views
+    const out = reattachImages(stripped(current), currentNoViews as unknown as ResumeStore)
+    expect('photo_override' in out.views[0].header).toBe(false)
+  })
+
   it('leaves snapshot views untouched when no current view shares the id', () => {
     const current = currentStore()
     const snap = stripped(current)

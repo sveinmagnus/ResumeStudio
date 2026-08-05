@@ -34,6 +34,36 @@ describe('categoryNameIndex', () => {
   })
 })
 
+describe('skillCategoryList', () => {
+  it('orders by the curated sort_order, not by insertion', () => {
+    // This order drives the By-category headers AND the Skills Showcase export
+    // order, so it is user-visible in a document.
+    const store = {
+      skill_categories: [
+        makeSkillCategory({ id: 'c3', name: { en: 'Third' }, sort_order: 2 }),
+        makeSkillCategory({ id: 'c1', name: { en: 'First' }, sort_order: 0 }),
+        makeSkillCategory({ id: 'c2', name: { en: 'Second' }, sort_order: 1 }),
+      ],
+    }
+    expect(skillCategoryList(store).map((c) => c.id)).toEqual(['c1', 'c2', 'c3'])
+  })
+
+  it('does not reorder the stored array in place', () => {
+    const store = {
+      skill_categories: [
+        makeSkillCategory({ id: 'c2', sort_order: 1 }),
+        makeSkillCategory({ id: 'c1', sort_order: 0 }),
+      ],
+    }
+    skillCategoryList(store)
+    expect(store.skill_categories.map((c) => c.id)).toEqual(['c2', 'c1'])
+  })
+
+  it('handles a store predating skill categories', () => {
+    expect(skillCategoryList({} as never)).toEqual([])
+  })
+})
+
 const DOMAINS: SkillDomains = {
   TypeScript: 'Software Development',
   React: 'Software Development',
