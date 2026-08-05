@@ -59,6 +59,43 @@ describe('positions — type excluded from summary, kept in full', () => {
   })
 })
 
+describe('summaryTitleMeta — flattening the slots for the plain renderers', () => {
+  const parts = (parts: Array<{ key: string; value: string }>) =>
+    summaryTitleMeta({ parts, sep: '—' } as never)
+
+  it('lifts the title out and joins start/end into one range at the end', () => {
+    // The two date slots exist so the HTML renderer can tabulate them; every
+    // other target wants one "2020 – 2022" string, ordered after the meta.
+    const { title, meta } = parts([
+      { key: 'title', value: 'Engineer' },
+      { key: 'start', value: '2020' },
+      { key: 'org', value: 'BigCo' },
+      { key: 'end', value: '2022' },
+    ])
+    expect(title).toBe('Engineer')
+    expect(meta).toEqual(['BigCo', '2020 – 2022'])
+  })
+
+  it('shows a one-sided range without a dangling separator', () => {
+    expect(parts([{ key: 'title', value: 'T' }, { key: 'start', value: '2020' }]).meta)
+      .toEqual(['2020'])
+    expect(parts([{ key: 'title', value: 'T' }, { key: 'end', value: 'Present' }]).meta)
+      .toEqual(['Present'])
+  })
+
+  it('adds nothing for an empty slot, and no range when there are no dates', () => {
+    const { title, meta } = parts([
+      { key: 'title', value: 'T' },
+      { key: 'org', value: '' },
+      { key: 'role', value: 'Lead' },
+      { key: 'start', value: '' },
+      { key: 'end', value: '' },
+    ])
+    expect(title).toBe('T')
+    expect(meta).toEqual(['Lead'])
+  })
+})
+
 describe('work / education summary — Title = role/degree, Org = employer/school', () => {
   it('work summary puts the position title in Title and the employer in Org', () => {
     const w = makeWork({
@@ -226,6 +263,29 @@ describe('hideDates blanks all date output', () => {
     expect(v.meta.join(' ')).not.toContain('2020')
     const s = SECTION_CATALOG.work_experiences.summary!(w, noDates)!
     expect(summaryTitleMeta(s).meta.join(' ')).not.toContain('2020')
+  })
+
+  it('emits no date slots at all, not blank ones', () => {
+    // A blank slot still occupies a column in the tabulated HTML layout, so a
+    // dateless view would render a ragged empty column down the page.
+    const noDates: CatalogCtx = { ...html, hideDates: true }
+    const w = makeWork({ start: { year: 2020, month: 1 }, end: { year: 2022, month: 6 } }) as unknown as Record<string, unknown>
+    const s = SECTION_CATALOG.work_experiences.summary!(w, noDates)!
+    expect(s.parts.map((p) => p.key)).not.toContain('start')
+    expect(s.parts.map((p) => p.key)).not.toContain('end')
+  })
+
+  it('shows an ongoing role as Present, and a dateless one as nothing', () => {
+    // `end: null` means ongoing everywhere in the model — but only when there
+    // is a start; an item with no dates at all must not claim to be running.
+    const ongoing = makeWork({ start: { year: 2020, month: 1 }, end: null }) as unknown as Record<string, unknown>
+    const ongoingParts = SECTION_CATALOG.work_experiences.summary!(ongoing, html)!.parts
+    expect(ongoingParts.find((p) => p.key === 'end')?.value).toBeTruthy()
+
+    const undated = makeWork({ start: null, end: null }) as unknown as Record<string, unknown>
+    const undatedParts = SECTION_CATALOG.work_experiences.summary!(undated, html)!.parts
+    expect(undatedParts.map((p) => p.key)).not.toContain('start')
+    expect(undatedParts.map((p) => p.key)).not.toContain('end')
   })
 })
 
