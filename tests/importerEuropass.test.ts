@@ -20,6 +20,19 @@ describe('parseEuropassDate', () => {
     [{ year: '2018', month: '' }, { year: 2018, month: null }],
     [null, null],
     ['junk', null],
+    // A two-digit year is a parse failure, not the year 18 — Europass emits
+    // four digits, and 18 would sort a role before every other item.
+    [{ year: '18' }, null],
+    [{ year: 999 }, null],
+    [{ year: 1000 }, { year: 1000, month: null }],
+    // Non-digits are STRIPPED, not parsed: an annotated year still yields the
+    // year rather than failing.
+    [{ year: '2018 (approx)' }, { year: 2018, month: null }],
+    // Out-of-range months drop to null rather than shifting the year.
+    [{ year: '2018', month: '13' }, { year: 2018, month: null }],
+    [{ year: '2018', month: '00' }, { year: 2018, month: null }],
+    [{ year: '2018', month: '--01' }, { year: 2018, month: 1 }],
+    [{ year: '2018', month: '--12' }, { year: 2018, month: 12 }],
   ])('%j → %j', (input, expected) => {
     expect(parseEuropassDate(input)).toEqual(expected)
   })
@@ -38,6 +51,27 @@ describe('detection', () => {
   it('isEuropassXml sniffs the SkillsPassport root tag', () => {
     expect(isEuropassXml('<?xml version="1.0"?><SkillsPassport xmlns="...">')).toBe(true)
     expect(isEuropassXml('<html></html>')).toBe(false)
+  })
+
+  it('needs a real SkillsPassport TAG, not the word in the document', () => {
+    // The pattern allows whitespace after '<' (some tools emit it) but the
+    // name must end at a tag boundary — otherwise any file mentioning the
+    // word, or a <SkillsPassportSummary>, is routed to this importer.
+    expect(isEuropassXml('<  SkillsPassport>')).toBe(true)
+    expect(isEuropassXml('<p>Exported from SkillsPassport</p>')).toBe(false)
+    // The word followed by a space, but with no tag opening it.
+    expect(isEuropassXml('Exported from SkillsPassport v3')).toBe(false)
+    expect(isEuropassXml('<SkillsPassportSummary>')).toBe(false)
+    expect(isEuropassXml('')).toBe(false)
+  })
+
+  it('does not mistake an array or a profile that is not an object', () => {
+    // Both halves of the profile guard: dispatch is by shape, and routing a
+    // non-Europass file here produces an empty resume rather than an error.
+    expect(isEuropassJson([{ profile: { personalInformation: {} } }])).toBe(false)
+    expect(isEuropassJson({ profile: 'text' })).toBe(false)
+    expect(isEuropassJson({ profile: [{ personalInformation: {} }] })).toBe(false)
+    expect(isEuropassJson({ profile: {} })).toBe(false)
   })
 })
 
