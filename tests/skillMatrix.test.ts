@@ -52,6 +52,31 @@ describe('skillMatrixRows', () => {
     expect(byName['Kubernetes'].years).toBeGreaterThan(3)
   })
 
+  /** One skill used by two finished projects, in the order given. */
+  const lastUsedOf = (ends: Array<{ year: number; month: number | null }>) => {
+    const store = emptyStore()
+    store.skills = [makeSkill({ id: 'sk', name: { en: 'Solo' }, total_duration_in_years: 0 })]
+    store.projects = ends.map((end, i) => makeProject({
+      id: `p${i}`, start: { year: end.year - 1, month: 1 }, end,
+      skills: [{ skill_id: 'sk', name: { en: 'Solo' }, proficiency: 3 }],
+    }))
+    return skillMatrixRows(store, makeView({}), 'en')[0].lastUsed
+  }
+
+  it('picks the latest usage by month, not just by year', () => {
+    // Two projects finishing in the SAME year: comparing years alone ties, and
+    // "last used" then reports whichever happened to be listed first.
+    expect(lastUsedOf([{ year: 2019, month: 3 }, { year: 2019, month: 9 }]))
+      .toEqual({ year: 2019, month: 9 })
+    expect(lastUsedOf([{ year: 2019, month: 9 }, { year: 2019, month: 3 }]))
+      .toEqual({ year: 2019, month: 9 })
+  })
+
+  it('reads a year-only end as the start of that year, which still beats last December', () => {
+    expect(lastUsedOf([{ year: 2018, month: 12 }, { year: 2019, month: null }]))
+      .toEqual({ year: 2019, month: null })
+  })
+
   it('marks ongoing usage and formats it', () => {
     expect(byName['Kubernetes'].ongoing).toBe(true)
     expect(fmtLastUsed(byName['Kubernetes'])).toBe('Ongoing')
