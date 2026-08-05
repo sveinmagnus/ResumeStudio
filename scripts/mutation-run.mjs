@@ -36,6 +36,8 @@
  *   node scripts/mutation-run.mjs --limit 10      # the next 10 unmeasured
  *   node scripts/mutation-run.mjs --report        # print what's been measured
  *   node scripts/mutation-run.mjs --survivors x   # print x's UNKILLED mutants
+ *   node scripts/mutation-run.mjs --survivors --skip StringLiteral
+ *                                                 # …minus the prompt wording
  */
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync, rmSync } from 'node:fs'
@@ -59,7 +61,23 @@ const reportOnly = argv.includes('--report')
 const survivorsOnly = argv.includes('--survivors')
 const limitIdx = argv.indexOf('--limit')
 const limit = limitIdx >= 0 ? Number(argv[limitIdx + 1]) : Infinity
-const names = argv.filter((a, i) => !a.startsWith('--') && !(limitIdx >= 0 && i === limitIdx + 1))
+/**
+ * `--skip StringLiteral,Regex` hides those mutators from a --survivors listing.
+ *
+ * The audit still RECORDS them — this filters the reading, not the run. That
+ * matters: a big share of the surviving mutants in the prompt-building modules
+ * are the wording of instructions to a model, which no test should pin, and
+ * they bury the conditionals worth acting on. Muting them in the source with
+ * `// Stryker disable` would hide them permanently, including from a future
+ * reader checking whether an assertion that DOES exist has since been deleted.
+ */
+const skipIdx = argv.indexOf('--skip')
+const skipMutators = new Set(
+  skipIdx >= 0 ? String(argv[skipIdx + 1] ?? '').split(',').map((s) => s.trim()).filter(Boolean) : [],
+)
+const names = argv.filter((a, i) => !a.startsWith('--')
+  && !(limitIdx >= 0 && i === limitIdx + 1)
+  && !(skipIdx >= 0 && i === skipIdx + 1))
 
 /** Every module in src/lib, read off disk each run — never a checked-in list. */
 function libModules() {
@@ -87,23 +105,49 @@ function allTestFiles() {
 }
 
 /**
- * The test files that exercise src/lib/<base>.ts.
+ * How many test files one module may be measured against.
  *
- * Preferred: its own tests/<base>.test.ts — that one-to-one pairing is what
- * makes a scoped run cheap. But 27 of the 101 lib modules have no same-name
- * test (the whole advanced-assist family: cvReview, jobFit, atsAudit, …), and
- * the old rule skipped them SILENTLY — a full run reported 74 files and never
- * mentioned the 27 it had not measured. So fall back to whichever test files
- * import the module; for these that is usually one or two files, so the dry
- * run stays cheap.
+ * The whole point of the scoped run is that the dry run loads a handful of
+ * files rather than all 165. A census of the repo says the median module has
+ * ONE importer besides its own test and only two (api, viewFilter) have more
+ * than six, so this ceiling costs nothing for 77 of 82 modules and bounds the
+ * two that would otherwise pull in most of the component suite.
+ */
+const MAX_TEST_FILES = 6
+
+/** Modules whose importer list was truncated by MAX_TEST_FILES this run. */
+const capped = new Set()
+
+/**
+ * The test files that exercise src/lib/<base>.ts: its own tests/<base>.test.ts
+ * FIRST, then whichever other test files import it.
+ *
+ * Both halves matter, for opposite reasons.
+ *
+ * The same-name test is what makes a run cheap, and 27 of the 101 lib modules
+ * have none (the whole advanced-assist family: cvReview, jobFit, atsAudit, …).
+ * Measuring only same-name tests skipped those SILENTLY — a "full" run
+ * reported 74 files and never mentioned the 27 it had not touched.
+ *
+ * The importers matter because a mutant killed by a DIFFERENT suite was being
+ * reported as surviving. Most of cefr's 143 "survivors" and most of locales'
+ * 245 are label tables that tests/localeCoverage.test.ts covers completely —
+ * the run just never loaded it. Reading that report meant re-deriving, by
+ * hand, which entries were real; this makes the number mean what it says.
  */
 function testsFor(base) {
   const own = [`tests/${base}.test.ts`, `tests/${base}.test.tsx`]
     .filter((p) => existsSync(path.join(ROOT, p)))
-  if (own.length) return own
   const escaped = base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   const imports = new RegExp(`lib/${escaped}['"]`)
-  return allTestFiles().filter((f) => imports.test(f.text)).map((f) => f.path)
+  const importers = allTestFiles()
+    .filter((f) => imports.test(f.text))
+    .map((f) => f.path)
+    .filter((p) => !own.includes(p))
+
+  const all = [...own, ...importers]
+  if (all.length > MAX_TEST_FILES) capped.add(base)
+  return all.slice(0, MAX_TEST_FILES)
 }
 
 /** Modules that can be measured, i.e. some test somewhere touches them. */
@@ -255,13 +299,11 @@ function runOne(base, tests) {
  * This is the part you actually act on: each line is a change to the source
  * that every test still passed through, i.e. an assertion nobody wrote.
  *
- * ONE CAVEAT, and it matters when reading the list: a module is measured
- * against ITS OWN test file only (that scoping is what makes the run finish at
- * all — see the header). A mutant killed by some OTHER file is reported here as
- * surviving. Real example: emptying a CEFR group's label map is caught by
- * tests/localeCoverage.test.ts, which the cefr run never loads, so cefr's
- * report lists it as alive. Before writing a test for a survivor, consider
- * whether another suite already covers it.
+ * A module is measured against its own test file AND the other test files that
+ * import it (see testsFor), so a mutant another suite kills is not reported
+ * here as surviving. The exception is a module with more importers than
+ * MAX_TEST_FILES: those are named in the run summary, and for them this list
+ * can still overstate what is missing.
  */
 function printSurvivors(base) {
   const file = detailPath(base)
@@ -282,8 +324,11 @@ function printSurvivors(base) {
   for (const [name, entry] of Object.entries(report.files ?? {})) {
     const lines = String(entry.source ?? '').split('\n')
     const mutants = entry.mutants ?? []
-    const open = mutants.filter((m) => m.status === 'Survived' || m.status === 'NoCoverage')
-    console.log(`\n${name} — ${open.length} unkilled of ${mutants.length}`)
+    const unkilled = mutants.filter((m) => m.status === 'Survived' || m.status === 'NoCoverage')
+    const open = unkilled.filter((m) => !skipMutators.has(m.mutatorName))
+    const hidden = unkilled.length - open.length
+    console.log(`\n${name} — ${open.length} unkilled of ${mutants.length}`
+      + (hidden ? ` (${hidden} more hidden by --skip)` : ''))
     for (const m of [...open].sort((a, b) => a.location.start.line - b.location.start.line)) {
       const src = (lines[m.location.start.line - 1] ?? '').trim()
       const to = String(m.replacement ?? '').replace(/\s+/g, ' ').slice(0, 60)
@@ -298,8 +343,10 @@ function printSurvivors(base) {
     const tally = Object.entries(byMutator).sort((a, b) => b[1] - a[1])
       .map(([k, n]) => `${k} ${n}`).join(', ')
     if (tally) console.log(`  — by mutator: ${tally}`)
-    console.log('  — measured against this module\'s own test only; a mutant another'
-      + ' suite kills still shows as alive here.')
+    // What the run actually loaded, as recorded in the summary — not what
+    // testsFor would pick today, which may have changed since.
+    const ran = loadReport().files?.[base]?.tests
+    console.log(`  — measured against: ${(ran ?? testsFor(base)).join(', ')}`)
   }
 }
 
@@ -341,9 +388,16 @@ function summarise(report) {
  */
 function reportUnmeasurable() {
   const orphans = libModules().filter((base) => testsFor(base).length === 0)
-  if (!orphans.length) return
-  console.log(`\n${orphans.length} lib module(s) have NO test that imports them — not measurable,`
-    + ` and not in the numbers above:\n  ${orphans.join(' ')}`)
+  if (orphans.length) {
+    console.log(`\n${orphans.length} lib module(s) have NO test that imports them — not measurable,`
+      + ` and not in the numbers above:\n  ${orphans.join(' ')}`)
+  }
+  // testsFor() fills `capped` as a side effect of the call above, so this runs
+  // after it.
+  if (capped.size) {
+    console.log(`\n${capped.size} module(s) have more importing tests than the ${MAX_TEST_FILES}-file`
+      + ` ceiling, so their survivors may include mutants another suite kills:\n  ${[...capped].sort().join(' ')}`)
+  }
 }
 
 function main() {
