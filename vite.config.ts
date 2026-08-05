@@ -82,10 +82,20 @@ export default defineConfig({
        * move a component coverage number tend to assert that render() rendered.
        */
       thresholds: {
-        statements: 76,
-        branches: 67,
-        functions: 68,
-        lines: 79,
+        // Raised after the mutation-guided test pass (Aug 2026), which added
+        // ~440 assertions and measured 78.61 / 71.03 / 70.48 / 81.56. These sit
+        // just under that, as before — and under today's figure, since six more
+        // modules gained tests after the measurement. Branches moved most,
+        // which is what a pass spent on boundaries and drop paths should do.
+        statements: 78,
+        branches: 70,
+        functions: 70,
+        lines: 81,
+        // Left where they were: `npm run test:coverage` prints no table on a
+        // failing run, and this suite's heaviest jsdom file exceeds the 15s
+        // per-test timeout under v8 instrumentation on a loaded machine, so
+        // the per-directory figure could not be re-measured honestly. Raise
+        // these from a green CI coverage run rather than from a guess.
         'src/lib/**/*.ts': {
           statements: 86,
           branches: 75,
