@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import {
   DEFAULT_VIEW_STYLE, withDefaults, deriveTokens, sanitizeHexColor,
-  resolveFontCss, resolveFontDocx, resolveSectionStyle, sectionHeadingText,
+  resolveFontCss, resolveFontDocx, resolveFontPdf, withResolvedFonts,
+  resolveSectionStyle, sectionHeadingText,
   normalizeFullLayout, kqVisibility, bulletGlyph,
 } from '../src/lib/viewStyle'
 import type { ViewStyle } from '../src/types'
@@ -198,6 +199,80 @@ describe('resolveFontCss() / resolveFontDocx()', () => {
     expect(() => resolveFontCss('evil' as never, 'sans')).not.toThrow()
     expect(resolveFontCss('evil' as never, 'sans')).toContain('Ubuntu')
     expect(resolveFontDocx('evil' as never, 'sans')).toBe('Ubuntu')
+  })
+})
+
+describe('resolveFontPdf()', () => {
+  /**
+   * The third twin, and the only one that CANNOT carry the chosen family: pdf
+   * output uses the standard-14 bases plus embedded Roboto, so every catalog
+   * font maps onto one of four names. Untested until now, which meant a family
+   * could quietly land on the wrong base — a serif choice rendering as
+   * Helvetica is not a crash, just a wrong-looking PDF.
+   */
+  it('collapses each family onto its standard-14 base', () => {
+    expect(resolveFontPdf('serif', 'sans')).toBe('Times')
+    expect(resolveFontPdf('garamond', 'sans')).toBe('Times')
+    expect(resolveFontPdf('arial', 'serif')).toBe('Helvetica')
+    expect(resolveFontPdf('courier', 'serif')).toBe('Courier')
+  })
+
+  it('keeps the brand fonts on embedded Roboto', () => {
+    // The two brand families are the ones pdfmake actually has glyphs for.
+    expect(resolveFontPdf('condensed', 'serif')).toBe('Roboto')
+    expect(resolveFontPdf('sans', 'serif')).toBe('Roboto')
+  })
+
+  it("'body' resolves against the supplied body-font id, not a fixed default", () => {
+    expect(resolveFontPdf('body', 'times')).toBe('Times')
+    expect(resolveFontPdf('body', 'arial')).toBe('Helvetica')
+  })
+
+  it('falls back rather than throwing on an unknown id', () => {
+    expect(resolveFontPdf('evil' as never, 'sans')).toBe('Roboto')
+  })
+})
+
+describe('withResolvedFonts()', () => {
+  /**
+   * The §6 boundary: `'inherit'` is a sentinel meaning "the app-wide default",
+   * and the pure renderers must never see it — `fontById('inherit')` is not a
+   * catalog entry, so an unresolved sentinel silently becomes the fallback font
+   * and the user's global choice is lost on every export.
+   */
+  const style = (heading: string, body: string): ViewStyle =>
+    ({ ...DEFAULT_VIEW_STYLE, heading_font: heading, body_font: body })
+
+  it('replaces the sentinel with the caller’s globals, per slot', () => {
+    const out = withResolvedFonts(style('inherit', 'inherit'), { heading: 'times', body: 'arial' })
+    expect(out.heading_font).toBe('times')
+    expect(out.body_font).toBe('arial')
+  })
+
+  it('leaves an explicitly chosen font alone', () => {
+    const out = withResolvedFonts(style('garamond', 'verdana'), { heading: 'times', body: 'arial' })
+    expect(out.heading_font).toBe('garamond')
+    expect(out.body_font).toBe('verdana')
+  })
+
+  it('resolves the two slots independently', () => {
+    // One inheriting and one chosen is the common case, and a crossed pair
+    // would look plausible in the output.
+    const out = withResolvedFonts(style('inherit', 'courier'), { heading: 'serif', body: 'arial' })
+    expect(out.heading_font).toBe('serif')
+    expect(out.body_font).toBe('courier')
+  })
+
+  it('falls back to the catalog defaults when the caller passes no globals', () => {
+    const out = withResolvedFonts(style('inherit', 'inherit'))
+    expect(out.heading_font).not.toBe('inherit')
+    expect(out.body_font).not.toBe('inherit')
+    expect(resolveFontCss(out.body_font, out.body_font)).toContain('Ubuntu')
+  })
+
+  it('carries every other style field through untouched', () => {
+    const src = { ...style('inherit', 'inherit'), accent: '#123456', density: 'compact' as const }
+    expect(withResolvedFonts(src)).toMatchObject({ accent: '#123456', density: 'compact' })
   })
 })
 

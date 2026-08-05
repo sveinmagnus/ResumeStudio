@@ -6,6 +6,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   WRITING_COACH_SCHEMA, buildCoachPrompt, validateCoachResponse, hasCoachableSource,
+  hasDraftableFacts,
   InvalidCoachResponseError,
 } from '../src/lib/writingCoach'
 
@@ -105,5 +106,14 @@ describe('validateCoachResponse', () => {
     expect(() => validateCoachResponse({ rewrite: '   ' })).toThrow(InvalidCoachResponseError)
     expect(() => validateCoachResponse('a string')).toThrow(InvalidCoachResponseError)
     expect(() => validateCoachResponse(null)).toThrow(InvalidCoachResponseError)
+  })
+})
+
+describe('hasDraftableFacts()', () => {
+  it('needs at least one fact to draft FROM', () => {
+    // Drafting from a blank card would be pure invention, which is the one
+    // thing every assist is forbidden to do (§15).
+    expect(hasDraftableFacts([])).toBe(false)
+    expect(hasDraftableFacts(['Customer: Acme'])).toBe(true)
   })
 })

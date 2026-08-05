@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import {
-  usageOfSkill, usageOfRole, isSkillUnused, isRoleUnused,
+  usageOfSkill, usageOfRole, usageOfIndustry, isSkillUnused, isRoleUnused,
 } from '../src/lib/usage'
 import {
-  emptyStore, makeSkill, makeRole, makeProject, makeWork, makePosition,
+  emptyStore, makeSkill, makeRole, makeIndustry, makeProject, makeWork, makePosition,
 } from './fixtures'
 
 describe('usageOfSkill()', () => {
@@ -108,5 +108,37 @@ describe('isSkillUnused() / isRoleUnused()', () => {
     expect(isRoleUnused(store, 'r')).toBe(true)
     store.work_experiences.push(makeWork({ role_ids: ['r'] }))
     expect(isRoleUnused(store, 'r')).toBe(false)
+  })
+})
+
+describe('usageOfIndustry()', () => {
+  it('lists every project linking the industry, and nothing else', () => {
+    // Industry links are many-per-project (shape v4), so a project carrying the
+    // industry ALONGSIDE others still counts — matching by the whole array,
+    // rather than by a single field, is the thing worth pinning.
+    const store = emptyStore()
+    store.industries.push(makeIndustry({ id: 'fin' }), makeIndustry({ id: 'gov' }))
+    store.projects.push(makeProject({
+      id: 'p1',
+      industries: [{ id: 'l1', industry_id: 'fin', name: {}, sort_order: 0 }],
+    }))
+    store.projects.push(makeProject({
+      id: 'p2',
+      industries: [
+        { id: 'l2', industry_id: 'gov', name: {}, sort_order: 0 },
+        { id: 'l3', industry_id: 'fin', name: {}, sort_order: 1 },
+      ],
+    }))
+    store.projects.push(makeProject({ id: 'p3', industries: [] }))
+
+    expect(usageOfIndustry(store, 'fin').projects.map((p) => p.id)).toEqual(['p1', 'p2'])
+    expect(usageOfIndustry(store, 'gov').projects.map((p) => p.id)).toEqual(['p2'])
+  })
+
+  it('is empty for an industry nothing references', () => {
+    const store = emptyStore()
+    store.industries.push(makeIndustry({ id: 'orphan' }))
+    expect(usageOfIndustry(store, 'orphan').projects).toEqual([])
+    expect(usageOfIndustry(store, 'no-such-id').projects).toEqual([])
   })
 })

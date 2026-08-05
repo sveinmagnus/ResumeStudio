@@ -3,7 +3,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
-  nextOnline, subscribeOnline, isOnline,
+  nextOnline, subscribeOnline, isOnline, recheckConnectivity,
   __resetConnectivityForTests,
 } from '../src/lib/connectivity'
 import { api } from '../src/lib/api'
@@ -58,6 +58,36 @@ describe('connectivity machine', () => {
     await vi.waitFor(() => expect(isOnline()).toBe(true))
     expect(health).toHaveBeenCalled()
     expect(seen).toEqual(['online', 'offline', 'online'])
+  })
+
+  it('recheckConnectivity() probes on demand and can recover without an online event', async () => {
+    // The reason it exists: a save that fails network-side knows we are offline
+    // before the browser fires anything, and the user should not have to wait
+    // for the next poll tick to be told the connection is back.
+    const health = vi.spyOn(api, 'health').mockResolvedValue(true)
+    const seen: string[] = []
+    subscribeOnline((s) => seen.push(s))
+
+    window.dispatchEvent(new Event('offline'))
+    expect(isOnline()).toBe(false)
+    health.mockClear()
+
+    recheckConnectivity()
+    await vi.waitFor(() => expect(isOnline()).toBe(true))
+    expect(health).toHaveBeenCalled()
+    expect(seen).toEqual(['online', 'offline', 'online'])
+  })
+
+  it('recheckConnectivity() leaves the state alone while the probe still fails', async () => {
+    vi.spyOn(api, 'health').mockResolvedValue(false)
+    const seen: string[] = []
+    subscribeOnline((s) => seen.push(s))
+    window.dispatchEvent(new Event('offline'))
+
+    recheckConnectivity()
+    await vi.waitFor(() => expect(api.health).toHaveBeenCalled())
+    expect(isOnline()).toBe(false)
+    expect(seen).toEqual(['online', 'offline'])
   })
 
   it('does not re-announce a state it is already in', () => {
