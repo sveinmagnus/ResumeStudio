@@ -970,6 +970,34 @@ describe('buildViewHtml()', () => {
       expect(html).toContain('K. N.')
     })
 
+    it('reduces every part of a name, however it is spaced or capitalised', () => {
+      // The point of initials is that nothing identifying survives. A middle
+      // name left whole, or a lower-case initial that reads as a fragment of
+      // the real name, both defeat that — and a name arrives from an import
+      // with whatever spacing it had.
+      const store = anonStore()
+      store.references[0].name = '  kari  anne   nordmann-berg  '
+      const html = buildViewHtml(store, makeView({ sections: buildViewSections(), force_anonymized: true }), 'en')
+
+      // The whole element content, not a substring: untrimmed input splits
+      // into empty leading/trailing parts and renders ". K. A. N. ." — which
+      // still CONTAINS the right initials.
+      expect(html).toMatch(/>\s*K\. A\. N\.\s*</)
+      // Word-bounded: the stylesheet contains "banner", which trivially
+      // contains "anne".
+      expect(html).not.toMatch(/\bkari\b/i)
+      expect(html).not.toMatch(/\banne\b/i)
+      expect(html).not.toMatch(/\bnordmann\b/i)
+    })
+
+    it('leaves an empty reference name empty rather than emitting a stray dot', () => {
+      const store = anonStore()
+      store.references[0].name = ''
+      const html = buildViewHtml(store, makeView({ sections: buildViewSections(), force_anonymized: true }), 'en')
+      expect(html).not.toContain('.  .')
+      expect(html).not.toMatch(/>\s*\.\s*</)
+    })
+
     it('applies to the promoted projects section too (bypasses applyView)', () => {
       const sections = buildViewSections().map((s) =>
         s.key === 'promoted_projects' ? { ...s, detail: 'full' as const } : s,
@@ -1431,6 +1459,73 @@ describe('key_competencies & recommendations rendering', () => {
     store.key_qualifications.push(makeKQ({ id: 'p1', tag_line: { en: 'Empty' }, competency_ids: [] }))
     const html = buildViewHtml(store, makeView({ sections: buildViewSections() }), 'en')
     expect(html).not.toContain('Orphan')
+  })
+
+  it('drops a bundle member that is disabled, excluded or unstarred', () => {
+    // Three independent filters on the bundle, each of which can stop running
+    // without the others noticing — and each puts something in a client-facing
+    // document that the user took out.
+    const store = emptyStore()
+    store.key_competencies.push(
+      makeKeyCompetency({ id: 'c1', title: { en: 'Keeper' }, starred: true }),
+      makeKeyCompetency({ id: 'c2', title: { en: 'Disabled one' }, disabled: true, starred: true }),
+      makeKeyCompetency({ id: 'c3', title: { en: 'Excluded one' }, starred: true }),
+      makeKeyCompetency({ id: 'c4', title: { en: 'Unstarred one' }, starred: false }),
+    )
+    store.key_qualifications.push(makeKQ({
+      id: 'p1', tag_line: { en: 'Profile' }, competency_ids: ['c1', 'c2', 'c3', 'c4'],
+    }))
+
+    const view = makeView({
+      sections: buildViewSections(),
+      excluded_item_ids: ['c3'],
+      starred_only: true,
+    })
+    const html = buildViewHtml(store, view, 'en')
+
+    expect(html).toContain('Keeper')
+    expect(html).not.toContain('Disabled one')
+    expect(html).not.toContain('Excluded one')
+    expect(html).not.toContain('Unstarred one')
+  })
+
+  it('carries no competencies at all when the section is turned off', () => {
+    // Asserted on the FILTERED STORE, not the HTML: the renderer skips an
+    // "off" section regardless, so a page-level check passes even when the
+    // data is still in there for every other consumer of applyView — the ATS
+    // text export, the DOCX builder, the tailoring pass.
+    const store = emptyStore()
+    store.key_competencies.push(makeKeyCompetency({ id: 'c1', title: { en: 'Hidden' } }))
+    store.key_qualifications.push(makeKQ({ id: 'p1', competency_ids: ['c1'] }))
+    const view = makeView({
+      sections: buildViewSections().map((s) => (
+        s.key === 'key_competencies' ? { ...s, detail: 'off' as const } : s
+      )),
+    })
+    expect(applyView(store, view).key_competencies).toEqual([])
+    expect(buildViewHtml(store, view, 'en')).not.toContain('Hidden')
+  })
+
+  it('ignores a bundle id whose competency has been deleted', () => {
+    const store = emptyStore()
+    store.key_competencies.push(makeKeyCompetency({ id: 'c1', title: { en: 'Present' } }))
+    store.key_qualifications.push(makeKQ({ id: 'p1', competency_ids: ['c1', 'deleted-since'] }))
+    expect(() => buildViewHtml(store, makeView({ sections: buildViewSections() }), 'en')).not.toThrow()
+    expect(buildViewHtml(store, makeView({ sections: buildViewSections() }), 'en')).toContain('Present')
+  })
+
+  it('presents exactly one profile even when several survive the filter', () => {
+    // The editor renders profiles as radios; a newly added profile is in no
+    // view's exclusion list yet, and would otherwise surface as a second
+    // opening block in every existing view.
+    const store = emptyStore()
+    store.key_qualifications.push(
+      makeKQ({ id: 'p1', tag_line: { en: 'First profile' }, summary: { en: 'One.' } }),
+      makeKQ({ id: 'p2', tag_line: { en: 'Second profile' }, summary: { en: 'Two.' } }),
+    )
+    const html = buildViewHtml(store, makeView({ sections: buildViewSections() }), 'en')
+    expect(html).toContain('One.')
+    expect(html).not.toContain('Two.')
   })
 
   it('renders recommendations with the quote and recommender name', () => {
