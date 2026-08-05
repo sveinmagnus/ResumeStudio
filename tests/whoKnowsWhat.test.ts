@@ -24,6 +24,24 @@ describe('buildWhoKnowsWhat()', () => {
     expect(wkw.people[0].personName).toBe('Draft CV')
   })
 
+  it('falls back for a whitespace name and for a CV with no resume record', () => {
+    // A padded name is no name; and a resume row can exist before its CV does.
+    const padded = { ...emptyStore(), resume: makeResume({ full_name: '   ' }) }
+    expect(buildWhoKnowsWhat([{ id: 'x', name: 'Draft CV', data: padded }]).people[0].personName)
+      .toBe('Draft CV')
+
+    const headless = { ...emptyStore(), resume: null }
+    expect(buildWhoKnowsWhat([{ id: 'y', name: 'Empty CV', data: headless }]).people[0].personName)
+      .toBe('Empty CV')
+  })
+
+  it('reads a resume whose skills array is missing entirely', () => {
+    // Pre-registry data, and the shape a partially-restored backup can have.
+    const legacy = { ...emptyStore() } as unknown as Record<string, unknown>
+    delete legacy.skills
+    expect(() => buildWhoKnowsWhat([{ id: 'z', name: 'Old CV', data: legacy as never }])).not.toThrow()
+  })
+
   it('groups the same skill across people by normalized key', () => {
     const wkw = buildWhoKnowsWhat([
       person('a', 'Ada', [makeSkill({ id: 's1', name: { en: 'React' }, proficiency: 5 })]),

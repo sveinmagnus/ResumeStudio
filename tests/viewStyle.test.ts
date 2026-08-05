@@ -126,6 +126,30 @@ describe('sanitizeHexColor()', () => {
   it('honours a custom fallback', () => {
     expect(sanitizeHexColor('nope', 'ABCDEF')).toBe('ABCDEF')
   })
+
+  /**
+   * This is a security boundary, and both of its patterns are anchored at BOTH
+   * ends. An unanchored test accepts a payload that merely CONTAINS six hex
+   * digits — "00B8DE;}</style><script>" — and returns it into a `<style>`
+   * element. The suffix cases below are the ones that matter.
+   */
+  it('refuses anything with hex in it rather than anything that IS hex', () => {
+    expect(sanitizeHexColor('00B8DE;}</style><script>alert(1)</script>')).toBe('002E6E')
+    expect(sanitizeHexColor('</style>00B8DE')).toBe('002E6E')
+    expect(sanitizeHexColor('0af;x')).toBe('002E6E')
+    expect(sanitizeHexColor('x0af')).toBe('002E6E')
+    // Wrong lengths are not silently truncated or padded either.
+    expect(sanitizeHexColor('00B8D')).toBe('002E6E')
+    expect(sanitizeHexColor('00B8DEE')).toBe('002E6E')
+    expect(sanitizeHexColor('0a')).toBe('002E6E')
+  })
+
+  it('strips only a leading #, and only one', () => {
+    // The strip is anchored; without that, '00B8DE#' would pass as hex.
+    expect(sanitizeHexColor('  #00B8DE  ')).toBe('00B8DE')
+    expect(sanitizeHexColor('00B8DE#')).toBe('002E6E')
+    expect(sanitizeHexColor('##00B8DE')).toBe('002E6E')
+  })
 })
 
 // ─── deriveTokens ─────────────────────────────────────────────────────────────
