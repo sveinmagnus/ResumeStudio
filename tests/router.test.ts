@@ -18,6 +18,14 @@ describe('parseRoute', () => {
     ['/r/abc/views',           { name: 'editor', id: 'abc', section: 'views' }],
     ['/r/abc/views/v1',        { name: 'editor', id: 'abc', section: 'views', viewId: 'v1' }],
     ['/r/abc/projects/x',      { name: 'not-found', path: '/r/abc/projects/x' }], // 3rd segment only under /views/
+    // The pattern is anchored at BOTH ends. Without the start anchor a path
+    // that merely contains /r/… routes into the editor; without the end anchor
+    // anything trailing is ignored, so a mistyped deep link silently opens
+    // something adjacent instead of reporting itself.
+    ['/x/r/abc',               { name: 'not-found', path: '/x/r/abc' }],
+    ['/somewhere/r/abc/views/v1', { name: 'not-found', path: '/somewhere/r/abc/views/v1' }],
+    ['/r/abc/views/v1/extra',  { name: 'not-found', path: '/r/abc/views/v1/extra' }],
+    ['/r/abc/projects/x/y',    { name: 'not-found', path: '/r/abc/projects/x/y' }],
   ]
 
   it.each(cases)('parses %j', (path, expected) => {
