@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   paramsOf, inputBudget, estimateTokens, sizeHint, providerBlurb, isRemote, extractJson,
+  supportsAdvanced, looksHighEnd, looksWeakForWriting,
 } from '../src/lib/llmAssist'
 import type { AssistStatus } from '../src/lib/api'
 
@@ -64,6 +65,105 @@ describe('inputBudget()', () => {
     // The failure being guarded against (garbled output from an overloaded 3B)
     // is the local one; hosted endpoints are chosen for their big context.
     expect(inputBudget(local('custom:latest'))).toBeLessThan(inputBudget(remote('gpt-4o-mini')))
+  })
+
+  it('bands the budget at 4B and 15B, inclusive at each edge', () => {
+    // Three bands, two edges, and both were only ever approached from one side
+    // — so either could move several billion parameters without a test moving.
+    const small = inputBudget(local('m:3b'))
+    const medium = inputBudget(local('m:8b'))
+    const large = inputBudget(local('m:70b'))
+    expect(small).toBeLessThan(medium)
+    expect(medium).toBeLessThan(large)
+
+    expect(inputBudget(local('m:4b'))).toBe(small)     // 4 is still small
+    expect(inputBudget(local('m:5b'))).toBe(medium)
+    expect(inputBudget(local('m:15b'))).toBe(medium)   // 15 is still medium
+    expect(inputBudget(local('m:16b'))).toBe(large)
+  })
+
+  it('gives a declared high-end model the large budget whatever its name says', () => {
+    // The declaration outranks the name — that is the whole point of the flag,
+    // since a hosted name parses to no size at all.
+    const declared = { ...local('m:3b'), highEnd: true }
+    expect(inputBudget(declared)).toBe(inputBudget(local('m:70b')))
+  })
+})
+
+describe('supportsAdvanced()', () => {
+  /**
+   * THE client-side gate on every advanced assist (§15), and it had no test at
+   * all. Both halves matter: an unconfigured backend cannot run them, and a
+   * configured-but-not-declared one must not — a small model does not refuse a
+   * whole-CV review, it answers fluently and wrongly.
+   */
+  it('needs the endpoint configured AND declared high-end', () => {
+    const base = local('m:3b')
+    expect(supportsAdvanced({ ...base, configured: true, highEnd: true })).toBe(true)
+    expect(supportsAdvanced({ ...base, configured: true, highEnd: false })).toBe(false)
+    expect(supportsAdvanced({ ...base, configured: false, highEnd: true })).toBe(false)
+    expect(supportsAdvanced({ ...base, configured: false, highEnd: false })).toBe(false)
+  })
+})
+
+describe('looksHighEnd()', () => {
+  /**
+   * The SUGGESTION behind the §15 checkbox — a twelve-entry regex list that had
+   * no test at all, so any of those patterns could have been wrong (or gone)
+   * without a failure. Being wrong here is quiet: it pre-ticks a box the user
+   * then accepts, and a 3B model answers a whole-CV review fluently and wrongly.
+   */
+  it('recognises a frontier family by name', () => {
+    for (const m of [
+      'claude-opus-5', 'claude-sonnet-5', 'gpt-5', 'gpt-4.1', 'gpt-4o',
+      'o3', 'gemini-2.5-pro', 'mistral-large-latest', 'deepseek-r1',
+      'deepseek-v3', 'qwen2.5-max', 'grok-4', 'llama-3.1-405b',
+    ]) {
+      expect(looksHighEnd(m), m).toBe(true)
+    }
+  })
+
+  it('is not fooled by the small member of a frontier family', () => {
+    // The lookahead on gpt-4o exists for exactly this: -mini is the cheap one.
+    expect(looksHighEnd('gpt-4o-mini')).toBe(false)
+    expect(looksHighEnd('claude-haiku-4-5')).toBe(false)
+    expect(looksHighEnd('gemini-2.5-flash')).toBe(false)
+    expect(looksHighEnd('gpt-3.5-turbo')).toBe(false)
+  })
+
+  it('accepts a local model at or above the parameter threshold, not below', () => {
+    expect(looksHighEnd('qwen2.5:27b')).toBe(true)   // 27 is the edge, inclusive
+    expect(looksHighEnd('llama3.1:70b')).toBe(true)
+    expect(looksHighEnd('mixtral:26b')).toBe(false)
+    expect(looksHighEnd('llama3.2:3b')).toBe(false)
+  })
+
+  it('leaves an unrecognised or empty name unticked — the user decides', () => {
+    expect(looksHighEnd('my-org/custom:latest')).toBe(false)
+    expect(looksHighEnd('')).toBe(false)
+    expect(looksHighEnd('   ')).toBe(false)
+  })
+})
+
+describe('looksWeakForWriting()', () => {
+  it('flags a small local model, and stops at 8B', () => {
+    expect(looksWeakForWriting(local('llama3.2:3b'))).toBe(true)
+    expect(looksWeakForWriting(local('m:8b'))).toBe(true)   // 8 is still weak
+    expect(looksWeakForWriting(local('m:9b'))).toBe(false)
+  })
+
+  it('assumes an unsized LOCAL model is weak but an unsized REMOTE one is not', () => {
+    expect(looksWeakForWriting(local('custom:latest'))).toBe(true)
+    expect(looksWeakForWriting(remote('gpt-4o-mini'))).toBe(false)
+  })
+
+  it('never flags a declared high-end model, whatever its name parses to', () => {
+    expect(looksWeakForWriting({ ...local('m:3b'), highEnd: true })).toBe(false)
+  })
+
+  it('says nothing when nothing is configured', () => {
+    // No model means the manual path, which this warning does not apply to.
+    expect(looksWeakForWriting(off)).toBe(false)
   })
 })
 

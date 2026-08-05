@@ -5,6 +5,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   SUMMARY_FIELDS, summaryFields, emptySummaryTargets, applySummaries, summarizableSource,
+  summaryContext,
 } from '../src/lib/summarizeBatch'
 import {
   emptyStore, makeResume, makeProject, makeWork, makeCourse, makeAward, makePublication,
@@ -84,6 +85,73 @@ describe('summarizableSource()', () => {
     expect(summarizableSource('<ul><li>Led the team</li></ul>')).toContain('Led the team')
     expect(summarizableSource('Ledet migrering')).toBe('Ledet migrering')
     expect(summarizableSource('2024')).toBe('2024')
+  })
+})
+
+describe('summaryContext()', () => {
+  /**
+   * The heading lines sent with a summarize request so the prompt can name the
+   * words the line must NOT spend itself on. The reported failure this fixes
+   * was a model answering "Consultant for Statoil" for an entry already headed
+   * *Statoil — Consultant*.
+   */
+  it('names the identity fields, labelled as the reader sees them', () => {
+    const p = makeProject({ customer: { en: 'Statoil' }, description: { en: 'Platform rebuild' } })
+    expect(summaryContext('projects', p, 'en'))
+      .toEqual(['Customer: Statoil', 'Project name: Platform rebuild'])
+  })
+
+  /**
+   * The one rule that must not slip: prose fields are what is being SUMMARISED.
+   * Sending the description as context would tell the model not to repeat the
+   * very text it was asked to condense.
+   */
+  it('never includes a prose field or a list field', () => {
+    const p = makeProject({
+      customer: { en: 'Statoil' },
+      long_description: { en: 'Ran the platform rebuild end to end.' },
+      short_description: { en: 'Ran the rebuild.' },
+      highlights: [{ en: 'Cut release time' }],
+    })
+    const ctx = summaryContext('projects', p, 'en').join(' | ')
+    expect(ctx).toContain('Statoil')
+    expect(ctx).not.toContain('end to end')
+    expect(ctx).not.toContain('Ran the rebuild')
+    expect(ctx).not.toContain('Cut release time')
+  })
+
+  it('resolves across locales, since the heading itself falls back', () => {
+    // A customer stored only in English is still what a reader of the Norwegian
+    // column sees above the line being written.
+    const p = makeProject({ customer: { en: 'Statoil' }, description: {} })
+    expect(summaryContext('projects', p, 'no')).toEqual(['Customer: Statoil'])
+  })
+
+  it('skips a field with nothing in it rather than emitting a bare label', () => {
+    const p = makeProject({ customer: { en: 'Statoil' }, description: { en: '   ' } })
+    expect(summaryContext('projects', p, 'en')).toEqual(['Customer: Statoil'])
+  })
+
+  it('is empty for a section it does not know, and for a non-item', () => {
+    expect(summaryContext('not_a_section', makeProject(), 'en')).toEqual([])
+    expect(summaryContext('projects', null, 'en')).toEqual([])
+    expect(summaryContext('projects', 'a string', 'en')).toEqual([])
+  })
+
+  it('ignores a field holding something that is not a localized value', () => {
+    // Imported data puts strings and arrays where objects belong; a raw string
+    // would otherwise be indexed by locale and yield a character.
+    const odd = { ...makeProject({ customer: { en: 'Statoil' } }), description: 'plain' }
+    expect(summaryContext('projects', odd, 'en')).toEqual(['Customer: Statoil'])
+  })
+
+  it('carries the employer for Employment, not the role description', () => {
+    const w = makeWork({
+      employer: { en: 'Cartavio' }, role_title: { en: 'Consultant' },
+      long_description: { en: 'Led the platform team.' },
+    })
+    expect(summaryContext('work_experiences', w, 'en'))
+      .toEqual(['Employer: Cartavio', 'Role: Consultant'])
   })
 })
 

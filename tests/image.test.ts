@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest'
-import { imageInfoFromDataUrl, clampCropRect, computeCropRect, fileToResizedDataUrl, fileToImage, imageUrlToResizedDataUrl } from '../src/lib/image'
+import { describe, it, expect, vi } from 'vitest'
+import { imageInfoFromDataUrl, clampCropRect, computeCropRect, fileToResizedDataUrl, fileToImage, imageUrlToResizedDataUrl, applyShapeMaskToDataUrl, revokeImageObjectUrl } from '../src/lib/image'
 
 // Build a base64 data URL from raw bytes (Buffer is available in the node test env).
 function dataUrl(mime: string, bytes: number[]): string {
@@ -197,5 +197,35 @@ describe('imageUrlToResizedDataUrl()', () => {
     await expect(imageUrlToResizedDataUrl('data:image/png;base64,AAAA')).rejects.toThrow(/http\(s\) link/i)
     await expect(imageUrlToResizedDataUrl('javascript:alert(1)')).rejects.toThrow(/http\(s\) link/i)
     await expect(imageUrlToResizedDataUrl('')).rejects.toThrow(/http\(s\) link/i)
+  })
+})
+
+describe('applyShapeMaskToDataUrl()', () => {
+  it("short-circuits 'square' without touching the canvas", async () => {
+    // The pass-through is why callers don't special-case the common shape — and
+    // it must be byte-identical, not a re-encode: re-encoding a stored JPEG on
+    // every export would degrade the image a little each time.
+    const url = dataUrl('image/png', pad([0x89, 0x50, 0x4e, 0x47], 26))
+    await expect(applyShapeMaskToDataUrl(url, 'square')).resolves.toBe(url)
+  })
+})
+
+describe('revokeImageObjectUrl()', () => {
+  it('revokes a real object URL', () => {
+    const revoke = vi.fn()
+    vi.stubGlobal('URL', { ...URL, revokeObjectURL: revoke })
+    revokeImageObjectUrl('blob:http://localhost/abc')
+    expect(revoke).toHaveBeenCalledWith('blob:http://localhost/abc')
+    vi.unstubAllGlobals()
+  })
+
+  it('is a no-op for a nullish url', () => {
+    // fileToImage's caller revokes in a finally, which runs whether or not the
+    // url was ever created — passing null there must not throw.
+    const revoke = vi.fn()
+    vi.stubGlobal('URL', { ...URL, revokeObjectURL: revoke })
+    expect(() => { revokeImageObjectUrl(null); revokeImageObjectUrl(undefined); revokeImageObjectUrl('') }).not.toThrow()
+    expect(revoke).not.toHaveBeenCalled()
+    vi.unstubAllGlobals()
   })
 })
