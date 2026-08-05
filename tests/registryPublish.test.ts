@@ -43,6 +43,9 @@ describe('publishToInstanceRegistry', () => {
 
     expect(res).toEqual({ created: 1, linked: 0, saved: 1, conflicts: 0 })
     expect(create).toHaveBeenCalledTimes(1)
+    // …and it carries what the entry IS. Called with an empty object the count
+    // is still 1, and the instance registry fills with nameless rows.
+    expect(create.mock.calls[0][0]).toMatchObject({ kind: 'skill', name: { en: 'Kubernetes' } })
     // The saved store carries the link back to the canonical entry.
     const saved = save.mock.calls[0][1] as ResumeStore
     expect(saved.skills[0].canonical_id).toBe('canon-1')

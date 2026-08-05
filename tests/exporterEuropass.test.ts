@@ -103,6 +103,19 @@ describe('exportEuropassXml', () => {
     expect(back.educations[0].end).toEqual({ year: 2009, month: 6 })
   })
 
+  it('writes no Period at all for an undated item', () => {
+    // An empty <Period/> is not valid against the schema and reads to an
+    // importer as "a period with no dates", which is not what "undated" means.
+    const store = fullStore()
+    store.work_experiences = [makeWork({
+      id: 'w-undated', employer: { en: 'Undated Co' }, start: null, end: null,
+    })]
+    const xml = exportEuropassXml(store, view(), 'en')
+    expect(xml).toContain('Undated Co')
+    expect(xml).not.toContain('<Period/>')
+    expect(xml).not.toContain('<Period></Period>')
+  })
+
   it('writes months as the gMonth fragment Europass uses', () => {
     const xml = exportEuropassXml(fullStore(), view(), 'en')
     expect(xml).toContain('month="--06"')
