@@ -46,6 +46,20 @@ describe('buildPageFitPrompt()', () => {
   it('asks to keep starred items', () => {
     expect(buildPageFitPrompt(store(), view(), 'en', 2, 1)).toMatch(/keep anything starred/i)
   })
+
+  it('sizes the ask in whole pages, and never asks for less than one', () => {
+    // A 4.6-page CV limited to 2 needs three pages saved, not 2.6; and a CV
+    // barely over its limit still has to be asked for a page, or the model is
+    // told to save zero.
+    expect(buildPageFitPrompt(store(), view(), 'en', 4.6, 2)).toMatch(/save 3 pages\b/)
+    expect(buildPageFitPrompt(store(), view(), 'en', 2.1, 2)).toMatch(/save 1 page\b/)
+    expect(buildPageFitPrompt(store(), view(), 'en', 1, 3)).toMatch(/save 1 page\b/)
+  })
+
+  it('says "page" for one and "pages" for more', () => {
+    expect(buildPageFitPrompt(store(), view(), 'en', 3, 1)).toMatch(/save 2 pages\b/)
+    expect(buildPageFitPrompt(store(), view(), 'en', 2, 1)).toMatch(/save 1 page —/)
+  })
 })
 
 describe('validatePageFit()', () => {

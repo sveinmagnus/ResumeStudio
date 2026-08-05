@@ -39,6 +39,30 @@ describe('summaryFields()', () => {
     expect(summaryFields('references')).toBeUndefined()
     expect(summaryFields('skills')).toBeUndefined()
   })
+
+  /**
+   * Every row is independent: losing one leaves that section's Summarize
+   * button doing nothing, with nothing else affected to notice. Listing the
+   * keys (above) does not check what each maps to.
+   */
+  it('names both fields for every section it covers', () => {
+    const pairs = Object.fromEntries(
+      Object.keys(SUMMARY_FIELDS).map((k) => [k, `${summaryFields(k)?.source} → ${summaryFields(k)?.target}`]),
+    )
+    expect(pairs).toEqual({
+      projects: 'long_description → short_description',
+      work_experiences: 'long_description → short_description',
+      positions: 'description → short_description',
+      educations: 'description → short_description',
+      courses: 'description → short_description',
+      certifications: 'description → short_description',
+      presentations: 'description → short_description',
+      honor_awards: 'description → short_description',
+      key_competencies: 'description → short_description',
+      publications: 'abstract → short_description',
+      recommendations: 'text → short_description',
+    })
+  })
 })
 
 describe('summarizableSource()', () => {

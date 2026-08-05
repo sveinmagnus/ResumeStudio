@@ -110,6 +110,25 @@ describe('normalizeImportedSkills', () => {
     expect(out.skills[0].classification).toBe('Custom')
   })
 
+  it('reads the classification map through the same case and padding rules', () => {
+    // The map is keyed off the library's own spelling; a skill arrives with
+    // whatever spacing the import carried, so both sides have to be folded or
+    // the classification silently never lands.
+    const store = emptyStore()
+    store.skills.push(makeSkill({ id: 'ts', name: { en: '  type script  ' } }))
+    const { store: out } = normalizeImportedSkills(store, [' Type Script '], { ' TYPE script ': 'Technical' })
+    expect(out.skills[0].name).toEqual({ en: 'Type Script' })
+    expect(out.skills[0].classification).toBe('Technical')
+  })
+
+  it('takes the classification from whichever locale matches the library', () => {
+    // A bilingual skill may only match under one of its names.
+    const store = emptyStore()
+    store.skills.push(makeSkill({ id: 'k', name: { no: 'Løsningsarkitektur', en: 'Kubernetes' } }))
+    const { store: out } = normalizeImportedSkills(store, TAXONOMY, CLASS)
+    expect(out.skills[0].classification).toBe('Technical')
+  })
+
   it('leaves classification unset for skills absent from the library', () => {
     const store = emptyStore()
     store.skills.push(makeSkill({ id: 'x', name: { no: 'Løsningsarkitektur' } }))
