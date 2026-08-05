@@ -75,7 +75,8 @@ describe('resumeFileName / resumeIdFromFileName', () => {
   it('is stable for a given name+id and round-trips the id', () => {
     const name = resumeFileName('abc-123', 'Ada Lovelace — CV')
     expect(name).toBe('ada-lovelace-cv__abc-123.json')
-    expect(resumeFileName('abc-123', 'Ada Lovelace — CV')).toBe(name) // deterministic
+    // Deterministic
+    expect(resumeFileName('abc-123', 'Ada Lovelace — CV')).toBe(name)
     expect(resumeIdFromFileName(name)).toBe('abc-123')
   })
 
@@ -183,7 +184,8 @@ describe('reconcileSources', () => {
         $schema: 'resumestudio-tombstones/v1', format_version: 1,
         tombstones: [
           { id: 'r1', deleted_at: '2026-06-01T00:00:00Z' },
-          { id: 'nope' }, // malformed — dropped, not fatal
+          // Malformed — dropped, not fatal
+          { id: 'nope' },
         ],
       }),
     ])
@@ -266,7 +268,8 @@ describe('writeResumeFiles / scanBackupDir', () => {
       fs.writeFileSync(path.join(dir, 'half-written__r7.json'), '{ "resume": ')
       const scan = scanBackupDir(dir)
       expect(scan.unreadable).toEqual(['half-written__r7.json'])
-      expect(scan.resumes).toHaveLength(1) // the good file still came through
+      // The good file still came through
+      expect(scan.resumes).toHaveLength(1)
     } finally {
       fs.rmSync(dir, { recursive: true, force: true })
     }

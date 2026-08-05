@@ -56,11 +56,10 @@ export function toNames(v: unknown): string[] {
  * 1-based everywhere in the data model, so a 0 or 13 would silently produce a
  * wrong date downstream.
  *
- * (This clamp previously existed only in bulkImport; aiImport's copy checked
- * `Number.isInteger` alone. Validation happens to reject out-of-range months
- * before either mapper runs, so nothing was visibly broken — but the two copies
- * disagreeing about the same input is exactly the drift that motivated this
- * module. The stricter rule wins.)
+ * The clamp is deliberately stricter than it needs to be: validation rejects an
+ * out-of-range month before either mapper runs. It lives here so bulkImport and
+ * aiImport can't disagree about the same input, which is what this module exists
+ * to prevent.
  */
 export function toYearMonth(val: unknown): YearMonth | null {
   if (val == null) return null

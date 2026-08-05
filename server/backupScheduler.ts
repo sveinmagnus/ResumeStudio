@@ -28,9 +28,9 @@ export interface BackupSchedulerOptions {
 }
 
 /**
- * The write gate: resumes AND the registry, since `registry.json` is now its own
- * file and a canonical rename can land without any resume's `saved_at` moving
- * (it used to ride along with the one file the resume signature already gated).
+ * The write gate: resumes AND the registry. `registry.json` is its own file, so
+ * a canonical rename can land without any resume's `saved_at` moving — gating on
+ * resume timestamps alone would leave the registry stale.
  */
 export function storeSignature(
   entries: Parameters<typeof backupSignature>[0],

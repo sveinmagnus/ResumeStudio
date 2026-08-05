@@ -4,12 +4,12 @@
  * This exists because a hardcoded shortlist is wrong the moment a provider revs
  * its line-up, and it fails in the worst possible way: the field suggests a
  * model id, the user picks it, saves, and only finds out at "Save and test"
- * that it no longer exists. (That is exactly what happened — the curated Gemini
- * entry outlived the model.) Every provider here can be asked directly, so ask.
+ * that it no longer exists — which is how a curated Gemini entry outlived the
+ * model it named. Every provider here can be asked directly, so ask.
  *
- * The curated catalogs (`lib/cloudModelCatalog.ts`, `lib/ollamaCatalog.ts`) stay
- * as the OFFLINE fallback: before a key is entered there is nobody to ask, and
- * a shortlist beats an empty box. They are no longer the primary source.
+ * The curated catalogs (`lib/cloudModelCatalog.ts`, `lib/ollamaCatalog.ts`) are
+ * the OFFLINE fallback ONLY: before a key is entered there is nobody to ask, and
+ * a shortlist beats an empty box.
  *
  * SECURITY: the endpoint and key come from server config (or, on the desktop
  * build only, from the pending settings form — same rule as the "test" route).

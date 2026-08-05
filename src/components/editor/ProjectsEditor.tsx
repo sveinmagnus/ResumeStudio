@@ -67,9 +67,9 @@ export function ProjectsEditor() {
           {/* A project has more moving parts than any other section, so it is
               the one that gets grouped into the sunken blocks the registries
               already use. Everything that identifies the engagement — who,
-              what, when, how much of you — is one block: the dates and
-              allocation used to sit BELOW the descriptions, where four small
-              number fields disappeared between two walls of prose. */}
+              what, when, how much of you — is one block. Dates and allocation
+              sit ABOVE the descriptions: four small number fields disappear
+              when they're stranded between two walls of prose. */}
           <div className="sub-block">
             <div className="sub-head">The engagement</div>
             <DualField label="Customer" value={p.customer} onChange={(v) => updateItem('projects', p.id, { customer: v })} />
@@ -316,7 +316,9 @@ function ProjectRolesEditor({ project }: { project: Project }) {
       years_of_experience: 0, years_of_experience_offset: 0,
       starred: false, sort_order: data.roles.length, disabled: false,
     }
-    addItem('roles', reg, { open: false }) // don't collapse this project card
+    // `open: false` — the default would expand the new role's card and collapse
+    // the project card the user is still working in.
+    addItem('roles', reg, { open: false })
     const pr: ProjectRole = { id: newId(), role_id: reg.id, name: reg.name, sort_order: project.roles.length, disabled: false }
     const current = useStore.getState().data.projects.find((p) => p.id === project.id)
     if (!current) return
@@ -406,7 +408,8 @@ function ProjectSkillsEditor({ project }: { project: Project }) {
       total_duration_in_years: 0, proficiency: 0,
       is_highlighted: false, created_at: new Date().toISOString(),
     }
-    addItem('skills', reg, { open: false }) // don't collapse this project card
+    // `open: false` for the same reason as the role case above.
+    addItem('skills', reg, { open: false })
     const ps: ProjectSkill = {
       id: newId(), skill_id: reg.id, name: reg.name,
       duration_in_years: 0, offset_in_years: 0, total_duration_in_years: 0,

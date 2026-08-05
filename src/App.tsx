@@ -297,9 +297,9 @@ function EditorRoute({ resumeId, routeSection, routeViewId, onUnauthorized }: {
             {activeSection === 'honor_awards'          && <AwardsEditor />}
             {activeSection === 'recommendations'       && <RecommendationsEditor />}
             {activeSection === 'references'            && <ReferencesEditor />}
-            {/* The Skills Showcase (old deep link / Overview stat) is now edited
-                on the Skill Registry page — a category + highlight is all it
-                takes to appear there. See canonicalSectionKey(). */}
+            {/* The Skills Showcase is edited on the Skill Registry page — a
+                category + highlight is all it takes to appear there — so its
+                legacy key routes here too. See canonicalSectionKey(). */}
             {(activeSection === 'skills' ||
               activeSection === 'technology_categories') && <SkillsEditor />}
             {activeSection === 'roles'                 && <RolesEditor />}

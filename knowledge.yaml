@@ -188,6 +188,17 @@ units:
     hints:
       token_estimate: 1500
 
+  - id: skill-code-comments
+    path: .claude/skills/code-comments.md
+    intent: "When does a comment earn its place here, and what shape must it take? Sparse WHY-only comments, above the line, never narrating the diff — plus the six-question review pass and where longer commentary belongs instead."
+    scope: project
+    audience: [agent, developer]
+    validated: "2026-08-05"
+    depends_on: [claude-instructions]
+    triggers: [comments, documentation, code-review, readability, style, cleanup]
+    hints:
+      token_estimate: 1200
+
   # ── Vendored third-party skills (Apache-2.0 / openly distributed) ─────────
   - id: skill-webapp-testing
     path: .claude/skills/webapp-testing/SKILL.md

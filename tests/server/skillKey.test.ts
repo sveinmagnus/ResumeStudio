@@ -15,8 +15,10 @@ const NAMES = [
   'Spring', 'Spring Boot', 'Java', 'JavaScript',
   'C#', 'C++', '.NET', 'ASP.NET Core',
   'Amazon Web Services', 'AWS', 'CI/CD',
-  'Prosjektledelse', 'Løsningsarkitektur', 'Über-Skill',   // diacritics
-  'Angular 18', 'Vue 3', 'Python 3.11', 'v2.0 tooling',    // version tokens
+  // Diacritics
+  'Prosjektledelse', 'Løsningsarkitektur', 'Über-Skill',
+  // Version tokens
+  'Angular 18', 'Vue 3', 'Python 3.11', 'v2.0 tooling',
   '   Messy   Spacing  ', 'ALL CAPS THING', '',
 ]
 

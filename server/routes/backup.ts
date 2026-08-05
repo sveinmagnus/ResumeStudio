@@ -79,9 +79,10 @@ router.post('/now', (_req: Request, res: Response): void => {
   try {
     const entries = dumpResumes()
     const { written, bytes, removed } = writeResumeFiles(dir, entries, listRegistry())
+    // fileCount is one more than the resume count: registry.json.
     res.json({
       ok: true, bytes, removed: removed.length,
-      resumeCount: written, fileCount: written + 1, // + registry.json
+      resumeCount: written, fileCount: written + 1,
       saved_at: new Date().toISOString(),
     })
   } catch (err) {

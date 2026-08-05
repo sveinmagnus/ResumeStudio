@@ -81,7 +81,8 @@ function main() {
       if (!statSync(file).isFile()) continue
       buf = readFileSync(file)
     } catch {
-      continue // deleted or unreadable in this checkout — not this check's problem
+      // Deleted or unreadable in this checkout — not this check's problem.
+      continue
     }
     scanned++
     for (let i = 0; i < buf.length; i++) {

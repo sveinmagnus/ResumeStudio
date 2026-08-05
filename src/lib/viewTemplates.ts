@@ -30,7 +30,8 @@ export interface ViewTemplate {
   section_detail: Record<string, SectionDetail>
 }
 
-const NAVY = '#002E6E' // Cartavio navy — every template stays on brand by default
+// Cartavio navy, so every template is on brand before any customisation.
+const NAVY = '#002E6E'
 
 export const VIEW_TEMPLATES: ViewTemplate[] = [
   {

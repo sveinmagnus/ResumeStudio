@@ -4,11 +4,11 @@ import { buildModelOptions, fromInstalled } from '../src/lib/modelPicker'
 import { OLLAMA_CATALOG } from '../src/lib/ollamaCatalog'
 
 /**
- * This file used to assert a curated shortlist of hosted model ids. Those ids
- * WERE the bug: the field suggested `gemini-2.5-flash` long after Google moved
- * on, so the user picked it, saved, and only found out at "Save and test" that
- * it no longer exists. The list is fetched from the provider now, and the main
- * thing worth pinning here is that no hardcoded id crept back in.
+ * The point of this suite is the NEGATIVE: no hardcoded hosted model id may
+ * creep back into the catalog. A curated shortlist is the bug — it suggested
+ * `gemini-2.5-flash` long after Google retired it, so the user picked it,
+ * saved, and only found out at "Save and test". The live list comes from the
+ * provider (`server/llmModels.ts`); what stays here is placeholder text.
  */
 
 describe('cloudModelCatalog', () => {

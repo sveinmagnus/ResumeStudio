@@ -64,7 +64,8 @@ describe('API rate limiting — successful traffic is exempt', () => {
 
   beforeAll(async () => {
     process.env.RESUME_DB_PATH = ':memory:'
-    delete process.env.RESUME_API_TOKEN // no auth → all reads are 200
+    // No auth → all reads are 200
+    delete process.env.RESUME_API_TOKEN
     process.env.RESUME_RATE_LIMIT_MAX = String(MAX)
     app = await buildApp()
   })
@@ -89,8 +90,10 @@ describe('Translation rate limiting — successful (billable) calls ARE counted'
 
   beforeAll(async () => {
     process.env.RESUME_DB_PATH = ':memory:'
-    delete process.env.RESUME_API_TOKEN // no auth so the request reaches the limiter/route
-    process.env.RESUME_RATE_LIMIT_MAX = '100000' // keep the main (failure) limiter out of the way
+    // No auth so the request reaches the limiter/route
+    delete process.env.RESUME_API_TOKEN
+    // Keep the main (failure) limiter out of the way
+    process.env.RESUME_RATE_LIMIT_MAX = '100000'
     process.env.RESUME_TRANSLATE_RATE_LIMIT_MAX = String(T_MAX)
     app = await buildApp()
   })

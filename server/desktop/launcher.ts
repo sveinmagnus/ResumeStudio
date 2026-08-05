@@ -43,7 +43,8 @@ import {
   handleCheckClick, handleInstallClick,
 } from './updateRuntime.js'
 
-const HOST = '127.0.0.1' // loopback only — never expose a personal CV store to the LAN
+// Loopback only — a personal CV store must never be reachable from the LAN.
+const HOST = '127.0.0.1'
 const PREFERRED_PORT = parseInt(process.env.PORT ?? '3001', 10)
 
 async function main(): Promise<void> {
@@ -65,8 +66,10 @@ async function main(): Promise<void> {
   }
 
   // ── Wire the rest of the server at the resolved locations ────────────────
-  process.env.RESUME_DESKTOP = '1'            // flips on the in-app settings surface
-  process.env.RESUME_DATA_DIR = paths.dataDir // so settings.ts resolves the same dir
+  // RESUME_DESKTOP turns on the in-app settings surface; RESUME_DATA_DIR has to
+  // be set here so settings.ts resolves the same directory the launcher chose.
+  process.env.RESUME_DESKTOP = '1'
+  process.env.RESUME_DATA_DIR = paths.dataDir
   process.env.RESUME_DB_PATH = paths.dbPath
   // Make the version visible to child processes (and the status route fallback).
   if (!process.env.RESUME_APP_VERSION?.trim()) process.env.RESUME_APP_VERSION = APP_VERSION
@@ -120,7 +123,7 @@ async function main(): Promise<void> {
         // Erasures first, so a tombstone from another machine isn't undone by a
         // stale file for the same resume still sitting in the folder.
         const { keep, pending } = applyTombstoneRules(scan.resumes, scan.tombstones)
-        const summary = db.restoreResumes(keep) // merge mode
+        const summary = db.restoreResumes(keep)
         // Merge the shared registry too so synced resumes' canonical links resolve.
         const reg = db.mergeRegistry(scan.registry)
         const localSavedAt = new Map(db.dumpResumes().map((e) => [e.id, e.saved_at]))
@@ -179,10 +182,14 @@ async function main(): Promise<void> {
     if (shuttingDown) return
     shuttingDown = true
     log(`Shutting down (${signal}) …`)
-    trayHandle?.kill()        // remove the tray icon (doesn't exit node itself)
-    flushBackup()             // one last sync-folder write
+    // This ORDER is load-bearing. `kill()` only removes the tray icon, it does
+    // not exit node. The final sync-folder write has to happen while the DB is
+    // still open, and `closeDefaultDb` checkpoints the WAL so the .db left
+    // behind is self-contained.
+    trayHandle?.kill()
+    flushBackup()
     stopBackup()
-    closeDefaultDb()          // WAL checkpoint + close so the .db is self-contained
+    closeDefaultDb()
     server.close(() => {
       log('Stopped cleanly.')
       logStream.end(() => process.exit(0))

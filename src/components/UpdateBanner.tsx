@@ -37,7 +37,8 @@ export function UpdateBanner({ onUnauthorized }: UpdateBannerProps) {
     setInstalling(true); setErr(null)
     try {
       await api.installUpdate()
-      refresh() // flips state → downloading/applying
+      // Moves the banner into its downloading/applying state.
+      refresh()
     } catch (e) {
       if (e instanceof UnauthorizedError) { onUnauthorized(); return }
       setErr((e as Error).message)

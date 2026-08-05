@@ -53,7 +53,8 @@ describe('/api/update when the updater IS wired (desktop build)', () => {
       installDir: '/tmp/resume-studio',
       appVersion: '0.0.1',
       log: () => {},
-      requestShutdown: () => {}, // never actually shut down a test
+      // Never actually shut down a test
+      requestShutdown: () => {},
     })
   })
 

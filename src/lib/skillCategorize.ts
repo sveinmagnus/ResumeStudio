@@ -262,7 +262,8 @@ export function autoCategorizeSkills(
   const index = buildDomainIndex(domains)
   if (index.entries.length === 0) return { store, changed: 0, assignments: [] }
 
-  const domainMap = lowerMap(domains) // graph tier: neighbour name → domain
+  // Graph tier: lowercased neighbour name → domain.
+  const domainMap = lowerMap(domains)
   const relMap = new Map<string, string[]>()
   if (opts.relations) {
     for (const [k, v] of Object.entries(opts.relations)) relMap.set(k.trim().toLowerCase(), v)

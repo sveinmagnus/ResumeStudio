@@ -147,7 +147,8 @@ export function validateProposals(json: unknown, data: ResumeStore, locale: stri
     if (!proposed) { dropped.push(`Edit ${i + 1} had no replacement text.`); continue }
 
     const current = currentText(item, fieldKey, locale)
-    if (current === proposed) continue // an unchanged "edit" is not one
+    // A proposal identical to the current text is not an edit.
+    if (current === proposed) continue
 
     proposals.push({
       key: `${section}:${item.id as string}:${fieldKey}`,

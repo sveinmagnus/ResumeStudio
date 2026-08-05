@@ -19,7 +19,9 @@ import { UndoHistory } from '../lib/undoHistory'
 import type { ResumeStore } from '../types'
 
 const DEBOUNCE_MS = 500
-const MAX_HISTORY = 100  // cap so memory doesn't grow forever
+// Each entry is a full ResumeStore snapshot, base64 images included, so the
+// cap is memory rather than a judgement about how far back people undo.
+const MAX_HISTORY = 100
 
 export function useUndoRedo(): {
   undo: () => void

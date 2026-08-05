@@ -22,7 +22,8 @@ function seedTwoLocaleResume() {
       }),
       projects: [makeProject({
         id: 'p1',
-        customer: { en: 'Acme' },                              // missing 'no'
+        // Missing 'no'
+        customer: { en: 'Acme' },
         description: { en: 'desc', no: 'beskrivelse' },
         long_description: { en: 'long', no: 'lang' },
       })],
@@ -54,7 +55,8 @@ describe('<Overview> needs-attention panel (F3)', () => {
         ...emptyStore(),
         resume: makeResume(),
         certifications: [makeCertification({
-          id: 'c1', name: { en: 'AWS SA' }, expires: { year: 2000, month: 1 }, // long expired
+          // Long expired
+          id: 'c1', name: { en: 'AWS SA' }, expires: { year: 2000, month: 1 },
         })],
       },
       hasData: true, primaryLocale: 'en', secondaryLocale: null,

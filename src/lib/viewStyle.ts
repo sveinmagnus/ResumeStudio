@@ -86,13 +86,19 @@ export function sanitizeHexColor(input: string | null | undefined, fallback = '0
 export interface StyleTokens {
   // Typography (HTML uses pt strings; DOCX uses half-points (number) so we
   // expose both so each path picks the form it wants).
-  bodyFontSizePt: number          // e.g. 11
-  smallFontSizePt: number         // dates, meta — usually bodyFontSizePt - 1
-  metaFontSizePt: number          // body - 2 (e.g. ve-meta, tag chip)
-  h1Pt: number                    // resume name
-  h2Pt: number                    // section heading
-  h3Pt: number                    // item heading
-  lineHeight: number              // 1.35 .. 1.6
+  bodyFontSizePt: number
+  /** Dates and meta lines — usually `bodyFontSizePt - 1`. */
+  smallFontSizePt: number
+  /** `bodyFontSizePt - 2`, for `ve-meta` and tag chips. */
+  metaFontSizePt: number
+  /** The resume name. */
+  h1Pt: number
+  /** Section heading. */
+  h2Pt: number
+  /** Item heading. */
+  h3Pt: number
+  /** Ranges 1.35 – 1.6. */
+  lineHeight: number
   // Resolved font catalog ids (for further per-element resolution).
   headingFontId: string
   bodyFontId: string
@@ -121,13 +127,16 @@ export interface StyleTokens {
   /** Bottom margin under section headings. */
   sectionHeadingAfterPx: number
   sectionHeadingAfterTwips: number
-  /** Page padding (HTML body padding / DOCX margins). DOCX uses twips, HTML uses px. */
-  pagePadCss: string              // e.g. "32px 48px"
+  /** Page padding (HTML body padding / DOCX margins), e.g. "32px 48px". */
+  pagePadCss: string
   pageMarginTwips: { top: number; bottom: number; left: number; right: number }
   // Colors
-  accentHex: string               // 'RRGGBB' (no '#') — DOCX format (underline/icons/dividers)
-  accentCss: string               // '#RRGGBB' — HTML format
-  headingHex: string              // heading TEXT colour (falls back to accent)
+  /** 'RRGGBB' with no '#' — the DOCX form, used for underlines/icons/dividers. */
+  accentHex: string
+  /** '#RRGGBB' — the HTML form. */
+  accentCss: string
+  /** Heading TEXT colour; falls back to the accent. */
+  headingHex: string
   headingCss: string
   // Tag rendering
   tagStyle: TagStyle
@@ -150,9 +159,10 @@ const PAGE_MARGIN_MAP: Record<PageMargin, {
   // twips for DOCX (1 inch = 1440 twips)
   marginTwips: { top: number; bottom: number; left: number; right: number }
 }> = {
-  tight:    { cssPadding: '20px 36px', marginTwips: { top:  720, bottom:  720, left:  864, right:  864 } },  // 0.5", 0.6"
-  normal:   { cssPadding: '32px 48px', marginTwips: { top: 1080, bottom: 1080, left: 1224, right: 1224 } },  // 0.75", 0.85"
-  generous: { cssPadding: '48px 72px', marginTwips: { top: 1440, bottom: 1440, left: 1584, right: 1584 } },  // 1", 1.1"
+  // Vertical / horizontal in inches: 0.5/0.6, 0.75/0.85, 1/1.1.
+  tight:    { cssPadding: '20px 36px', marginTwips: { top:  720, bottom:  720, left:  864, right:  864 } },
+  normal:   { cssPadding: '32px 48px', marginTwips: { top: 1080, bottom: 1080, left: 1224, right: 1224 } },
+  generous: { cssPadding: '48px 72px', marginTwips: { top: 1440, bottom: 1440, left: 1584, right: 1584 } },
 }
 
 /**
@@ -287,10 +297,10 @@ const FULL_LAYOUTS = new Set<string>(['title-org-date', 'title-date-org', 'lead-
 export function normalizeFullLayout(v: string | null | undefined): FullLayout {
   if (v && FULL_LAYOUTS.has(v)) return v as FullLayout
   if (v === 'leading') return 'lead-org-date'
-  return DEFAULT_FULL_LAYOUT // 'default' + unknown/undefined
+  // Catches the legacy 'default' as well as unknown/undefined.
+  return DEFAULT_FULL_LAYOUT
 }
 
-/** Which professional-summary parts to render, with the documented defaults. */
 /**
  * Which parts of a profile block render. `short`/`long` are driven by the
  * section MODE (Summary → short summary, Full → the long "Full profile"), not
@@ -322,10 +332,10 @@ export function kqVisibility(
  * exist in the standard PDF/DOCX fonts, so no font embedding is needed.
  */
 const BULLET_GLYPHS: Record<BulletStyle, string> = {
-  disc: '•',   // •
-  dash: '–',   // –
-  arrow: '›',  // ›
-  square: '▪', // ▪
+  disc: '•',
+  dash: '–',
+  arrow: '›',
+  square: '▪',
 }
 
 /** The glyph a resolved section style draws before each item heading. */

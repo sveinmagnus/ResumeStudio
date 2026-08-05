@@ -37,7 +37,8 @@ if (!Array.isArray(index)) throw new Error('skills-index.json: expected an array
 // English-only by design — suggested names enter the registry as `en` values.
 const seen = new Set()
 const names = []
-const canonicalByLower = new Map() // lowercased -> canonical spelling
+// Lowercased spelling -> the canonical one.
+const canonicalByLower = new Map()
 for (const entry of index) {
   const name = String(entry?.name ?? '').trim()
   if (!name) continue
@@ -57,7 +58,9 @@ console.log(`Wrote ${names.length} skill names (${fs.statSync(namesTarget).size}
 // Each entry's `rt` ("relates to") holds free-text names; resolve them to
 // canonical entries (case-insensitive) and build a BIDIRECTIONAL adjacency map
 // — "related" is symmetric in spirit, which gives better suggestion coverage.
-const adjacency = new Map() // canonical name -> Set<canonical name>
+//
+// Canonical name -> the set of canonical names it relates to.
+const adjacency = new Map()
 const link = (a, b) => {
   if (a === b) return
   if (!adjacency.has(a)) adjacency.set(a, new Set())
@@ -69,7 +72,8 @@ for (const entry of index) {
   if (!canon || !Array.isArray(entry?.rt)) continue
   for (const raw of entry.rt) {
     const other = canonicalByLower.get(String(raw ?? '').trim().toLowerCase())
-    if (!other) continue // unresolvable rt label — skip rather than invent
+    // An unresolvable rt label is skipped rather than invented.
+    if (!other) continue
     link(canon, other)
     link(other, canon)
   }
@@ -138,7 +142,8 @@ const STOP = new Set([
 function tokenize(s) {
   return String(s)
     .toLowerCase()
-    .normalize('NFKD').replace(/[̀-ͯ]/g, '')  // strip diacritics
+    // NFKD then dropping the combining range strips diacritics.
+    .normalize('NFKD').replace(/[̀-ͯ]/g, '')
     .replace(/[^a-z0-9]+/g, ' ')
     .split(' ')
     .filter((t) => t.length >= 2 && !STOP.has(t))
@@ -160,13 +165,17 @@ for (const [name, domain] of Object.entries(sortedDomains)) {
 const totalDomains = domainSet.size
 const model = {}
 for (const [token, m] of raw) {
-  const idf = Math.log(totalDomains / m.size)          // 0 when in every domain
-  if (idf <= 0) continue                                // non-discriminative
+  // A token present in EVERY domain scores 0 and carries no signal, so it is
+  // dropped rather than weighted.
+  const idf = Math.log(totalDomains / m.size)
+  if (idf <= 0) continue
+  // Keep at most the three strongest domains per token, and only those above
+  // the 0.5 floor — a long tail of weak guesses is what makes the model noisy.
   const scored = [...m.entries()]
     .map(([domain, count]) => [domain, +(count * idf).toFixed(3)])
     .sort((a, b) => b[1] - a[1])
-    .slice(0, 3)                                        // top 3 domains/token
-    .filter(([, w]) => w >= 0.5)                        // drop weak signal
+    .slice(0, 3)
+    .filter(([, w]) => w >= 0.5)
   if (scored.length) model[token] = Object.fromEntries(scored)
 }
 const sortedModel = {}

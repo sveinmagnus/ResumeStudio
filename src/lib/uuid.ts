@@ -31,8 +31,9 @@ export function uuidv4(): string {
     // is far better than refusing to create an item.
     for (let i = 0; i < 16; i++) bytes[i] = Math.floor(Math.random() * 256)
   }
-  bytes[6] = (bytes[6] & 0x0f) | 0x40 // version 4
-  bytes[8] = (bytes[8] & 0x3f) | 0x80 // variant 10x
+  // RFC 4122 §4.4: stamp the version-4 nibble and the 10x variant bits.
+  bytes[6] = (bytes[6] & 0x0f) | 0x40
+  bytes[8] = (bytes[8] & 0x3f) | 0x80
 
   const hex: string[] = []
   for (let i = 0; i < 16; i++) hex.push(bytes[i].toString(16).padStart(2, '0'))

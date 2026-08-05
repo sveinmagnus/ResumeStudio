@@ -1,11 +1,10 @@
 /**
  * A one-line channel for "open the Settings dialog, on this tab".
  *
- * The dialog is owned by `AppHeader`, which is nowhere near the places that now
- * want to send you there — the AI advisors block on Overview needs a "set up a
- * model" button, and threading a callback from the header down through Overview
- * and into a card five levels deep to do it would be a prop tunnel nobody
- * wants to maintain.
+ * The dialog is owned by `AppHeader`, nowhere near the places that want to send
+ * you there — the AI advisors block on Overview needs a "set up a model" button,
+ * and threading a callback from the header down through Overview into a card
+ * five levels deep would be a prop tunnel nobody wants to maintain.
  *
  * Deliberately tiny and not a store: there is no state here, only an event. The
  * header subscribes; anyone may fire.

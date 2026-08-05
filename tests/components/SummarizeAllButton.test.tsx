@@ -229,7 +229,8 @@ describe('SummarizeAllButton — running the batch', () => {
     const alert = await screen.findByRole('alert')
     expect(alert).toHaveTextContent('Backend down')
     expect(alert).not.toHaveTextContent('succeeded')
-    expect(useStore.getState().mutationCount).toBe(0) // nothing applied
+    // Nothing applied
+    expect(useStore.getState().mutationCount).toBe(0)
   })
 
   it('shows progress while running and lets the user stop', async () => {
@@ -247,7 +248,8 @@ describe('SummarizeAllButton — running the batch', () => {
     await resolveConfirm('confirm')
 
     const progress = await screen.findByRole('button', { name: /Summarizing 1 of 2/ })
-    await userEvent.click(progress) // stop
+    // Stop
+    await userEvent.click(progress)
     release('First one')
 
     await waitFor(() => {

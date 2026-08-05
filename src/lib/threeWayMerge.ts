@@ -256,8 +256,10 @@ function mergeById(
     }
 
     if (mineItem && !theirsItem) {
-      if (!baseItem) { out.push(mineItem); continue }        // we added it
-      if (deepEqual(baseItem, mineItem)) { acc.adopted++; continue } // they deleted; we hadn't touched it
+      // Absent from base means we added it, so there is nothing to reconcile.
+      if (!baseItem) { out.push(mineItem); continue }
+      // They deleted it and we hadn't touched it — adopt the deletion.
+      if (deepEqual(baseItem, mineItem)) { acc.adopted++; continue }
       // They deleted what we were editing.
       acc.conflicts.push({
         section: ctx.section, itemId: id, label: labelOf(mineItem), field: '',
@@ -268,8 +270,10 @@ function mergeById(
     }
 
     if (!mineItem && theirsItem) {
-      if (!baseItem) { acc.adopted++; out.push(theirsItem); continue } // they added it
-      if (deepEqual(baseItem, theirsItem)) continue                    // we deleted; they hadn't touched it
+      // Absent from base means they added it — take it.
+      if (!baseItem) { acc.adopted++; out.push(theirsItem); continue }
+      // We deleted it and they hadn't touched it — our deletion stands.
+      if (deepEqual(baseItem, theirsItem)) continue
       // We deleted what they were editing — keep theirs rather than silently
       // discarding someone else's work, and let the user decide.
       acc.conflicts.push({

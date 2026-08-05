@@ -124,9 +124,10 @@ export function emptySummaryTargets(
     const source = asLocalized(item[fields.source])
     const target = asLocalized(item[fields.target])
     for (const locale of wanted) {
-      if ((target[locale] ?? '').trim()) continue          // already filled
+      // Never overwrite a short description the user already has.
+      if ((target[locale] ?? '').trim()) continue
       const text = summarizableSource(source[locale])
-      if (!text) continue                                   // nothing to read
+      if (!text) continue
       out.push({ id, locale, source: text })
     }
   }

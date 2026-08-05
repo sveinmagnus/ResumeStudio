@@ -68,7 +68,7 @@ export interface BackupV1 {
     spoken_languages: SpokenLanguage[]
     /**
      * LEGACY: the pre-unification "Skills Showcase" structure
-     * (TechnologyCategory + CategorySkill, both removed from `types/index.ts`).
+     * (TechnologyCategory + CategorySkill; neither type exists in `types/`).
      * Never written by this build — kept optional/loosely-typed so an OLD
      * backup still round-trips through `importFromBackup` into
      * `migrateStore`'s `unifyShowcaseCategories`, which converts it into
@@ -115,9 +115,9 @@ export type AnyBackup = BackupV1
  * backup version. Distinguishes backup files from CVpartner exports without
  * yet asserting which version it is — use `migrateBackup` to actually read it.
  *
- * Older callers expecting a BackupV1 type guard still work: today every known
- * version IS v1, so the guard is correct. When a v2 is added, this stays the
- * same but the guard narrows to `AnyBackup`.
+ * Every known version IS v1, so callers that expect a `BackupV1` guard are
+ * sound. A second version would widen what this accepts without changing the
+ * signature — `AnyBackup` already covers it.
  */
 export function isBackupFormat(json: unknown): json is AnyBackup {
   if (!json || typeof json !== 'object') return false
@@ -284,9 +284,9 @@ export class UnsupportedBackupVersionError extends Error {
 /**
  * Bring any known backup shape up to the current version.
  *
- * Today there is only v1 so this is a pass-through. When a v2 is introduced,
- * add a `migrateV1toV2(v1)` step and chain it here. The pattern keeps each
- * step small and independently testable.
+ * v1 is the only version, so this is a pass-through. A v2 gets a
+ * `migrateV1toV2(v1)` step chained here — one small, independently testable
+ * step per hop.
  *
  * Throws `UnsupportedBackupVersionError` for unknown versions — callers
  * should catch and present a useful error to the user.
@@ -366,15 +366,14 @@ export function importFromBackup(backup: AnyBackup): ResumeStore {
     resume:                  v1.profile,
     skills:                  v1.registries.skills,
     roles:                   v1.registries.roles,
-    // Added with the Industry registry (A8.1) — older backups omit it; a
-    // pre-v3 shape_version then triggers internIndustries in migrateStore.
+    // A pre-v3 backup omits this; the shape_version then triggers
+    // internIndustries in migrateStore.
     industries:              v1.registries.industries ?? [],
-    // Added with the showcase unification (shape v6) — older backups omit it
-    // and carry `sections.technology_categories` instead (attached below, for
-    // migrateStore's unifyShowcaseCategories to convert on load).
+    // A pre-v6 backup omits this and carries `sections.technology_categories`
+    // instead (attached below, for migrateStore's unifyShowcaseCategories).
     skill_categories:        v1.registries.skill_categories ?? [],
     key_qualifications:      v1.sections.key_qualifications,
-    // Added after the initial v1 shape — older backups omit these arrays.
+    // Both arrays are absent from the earliest v1 backups.
     key_competencies:        v1.sections.key_competencies ?? [],
     recommendations:         v1.sections.recommendations ?? [],
     projects:                v1.sections.projects,
@@ -389,13 +388,13 @@ export function importFromBackup(backup: AnyBackup): ResumeStore {
     publications:            v1.sections.publications,
     references:              v1.sections.references,
     views:                   v1.views,
-    // Added with cover letters (shape v10) — older backups omit it.
+    // A pre-v10 backup omits this.
     cover_letters:           v1.cover_letters ?? [],
   }
   // A pre-v6 backup carries the legacy showcase structure instead of
-  // `registries.skill_categories` — attach it (untyped; ResumeStore no longer
-  // declares the field) so migrateStore's unifyShowcaseCategories can convert
-  // it, the same way it would for a pre-v6 live resume.
+  // `registries.skill_categories` — attach it untyped (`ResumeStore` doesn't
+  // declare the field) so migrateStore's unifyShowcaseCategories converts it,
+  // the same way it would for a pre-v6 live resume.
   if (v1.sections.technology_categories) {
     (store as unknown as Record<string, unknown>).technology_categories = v1.sections.technology_categories
   }
@@ -415,14 +414,13 @@ export function importFromBackup(backup: AnyBackup): ResumeStore {
 // happen when one is dropped on the picker:
 //
 //  1. It must be RECOGNISED. These schemas ("resumestudio-resume/…",
-//     "resumestudio-store/…") slip past `isBackupFormat` (which matches only
-//     "resumestudio/…"); without a detector such a file used to fall through to
-//     the CVpartner importer, which maps none of its fields and yielded an EMPTY
-//     resume.
+//     "resumestudio-store/…") slip past `isBackupFormat`, which matches only
+//     "resumestudio/…". Without a detector they fall through to the CVpartner
+//     importer, which maps none of their fields and yields an EMPTY resume.
 //  2. It must keep each resume's IDENTITY. These files carry the resume's id, so
-//     the import merges by id server-side (`POST /api/backup/import`) instead of
-//     minting a new resume per import — which is what made setting up a second
-//     computer from the sync file duplicate every resume, and then sync the
+//     the import merges by id server-side (`POST /api/backup/import`) rather
+//     than minting a new resume per import. Minting would make setting up a
+//     second computer from the sync file duplicate every resume, then sync the
 //     duplicates back to the first.
 //
 // The detector below is the routing half of (1)+(2); `api.importBackupFile`
@@ -430,9 +428,12 @@ export function importFromBackup(backup: AnyBackup): ResumeStore {
 
 /** Schema prefixes of every file the server can merge by resume id. */
 const MERGEABLE_SCHEMA_PREFIXES = [
-  'resumestudio-resume/',   // one resume, the sync folder's unit
-  'resumestudio-registry/', // the shared registry
-  'resumestudio-store/',    // the legacy pre-split combined backup
+  // One resume — the sync folder's unit.
+  'resumestudio-resume/',
+  // The shared instance registry.
+  'resumestudio-registry/',
+  // The legacy pre-split combined backup.
+  'resumestudio-store/',
 ] as const
 
 /**

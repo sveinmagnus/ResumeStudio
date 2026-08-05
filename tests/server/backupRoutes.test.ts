@@ -262,7 +262,8 @@ describe('manual backup: GET /export → POST /import', () => {
       .set('Content-Type', 'application/zip')
       .send(exported.body as Buffer)
     expect(res.status).toBe(200)
-    expect(res.body.inserted).toBe(0) // nothing new — every id was already here
+    // Nothing new — every id was already here
+    expect(res.body.inserted).toBe(0)
 
     const after = (await request(app).get('/api/resumes')).body.resumes
     expect(after).toHaveLength(before)

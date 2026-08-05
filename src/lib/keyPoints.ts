@@ -2,11 +2,11 @@
  * PURE: turn a long prose description into the bullet points the app already
  * has a home for — a project's `highlights`.
  *
- * Only highlights, deliberately: a profile block's `key_points` would look like
- * the obvious second target, but that UI is DEPRECATED — the standalone Key
- * Competencies section owns those now (see the note in SimpleEditors and
- * migrate.extractKeyPointsToCompetencies). Wiring an assist into a surface the
- * app is retiring would drag it back.
+ * Only highlights, deliberately: a profile block's `key_points` looks like the
+ * obvious second target, but that UI is DEPRECATED — the standalone Key
+ * Competencies section owns those (see the note in SimpleEditors and
+ * migrate.extractKeyPointsToCompetencies). Wiring an assist into a retired
+ * surface would drag it back.
  *
  * This is a RESHAPING task, not a writing one, and the prompt says so in the
  * strongest terms available: every point must be supported by the source text.

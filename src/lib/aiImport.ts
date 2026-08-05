@@ -313,7 +313,8 @@ export function importFromAIDraft(input: AIImportV1): ResumeStore {
 
   // ── Shared registries: intern skills/roles by normalized name ──────────────
   const skills: Skill[] = []
-  const skillByName = new Map<string, string>() // normalized name → skill id
+  // Normalized name → skill id.
+  const skillByName = new Map<string, string>()
   const internSkill = (rawName: string): string => {
     const name = rawName.trim()
     const key = norm(name)
@@ -439,7 +440,8 @@ export function importFromAIDraft(input: AIImportV1): ResumeStore {
 
   // ── Work experiences (built first so projects can link by employer) ────────
   const work_experiences: WorkExperience[] = []
-  const workByEmployer = new Map<string, string>() // normalized employer → work id
+  // Normalized employer → work id.
+  const workByEmployer = new Map<string, string>()
   ;(input.work_experiences ?? []).forEach((w, i) => {
     const wid = uuidv4()
     const employer = str(w.employer)

@@ -14,9 +14,9 @@
 import type { YearMonth, SortMode } from '../types'
 import { SECTION_CATALOG, type AnyItem } from './sectionCatalog'
 
-// Re-exported so existing importers (`import { SortMode } from './sectionSort'`)
-// keep working; the canonical definition now lives in `types` so `ViewSection`
-// can reference it without a runtime import.
+// The canonical definition lives in `types` so `ViewSection` can reference it
+// without a runtime import; re-exported here for importers that reach for it
+// alongside the sort helpers.
 export type { SortMode }
 
 /** An item's display title for the alphabetical sort — via the section catalog
@@ -85,7 +85,8 @@ function ymKey(ym: unknown): number | null {
  */
 function byDate(a: number | null, b: number | null, dir: 'asc' | 'desc' = 'desc'): number {
   if (a === null && b === null) return 0
-  if (a === null) return -1  // nulls float to top
+  // Undated items float to the top until they are dated.
+  if (a === null) return -1
   if (b === null) return 1
   if (a === b) return 0
   return dir === 'desc' ? (b - a > 0 ? 1 : -1) : (a - b > 0 ? 1 : -1)

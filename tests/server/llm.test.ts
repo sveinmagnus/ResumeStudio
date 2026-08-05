@@ -92,7 +92,8 @@ describe('resolveConfig()', () => {
     vi.stubEnv('LLM_MODEL', 'llama3.2:3b')
     const c = resolveConfig()
     expect(c.provider).toBe('ollama')
-    expect(c.ollama.url).toBe('http://localhost:11434') // trailing slash stripped
+    // Trailing slash stripped
+    expect(c.ollama.url).toBe('http://localhost:11434')
     expect(c.model).toBe('llama3.2:3b')
   })
 
@@ -208,7 +209,8 @@ describe('chatComplete()', () => {
     const headers = opts.headers as Record<string, string>
     expect(headers['x-api-key']).toBe('sk-ant-xxx')
     expect(headers['anthropic-version']).toBeTruthy()
-    expect(headers.Authorization).toBeUndefined() // NOT Bearer
+    // NOT Bearer
+    expect(headers.Authorization).toBeUndefined()
 
     const body = JSON.parse(opts.body as string)
     expect(body.model).toBe('claude-haiku-4-5')

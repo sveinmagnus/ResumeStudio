@@ -110,9 +110,9 @@ export function SectionStylePanel({ sectionKey, detail, style, onChange, onReset
   // feature (it's what separates the two modes), so it's hidden when tabulated.
   const isPlainSummary = isSummary && !s.tabulate
   const sortModes = availableSortModes(sectionKey)
-  // Rendered inline whenever its section row is expanded (the row is the
-  // collapse unit now), so the overrides are always visible without a second
-  // click — they're almost always what the user came to adjust.
+  // Rendered inline whenever its section row is expanded — the row is the
+  // collapse unit, so the overrides need no second click. They're almost always
+  // what the user opened the row to adjust.
   return (
     <div className="rv-secstyle">
       <div className="rv-secstyle-header">

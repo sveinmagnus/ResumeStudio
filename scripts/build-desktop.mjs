@@ -15,8 +15,8 @@
  * IMPORTANT: the bundled Node binary is platform-specific, so run this ON EACH
  * target OS (Windows build on Windows, Linux build on Linux, …). Run
  * `npm run build:desktop` (which builds the client first, then this script).
- * SQLite itself is no longer a factor — it lives inside the Node binary
- * (`node:sqlite`), so there is no compiled `.node` addon to match per platform.
+ * The Node binary is the ONLY per-platform artifact: SQLite lives inside it
+ * (`node:sqlite`), so there is no compiled `.node` addon to match.
  *
  * Plain ESM, run directly by Node — no TS, no bundling of itself.
  */
@@ -133,9 +133,9 @@ log('skill-library data present in bundle ✓')
 // ── 4. Vendor the deps esbuild left external ────────────────────────────────
 // Only systray2's closure remains (itself + debug/ms +
 // fs-extra/graceful-fs/jsonfile/universalify). The bundle's require()s resolve
-// these from app/node_modules at runtime. SQLite used to be vendored here too;
-// it now comes from the Node binary, so nothing in this list is required —
-// systray2 is best-effort by design (its absence only costs the tray icon).
+// these from app/node_modules at runtime. Nothing in this list is REQUIRED:
+// SQLite comes from the Node binary, and systray2 is best-effort by design
+// (its absence only costs the tray icon).
 const requiredDeps = new Set()
 const vendoredDeps = [
   'systray2', 'debug', 'ms', 'fs-extra', 'graceful-fs', 'jsonfile', 'universalify',
@@ -167,12 +167,11 @@ if (fs.existsSync(trayDir)) {
   }
 }
 // Sanity-check that the Node runtime we're about to ship can actually open a
-// database. This replaced a check for the compiled .node addon, and it guards a
-// failure that is easier to miss: SQLite now comes from the Node binary, and
-// Node 22 and below gate `node:sqlite` behind --experimental-sqlite. Building
-// on one of those produces a release that unpacks, launches, and then dies the
-// first time it touches storage. Probing process.execPath is what makes the
-// check honest — that is the exact binary copied in step 5 below.
+// database. SQLite comes from the Node binary, and Node 22 and below gate
+// `node:sqlite` behind --experimental-sqlite — building on one of those
+// produces a release that unpacks, launches, and then dies the first time it
+// touches storage. Probing process.execPath is what makes the check honest:
+// that is the exact binary copied in step 5 below.
 try {
   execFileSync(process.execPath, ['-e', "require('node:sqlite').DatabaseSync"], { stdio: 'pipe' })
 } catch {

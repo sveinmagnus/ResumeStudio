@@ -96,7 +96,9 @@ export function editDistance(a: string, b: string, max: number): number {
 /** Tier 'token': the most specific multi-word library name fully contained in the query. */
 function matchToken(queryTokens: Set<string>, index: DomainIndex): string | null {
   let best: string | null = null
-  let bestSize = 1 // require ≥ 2 library tokens to avoid single-generic-word matches
+  // Seeded at 1 so a match needs ≥ 2 library tokens — a single generic word
+  // ("management", "system") otherwise matches almost anything.
+  let bestSize = 1
   for (const e of index.entries) {
     if (e.tokens.size <= bestSize) continue
     let all = true
@@ -108,7 +110,8 @@ function matchToken(queryTokens: Set<string>, index: DomainIndex): string | null
 
 /** Tier 'fuzzy': nearest library key within a length-scaled edit budget (typos). */
 function matchFuzzy(key: string, index: DomainIndex): string | null {
-  if (key.length < 5) return null // too short to fuzzy-match safely
+  // Below 5 characters an edit-distance match is noise, not a near-miss.
+  if (key.length < 5) return null
   const budget = key.length <= 6 ? 1 : key.length <= 12 ? 2 : 3
   let best: string | null = null
   let bestDist = budget + 1
@@ -140,7 +143,8 @@ export function matchSemantic(
   const [topDomain, top] = sorted[0]
   const second = sorted[1]?.[1] ?? 0
   if (top < minScore) return null
-  if (second > 0 && top < margin * second) return null // too ambiguous
+  // Two candidates too close together: pick neither rather than guess.
+  if (second > 0 && top < margin * second) return null
   return topDomain
 }
 

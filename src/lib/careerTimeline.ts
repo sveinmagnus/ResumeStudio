@@ -79,7 +79,8 @@ interface RawItem {
  * on the bars and returns the lane count.
  */
 function packLanes(bars: TimelineBar[]): number {
-  const laneEnds: number[] = [] // last endMonths per lane
+  // Indexed by lane: the endMonths of the last bar placed in it.
+  const laneEnds: number[] = []
   // Stable: assume the caller passes bars already sorted by start.
   for (const bar of bars) {
     let placed = false
@@ -212,16 +213,17 @@ export function buildCareerTimeline(
     const ends = allBars.map((b) => b.endMonths)
     const lo = Math.min(...starts)
     const hi = Math.max(...ends, nowMonths)
-    minMonths = Math.floor(lo / 12) * 12 // Jan of the earliest year
-    maxMonths = (Math.floor(hi / 12) + 1) * 12 // Jan of the year after the latest
+    // January of the earliest year, through January of the year after the last.
+    minMonths = Math.floor(lo / 12) * 12
+    maxMonths = (Math.floor(hi / 12) + 1) * 12
   }
 
   const years: number[] = []
   for (let m = minMonths; m < maxMonths; m += 12) years.push(m / 12)
 
   // Gaps reflect uncovered work history: a span counts only when NEITHER
-  // employment NOR education covers it (education fills what used to read as a
-  // gap). Projects deliberately don't count toward coverage.
+  // employment NOR education covers it — a degree is not a gap. Projects
+  // deliberately don't count toward coverage.
   const gaps = computeGaps(
     [...employmentBars, ...educationBars].map((b) => ({ start: b.startMonths, end: b.endMonths })),
     minGapMonths,
@@ -244,7 +246,7 @@ export function buildCareerTimeline(
  */
 export function monthsToLabel(months: number): string {
   const year = Math.floor((months - 1) / 12)
-  const month = months - year * 12 // 1..12
+  const month = months - year * 12
   const names = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
   return `${names[month] ?? ''} ${year}`.trim()
 }

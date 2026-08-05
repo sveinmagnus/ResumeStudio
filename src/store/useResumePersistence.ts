@@ -60,7 +60,8 @@ export async function backgroundFlush(id: string): Promise<void> {
     )
     clearPending(id)
   } catch (err) {
-    if (err instanceof ConflictError) return // resolve on next open
+    // A conflict keeps the pending record: it is resolved on the next open.
+    if (err instanceof ConflictError) return
     // network/server error → leave queued for the next drain
   }
 }
@@ -301,7 +302,8 @@ export function useResumePersistence(resumeId: string): ResumePersistence {
           setLoadState('not-found')
           return
         case 'load-server':
-          adoptServerCopy(res!.data, res!.meta) // also drops any clean local snapshot
+          // Also drops any clean local snapshot.
+          adoptServerCopy(res!.data, res!.meta)
           setLoadState('ready')
           return
         case 'flush-local':
@@ -341,7 +343,8 @@ export function useResumePersistence(resumeId: string): ResumePersistence {
         const pending = res ? loadPending(resumeId) : null
         applyBoot(decideBoot({ server: res ? 'hit' : 'not-found', pending }), res, pending)
         if (res) {
-          reconcileRegistry(registry) // overlay canonical names (display-only)
+          // Overlays canonical names for display only — never writes.
+          reconcileRegistry(registry)
           // Server reachable on boot — drain any OTHER resumes' queued edits
           // (e.g. left from a previous offline session). The active resume is
           // handled by applyBoot above.
@@ -462,7 +465,8 @@ export function useResumePersistence(resumeId: string): ResumePersistence {
   const reloadFromServer = useCallback(async () => {
     try {
       const res = await api.loadResume(resumeId)
-      if (!res) { navigate('/', { replace: true }); return } // deleted under us
+      // The resume was deleted elsewhere while this editor was open.
+      if (!res) { navigate('/', { replace: true }); return }
       adoptServerCopy(res.data, res.meta)
       setRemoteUpdate(false)
       setSaveState('idle')

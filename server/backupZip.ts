@@ -2,10 +2,10 @@
  * Zip packaging for the MANUAL backup — the same per-resume files the sync
  * folder holds, bundled into one archive.
  *
- * The manual backup used to be one JSON per click, so "back up everything"
- * meant N downloads and N drag-and-drops to restore. A zip keeps the split-file
- * layout (one file per person, extractable and deletable on its own) while
- * staying a single artifact to hand around. Deliberately IDENTICAL in content to
+ * A zip, not one JSON per click: "back up everything" as N downloads and N
+ * drag-and-drops to restore doesn't scale. This keeps the split-file layout
+ * (one file per person, extractable and deletable on its own) while staying a
+ * single artifact to hand around. Deliberately IDENTICAL in content to
  * the sync folder, so the two are interchangeable: unzip a backup into a sync
  * folder, or zip a sync folder and import it, and both work.
  *

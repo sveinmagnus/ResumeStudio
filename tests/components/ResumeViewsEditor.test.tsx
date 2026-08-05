@@ -352,7 +352,8 @@ describe('<ResumeViewsEditor>', () => {
     render(<ResumeViewsEditor />)
 
     const select = screen.getByLabelText(/export language/i) as HTMLSelectElement
-    expect(select.value).toBe('no') // seeded from the persisted view locale
+    // Seeded from the persisted view locale
+    expect(select.value).toBe('no')
 
     await userEvent.selectOptions(select, 'en')
     expect(useStore.getState().data.views[0].export_locale).toBe('en')

@@ -42,12 +42,14 @@ export async function publishToInstanceRegistry(targets: PublishTarget[]): Promi
 
   for (const t of targets) {
     const plan = planPublish(t.data, registry)
-    if (!plan.creates.length && !plan.links.length) continue // nothing to publish
+    if (!plan.creates.length && !plan.links.length) continue
 
     const linkMap: Record<string, string> = {}
     for (const c of plan.creates) {
       const entry = await api.createRegistryEntry({ kind: c.kind, name: c.name, extra: c.extra })
-      registry = [...registry, entry] // so later resumes LINK to it, not re-create
+      // Fold the new entry in immediately so later resumes in this pass LINK
+    // to it instead of creating a duplicate.
+    registry = [...registry, entry]
       result.created++
       for (const localId of c.localIds) linkMap[localId] = entry.id
     }

@@ -47,19 +47,24 @@ function pngDims(png: Buffer): { width: number; height: number } {
 /** Wrap a PNG in a single-image ICO container (PNG-in-ICO, valid on Win Vista+). */
 export function icoFromPng(png: Buffer): Buffer {
   const { width, height } = pngDims(png)
+  // ICONDIR, 6 bytes: reserved(0), type(1 = icon), image count.
   const header = Buffer.alloc(6)
-  header.writeUInt16LE(0, 0) // reserved
-  header.writeUInt16LE(1, 2) // type: icon
-  header.writeUInt16LE(1, 4) // image count
+  header.writeUInt16LE(0, 0)
+  header.writeUInt16LE(1, 2)
+  header.writeUInt16LE(1, 4)
+  // ICONDIRENTRY, 16 bytes: width, height, palette colors, reserved, color
+  // planes, bits per pixel, image data size, offset to the image data.
+  // Width and height are single BYTES, so 0 is the encoding for 256-or-larger.
   const entry = Buffer.alloc(16)
-  entry[0] = width  >= 256 ? 0 : width   // width  (0 = 256+)
-  entry[1] = height >= 256 ? 0 : height  // height
-  entry[2] = 0  // palette colors
-  entry[3] = 0  // reserved
-  entry.writeUInt16LE(1, 4)  // color planes
-  entry.writeUInt16LE(32, 6) // bits per pixel
-  entry.writeUInt32LE(png.length, 8)  // image data size
-  entry.writeUInt32LE(6 + 16, 12)     // offset to image data
+  entry[0] = width  >= 256 ? 0 : width
+  entry[1] = height >= 256 ? 0 : height
+  entry[2] = 0
+  entry[3] = 0
+  entry.writeUInt16LE(1, 4)
+  entry.writeUInt16LE(32, 6)
+  entry.writeUInt32LE(png.length, 8)
+  // The PNG starts right after the 6-byte header and this 16-byte entry.
+  entry.writeUInt32LE(6 + 16, 12)
   return Buffer.concat([header, entry, png])
 }
 

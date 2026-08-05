@@ -21,7 +21,8 @@ export function downloadBlob(blob: Blob, filename: string): void {
   const a = document.createElement('a')
   a.href = url
   a.download = filename
-  // Some browsers only honour a programmatic click on a connected element.
+  // Firefox ignores a programmatic click on a detached anchor, so the element
+  // has to be in the document before `click()` and is removed straight after.
   document.body.appendChild(a)
   a.click()
   document.body.removeChild(a)

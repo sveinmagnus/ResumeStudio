@@ -70,8 +70,8 @@ export function Overview() {
 
   const doWipe = (locale: string) => {
     const wiped = wipeLocale(data, locale)
-    // If we just deleted the active primary/secondary, fall back to whatever
-    // the wiped resume now reports as its first supported locale.
+    // Wiping the active primary/secondary falls back to the wiped resume's
+    // first remaining supported locale.
     const next = wiped.resume?.supported_locales[0] ?? 'en'
     if (primaryLocale === locale) setPrimaryLocale(next)
     if (secondaryLocale === locale) {
@@ -84,9 +84,9 @@ export function Overview() {
     if (openLocale === locale) setOpenLocale(null)
   }
 
-  // The headline is now the profile's tag line (there's no single master title
-  // anymore). Outside a view we pick the starred profile, else the first one,
-  // falling back to the resume's legacy title for imported data.
+  // The headline is the profile's tag line — there is no single master title.
+  // Outside a view we pick the starred profile, else the first one, falling
+  // back to the resume's legacy title for imported data.
   const heroProfile = data.key_qualifications.filter((k) => !k.disabled)
   const heroTagLine =
     resolve((heroProfile.find((k) => k.starred) ?? heroProfile[0])?.tag_line, locales[0])

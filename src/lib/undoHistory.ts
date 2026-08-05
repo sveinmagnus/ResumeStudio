@@ -45,7 +45,8 @@ export class UndoHistory<T> {
     if (!this.burstActive) return
     this.past.push(this.burstSnapshot as T)
     if (this.past.length > this.max) this.past.shift()
-    this.future = []          // a fresh user action invalidates redo
+    // A fresh user action invalidates the redo branch.
+    this.future = []
     this.burstSnapshot = null
     this.burstActive = false
   }

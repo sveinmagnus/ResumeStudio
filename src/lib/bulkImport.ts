@@ -200,7 +200,8 @@ export const BULK_SPECS: readonly BulkSectionSpec[] = [
       const project: Project = {
         id: uuidv4(),
         resume_id: ctx.resumeId,
-        work_experience_id: null, // resolved against employers by the caller
+    // The caller resolves this against the employer list.
+    work_experience_id: null,
         customer: toLocalized(raw['customer'], ctx.defaultLocale),
         customer_anonymized: {},
         use_anonymized: false,

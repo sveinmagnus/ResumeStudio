@@ -207,6 +207,10 @@ Wishlist: §12.
   - Text colors come from the AA-verified tokens (see §6) — never use
     `--secondary-ink` (cyan) for text; that's what `--secondary-ink-text`
     is for. Status text uses the `--ok/warn/err-ink` + `-wash` pairs.
+- **Comments are sparse, WHY-only, and never narrate the edit.** Full rules +
+  the review pass: `.claude/skills/code-comments.md`. In brief: no commented-out
+  code, no end-of-line comments, no "added/changed/now" vocabulary, and terse
+  never means vague.
 - **Lucide icons must be imported by name**, e.g. `import { Star, ChevronDown } from 'lucide-react'`. Do not import `* as Icons` — it breaks tree-shaking and bloats the bundle by ~700 kB.
 - **No `process.env` at runtime in the client.** This is a pure browser app once it leaves Vite. The Express server is the only place that reads env vars.
 - **Run `npm run build` after substantial changes** — Vite's prod build catches issues `tsc --noEmit` misses (missing exports from third-party packages, dynamic import problems).

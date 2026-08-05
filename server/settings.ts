@@ -137,11 +137,11 @@ export function settingsFilePath(): string {
  * coercion from disk, the env projection, the env seed, the masked client view,
  * and the PUT validator in routes/settings.ts.
  *
- * This list used to be spelled out seven times (the interface, DEFAULT_SETTINGS,
- * coerce, applyToEnv, settingsFromEnv, toView, and the route validator), so
- * adding a provider meant editing all of them in lockstep. That is not
- * hypothetical: the `llm` translate provider shipped rejectable because the
- * route carried an inline copy of the provider list the UI already offered.
+ * Spelling the list out per consumer (the interface, DEFAULT_SETTINGS, coerce,
+ * applyToEnv, settingsFromEnv, toView, the route validator) means adding a
+ * provider in seven places in lockstep. That failure is not hypothetical: the
+ * `llm` translate provider shipped rejectable because the route carried an
+ * inline copy of the provider list the UI already offered.
  *
  * `kind` drives behaviour:
  *   enum   — must be one of `values`

@@ -144,8 +144,8 @@ describe('applyToEnv directly', () => {
 })
 
 /**
- * The contract that used to be maintained by hand in seven places, now driven
- * by the FIELDS table in server/settings.ts.
+ * The contract driven by the FIELDS table in server/settings.ts — one
+ * descriptor per setting, rather than seven hand-maintained copies.
  */
 describe('validateSettingsPatch', () => {
   /**

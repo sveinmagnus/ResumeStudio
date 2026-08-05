@@ -91,7 +91,8 @@ function extractNumberTokens(text: string): NumberToken[] {
     const raw = m[0]
     const value = raw.replace(/[.,]/g, '').replace(/^0+(?=\d)/, '')
     if (!value) continue
-    const grouped = /\d[.,]\d/.test(raw)               // 1,000 / 3.5 — decimal or grouped
+  // True for a decimal or thousands separator: 3.5, 1,000.
+  const grouped = /\d[.,]\d/.test(raw)
     const percent = /^\s*%/.test(plain.slice(m.index + raw.length))
     const salient = value.length >= 3 || grouped || percent
     out.push({ value, salient })

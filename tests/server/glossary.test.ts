@@ -20,7 +20,8 @@ describe('parseGlossary', () => {
     expect(parseGlossary('nope')).toBeUndefined()
     expect(parseGlossary({})).toBeUndefined()
     expect(parseGlossary({ terms: [], keep: [] })).toBeUndefined()
-    expect(parseGlossary({ terms: [{ from: 'x' }] })).toBeUndefined() // no target
+    // No target
+    expect(parseGlossary({ terms: [{ from: 'x' }] })).toBeUndefined()
   })
 
   /**

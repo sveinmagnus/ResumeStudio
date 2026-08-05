@@ -190,7 +190,8 @@ export function importFromCVPartner(raw: Record<string, unknown>): ResumeStore {
   // registry source AND the old "Skills Showcase" membership, so every skill
   // here becomes both categorized AND highlighted — see roadmap: showcase
   // unification). ──────────────────────────────────────────────────────────
-  const skillIdMap = new Map<string, string>() // cvpartner _id → our uuid
+  // CVpartner `_id` → our uuid.
+  const skillIdMap = new Map<string, string>()
   const skills: Skill[] = []
   const skill_categories: SkillCategory[] = []
 
@@ -226,7 +227,8 @@ export function importFromCVPartner(raw: Record<string, unknown>): ResumeStore {
 
   // Also collect any project skills not already in the registry
   const existingSkillNames = new Set(skills.map(s => Object.values(s.name)[0]?.toLowerCase()))
-  const projectSkillIdMap = new Map<string, string>() // for project skill instances
+  // The same mapping for project-scoped skill instances.
+  const projectSkillIdMap = new Map<string, string>()
 
   const rawProjects = (raw.project_experiences as CVProject[]) || []
   for (const p of rawProjects) {
