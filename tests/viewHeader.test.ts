@@ -97,6 +97,36 @@ describe('withHeaderDefaults() — boundary validation', () => {
     const h = withHeaderDefaults({ separator: 123 } as never)
     expect(h.separator).toBe(DEFAULT_VIEW_HEADER.separator)
   })
+
+  /**
+   * The allowlists are the boundary. A test that only rejects one bad value
+   * cannot tell a working allowlist from an emptied one — an emptied set
+   * coerces EVERYTHING to the fallback, which is safe but silently discards
+   * every layout the user configured.
+   */
+  it('keeps every value the allowlists actually permit', () => {
+    for (const v of ['none', 'left', 'right', 'above', 'below', 'left_of_name', 'right_of_name']) {
+      expect(withHeaderDefaults({ photo_placement: v } as never).photo_placement, v).toBe(v)
+    }
+    for (const v of ['none', 'left', 'center', 'right']) {
+      expect(withHeaderDefaults({ logo_placement: v } as never).logo_placement, v).toBe(v)
+    }
+    for (const v of ['square', 'rounded', 'circle']) {
+      expect(withHeaderDefaults({ photo_shape: v } as never).photo_shape, v).toBe(v)
+    }
+    for (const v of ['condensed', 'sans', 'serif', 'body']) {
+      expect(withHeaderDefaults({ name_style: { size_pt: null, font: v } } as never).name_style.font, v).toBe(v)
+    }
+  })
+
+  it('keeps a size at each end of the permitted range', () => {
+    // Only absurd values were tested, so the clamp bounds were free to move.
+    expect(withHeaderDefaults({ name_style: { size_pt: 4, font: 'body' } }).name_style.size_pt).toBe(4)
+    expect(withHeaderDefaults({ name_style: { size_pt: 200, font: 'body' } }).name_style.size_pt).toBe(200)
+    // NaN and Infinity are numbers but not sizes.
+    expect(withHeaderDefaults({ name_style: { size_pt: NaN, font: 'body' } }).name_style.size_pt).toBeNull()
+    expect(withHeaderDefaults({ name_style: { size_pt: Infinity, font: 'body' } }).name_style.size_pt).toBeNull()
+  })
 })
 
 describe('withFooterDefaults() — boundary validation', () => {
