@@ -19,6 +19,39 @@ describe('VIEW_TEMPLATES', () => {
       expect(t.style.tag_style).toBeDefined()
     }
   })
+
+  /**
+   * A template is only worth offering if it is visibly different from the
+   * others. Every part of that difference lives in these three objects, and
+   * emptying any one of them still leaves a template that applies cleanly —
+   * it just silently stops doing what its name says.
+   */
+  it('gives each template a header, a footer and section details of its own', () => {
+    for (const t of VIEW_TEMPLATES) {
+      expect(t.name, t.id).toBeTruthy()
+      expect(t.description, t.id).toBeTruthy()
+      expect(Object.keys(t.section_detail).length, t.id).toBeGreaterThan(0)
+      // header/footer are partial by design, but not empty — they are the
+      // difference between "formal" and "compact" at a glance.
+      expect(Object.keys({ ...t.header, ...t.footer }).length, t.id).toBeGreaterThan(0)
+    }
+  })
+
+  it('makes the three templates actually differ from one another', () => {
+    const fingerprint = (t: typeof VIEW_TEMPLATES[number]) => JSON.stringify([
+      t.style, t.header, t.footer, t.section_detail,
+    ])
+    expect(new Set(VIEW_TEMPLATES.map(fingerprint)).size).toBe(3)
+
+    // The named contrasts, spot-checked: dense vs generous, and the one-pager
+    // that shows no photo at all.
+    expect(getTemplate('compact-technical')!.style.density).toBe('compact')
+    expect(getTemplate('formal-management')!.style.density).toBe('spacious')
+    expect(getTemplate('formal-management')!.style.heading_font).toBe('serif')
+    // The one-pager places neither photo nor logo — that is how it fits.
+    expect(getTemplate('minimal-one-pager')!.header?.photo_placement).toBe('none')
+    expect(getTemplate('minimal-one-pager')!.header?.logo_placement).toBe('none')
+  })
 })
 
 describe('getTemplate', () => {

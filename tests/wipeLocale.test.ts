@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { wipeLocale } from '../src/lib/wipeLocale'
 import {
   emptyStore, makeProject, makeWork, makeEducation, makeKQ, makeRole,
-  makeSkill, makeSkillCategory, makePosition, makePresentation,
+  makeIndustry, makeSkill, makeSkillCategory, makePosition, makePresentation,
   makePublication, makeAward, makeReference, makeSpokenLanguage, makeView,
 } from './fixtures'
 
@@ -91,6 +91,30 @@ describe('wipeLocale', () => {
     expect(out.references[0].relationship).toEqual({ en: 'm' })
     expect(out.spoken_languages[0].name).toEqual({ en: 'En' })
     expect(out.views[0].introduction).toEqual({ en: 'I' })
+  })
+
+  it('walks the registries too, including industries', () => {
+    // The three registries are separate map() calls; industries is the one no
+    // other test names, and a name left behind there re-seeds the wiped
+    // language on the next export.
+    const store = {
+      ...emptyStore(),
+      skills: [makeSkill({ name: { en: 'Go', no: 'Go' } })],
+      roles: [makeRole({ name: { en: 'Architect', no: 'Arkitekt' } })],
+      industries: [makeIndustry({ name: { en: 'Finance', no: 'Finans' } })],
+    }
+    const out = wipeLocale(store, 'no')
+    expect(out.skills[0].name).toEqual({ en: 'Go' })
+    expect(out.roles[0].name).toEqual({ en: 'Architect' })
+    expect(out.industries[0].name).toEqual({ en: 'Finance' })
+  })
+
+  it('leaves a field that never had the locale exactly as it was', () => {
+    // Same object back, not a rebuilt copy — a whole-store rewrite would show
+    // up as a change on every field the resume has.
+    const name = { en: 'Only English' }
+    const store = { ...emptyStore(), skills: [makeSkill({ name })] }
+    expect(wipeLocale(store, 'no').skills[0].name).toBe(name)
   })
 
   it('does not mutate the input store', () => {

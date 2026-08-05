@@ -118,6 +118,20 @@ describe('typeGroups() — enum facets', () => {
     expect(g[1]).toMatchObject({ label: 'No type', ids: ['b', 'c'] })
   })
 
+  it('treats a blank or non-string type as untyped, not as its own group', () => {
+    // The stored value arrives from imports as well as the picker: an empty
+    // string or a stray number must fall into "No type" rather than opening a
+    // group nobody can name.
+    const items = [
+      pos('a', 'advisor'),
+      pos('b', ''),
+      { id: 'c', position_type: 42 } as never,
+    ]
+    const g = facet(typeGroups('positions', items, 'en'), 'Type')!.groups
+    expect(g.map((x) => x.value)).toEqual(['advisor', ''])
+    expect(g[1].ids.sort()).toEqual(['b', 'c'])
+  })
+
   it('groups publications by publication_type', () => {
     const sets = typeGroups('publications', [pub('a', 'book'), pub('b', 'article'), pub('c', 'article')], 'en')
     const g = facet(sets, 'Type')!.groups
