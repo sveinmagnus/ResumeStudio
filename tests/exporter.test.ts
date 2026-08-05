@@ -15,7 +15,7 @@ import {
   makeKeyCompetency, makeRecommendation, makeSkill, makeSkillCategory,
 } from './fixtures'
 import { withHeaderDefaults, withFooterDefaults } from '../src/lib/viewHeader'
-import { DEFAULT_VIEW_STYLE } from '../src/lib/viewStyle'
+import { DEFAULT_VIEW_STYLE, deriveTokens } from '../src/lib/viewStyle'
 import type { ResumeStore } from '../src/types'
 
 /** A view with every section enabled at full detail. */
@@ -136,6 +136,33 @@ describe('exportDocx() — what the document actually says', () => {
     // another inside the same body must carry it.
     const xml = await xmlFor('<p>One.</p><p>Two.</p>')
     expect(attr(paragraphWith(xml, 'One.'), 'w:after')).toBeGreaterThan(0)
+  })
+
+  it('gives the LAST paragraph the caller’s gap, not the inter-paragraph one', async () => {
+    // Two different gaps on purpose: BETWEEN paragraphs of one body it is the
+    // shared PARA_GAP_LINES; AFTER the last one it is the caller's spacing to
+    // whatever follows the item — the DOCX twin of `p:last-child` plus a
+    // container margin. Asserting only the non-last paragraph leaves that
+    // distinction free, and collapsing the two changes every item's spacing.
+    const xml = await xmlFor('<p>One.</p><p>Two.</p>')
+    const between = attr(paragraphWith(xml, 'One.'), 'w:after')
+    const after = attr(paragraphWith(xml, 'Two.'), 'w:after')
+    // Named against their SOURCE, not merely "different from each other":
+    // swapping the two is exactly what an inverted last-paragraph test does,
+    // and that still leaves them different.
+    expect(between).toBe(deriveTokens(DEFAULT_VIEW_STYLE).paraGapTwips)
+    expect(after).toBeGreaterThan(0)
+    expect(after).not.toBe(between)
+  })
+
+  it('treats a single-paragraph body as the last one', async () => {
+    // The branch deciding this is `i === blocks.length - 1`, true from the
+    // start here — so a one-paragraph item takes the caller's gap, exactly as
+    // the final paragraph of a longer one does.
+    const one = await xmlFor('<p>Only one.</p>')
+    const two = await xmlFor('<p>One.</p><p>Two.</p>')
+    expect(attr(paragraphWith(one, 'Only one.'), 'w:after'))
+      .toBe(attr(paragraphWith(two, 'Two.'), 'w:after'))
   })
 })
 

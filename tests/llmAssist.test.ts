@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   paramsOf, inputBudget, estimateTokens, sizeHint, providerBlurb, isRemote, extractJson,
+  supportsAdvanced,
 } from '../src/lib/llmAssist'
 import type { AssistStatus } from '../src/lib/api'
 
@@ -64,6 +65,44 @@ describe('inputBudget()', () => {
     // The failure being guarded against (garbled output from an overloaded 3B)
     // is the local one; hosted endpoints are chosen for their big context.
     expect(inputBudget(local('custom:latest'))).toBeLessThan(inputBudget(remote('gpt-4o-mini')))
+  })
+
+  it('bands the budget at 4B and 15B, inclusive at each edge', () => {
+    // Three bands, two edges, and both were only ever approached from one side
+    // — so either could move several billion parameters without a test moving.
+    const small = inputBudget(local('m:3b'))
+    const medium = inputBudget(local('m:8b'))
+    const large = inputBudget(local('m:70b'))
+    expect(small).toBeLessThan(medium)
+    expect(medium).toBeLessThan(large)
+
+    expect(inputBudget(local('m:4b'))).toBe(small)     // 4 is still small
+    expect(inputBudget(local('m:5b'))).toBe(medium)
+    expect(inputBudget(local('m:15b'))).toBe(medium)   // 15 is still medium
+    expect(inputBudget(local('m:16b'))).toBe(large)
+  })
+
+  it('gives a declared high-end model the large budget whatever its name says', () => {
+    // The declaration outranks the name — that is the whole point of the flag,
+    // since a hosted name parses to no size at all.
+    const declared = { ...local('m:3b'), highEnd: true }
+    expect(inputBudget(declared)).toBe(inputBudget(local('m:70b')))
+  })
+})
+
+describe('supportsAdvanced()', () => {
+  /**
+   * THE client-side gate on every advanced assist (§15), and it had no test at
+   * all. Both halves matter: an unconfigured backend cannot run them, and a
+   * configured-but-not-declared one must not — a small model does not refuse a
+   * whole-CV review, it answers fluently and wrongly.
+   */
+  it('needs the endpoint configured AND declared high-end', () => {
+    const base = local('m:3b')
+    expect(supportsAdvanced({ ...base, configured: true, highEnd: true })).toBe(true)
+    expect(supportsAdvanced({ ...base, configured: true, highEnd: false })).toBe(false)
+    expect(supportsAdvanced({ ...base, configured: false, highEnd: true })).toBe(false)
+    expect(supportsAdvanced({ ...base, configured: false, highEnd: false })).toBe(false)
   })
 })
 
