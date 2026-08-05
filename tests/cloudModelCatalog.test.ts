@@ -85,4 +85,29 @@ describe('buildModelOptions()', () => {
     expect(opts.filter((o) => o.name === first)).toHaveLength(1)
     expect(opts[0].available).toBe(true)
   })
+
+  it('appends the catalog for the remote Ollama too, not only the Docker one', () => {
+    // Both are Ollama; a remote instance has the same pullable tags.
+    expect(buildModelOptions('ollama_remote', []).length).toBe(OLLAMA_CATALOG.length)
+    expect(buildModelOptions('openai', []).length).toBe(0)
+  })
+
+  it('drops a blank or repeated id the server reported', () => {
+    // A duplicate id would render two identical rows in the picker, and a blank
+    // one an unselectable row.
+    const opts = buildModelOptions('gemini', [
+      { id: 'gemini-flash-latest' }, { id: '  ' }, { id: 'gemini-flash-latest' },
+    ])
+    expect(opts.map((o) => o.name)).toEqual(['gemini-flash-latest'])
+  })
+
+  it('trims an id before using it as the name', () => {
+    expect(buildModelOptions('gemini', [{ id: '  gemini-pro-latest  ' }])[0].name)
+      .toBe('gemini-pro-latest')
+  })
+
+  it('labels an unlabelled model by where it came from', () => {
+    expect(buildModelOptions('gemini', [{ id: 'g' }])[0].label).toBe('Available')
+    expect(buildModelOptions('ollama_remote', [{ id: 'g' }])[0].label).toBe('Installed')
+  })
 })
