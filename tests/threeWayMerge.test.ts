@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { mergeStores, deepEqual } from '../src/lib/threeWayMerge'
-import { emptyStore, makeProject, makeSkill, makeResume } from './fixtures'
+import { emptyStore, makeProject, makeSkill, makeResume, makeView } from './fixtures'
+import { buildViewSections } from '../src/lib/viewFilter'
 import type { ResumeStore, Project } from '../src/types'
 
 /**
@@ -144,6 +145,108 @@ describe('mergeStores — edits that do not overlap', () => {
     expect(res.merged.projects).toHaveLength(3)
     expect(res.merged.projects.map((p) => p.customer.en).sort())
       .toEqual(['Mine', 'Shared', 'Theirs'])
+  })
+
+  /**
+   * Element-wise merging is only safe for arrays of id-bearing objects: those
+   * have identity, so "changed on one side" is answerable per element. An
+   * array of bare strings has none — position IS the identity — so it has to
+   * be treated as a single value, or two sides appending different tags merge
+   * into a list neither of them wrote.
+   */
+  it('treats an array without ids as one value, not as mergeable elements', () => {
+    const base = storeWith([makeProject({ customer: { en: 'Shared' } })])
+    base.resume!.supported_locales = ['en']
+
+    const mine = clone(base)
+    mine.resume!.supported_locales = ['en', 'no']
+
+    const theirs = clone(base)
+    theirs.resume!.supported_locales = ['en', 'se']
+
+    const res = mergeStores(base, mine, theirs)
+    // One side wins whole, and the disagreement is reported — never a silent
+    // ['en','no','se'] that neither machine chose.
+    expect(res.merged.resume!.supported_locales).toEqual(
+      expect.arrayContaining(['en']),
+    )
+    expect(res.merged.resume!.supported_locales.length).toBeLessThanOrEqual(2)
+    expect(res.conflicts.length).toBeGreaterThan(0)
+  })
+
+  it('treats an array of id-less objects as one value too', () => {
+    // A view's `sections` are objects with a key but no id, so there is no way
+    // to say which element on one side corresponds to which on the other.
+    // Merging them element-wise would blend two different section layouts.
+    const base = storeWith([makeProject({ customer: { en: 'Shared' } })])
+    base.views = [makeView({ id: 'v1', sections: buildViewSections() })]
+
+    const mine = clone(base)
+    mine.views[0].sections = mine.views[0].sections.map((s) => (
+      s.key === 'projects' ? { ...s, detail: 'summary' as const } : s
+    ))
+
+    const theirs = clone(base)
+    theirs.views[0].sections = theirs.views[0].sections.map((s) => (
+      s.key === 'educations' ? { ...s, detail: 'off' as const } : s
+    ))
+
+    const res = mergeStores(base, mine, theirs)
+    const merged = JSON.stringify(res.merged.views[0].sections)
+    // Whole-array, one side or the other — never a blend of both edits.
+    expect([JSON.stringify(mine.views[0].sections), JSON.stringify(theirs.views[0].sections)])
+      .toContain(merged)
+  })
+
+  it('does not treat null as an object to merge into', () => {
+    // `end: null` means ongoing and is everywhere in this model. Recursing
+    // into it as if it were an object is a crash, not a merge.
+    const p = makeProject({ customer: { en: 'Shared' }, end: null })
+    const base = storeWith([p])
+
+    const mine = clone(base)
+    projectById(mine, p.id).end = { year: 2024, month: 6 }
+
+    const theirs = clone(base)
+    projectById(theirs, p.id).customer = { en: 'Renamed elsewhere' }
+
+    const res = mergeStores(base, mine, theirs)
+    expect(projectById(res.merged, p.id).end).toEqual({ year: 2024, month: 6 })
+    expect(projectById(res.merged, p.id).customer).toEqual({ en: 'Renamed elsewhere' })
+    expect(res.conflicts).toEqual([])
+  })
+
+  it('reports a null-against-a-date disagreement instead of walking into it', () => {
+    // One side reopened the project (ongoing), the other closed it on a date.
+    // Two different answers about the same field: a conflict to show, and the
+    // one place a null and an object meet head-on.
+    const p = makeProject({ customer: { en: 'Shared' }, end: { year: 2019, month: 1 } })
+    const base = storeWith([p])
+
+    const mine = clone(base)
+    projectById(mine, p.id).end = null
+
+    const theirs = clone(base)
+    projectById(theirs, p.id).end = { year: 2020, month: 6 }
+
+    const res = mergeStores(base, mine, theirs)
+    expect(res.conflicts.length).toBeGreaterThan(0)
+  })
+
+  it('merges an emptied section against additions on the other side', () => {
+    // An empty array still qualifies as element-wise mergeable — there is
+    // nothing in it to contradict the other side's items.
+    const base = storeWith([makeProject({ customer: { en: 'Shared' } })])
+
+    const mine = clone(base)
+    mine.projects = []
+
+    const theirs = clone(base)
+    theirs.projects.push(makeProject({ customer: { en: 'Theirs' } }))
+
+    const res = mergeStores(base, mine, theirs)
+    expect(res.merged.projects.map((p) => p.customer.en)).toEqual(['Theirs'])
+    expect(res.conflicts).toEqual([])
   })
 
   it('accepts a deletion of an item we never touched', () => {
