@@ -496,6 +496,37 @@ describe('registry hygiene — categories and prompt', () => {
       s.skills = [makeSkill({ name: { en: 'Kubernetes' } })]
       expect(buildHygienePrompt(s, 'en')).toMatch(/no categories yet/i)
     })
+
+    it('heads only the registries that have entries', () => {
+      // An empty heading invites the model to answer about a registry with
+      // nothing in it, and every merge it then proposes is unresolvable.
+      const s = emptyStore()
+      s.skills = [makeSkill({ name: { en: 'React' } })]
+      const p = buildHygienePrompt(s, 'en')
+      expect(p).toContain('## skills')
+      expect(p).not.toContain('## roles')
+      expect(p).not.toContain('## industries')
+    })
+
+    it('skips a nameless entry rather than listing a blank row', () => {
+      // A row with no name is an id the model can merge without seeing what it
+      // is. (A name in ANOTHER language is fine — resolve() falls back — so
+      // this is specifically the entry with nothing in any locale.)
+      const s = emptyStore()
+      const named = makeSkill({ name: { en: 'React' } })
+      const nameless = makeSkill({ name: {} })
+      const otherLanguage = makeSkill({ name: { no: 'Skydrift' } })
+      s.skills = [named, nameless, otherLanguage]
+
+      // Read the REGISTRY catalog alone: the uncategorised-skills block below
+      // lists ids without filtering on name, so an unscoped assertion would
+      // find it there and prove nothing.
+      const p = buildHygienePrompt(s, 'en')
+      const catalog = p.slice(p.indexOf('## skills'), p.indexOf('## existing categories'))
+      expect(catalog).toContain(named.id)
+      expect(catalog).toContain(otherLanguage.id)
+      expect(catalog).not.toContain(nameless.id)
+    })
   })
 
   describe('hasRegistryContent', () => {

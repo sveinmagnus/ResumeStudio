@@ -35,6 +35,13 @@ describe('fmtModelSize()', () => {
     expect(fmtModelSize(0)).toBe('')
     expect(fmtModelSize(-1)).toBe('')
   })
+
+  it('switches units at exactly one gigabyte', () => {
+    // Only well clear of the boundary was tested, so moving it left a model of
+    // exactly 1 GB reported as "1000 MB".
+    expect(fmtModelSize(1e9)).toBe('~1.0 GB')
+    expect(fmtModelSize(999_000_000)).toBe('~999 MB')
+  })
 })
 
 describe('modelOptions()', () => {
