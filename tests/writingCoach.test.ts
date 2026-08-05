@@ -83,6 +83,23 @@ describe('validateCoachResponse', () => {
     expect(res.asks[0]).toBe('Real question?')
   })
 
+  it('trims each ask, and keeps exactly six when more are offered', () => {
+    // The panel renders these as buttons; padded text misaligns them, and an
+    // uncapped list turns a review into a questionnaire.
+    const res = validateCoachResponse({
+      rewrite: 'Text',
+      asks: ['  Padded?  ', 'b?', 'c?', 'd?', 'e?', 'f?', 'g?', 'h?'],
+    })
+    expect(res.asks[0]).toBe('Padded?')
+    expect(res.asks).toHaveLength(6)
+    expect(res.asks).not.toContain('g?')
+  })
+
+  it('refuses a reply that is not an object at all', () => {
+    expect(() => validateCoachResponse(null)).toThrow(InvalidCoachResponseError)
+    expect(() => validateCoachResponse('Led the migration.')).toThrow(InvalidCoachResponseError)
+  })
+
   it('throws when there is no usable rewrite', () => {
     expect(() => validateCoachResponse({ asks: ['x'] })).toThrow(InvalidCoachResponseError)
     expect(() => validateCoachResponse({ rewrite: '   ' })).toThrow(InvalidCoachResponseError)

@@ -30,6 +30,27 @@ describe('buildKeyPointsPrompt()', () => {
     expect(buildKeyPointsPrompt(src, 'en', 'highlights')).toMatch(/no labels/i)
   })
 
+  it('shows the reply SHAPE that matches the style, not just the instruction', () => {
+    // The example JSON is what a small model actually copies; a labelled run
+    // whose example has no "label" key comes back unlabelled however firmly
+    // the prose asked.
+    const labelled = buildKeyPointsPrompt(src, 'en', 'labelled')
+    expect(labelled).toContain('"label":')
+    expect(labelled).toContain('"body":')
+
+    const highlights = buildKeyPointsPrompt(src, 'en', 'highlights')
+    expect(highlights).toContain('"body":')
+    expect(highlights).not.toContain('"label":')
+  })
+
+  it('flattens the source rather than sending markup, and trims it', () => {
+    const padded = { en: '  <p>Led a team of <strong>five</strong>.</p>  ' }
+    const p = buildKeyPointsPrompt(padded, 'en', 'highlights')
+    expect(p).toContain('Led a team of five.')
+    expect(p).not.toContain('<strong>')
+    expect(p).not.toMatch(/\n\s+Led a team/)
+  })
+
   it('keeps the source language rather than defaulting to English', () => {
     expect(buildKeyPointsPrompt(src, 'en', 'highlights')).toMatch(/same language as the source/i)
   })

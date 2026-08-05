@@ -48,6 +48,24 @@ describe('buildSkillExtractPrompt()', () => {
     const p = buildSkillExtractPrompt(proj({ customer: {}, description: {}, long_description: {} }), 'en')
     expect(p).toContain('(no description)')
   })
+
+  it('names the project by customer, then by its own name, then generically', () => {
+    // The model is told which project it is looking at; an unnamed one still
+    // needs a subject, or the instruction reads "extract skills from ".
+    expect(buildSkillExtractPrompt(proj({ customer: { en: 'Acme' }, description: { en: 'Platform' } }), 'en'))
+      .toContain('Acme')
+    expect(buildSkillExtractPrompt(proj({ customer: {}, description: { en: 'Platform rebuild' } }), 'en'))
+      .toContain('Platform rebuild')
+    expect(buildSkillExtractPrompt(proj({ customer: {}, description: {} }), 'en'))
+      .toContain('this project')
+  })
+
+  it('sends no vocabulary line when the registry is empty', () => {
+    // An empty list rendered as a heading with nothing after it invites the
+    // model to treat the absence as meaningful.
+    const p = buildSkillExtractPrompt(proj(), 'en', [])
+    expect(p).not.toMatch(/already in the registry:\s*$/m)
+  })
 })
 
 describe('validateSkillExtract()', () => {
