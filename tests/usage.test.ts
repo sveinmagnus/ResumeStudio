@@ -29,6 +29,22 @@ describe('usageOfSkill()', () => {
     store.skills.push(makeSkill({ id: 'k' }))
     expect(usageOfSkill(store, 'k')).toEqual({ projects: [] })
   })
+
+  it('includes a project where only ONE of several skills matches', () => {
+    // "some", not "every": a project lists many skills, so requiring all of
+    // them to match reports a used skill as unused — and the delete dialog
+    // acts on that.
+    const store = emptyStore()
+    store.skills.push(makeSkill({ id: 'k' }))
+    store.projects.push(makeProject({
+      id: 'p',
+      skills: [
+        { id: 'a1', skill_id: 'other', name: {}, duration_in_years: 0, offset_in_years: 0, total_duration_in_years: 0, sort_order: 0 },
+        { id: 'a2', skill_id: 'k', name: {}, duration_in_years: 0, offset_in_years: 0, total_duration_in_years: 0, sort_order: 1 },
+      ],
+    }))
+    expect(usageOfSkill(store, 'k').projects.map((p) => p.id)).toEqual(['p'])
+  })
 })
 
 describe('usageOfRole()', () => {
@@ -56,6 +72,22 @@ describe('usageOfRole()', () => {
     const store = emptyStore()
     store.roles.push(makeRole({ id: 'r' }))
     expect(usageOfRole(store, 'r')).toEqual({ projects: [], work_experiences: [], positions: [] })
+  })
+
+  it('includes a project where only ONE of several roles matches', () => {
+    // "some", not "every": a project usually lists several roles, and
+    // requiring all of them to match would report a used role as unused —
+    // which is what the delete dialog then offers to do.
+    const store = emptyStore()
+    store.roles.push(makeRole({ id: 'r' }), makeRole({ id: 'other' }))
+    store.projects.push(makeProject({
+      id: 'p',
+      roles: [
+        { id: 'pr1', role_id: 'other', name: {}, sort_order: 0, disabled: false },
+        { id: 'pr2', role_id: 'r', name: {}, sort_order: 1, disabled: false },
+      ],
+    }))
+    expect(usageOfRole(store, 'r').projects.map((p) => p.id)).toEqual(['p'])
   })
 })
 
