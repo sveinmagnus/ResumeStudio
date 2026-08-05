@@ -14,8 +14,31 @@ describe('parseCsv', () => {
     ['a,"she said ""hi""",c', [['a', 'she said "hi"', 'c']]],
     ['a,b\r\nc,d\r\n', [['a', 'b'], ['c', 'd']]],
     ['a,,c', [['a', '', 'c']]],
+    // A file that ends mid-row still yields that row — LinkedIn's exports do
+    // not always end with a newline, and dropping the last row loses a job.
+    ['a,b\nc,d', [['a', 'b'], ['c', 'd']]],
+    ['a,b\n', [['a', 'b']]],
+    // A trailing empty field is a field, not an absence.
+    ['a,b,', [['a', 'b', '']]],
+    // A row of empty fields is still a row at this level; csvObjects drops it.
+    [',,', [['', '', '']]],
+    // A quoted field containing a comma AND a quote, mid-row.
+    ['x,"a,""b""",y', [['x', 'a,"b"', 'y']]],
   ])('parses %j', (input, expected) => {
     expect(parseCsv(input)).toEqual(expected)
+  })
+
+  it('returns nothing at all for empty input', () => {
+    // Not [['']] — an empty file has no rows, and a phantom row becomes a
+    // phantom header that swallows the real one.
+    expect(parseCsv('')).toEqual([])
+  })
+
+  it('accumulates characters in order, inside quotes and out', () => {
+    // The two field accumulations are separate statements; either can be lost
+    // while the other keeps the parser looking healthy on short inputs.
+    expect(parseCsv('abc,"d,ef"')).toEqual([['abc', 'd,ef']])
+    expect(parseCsv('"multi word",plain text')).toEqual([['multi word', 'plain text']])
   })
 })
 
@@ -33,6 +56,16 @@ describe('csvObjects', () => {
   it('tolerates short rows (missing trailing fields become empty)', () => {
     const rows = csvObjects('A,B,C\n1,2\n')
     expect(rows).toEqual([{ A: '1', B: '2', C: '' }])
+  })
+
+  it('skips blank lines wherever they occur', () => {
+    // LinkedIn's exports carry blank separator lines. Kept, each becomes an
+    // object of empty strings — and a blank line before the header makes the
+    // header itself the first data row.
+    expect(csvObjects('A,B\n\n1,2\n\n3,4\n')).toEqual([
+      { A: '1', B: '2' }, { A: '3', B: '4' },
+    ])
+    expect(csvObjects('\nA,B\n1,2\n')).toEqual([{ A: '1', B: '2' }])
   })
 })
 
