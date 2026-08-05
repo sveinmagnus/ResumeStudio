@@ -94,7 +94,8 @@ export function validatePageFit(
     const id = typeof r.id === 'string' ? r.id : ''
     if (!id || seen.has(id) || already.has(id)) continue
     const hit = byId.get(id)
-    if (!hit) continue // invented id → a suggestion that would do nothing
+    // An invented id would produce a suggestion that changes nothing.
+    if (!hit) continue
     seen.add(id)
     out.push({
       itemId: id,

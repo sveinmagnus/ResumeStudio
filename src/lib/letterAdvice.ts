@@ -191,7 +191,7 @@ function str(v: unknown, cap: number): string {
 function tidyBody(raw: string): string {
   let s = raw.trim()
   s = s.replace(/^```[a-z]*\n?/i, '').replace(/```$/, '').trim()
-  // A greeting the prompt asked for and the model added anyway.
+  // A greeting the prompt forbids and the model writes anyway.
   s = s.replace(/^(?:dear|hi|hello|hei|kjære)\b[^\n]*\n+/i, '')
   // A sign-off block at the end ("Kind regards,\nName").
   s = s.replace(/\n+(?:kind regards|best regards|sincerely|yours \w+|regards|mvh|med vennlig hilsen)[^\n]*(?:\n[^\n]*)?$/i, '')

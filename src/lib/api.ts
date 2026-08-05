@@ -9,7 +9,7 @@ import { downloadBlob } from './download'
 // The API token is NOT stored in JS-readable storage. The client POSTs it once
 // to /api/auth/login, which sets an HttpOnly + SameSite=Strict session cookie;
 // every subsequent request carries that cookie automatically (same-origin
-// fetch). This means an XSS bug can no longer read or exfiltrate the token.
+// fetch), so an XSS bug cannot read or exfiltrate the token.
 // `api.login` / `api.logout` below drive that exchange.
 
 // ─── Error types ──────────────────────────────────────────────────────────────

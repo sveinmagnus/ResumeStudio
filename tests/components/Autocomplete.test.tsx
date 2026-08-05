@@ -28,7 +28,8 @@ describe('<Autocomplete>', () => {
     render(<Autocomplete options={OPTIONS} onPick={() => {}} addLabel="skill" />)
     const input = screen.getByRole('combobox')
     await user.click(input)
-    await user.type(input, 'pt')  // matches "TypeScript"
+    // Matches "TypeScript"
+    await user.type(input, 'pt')
     expect(screen.getByRole('option', { name: /TypeScript/ })).toBeInTheDocument()
     expect(screen.queryByRole('option', { name: /Python/ })).not.toBeInTheDocument()
   })

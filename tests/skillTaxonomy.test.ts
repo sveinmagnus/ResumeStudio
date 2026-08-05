@@ -36,10 +36,29 @@ describe('matchTaxonomy', () => {
   it('requires at least two characters', () => {
     expect(matchTaxonomy(names, 'j')).toEqual([])
     expect(matchTaxonomy(names, ' ')).toEqual([])
+    // Exactly two is enough — the floor is where the suggestions start, and
+    // only the short side of it had been tested.
+    expect(matchTaxonomy(names, 'ja')).toEqual(['Java', 'JavaScript'])
+    // Measured after trimming: a padded single character is still one.
+    expect(matchTaxonomy(names, '  j  ')).toEqual([])
+  })
+
+  it('ignores padding and case in the query', () => {
+    expect(matchTaxonomy(names, '  TYPE ')).toEqual(['TypeScript', 'Type Theory'])
   })
 
   it('excludes names already in the registry, case-insensitively', () => {
     expect(matchTaxonomy(names, 'java', ['JAVA'])).toEqual(['JavaScript'])
+  })
+
+  it('ignores padding around an excluded name', () => {
+    // The exclusions come from the live registry, where a name may have been
+    // typed with a stray space; an untrimmed comparison re-suggests it.
+    expect(matchTaxonomy(names, 'java', ['  Java  '])).toEqual(['JavaScript'])
+  })
+
+  it('takes no exclusions at all', () => {
+    expect(matchTaxonomy(names, 'java')).toEqual(['Java', 'JavaScript'])
   })
 
   it('caps at the limit', () => {

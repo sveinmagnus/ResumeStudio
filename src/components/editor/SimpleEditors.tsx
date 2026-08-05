@@ -1105,7 +1105,8 @@ function RelationshipField({ label, value, primaryLocale, onChange }: {
       <select id={id} className="pf-input" value={isCustom ? '__custom' : (matchedKey ?? '')}
         onChange={(e) => {
           const key = e.target.value
-          if (key === '__custom') return // keep the existing free-text value
+    // The sentinel means "leave the free-text value alone".
+    if (key === '__custom') return
           onChange(key ? relationshipLabels(key) : {})
         }}>
         <option value="">— Select —</option>
@@ -1376,8 +1377,8 @@ export function ProfileEditor() {
     addItem('key_qualifications', k)
     // A view shows exactly ONE profile. So a new profile must not silently
     // appear in views that already picked a different one — exclude it from
-    // every existing view (the user opts a view into it explicitly). This keeps
-    // each view's selection sticky when profiles are added.
+    // every existing view (the user opts a view into it explicitly), so each
+    // view's selection stays sticky as the profile library grows.
     for (const v of data.views) {
       if (!v.excluded_item_ids.includes(k.id)) {
         updateItem('views', v.id, { excluded_item_ids: [...v.excluded_item_ids, k.id] })
@@ -1386,7 +1387,7 @@ export function ProfileEditor() {
   }
 
   // Per-KQ key_points are deprecated UI: the standalone "Key Competencies"
-  // section owns those now (see migrate.extractKeyPointsToCompetencies +
+  // section owns those (see migrate.extractKeyPointsToCompetencies +
   // KeyCompetenciesEditor). The Profile block stays focused on the prose
   // summary and tag line.
   return (
@@ -1425,5 +1426,3 @@ export function ProfileEditor() {
     </div>
   )
 }
-
-// (.check-row styling now lives in src/index.css)

@@ -11,7 +11,8 @@ let app: Express
 beforeAll(async () => {
   process.env.RESUME_DB_PATH = ':memory:'
   process.env.RESUME_RATE_LIMIT_MAX = '1000000'
-  delete process.env.RESUME_API_TOKEN // auth disabled for the test
+  // Auth disabled for the test
+  delete process.env.RESUME_API_TOKEN
   const { createApp } = await import('../../server/app')
   app = createApp()
 })

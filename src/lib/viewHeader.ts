@@ -149,16 +149,16 @@ export function defaultFieldLabels(key: HeaderFieldKey): LocalizedString {
  * into every existing view. Merging means a stored label wins for the locales
  * it actually fills, and the rest come from the current defaults.
  *
- * Consequence worth knowing: customising the English label no longer bleeds
- * into other languages (it used to arrive there via English fallback). That is
- * the app's per-locale model — set the label in each language you export.
+ * Consequence worth knowing: customising the English label does NOT bleed into
+ * other languages via the English fallback. That is the app's per-locale model
+ * — set the label in each language you export.
  *
  * A PRESENT key is an opinion and is returned verbatim, including an empty one
  * — blanking a label ("just print the number") is a real thing users do, and it
  * must not fall through to a default. Only an ABSENT key takes the default.
  * This is why the merge can't simply be `resolve({...defaults, ...label})`:
  * `resolve` treats '' as missing and would answer with some other language's
- * label, which is how a blanked English label used to render as Norwegian.
+ * label, rendering a blanked English label as Norwegian.
  */
 export function headerFieldLabel(field: HeaderField, locale: string): string {
   const stored: LocalizedString = field.label ?? {}

@@ -134,7 +134,8 @@ export function planPublish(store: ResumeStore, entries: RegistryEntry[]): Publi
   const plan = (kind: RegistryKind) => {
     const arr = store[KIND_ARRAY[kind]] as Array<{ id: string; name: LocalizedString; canonical_id?: string | null; classification?: string; category_id?: string | null }>
     for (const item of arr ?? []) {
-      if (item.canonical_id) continue // already shared
+    // A canonical_id means this entry is already shared.
+    if (item.canonical_id) continue
       const key = keyForLocalized(kind, item.name)
       if (!key) continue
       const composite = `${kind}:${key}`
@@ -146,7 +147,8 @@ export function planPublish(store: ResumeStore, entries: RegistryEntry[]): Publi
       }
       const pending = createByKey.get(composite)
       if (pending) {
-        pending.localIds.push(item.id) // sibling shares the same create
+    // Siblings with the same key ride one create rather than racing.
+    pending.localIds.push(item.id)
         continue
       }
       const extra: RegistryEntry['extra'] = kind === 'skill'

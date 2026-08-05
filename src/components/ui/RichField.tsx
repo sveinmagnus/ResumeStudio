@@ -393,9 +393,9 @@ function RichColumn({ variant, locale, fieldLabel, html, onCommit, placeholder, 
 
   return (
     <div className={`rf-col rf-col-${variant}`}>
-      {/* The language name used to live here, above every column of every
-          rich field. It's now the flag in the formatting bar's top-right —
-          same information, no row spent on it. */}
+      {/* The language is carried by the flag in the formatting bar's top-right,
+          not spelled out here — a name above every column of every rich field
+          costs a row per field for information the flag already gives. */}
       <div className="rf-col-head">{header}</div>
       <Toolbar onCmd={exec} active={fmt} flag={LOCALE_LABELS[locale]?.flag} />
       {/* contentEditable is inherently focusable; the rule only looks for tabIndex. */}

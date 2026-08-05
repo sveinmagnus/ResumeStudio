@@ -217,6 +217,7 @@ describe('<ImportScreen>', () => {
     const [store, name] = onImported.mock.calls[0]
     expect(name).toBe('Grace Hopper — CV')
     expect(store.projects).toHaveLength(1)
-    expect(store.cover_letters).toEqual([]) // backfilled by normalizeStoreShape
+    // Backfilled by normalizeStoreShape
+    expect(store.cover_letters).toEqual([])
   })
 })

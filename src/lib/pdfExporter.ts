@@ -70,7 +70,8 @@ interface ExportCtx {
   tokens: StyleTokens
 }
 
-const twip = (t: number): number => t / 20 // twips → points
+// The style tokens are twips; pdfmake measures in points.
+const twip = (t: number): number => t / 20
 
 function L(ls: LocalizedString | undefined, locale: string): string {
   return resolve(ls, locale)
@@ -395,7 +396,8 @@ export async function buildPdfDocDefinition(
         content.push({ columns: [{ width: '*', stack: identity }, { width, stack: [photoNode] }], columnGap: 14, margin: [0, 0, 0, 6] as Margin })
       } else if (p === 'above') {
         content.push({ ...photoNode, margin: [0, 0, 0, 8] as Margin }, ...identity)
-      } else { // below
+      } else {
+        // photo_placement === 'below'
         content.push(...identity, { ...photoNode, margin: [0, 6, 0, 8] as Margin })
       }
     } else {
@@ -481,8 +483,8 @@ function loadPdfMake(): Promise<PdfMakeStatic> {
       // so the PDF matches the family's look without shipping font binaries of
       // our own. They are separate imports because pdfmake 0.3's browser build
       // does NOT bundle the standard-14 metrics — it ships each family's .afm as
-      // its own font container, and a family that was never added renders as a
-      // hard "font not found" at layout time rather than silently substituting.
+      // its own font container, and an unregistered family is a hard "font not
+      // found" at layout time rather than a silent substitution.
       import('pdfmake/build/fonts/Roboto'),
       import('pdfmake/build/standard-fonts/Times'),
       import('pdfmake/build/standard-fonts/Helvetica'),

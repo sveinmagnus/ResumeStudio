@@ -65,8 +65,8 @@ function SectionAdviceModal({ section, onClose }: { section: string; onClose: ()
   const locale = useStore((s) => s.primaryLocale)
   const label = sectionLabel(section)
   // Scoped per section, and held in the run store rather than this modal's
-  // state: closing the dialog to go and look at the items it just described is
-  // the expected next move, and it used to cost you the answer.
+  // state: closing the dialog to go and look at the items it described is the
+  // expected next move, and modal state wouldn't survive it.
   const { ref, result, parseError: error, clear } = useAdvisorRun<FindingsResult>(
     'section', jsonReply((json) => validateFindings(json, data, locale)), section,
   )

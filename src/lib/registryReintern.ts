@@ -8,7 +8,7 @@
  * import those are re-interned against the TARGET instance by `key`: reuse a
  * matching entry, or create one, then rewrite the resume's links
  * (`planReintern` + `remapCanonicalIds`, wrapped by the `reinternBackupLinks`
- * orchestrator). This is the `mergeRegistry`-by-key idea moved to the import
+ * orchestrator). This is `mergeRegistry`'s by-key rule applied at the import
  * boundary (see `lib/registrySync.ts` for the pure planning half).
  *
  * The pure functions here are the testable core; only `reinternBackupLinks` does
@@ -126,7 +126,7 @@ export async function reinternBackupLinks(
   embedded: CanonicalSnapshot[] | undefined,
   api: ReinternApi,
 ): Promise<ResumeStore> {
-  if (!referencedCanonicalIds(store).size) return store // nothing links → nothing to do
+  if (!referencedCanonicalIds(store).size) return store
 
   const target = await api.listRegistry()
   const plan = planReintern(embedded ?? [], target)

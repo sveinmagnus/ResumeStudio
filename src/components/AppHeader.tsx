@@ -28,7 +28,7 @@ interface AppHeaderProps {
 /**
  * The editor's top bar: resume switcher, breadcrumb/title, save status,
  * undo/redo, language switcher, history, settings. Saving a resume to a
- * portable file now lives in Settings (next to the backup folder) — it's an
+ * portable file lives in Settings (next to the backup folder) — it's an
  * occasional task, not a top-bar action. The load-file affordance is on the
  * picker (decision 6 — backup load is always "create a new resume").
  *

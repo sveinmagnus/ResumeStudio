@@ -279,7 +279,8 @@ export async function runInstall(): Promise<void> {
     const stagingRoot = path.join(resolvePaths().dataDir, 'updates')
     staged = await stageUpdate(info, stagingRoot, (f) => {
       progress = f
-      trayRefresher?.(trayView()) // live % in the tray title
+      // Keeps the download percentage live in the tray title.
+      trayRefresher?.(trayView())
     })
     setState('staged')
     cfg.log(`  update     : staged v${staged.version} — applying & restarting`)
@@ -368,7 +369,8 @@ export function buildSwapScript(input: SwapScriptInput): SwapScript {
     // runs the no-window .vbs shim so the updated app doesn't sit behind a
     // console window it was never started from.
     const scriptPath = path.join(scriptDir, 'apply-update.ps1')
-    const psLit = (s: string) => `'${s.replace(/'/g, "''")}'` // single-quoted PS literal
+    // A single-quoted PowerShell literal, where '' is the escape for one quote.
+    const psLit = (s: string) => `'${s.replace(/'/g, "''")}'`
     const contents = [
       `$ErrorActionPreference = 'SilentlyContinue'`,
       `$Host.UI.RawUI.WindowTitle = 'Cartavio Resume Studio Updater'`,

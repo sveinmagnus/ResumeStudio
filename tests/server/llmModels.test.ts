@@ -89,7 +89,8 @@ describe('listProviderModels()', () => {
     const fn = vi.fn()
     vi.stubGlobal('fetch', fn)
     expect(await listProviderModels(cfg({ provider: 'off' }))).toEqual([])
-    expect(await listProviderModels(cfg({ provider: 'openai' }))).toEqual([]) // no key
+    // No key
+    expect(await listProviderModels(cfg({ provider: 'openai' }))).toEqual([])
     expect(fn).not.toHaveBeenCalled()
   })
 

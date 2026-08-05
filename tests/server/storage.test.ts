@@ -5,7 +5,8 @@ const photo = (n: number) => `data:image/jpeg;base64,${'A'.repeat(n)}`
 
 describe('payloadStats', () => {
   it('measures UTF-8 bytes, not characters', () => {
-    const json = JSON.stringify({ name: 'Sørensen' }) // ø is 2 bytes in UTF-8
+    // ø is 2 bytes in UTF-8
+    const json = JSON.stringify({ name: 'Sørensen' })
     expect(payloadStats(json).bytes).toBe(Buffer.byteLength(json, 'utf8'))
     expect(payloadStats(json).bytes).toBeGreaterThan(json.length)
   })

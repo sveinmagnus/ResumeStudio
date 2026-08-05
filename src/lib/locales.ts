@@ -4,10 +4,10 @@ import type { LocalizedString, ResumeStore } from '../types'
  * The offerable locales. Deliberately limited to Latin/Cyrillic-script European
  * languages: every one of these shares the structural assumptions the render
  * path makes — left-to-right, space-separated words, and a month/"Present"
- * vocabulary that fits a CV date range. CJK, Arabic and Indic languages were
- * offered until v0.7.4 but never had the chrome translations, the RTL support
- * (Arabic), or the typographic handling to back them up, so they were removed
- * rather than left as English-only stubs.
+ * vocabulary that fits a CV date range. CJK, Arabic and Indic languages are out
+ * of scope until there are chrome translations, RTL support and the typographic
+ * handling to back them up — an English-only stub is worse than not offering the
+ * language at all.
  *
  * EVERY code here must have a full set of chrome translations — months and
  * `PRESENT` below, `SECTION_HEADINGS` (lib/sections.ts), the export dictionary

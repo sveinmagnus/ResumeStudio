@@ -20,7 +20,9 @@ export interface KeyPoint {
 export interface ProjectRole {
   id: string
   role_id: string
-  name: LocalizedString        // snapshot
+  /** Denormalized copy of the registry name at link time, so renaming the
+   *  registry entry doesn't rewrite history. `merge.ts` updates it. */
+  name: LocalizedString
   sort_order: number
   disabled: boolean
 }
@@ -28,14 +30,16 @@ export interface ProjectRole {
 export interface ProjectIndustry {
   id: string
   industry_id: string
-  name: LocalizedString        // snapshot of the registry name at link time
+  /** Denormalized copy of the registry name at link time — see `ProjectRole`. */
+  name: LocalizedString
   sort_order: number
 }
 
 export interface ProjectSkill {
   id: string
   skill_id: string
-  name: LocalizedString        // snapshot
+  /** Denormalized copy of the registry name at link time — see `ProjectRole`. */
+  name: LocalizedString
   duration_in_years: number
   offset_in_years: number
   total_duration_in_years: number
@@ -109,7 +113,8 @@ export interface Skill {
    * absent reads as 0.
    */
   experience_offset_years?: number
-  proficiency: number   // 0–5
+  /** 0–5. CVpartner exports can be 0 across the board — don't assume non-zero. */
+  proficiency: number
   /**
    * Featured in the compact Skills Showcase view section (roadmap: showcase
    * unification) — the showcase renders every highlighted skill, grouped by
@@ -804,8 +809,8 @@ export interface SectionStyle {
   show_icon?: boolean
   // ── Professional-summary (key_qualifications) part toggles ──
   // Only the tag-line toggle is live. Short-vs-long is the section MODE.
-  /** @deprecated The per-item "label" was removed — the tag line is a profile's
-   *  identity now. Kept for parse tolerance on old views; never read. */
+  /** @deprecated A profile's identity is its tag line; there is no per-item
+   *  "label". Kept for parse tolerance on old views; never read. */
   kq_show_label?: boolean
   /** Show the tag line in the profile body. Default FALSE — the tag line
    *  doubles as the resume title, so it's hidden unless a view opts in. */

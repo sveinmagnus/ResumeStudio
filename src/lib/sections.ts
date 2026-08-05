@@ -4,7 +4,8 @@ export interface SectionDef {
   key: string
   label: string
   storeKey?: SectionKey
-  icon: string  // lucide icon name
+  /** A lucide icon name, resolved through Sidebar's ICON_MAP. */
+  icon: string
   group: 'profile' | 'experience' | 'credentials' | 'extras' | 'registry' | 'export'
   /**
    * Hide from the sidebar nav but keep in SECTIONS so other consumers
@@ -84,13 +85,6 @@ export const GROUP_ORDER: Array<SectionDef['group']> = [
   'export', 'profile', 'experience', 'credentials', 'extras', 'registry',
 ]
 
-/**
- * A couple of section keys are *aliases* of a visible page. The only remaining
- * one is the legacy combined 'profile_competencies' key (the profile + key
- * competencies sections used to share one page); old deep links and snapshots
- * still target it, so chrome and the sidebar's active highlight normalise it to
- * the Profile section through this.
- */
 /**
  * The canonical display title for a section key — the SINGLE source used by the
  * sidebar, the view-config section list, and the export headings, so a rename
@@ -239,13 +233,12 @@ export function localizedSectionHeading(key: string, locale: string): string {
 }
 
 export function canonicalSectionKey(key: string): string {
-  // Back-compat: the profile + competencies sections used to share a combined
-  // 'profile_competencies' page. That key no longer exists as a section, so old
-  // deep links / snapshots that reference it land on the Profile section.
+  // 'profile_competencies' is a legacy combined key with no section of its own.
+  // Deep links and snapshots still carry it, so they land on Profile.
   if (key === 'profile_competencies') return 'key_qualifications'
-  // The Skills Showcase is now edited on the Skill Registry page (a category +
-  // highlight is all it takes to appear there) — old deep links and the
-  // Overview stat pill land there.
+  // The Skills Showcase is a projection of the Skill Registry page (a category +
+  // highlight is all it takes to appear there), not a section — deep links and
+  // the Overview stat pill land there.
   if (key === 'technology_categories') return 'skills'
   return key
 }

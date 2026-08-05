@@ -125,9 +125,9 @@ function richParagraphs(html: string, ctx: ExportCtx, opts: PStyle = {}): Paragr
 
 /**
  * Runs → docx TextRuns. A newline inside a run (a `<br>` in a list item, the
- * only place one survives canonicalisation) becomes a REAL Word break: a raw
- * "\n" in `<w:t>` is just XML whitespace, so Word used to render it as a
- * space while the preview and the PDF showed a line break.
+ * only place one survives canonicalisation) becomes a REAL Word break. A raw
+ * "\n" in `<w:t>` is just XML whitespace: Word renders it as a SPACE while the
+ * preview and the PDF show a line break.
  */
 function renderRuns(runs: RichRun[], ctx: ExportCtx, opts: PStyle, fontSize: number): TextRun[] {
   const out: TextRun[] = []
@@ -367,7 +367,8 @@ export async function exportDocx(store: ResumeStore, view: ResumeView, locale: s
         children.push(photoSideTable(photoRun, identity, p === 'right' || p === 'right_of_name' ? 'right' : 'left'))
       } else if (header.photo_placement === 'above') {
         children.push(new Paragraph({ spacing: { after: 100 }, children: [photoRun] }), ...identity)
-      } else { // below
+      } else {
+        // photo_placement === 'below'
         children.push(...identity, new Paragraph({ spacing: { before: 100, after: 120 }, children: [photoRun] }))
       }
     } else {
@@ -466,7 +467,8 @@ export async function exportDocx(store: ResumeStore, view: ResumeView, locale: s
     sections: [{
       properties: {
         page: {
-          size: { orientation: PageOrientation.PORTRAIT, width: 11906, height: 16838 }, // A4
+          // A4 in twips.
+          size: { orientation: PageOrientation.PORTRAIT, width: 11906, height: 16838 },
           margin: baseTokens.pageMarginTwips,
         },
       },
@@ -494,7 +496,8 @@ export async function exportCoverLetterDocx(
   const style = withResolvedFonts(withDefaults(parts.view?.style ?? {} as ResumeView['style']), globalFonts)
   const tokens = deriveTokens(style)
   const font = tokens.bodyFontDocx
-  const sz = tokens.bodyFontSizePt * 2  // docx uses half-points
+  // Doubled because docx sizes are half-points.
+  const sz = tokens.bodyFontSizePt * 2
   const accent = tokens.accentHex
 
   const run = (text: string, o: { bold?: boolean; color?: string; size?: number } = {}) =>
@@ -518,9 +521,11 @@ export async function exportCoverLetterDocx(
   const doc = new Document({
     styles: { default: { document: { run: { font, size: sz } } } },
     sections: [{
+      // A4, with ~2 cm margins all round. Letters use a fixed margin rather
+      // than the view's page-margin token — a letter is not a CV page.
       properties: { page: {
         size: { orientation: PageOrientation.PORTRAIT, width: 11906, height: 16838 },
-        margin: { top: 1134, right: 1134, bottom: 1134, left: 1134 }, // ~2 cm
+        margin: { top: 1134, right: 1134, bottom: 1134, left: 1134 },
       } },
       children,
     }],

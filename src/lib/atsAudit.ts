@@ -139,7 +139,8 @@ export function containsTerm(haystack: string, term: string): boolean {
  */
 export function extractPostingTerms(posting: string, store: ResumeStore, locale: string): string[] {
   const text = posting.slice(0, MAX_POSTING_CHARS)
-  const found = new Map<string, string>() // lowercased → first-seen spelling
+  // Lowercased term → the first spelling seen, which is what gets reported.
+  const found = new Map<string, string>()
 
   const add = (raw: string) => {
     const term = raw.trim().replace(/[.,;:!?()[\]"']+$/g, '').trim()

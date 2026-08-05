@@ -32,7 +32,8 @@ describe('createResumeDb — file permissions', () => {
     const file = path.join(dir, 'resume.db')
     createResumeDb(file)
     const mode = fs.statSync(file).mode & 0o777
-    expect(mode & 0o077).toBe(0) // no group/other permission bits
+    // No group/other permission bits
+    expect(mode & 0o077).toBe(0)
     rmQuiet(dir)
   })
 })
@@ -119,7 +120,8 @@ describe('createResumeDb — resume CRUD', () => {
   it('createResume returns metadata with a uuid id and timestamps', () => {
     const db = freshDb()
     const meta = db.createResume({ name: 'Sales CV' })
-    expect(meta.id).toMatch(/^[0-9a-f]{8}-/) // uuid prefix
+    // UUID prefix
+    expect(meta.id).toMatch(/^[0-9a-f]{8}-/)
     expect(meta.name).toBe('Sales CV')
     expect(meta.primary_locale).toBe('en')
     expect(meta.secondary_locale).toBeNull()
@@ -154,7 +156,8 @@ describe('createResumeDb — resume CRUD', () => {
     await new Promise((r) => setTimeout(r, 5))
     const b = db.createResume({ name: 'B' })
     await new Promise((r) => setTimeout(r, 5))
-    db.saveResume(b.id, { v: 1 }) // bumps B's saved_at past A's
+    // Bumps B's saved_at past A's
+    db.saveResume(b.id, { v: 1 })
     const list = db.listResumes()
     expect(list).toHaveLength(2)
     expect(list[0].id).toBe(b.id)
@@ -197,7 +200,8 @@ describe('createResumeDb — resume CRUD', () => {
     const meta = db.createResume({
       name: 'Mine', primary_locale: 'no', secondary_locale: 'en',
     })
-    db.saveResume(meta.id, { v: 1 }) // no locales arg
+    // No locales arg
+    db.saveResume(meta.id, { v: 1 })
     const full = db.getResume(meta.id)
     expect(full?.meta.primary_locale).toBe('no')
     expect(full?.meta.secondary_locale).toBe('en')
@@ -241,7 +245,8 @@ describe('createResumeDb — versioning & optimistic concurrency', () => {
 
   it('accepts a save whose expectedVersion matches the current version', () => {
     const db = freshDb()
-    const { id } = db.createResume({ name: 'CV' }) // version 1
+    // Version 1
+    const { id } = db.createResume({ name: 'CV' })
     const r = db.saveResume(id, { v: 1 }, undefined, 1)
     expect(r.status).toBe('saved')
     expect(db.getResume(id)?.meta.version).toBe(2)
@@ -250,7 +255,8 @@ describe('createResumeDb — versioning & optimistic concurrency', () => {
   it('rejects a save with a stale expectedVersion and writes nothing', () => {
     const db = freshDb()
     const { id } = db.createResume({ name: 'CV', data: { original: true } })
-    db.saveResume(id, { v: 2 }) // version → 2
+    // Version → 2
+    db.saveResume(id, { v: 2 })
     // A second writer still thinks the base is 1.
     const r = db.saveResume(id, { iLose: true }, undefined, 1)
     expect(r.status).toBe('conflict')
@@ -267,17 +273,21 @@ describe('createResumeDb — versioning & optimistic concurrency', () => {
   it('a conflict does NOT append a snapshot', () => {
     const db = freshDb()
     const { id } = db.createResume({ name: 'CV' })
-    db.saveResume(id, { v: 2 })              // version 2, 1 snapshot
+    // Version 2, 1 snapshot
+    db.saveResume(id, { v: 2 })
     const before = db.listSnapshots(id).length
-    db.saveResume(id, { stale: true }, undefined, 1) // conflict
+    // Conflict
+    db.saveResume(id, { stale: true }, undefined, 1)
     expect(db.listSnapshots(id).length).toBe(before)
   })
 
   it('omitting expectedVersion force-writes regardless of the current version', () => {
     const db = freshDb()
     const { id } = db.createResume({ name: 'CV' })
-    db.saveResume(id, { v: 2 })            // version → 2
-    const r = db.saveResume(id, { forced: true }) // no expectedVersion
+    // Version → 2
+    db.saveResume(id, { v: 2 })
+    // No expectedVersion
+    const r = db.saveResume(id, { forced: true })
     expect(r).toEqual(expect.objectContaining({ status: 'saved', version: 3 }))
     expect(db.getResume(id)?.data).toEqual({ forced: true })
   })
@@ -310,8 +320,10 @@ describe('createResumeDb — additive version migration', () => {
     // Opening through the factory runs the migration.
     const db = createResumeDb(file)
     const full = db.getResume('old-1')
-    expect(full?.meta.version).toBe(1)          // back-filled default
-    expect(full?.data).toEqual({ hello: 'world' }) // data preserved, not dropped
+    // Back-filled default
+    expect(full?.meta.version).toBe(1)
+    // Data preserved, not dropped
+    expect(full?.data).toEqual({ hello: 'world' })
 
     // And concurrency works from there: base 1 saves, base 1 then conflicts.
     expect(db.saveResume('old-1', { hello: 'again' }, undefined, 1).status).toBe('saved')
@@ -338,7 +350,8 @@ describe('createResumeDb — snapshot history', () => {
     const db = freshDb()
     const meta = db.createResume({ name: 'Mine' })
     db.saveResume(meta.id, { v: 1 })
-    db.saveResume(meta.id, { v: 1 }) // identical → deduped
+    // Identical → deduped
+    db.saveResume(meta.id, { v: 1 })
     expect(db.listSnapshots(meta.id)).toHaveLength(1)
   })
 
@@ -347,7 +360,8 @@ describe('createResumeDb — snapshot history', () => {
     const meta = db.createResume({ name: 'Mine' })
     db.saveResume(meta.id, { v: 1 })
     db.saveResume(meta.id, { v: 2 })
-    db.saveResume(meta.id, { v: 1 }) // differs from {v:2} → recorded
+    // Differs from {v:2} → recorded
+    db.saveResume(meta.id, { v: 1 })
     expect(db.listSnapshots(meta.id)).toHaveLength(3)
   })
 
@@ -462,11 +476,13 @@ describe('createResumeDb — snapshots strip embedded images', () => {
     const db = freshDb()
     const meta = db.createResume({ name: 'Mine' })
     db.saveResume(meta.id, imageStore('data:image/jpeg;base64,AAA'))
-    db.saveResume(meta.id, imageStore('data:image/jpeg;base64,BBB')) // only the photo differs
+    // Only the photo differs
+    db.saveResume(meta.id, imageStore('data:image/jpeg;base64,BBB'))
 
     expect(db.listSnapshots(meta.id)).toHaveLength(1)
     const live = db.getResume(meta.id)!.data as ReturnType<typeof imageStore>
-    expect(live.resume.profile_photo).toBe('data:image/jpeg;base64,BBB') // live row did update
+    // Live row did update
+    expect(live.resume.profile_photo).toBe('data:image/jpeg;base64,BBB')
   })
 
   it('does not mutate the caller’s data object', () => {
@@ -533,12 +549,14 @@ describe('createResumeDb — dumpResumes / restoreResumes (store sync)', () => {
   it('merge keeps the local copy when it is newer (incoming older → skip)', () => {
     const db = freshDb()
     const a = db.createResume({ name: 'A' })
-    db.saveResume(a.id, { local: 'newer' }) // advances saved_at
+    // Advances saved_at
+    db.saveResume(a.id, { local: 'newer' })
     const local = db.getResume(a.id)!
     const incoming: ResumeBackupEntry = {
       ...local.meta,
       created_at: local.meta.created_at,
-      saved_at: '2000-01-01T00:00:00.000Z', // older
+      // Older
+      saved_at: '2000-01-01T00:00:00.000Z',
       data: { remote: 'older' },
     }
     const summary = db.restoreResumes([incoming])
@@ -554,7 +572,8 @@ describe('createResumeDb — dumpResumes / restoreResumes (store sync)', () => {
       id: a.id, name: 'A (edited elsewhere)',
       primary_locale: 'en', secondary_locale: null,
       created_at: a.created_at,
-      saved_at: '2999-01-01T00:00:00.000Z', // far future → wins
+      // Far future → wins
+      saved_at: '2999-01-01T00:00:00.000Z',
       data: { v: 'new' },
     }
     const summary = db.restoreResumes([incoming])
@@ -562,9 +581,12 @@ describe('createResumeDb — dumpResumes / restoreResumes (store sync)', () => {
     const full = db.getResume(a.id)!
     expect(full.data).toEqual({ v: 'new' })
     expect(full.meta.name).toBe('A (edited elsewhere)')
-    expect(full.meta.saved_at).toBe('2999-01-01T00:00:00.000Z') // preserves source timestamp
-    expect(full.meta.version).toBe(2) // bumped
-    expect(db.listSnapshots(a.id).length).toBe(snapsBefore + 1) // restore is reversible
+    // Preserves source timestamp
+    expect(full.meta.saved_at).toBe('2999-01-01T00:00:00.000Z')
+    // Bumped
+    expect(full.meta.version).toBe(2)
+    // Restore is reversible
+    expect(db.listSnapshots(a.id).length).toBe(snapsBefore + 1)
   })
 
   it('merge is idempotent — re-restoring the same dump changes nothing', () => {
@@ -581,7 +603,8 @@ describe('createResumeDb — dumpResumes / restoreResumes (store sync)', () => {
   it('merge never deletes local-only resumes', () => {
     const db = freshDb()
     const keep = db.createResume({ name: 'LocalOnly' })
-    db.restoreResumes([]) // empty incoming
+    // Empty incoming
+    db.restoreResumes([])
     expect(db.getResume(keep.id)).not.toBeNull()
   })
 

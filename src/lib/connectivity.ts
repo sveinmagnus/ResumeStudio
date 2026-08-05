@@ -50,7 +50,8 @@ function setState(next: Connectivity): void {
 }
 
 async function probe(): Promise<void> {
-  const ok = await api.health() // never throws — returns false on any failure
+  // `health()` never throws — any failure comes back as false.
+  const ok = await api.health()
   setState(nextOnline(state, ok))
 }
 
@@ -64,7 +65,9 @@ function stopPolling(): void {
 }
 
 function onOffline(): void { setState('offline') }
-function onOnline(): void { void probe() } // NIC up ≠ server up — verify first
+// A NIC coming up is not the server coming back, so confirm with a probe
+// instead of flipping straight to online.
+function onOnline(): void { void probe() }
 
 /** Begin tracking. Idempotent; safe to call from a module-load side effect. */
 export function startConnectivity(): void {

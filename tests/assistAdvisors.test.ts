@@ -14,7 +14,7 @@ import {
   validateMining, applyAchievements, buildMiningPrompt, InvalidMiningError,
   MINING_SCHEMA, MINING_SECTIONS, type Achievement,
 } from '../src/lib/achievementMining'
-import { validateProfileDraft, applyProfileDraft } from '../src/lib/profileGenerator'
+import { validateProfileDraft, applyProfileDraft, buildProfilePrompt } from '../src/lib/profileGenerator'
 import { tidyIntro, buildIntroPrompt, DEFAULT_INTRO_FOCUS } from '../src/lib/introDraft'
 import { buildCvReviewPrompt } from '../src/lib/cvReview'
 import { buildViewSections } from '../src/lib/viewFilter'
@@ -725,6 +725,46 @@ describe('profile generator', () => {
       summary_short: 'Cloud architect.', rationale: 'For procurement readers.',
       evidence: ['Acme — Payments platform'], bundle,
     }],
+  })
+
+  it('offers the library as referenceable ids, and says when there is none', () => {
+    // The model can only reuse a competency it was shown, and a bare heading
+    // with nothing under it invites it to invent ids instead of proposing new
+    // ones properly.
+    const withOne = buildProfilePrompt(withLibrary(), 'en', { brief: 'Public sector work', count: 2 })
+    // Read the LIBRARY block alone. The CV digest further down lists the same
+    // competency in the same shape, so an unscoped assertion passes even when
+    // the library block is empty — which is what it is guarding against.
+    const library = withOne.slice(
+      withOne.indexOf('--- COMPETENCY LIBRARY ---'),
+      withOne.indexOf('--- CV ---'),
+    )
+    expect(library).toContain('- id: comp-1')
+    expect(library).toContain('title: Cloud architecture')
+    expect(library).toContain('description: Designs cloud platforms.')
+
+    expect(buildProfilePrompt(storeWithProject(), 'en', { brief: 'x', count: 2 }))
+      .toMatch(/library is empty/)
+  })
+
+  it('hides a disabled competency from the catalog', () => {
+    // Disabled is a soft delete everywhere else; offering one here would put it
+    // back into a profile bundle.
+    const s = withLibrary()
+    s.key_competencies[0].disabled = true
+    expect(buildProfilePrompt(s, 'en', { brief: 'x', count: 2 })).toMatch(/library is empty/)
+  })
+
+  it('holds the requested profile count inside its bounds', () => {
+    const s = withLibrary()
+    const asked = (count: number) =>
+      /Draft (\d+) ALTERNATIVE profiles/.exec(buildProfilePrompt(s, 'en', { brief: 'x', count }))?.[1]
+
+    // Zero is not a request, and the panel's own field can reach it.
+    expect(asked(0)).toBe('1')
+    // …and a large number must not turn one run into fifty drafts.
+    expect(Number(asked(99))).toBeLessThanOrEqual(6)
+    expect(asked(2)).toBe('2')
   })
 
   it('reuses a library competency by id and marks a proposed one as new', () => {

@@ -63,10 +63,12 @@ export function SnapshotHistory({ resumeId, onClose, onUnauthorized }: SnapshotH
   const toggleDetail = async (snap: SnapshotMeta, index: number) => {
     if (expandedId === snap.id) { setExpandedId(null); return }
     setExpandedId(snap.id)
-    if (diffs[snap.id] && !diffs[snap.id].error) return // already computed
+    // Already computed; a previous error is worth retrying.
+    if (diffs[snap.id] && !diffs[snap.id].error) return
     setDiffs((d) => ({ ...d, [snap.id]: { loading: true } }))
     try {
-      const older = snapshots?.[index + 1] // list is newest-first
+    // The list is newest-first, so the next index is the older snapshot.
+    const older = snapshots?.[index + 1]
       const current = await fetchData(snap.id)
       if (!older) {
         setDiffs((d) => ({ ...d, [snap.id]: { initial: true } }))

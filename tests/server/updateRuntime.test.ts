@@ -29,7 +29,8 @@ describe('buildSwapScript (Windows)', () => {
     expect(s.contents).not.toContain('tasklist')
     expect(s.contents).not.toContain('robocopy')
     expect(s.contents).toContain('Copy-Item')
-    expect(s.contents).toContain("'#' * $fill") // ascii progress bar
+    // Ascii progress bar
+    expect(s.contents).toContain("'#' * $fill")
     // Paths embedded as single-quoted PS literals.
     expect(s.contents).toContain(`$dst = '/opt/Resume Studio'`)
   })
@@ -60,7 +61,8 @@ describe('buildSwapScript (POSIX)', () => {
   it('waits for the PID, copies the build, relaunches, and cleans staging', () => {
     expect(s.contents).toContain('kill -0 4321')
     expect(s.contents).toContain('cp -R')
-    expect(s.contents).toContain('resume-studio.sh') // linux launcher name
+    // Linux launcher name
+    expect(s.contents).toContain('resume-studio.sh')
     expect(s.contents).toContain('nohup')
     expect(s.contents).toContain('rm -rf')
   })
@@ -94,10 +96,12 @@ describe('runCheck → manual-check popup (announce)', () => {
     const notify = vi.fn()
     wire(notify)
 
-    await runCheck(false)            // daily/background → no popup
+    // Daily/background → no popup
+    await runCheck(false)
     expect(notify).not.toHaveBeenCalled()
 
-    await runCheck(true)             // manual tray click → popup
+    // Manual tray click → popup
+    await runCheck(true)
     expect(notify).toHaveBeenCalledTimes(1)
     expect(notify.mock.calls[0][1]).toMatch(/latest version/i)
   })
@@ -145,7 +149,8 @@ describe('runCheck → Install/Cancel offer when an update is found', () => {
   }
 
   it('prompts "New version X available" and does not install on Cancel', async () => {
-    const confirm = vi.fn(async () => false) // user clicks Cancel
+    // User clicks Cancel
+    const confirm = vi.fn(async () => false)
     wireUpdate(confirm)
     await runCheck(true)
     expect(confirm).toHaveBeenCalledTimes(1)
@@ -155,10 +160,13 @@ describe('runCheck → Install/Cancel offer when an update is found', () => {
   it('de-dups the daily (background) offer per version, but a manual check always prompts', async () => {
     const confirm = vi.fn(async () => false)
     wireUpdate(confirm)
-    await runCheck(false) // background → offers once
-    await runCheck(false) // same version again → no re-offer
+    // Background → offers once
+    await runCheck(false)
+    // Same version again → no re-offer
+    await runCheck(false)
     expect(confirm).toHaveBeenCalledTimes(1)
-    await runCheck(true)  // manual → always offers
+    // Manual → always offers
+    await runCheck(true)
     expect(confirm).toHaveBeenCalledTimes(2)
   })
 

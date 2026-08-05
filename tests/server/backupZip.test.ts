@@ -93,7 +93,8 @@ describe('readBackupZip', () => {
   it('skips an entry that declares an implausible size, without inflating it', () => {
     const zip = zipSync({ 'ada__r1.json': strToU8(JSON.stringify(buildResumeFile(entry(), []))) })
     // fflate's filter sees the header's originalSize; force it to look huge.
-    const scan = readBackupZip(zip, 8)  // 8-byte cap → every real entry is over it
+    // 8-byte cap → every real entry is over it
+    const scan = readBackupZip(zip, 8)
     expect(scan.resumes).toEqual([])
     expect(scan.unreadable).toEqual(['ada__r1.json'])
   })

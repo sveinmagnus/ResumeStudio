@@ -40,7 +40,8 @@ describe('buildStoreBackup', () => {
 
   it('embeds the registry when passed, omits it otherwise', () => {
     expect(buildStoreBackup([entry()]).registry).toBeUndefined()
-    expect(buildStoreBackup([entry()], []).registry).toBeUndefined() // empty → omitted
+    // Empty → omitted
+    expect(buildStoreBackup([entry()], []).registry).toBeUndefined()
     expect(buildStoreBackup([entry()], [regEntry()]).registry).toHaveLength(1)
   })
 })
@@ -84,7 +85,8 @@ describe('isStoreBackup', () => {
     expect(isStoreBackup({})).toBe(false)
     // The single-resume client backup uses the `resumestudio/` schema prefix.
     expect(isStoreBackup({ $schema: 'resumestudio/v1', format_version: 1, profile: null, sections: {} })).toBe(false)
-    expect(isStoreBackup({ $schema: 'resumestudio-store/v1', format_version: 1 })).toBe(false) // no resumes[]
+    // No resumes[]
+    expect(isStoreBackup({ $schema: 'resumestudio-store/v1', format_version: 1 })).toBe(false)
   })
 })
 
@@ -101,7 +103,8 @@ describe('parseStoreBackup', () => {
     expect(() => parseStoreBackup(future)).toThrow(/format_version 2/)
   })
   it('throws for a malformed resume entry', () => {
-    const bad = { ...buildStoreBackup([]), resumes: [{ id: 'x' }] } // missing saved_at/data
+    // Missing saved_at/data
+    const bad = { ...buildStoreBackup([]), resumes: [{ id: 'x' }] }
     expect(() => parseStoreBackup(bad)).toThrow(UnreadableBackupError)
   })
 })
@@ -122,7 +125,8 @@ describe('backupSignature', () => {
 describe('writeBackupAtomic / readBackupFile', () => {
   it('round-trips through a real file and creates the dir', () => {
     const root = tmp()
-    const dir = path.join(root, 'nested', 'sync') // does not exist yet
+    // Does not exist yet
+    const dir = path.join(root, 'nested', 'sync')
     const res = writeBackupAtomic(dir, buildStoreBackup([entry(), entry({ id: 'r2' })]))
     expect(res.file).toBe(path.join(dir, BACKUP_FILENAME))
     expect(res.bytes).toBeGreaterThan(0)

@@ -15,7 +15,8 @@ describe('parseVersion', () => {
     ['v1.2.3', [1, 2, 3]],
     ['0.1', [0, 1, 0]],
     ['2', [2, 0, 0]],
-    ['1.2.3-beta.1', [1, 2, 3]], // pre-release ignored for ordering
+    // Pre-release ignored for ordering
+    ['1.2.3-beta.1', [1, 2, 3]],
     ['1.2.3+build9', [1, 2, 3]],
     ['garbage', [0, 0, 0]],
   ])('parses %s', (input, expected) => {
@@ -29,8 +30,10 @@ describe('compareVersions', () => {
     ['1.2.0', '1.1.9', 1],
     ['0.1.1', '0.1.1', 0],
     ['v0.2.0', '0.1.9', 1],
-    ['1.0.0-rc1', '1.0.0', 0], // pre-release suffix ignored
-    ['2.0.0', '10.0.0', -1], // numeric, not lexical
+    // Pre-release suffix ignored
+    ['1.0.0-rc1', '1.0.0', 0],
+    // Numeric, not lexical
+    ['2.0.0', '10.0.0', -1],
   ])('compares %s vs %s', (a, b, expected) => {
     expect(compareVersions(a as string, b as string)).toBe(expected)
   })
@@ -56,8 +59,10 @@ describe('isAllowedHost (SSRF guard)', () => {
   })
   it('rejects non-GitHub hosts, non-https, and lookalikes', () => {
     expect(isAllowedHost('https://evil.com/x')).toBe(false)
-    expect(isAllowedHost('http://github.com/x')).toBe(false) // must be https
-    expect(isAllowedHost('https://github.com.evil.com/x')).toBe(false) // suffix trick
+    // Must be https
+    expect(isAllowedHost('http://github.com/x')).toBe(false)
+    // Suffix trick
+    expect(isAllowedHost('https://github.com.evil.com/x')).toBe(false)
     expect(isAllowedHost('https://notgithub.com/x')).toBe(false)
     expect(isAllowedHost('not a url')).toBe(false)
   })
@@ -68,7 +73,8 @@ function fakeFetch(body: unknown, status = 200): typeof fetch {
   return (async () => new Response(JSON.stringify(body), { status })) as unknown as typeof fetch
 }
 
-const asset = assetNameFor() // for the current test runner's platform/arch
+// For the current test runner's platform/arch
+const asset = assetNameFor()
 
 describe('checkForUpdate', () => {
   it('reports an available update when the release is newer', async () => {
@@ -320,7 +326,8 @@ describe('stageUpdate verification', () => {
   })
 
   it('rejects when the release publishes a sidecar it cannot serve', async () => {
-    const f = routedFetch({ [assetUrl]: payload })  // sidecar 404s
+    // Sidecar 404s
+    const f = routedFetch({ [assetUrl]: payload })
     await expect(stageUpdate(info(), tmpRoot(), undefined, 'linux', f)).rejects.toThrow(ChecksumError)
   })
 })

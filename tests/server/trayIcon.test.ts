@@ -28,10 +28,14 @@ describe('trayIcon — ICO wrapping', () => {
   it('wraps the embedded PNG in a single-image ICO container, with the PNG dimensions', () => {
     const png = pngIcon()
     const ico = icoFromPng(png)
-    expect(ico.readUInt16LE(0)).toBe(0) // reserved
-    expect(ico.readUInt16LE(2)).toBe(1) // type: icon
-    expect(ico.readUInt16LE(4)).toBe(1) // one image
-    expect(ico[0]).toBe(0)              // ICONDIR reserved byte
+    // Reserved
+    expect(ico.readUInt16LE(0)).toBe(0)
+    // Type: icon
+    expect(ico.readUInt16LE(2)).toBe(1)
+    // One image
+    expect(ico.readUInt16LE(4)).toBe(1)
+    // ICONDIR reserved byte
+    expect(ico[0]).toBe(0)
     // ICONDIRENTRY width/height bytes follow the PNG (0 means 256+). Regression
     // guard for the previously hard-coded 32×32 ICO entry — the Cartavio
     // favicon is 150×150, so reusing the old constant would have produced a
@@ -50,7 +54,8 @@ describe('trayIconBase64 — per platform', () => {
   it('returns ICO bytes on Windows', () => {
     const buf = Buffer.from(trayIconBase64('win32'), 'base64')
     expect(buf.readUInt16LE(0)).toBe(0)
-    expect(buf.readUInt16LE(2)).toBe(1) // ICO type
+    // ICO type
+    expect(buf.readUInt16LE(2)).toBe(1)
   })
   it('returns PNG bytes elsewhere', () => {
     expect(Buffer.from(trayIconBase64('linux'), 'base64').subarray(0, 8).equals(PNG_SIG)).toBe(true)

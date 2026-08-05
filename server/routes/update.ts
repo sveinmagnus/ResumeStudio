@@ -47,7 +47,8 @@ router.post('/install', (_req: Request, res: Response): void => {
     res.status(409).json({ error: 'No downloadable build for this platform. Use the release page to update manually.' })
     return
   }
-  void runInstall() // fire-and-forget: progresses via /status, then restarts
+  // Fire-and-forget: progress is reported via /status, then the app restarts.
+  void runInstall()
   res.status(202).json({ ok: true })
 })
 

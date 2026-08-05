@@ -69,4 +69,23 @@ describe('recommendationRelationships', () => {
     expect(matchRelationshipKey({})).toBeNull()
     expect(matchRelationshipKey(undefined)).toBeNull()
   })
+
+  it('ignores padding around a stored value', () => {
+    // Stored relationships come from imports as often as from the picker, and
+    // an untrimmed value would fall through to free text and lose the link.
+    expect(matchRelationshipKey({ en: '  Was my manager  ' })).toBe('manager')
+  })
+
+  it('treats a whitespace-only value as no value', () => {
+    // Not "no match" by accident — a blank slot must not be compared at all,
+    // or an option whose label is empty in that locale would match it.
+    expect(matchRelationshipKey({ en: '   ', no: '' })).toBeNull()
+  })
+
+  it('matches on a later locale when an earlier one is free text', () => {
+    // A bilingual CV can carry a hand-written English line beside a picked
+    // Norwegian one. Checking only the first entry would lose the link.
+    expect(matchRelationshipKey({ en: 'Some bespoke wording', no: 'Var min leder' })).toBe('manager')
+    expect(matchRelationshipKey({ en: '', no: 'Var min leder' })).toBe('manager')
+  })
 })

@@ -98,7 +98,8 @@ function ymIndex(ym: YearMonth, whenNull: 1 | 12): number {
 }
 
 function nowIndex(now: Date): number {
-  return now.getFullYear() * 12 + now.getMonth() // getMonth() is 0-based
+  // `getMonth()` is already 0-based, so it needs no -1 like `ymIndex` above.
+  return now.getFullYear() * 12 + now.getMonth()
 }
 
 /**
@@ -132,7 +133,8 @@ export function freshnessReport(
     const idx = ymIndex(c.expires, 12)
     const monthsOut = idx - nowIdx
     const expired = monthsOut < 0
-    if (!expired && monthsOut > config.expiringWithinMonths) continue // not a warning
+    // Still valid and far enough out to be nobody's problem yet.
+    if (!expired && monthsOut > config.expiringWithinMonths) continue
     const name = resolve(c.name, locale) || 'Untitled certification'
     const key = certWarningKey(c.id)
     if (isSnoozed(key)) { snoozed.push({ key, label: name, until: dismissals[key] }); continue }
@@ -174,7 +176,9 @@ export function freshnessReport(
   ) => {
     for (const it of items) {
       if (it.disabled || it.end !== null || !it.start) continue
-      if (exempt.has(it.id)) continue // current main job / main project — never nag
+      // The current main job / main project is ongoing by definition, so an
+      // old start date there is not staleness worth nagging about.
+      if (exempt.has(it.id)) continue
       // Year-only start is treated as January (the earliest plausible date).
       if (ymIndex(it.start, 1) > staleThreshold) continue
       const lbl = label(it)

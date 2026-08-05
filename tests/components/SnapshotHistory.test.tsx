@@ -117,7 +117,8 @@ describe('<SnapshotHistory>', () => {
     await screen.findAllByRole('button', { name: /restore/i })
 
     const expanders = screen.getAllByRole('button', { name: /show what changed/i })
-    await userEvent.click(expanders[1]) // the older row (id 1) has no predecessor
+    // The older row (id 1) has no predecessor
+    await userEvent.click(expanders[1])
     expect(await screen.findByText(/first recorded version/i)).toBeInTheDocument()
   })
 })

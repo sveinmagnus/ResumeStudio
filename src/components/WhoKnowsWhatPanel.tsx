@@ -56,7 +56,8 @@ export function WhoKnowsWhatPanel({ items, onUnauthorized }: {
       if (res.linked) parts.push(`${res.linked} linked`)
       if (res.conflicts) parts.push(`${res.conflicts} skipped (open elsewhere)`)
       setPublishNote(parts.length ? `Done — ${parts.join(', ')}.` : 'Everything is already shared.')
-      await load() // refresh with the new links + versions
+      // Reload so the new links and their versions are shown.
+      await load()
     } catch (e) {
       if (e instanceof UnauthorizedError) { onUnauthorized(); return }
       setPublishNote('Could not share the registries. Try again.')

@@ -1,11 +1,9 @@
 /**
  * The "Summarize" FEATURE — condense a long CV entry into one short line.
  *
- * This is one assist among many now, not the LLM layer itself: the provider
- * config, endpoint resolution and chat round-trip all live in `llm.ts`, which
- * this file imports like every other feature does. (It used to be the other way
- * around — this module owned the config, because summarizing was the first thing
- * the app asked a model to do. Nothing here should grow config again.)
+ * One assist among many, NOT the LLM layer: provider config, endpoint
+ * resolution and the chat round-trip live in `llm.ts`, which this file imports
+ * like every other feature does. Nothing here should grow config of its own.
  */
 
 import { chatComplete, languageName, languageDirective, LlmError, type LlmConfig } from './llm.js'

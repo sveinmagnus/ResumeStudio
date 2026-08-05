@@ -113,7 +113,8 @@ describe('BulkImportModal — preview and confirm', () => {
     render(<BulkImportModal spec={coursesSpec} onClose={() => {}} />)
     await paste(twoCourses)
 
-    await userEvent.click(screen.getAllByRole('checkbox')[2]) // select-all is [0]
+    // Select-all is [0]
+    await userEvent.click(screen.getAllByRole('checkbox')[2])
     await userEvent.click(screen.getByRole('button', { name: /Add 1 to Courses/ }))
 
     const courses = useStore.getState().data.courses
@@ -165,7 +166,8 @@ describe('BulkImportModal — preview and confirm', () => {
     render(<BulkImportModal spec={coursesSpec} onClose={() => {}} />)
     await paste(twoCourses)
 
-    await userEvent.click(screen.getAllByRole('checkbox')[1]) // tick the flagged one
+    // Tick the flagged one
+    await userEvent.click(screen.getAllByRole('checkbox')[1])
     await userEvent.click(screen.getByRole('button', { name: /Add 2 to Courses/ }))
     expect(useStore.getState().data.courses).toHaveLength(3)
   })
@@ -189,7 +191,8 @@ describe('BulkImportModal — preview and confirm', () => {
     await userEvent.click(screen.getByRole('button', { name: /Add 1 to Projects/ }))
 
     const { skills, roles, projects } = useStore.getState().data
-    expect(skills).toHaveLength(2)               // TypeScript reused, Terraform new
+    // TypeScript reused, Terraform new
+    expect(skills).toHaveLength(2)
     expect(roles).toHaveLength(1)
     expect(projects[0].skills[0].skill_id).toBe('s-ts')
   })
@@ -205,7 +208,8 @@ describe('BulkImportModal — preview and confirm', () => {
       ],
     })
 
-    await userEvent.click(screen.getAllByRole('checkbox')[2]) // untick "Dropped"
+    // Untick "Dropped"
+    await userEvent.click(screen.getAllByRole('checkbox')[2])
     await userEvent.click(screen.getByRole('button', { name: /Add 1 to Projects/ }))
 
     const names = useStore.getState().data.skills.map((s) => s.name.no ?? s.name.en)

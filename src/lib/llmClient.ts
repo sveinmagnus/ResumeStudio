@@ -2,16 +2,11 @@
  * Client-side view of the LLM backend — "is a model configured, where does it
  * run, and is it high-end?" — as a SUBSCRIBABLE value.
  *
- * It was a memoized promise, which meant a component that had already probed
- * kept its answer forever. Saving a model (or ticking high-end) therefore
- * changed nothing on screen: the advisors stayed hidden until you navigated
- * away and back, because only a remount re-read the probe. With the config
- * surface as large as it now is, that's a trap.
- *
- * So the status is cached state with listeners. One fetch still backs every
- * consumer — `resetLlmAvailability()` (called after a settings save) clears it,
- * re-probes, and notifies everyone, so every AI surface in the app reacts in
- * place.
+ * Subscribable, NOT a memoized promise. A bare memoized probe hands a component
+ * its answer forever, so saving a model (or ticking high-end) changes nothing on
+ * screen — the advisors stay hidden until a remount re-reads it. One fetch still
+ * backs every consumer; `resetLlmAvailability()` (called after a settings save)
+ * clears it, re-probes, and notifies, so every AI surface reacts in place.
  */
 import { api, ASSIST_OFF, type AssistStatus } from './api'
 

@@ -206,8 +206,8 @@ function AchievementMining() {
     try {
       // Translate first so the write fills BOTH language columns at once — a
       // highlight that lands in one column makes the other version of the CV
-      // silently say less. Best-effort: no translator configured just means
-      // primary-only, which is what used to happen unconditionally.
+      // silently say less. Best-effort: with no translator configured the write
+      // is primary-only.
       const ready = await translateAchievements(data, chosen, locale, secondary)
       const { data: next } = applyAchievements(data, ready, locale)
       replaceData(next)

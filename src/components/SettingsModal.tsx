@@ -118,9 +118,11 @@ export function SettingsModal({ initialTab, onClose, onChanged, onUnauthorized }
   const seed = useCallback((s: SettingsStatus) => {
     setStatus(s)
     const v = s.settings
+    // Only libretranslate splits into two UI options (Docker vs remote); every
+    // other provider passes through as itself.
     const ui: UiProvider =
       v.translate_provider === 'libretranslate' ? (v.translate_docker ? 'libre_docker' : 'libre_remote')
-      : v.translate_provider // 'off' | 'deepl' | 'google' | 'azure' | 'llm'
+      : v.translate_provider
     setProvider(ui)
     setLibreUrl(v.libretranslate_url)
     setAzureRegion(v.azure_region)
@@ -131,9 +133,10 @@ export function SettingsModal({ initialTab, onClose, onChanged, onUnauthorized }
       libre: v.libretranslate_api_key_set, deepl: v.deepl_api_key_set,
       google: v.google_api_key_set, azure: v.azure_api_key_set,
     })
+    // Same split as translate: only ollama has a Docker/remote pair.
     const llmUi: LlmUiProvider =
       v.llm_provider === 'ollama' ? (v.llm_docker ? 'ollama_docker' : 'ollama_remote')
-      : v.llm_provider // 'off' | 'openai' | 'compat'
+      : v.llm_provider
     setLlmProvider(llmUi || 'off')
     setLlmOllamaUrl(v.llm_ollama_url ?? '')
     setLlmCompatUrl(v.llm_compat_url ?? '')

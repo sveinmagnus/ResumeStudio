@@ -143,10 +143,10 @@ const MIGRATIONS: ReadonlyArray<(store: ResumeStore) => ResumeStore> = [
   localizeRecommenderTitles,
   unpinLegacyHeadingFont,
   ensureCoverLetters,
-  migrateCourseDates,      // v11
-  migrateBundleMembership, // v12
-  migratePresentationDates, // v13
-  stripSkillTags,          // v14
+  migrateCourseDates,
+  migrateBundleMembership,
+  migratePresentationDates,
+  stripSkillTags,
 ]
 
 /**
@@ -388,13 +388,15 @@ type PreV4Project = { industries?: ProjectIndustry[]; industry?: LocalizedString
 
 export function internProjectIndustries(store: ResumeStore): ResumeStore {
   const existing: Industry[] = Array.isArray(store.industries) ? [...store.industries] : []
-  const byKey = new Map<string, string>() // normalized name → industry id
+  // Normalized name → industry id.
+  const byKey = new Map<string, string>()
   for (const ind of existing) {
     const k = localizedKey(ind.name)
     if (k && !byKey.has(k)) byKey.set(k, ind.id)
   }
   const resumeId = store.resume?.id ?? ''
-  let changed = !Array.isArray(store.industries) // missing array alone is a change
+  // A missing array is itself a change worth writing back.
+  let changed = !Array.isArray(store.industries)
 
   const stripLegacy = (raw: Project, industries: ProjectIndustry[]): Project => {
     const clean = { ...raw } as Record<string, unknown>
@@ -538,7 +540,8 @@ export function unifyShowcaseCategories(store: ResumeStore): ResumeStore {
 
   const resumeId = store.resume?.id ?? ''
   const entities: SkillCategory[] = []
-  const byNameKey = new Map<string, string>() // normalized name → entity id
+  // Normalized name → entity id.
+  const byNameKey = new Map<string, string>()
 
   /** Find-or-create an entity by its localized name's representative key. */
   const ensureEntity = (name: LocalizedString): string => {
@@ -576,7 +579,8 @@ export function unifyShowcaseCategories(store: ResumeStore): ResumeStore {
     } else if (c && typeof c === 'object' && 'id' in (c as Record<string, unknown>)) {
       const entity = c as SkillCategory
       const key = localizedKey(entity.name)
-      if (key && byNameKey.has(key)) continue // dedup against a showcase group of the same name
+    // Deduplicate against a showcase group carrying the same name.
+    if (key && byNameKey.has(key)) continue
       if (key) byNameKey.set(key, entity.id)
       entities.push({ ...entity })
     }
@@ -628,7 +632,8 @@ export function localizeRecommenderTitles(store: ResumeStore): ResumeStore {
   let changed = false
   const recommendations = store.recommendations.map((r) => {
     const raw = (r as { recommender_title?: unknown }).recommender_title
-    if (raw && typeof raw === 'object') return r // already a LocalizedString
+  // Already a LocalizedString — nothing to promote.
+  if (raw && typeof raw === 'object') return r
     changed = true
     const title = typeof raw === 'string' ? raw.trim() : ''
     return { ...r, recommender_title: title ? { en: title } : {} }

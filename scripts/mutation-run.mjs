@@ -46,10 +46,10 @@ const REPORT = path.join(ROOT, 'reports', 'mutation', 'summary.json')
 /** Per-file mutant detail, written by Stryker's own json reporter. */
 const detailPath = (base) => path.join(ROOT, 'reports', 'mutation', 'files', `${base}.json`)
 /**
- * Generous on purpose: richText measured 1,995s (33 min) in the first full run,
- * which is ABOVE the 20 minutes this used to allow. A file that trips the
- * timeout is recorded as an error and loses its mutant detail, so the ceiling
- * has to sit clear of the worst real file rather than near it.
+ * Generous on purpose: richText measures ~1,995s (33 min), so anything near the
+ * half-hour mark is already too tight. A file that trips the timeout is recorded
+ * as an error and loses its mutant detail, so the ceiling has to sit clear of
+ * the worst real file rather than near it.
  */
 const PER_FILE_TIMEOUT_MS = 60 * 60 * 1000
 
@@ -404,7 +404,8 @@ function main() {
       result = runOne(base, tests)
     }
     report.files[base] = { ...result, tests, at: new Date().toISOString() }
-    saveReport(report) // after EVERY file, so an interrupt keeps what it measured
+    // Saved after EVERY file, so an interrupt keeps what it already measured.
+    saveReport(report)
     console.log(result.error
       ? `ERROR — ${result.error} [${result.seconds}s]`
       : `${result.score}% (${result.killed} killed, ${result.survived} survived, ${result.noCoverage} no-cov) [${result.seconds}s]`)

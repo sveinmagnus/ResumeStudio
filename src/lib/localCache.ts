@@ -68,7 +68,8 @@ export function loadPending(resumeId: string): PendingRecord | null {
       data: parsed.data,
       locales: parsed.locales ?? { primary: 'en', secondary: null },
       base_version: typeof parsed.base_version === 'number' ? parsed.base_version : 0,
-      dirty: parsed.dirty === true, // legacy records (no flag) are treated clean
+      // Strict `=== true` so a legacy record with no flag reads as clean.
+      dirty: parsed.dirty === true,
       dirty_since: parsed.dirty_since ?? saved_at,
       saved_at,
     }
@@ -87,8 +88,10 @@ export function savePending(resumeId: string, input: SavePendingInput): void {
   try {
     const now = new Date().toISOString()
     const prev = loadPending(resumeId)
+    // Staying dirty keeps the START of the unsynced run, so the freshness
+    // warning ages from the first unsynced edit rather than the latest.
     const dirty_since = input.dirty
-      ? (prev?.dirty ? prev.dirty_since : now) // keep the start of the dirty run
+      ? (prev?.dirty ? prev.dirty_since : now)
       : now
     const record: PendingRecord = {
       data: input.data,

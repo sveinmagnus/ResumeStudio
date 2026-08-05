@@ -94,7 +94,8 @@ export function DefaultFontsSection() {
   const update = (patch: Partial<GlobalFonts>) => {
     const next = { ...fonts, ...patch }
     setFonts(next)
-    setDefaultFonts(next) // persists + notifies open previews
+    // Persists to appPrefs AND notifies any open preview panes.
+    setDefaultFonts(next)
   }
   const seen = new Set<string>()
   const installs = [fontInstallInfo(fonts.heading), fontInstallInfo(fonts.body)]

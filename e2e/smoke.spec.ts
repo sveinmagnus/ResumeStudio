@@ -18,7 +18,8 @@ async function createResume(page: Page): Promise<void> {
   const addBtn = page.getByRole('button', { name: 'Add resume' })
   const startFresh = page.getByRole('button', { name: 'Start with an empty resume' })
   await expect(addBtn.or(startFresh)).toBeVisible()
-  if (await addBtn.isVisible()) await addBtn.click() // open the add panel on the list view
+  // The list view needs its add panel opened first; the empty state does not.
+  if (await addBtn.isVisible()) await addBtn.click()
   await startFresh.click()
   await page.waitForURL(/\/r\/[0-9a-f-]{36}/)
 }
@@ -40,9 +41,9 @@ const fullName = (page: Page) => page.getByLabel('Full name', { exact: true })
 test('an edit auto-saves to the server and survives a reload', async ({ page }) => {
   await createResume(page)
 
-  // Scope to the nav LINK — once a section is active its name also shows as
-  // the page <h1> (and the URL now keeps the section across reloads). The nav
-  // is real anchors so Ctrl-click opens a section in a new tab.
+  // Scope to the nav LINK — once a section is active its name also shows as the
+  // page <h1>, so an unscoped lookup is ambiguous. The nav is real anchors, so
+  // Ctrl-click opens a section in a new tab.
   await page.getByRole('link', { name: 'Personal Details' }).click()
   await expect(page).toHaveURL(/\/r\/[0-9a-f-]{36}\/header/)
   await fullName(page).fill('Kari Nordmann')

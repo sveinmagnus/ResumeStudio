@@ -4,11 +4,11 @@ import { buildModelOptions, fromInstalled } from '../src/lib/modelPicker'
 import { OLLAMA_CATALOG } from '../src/lib/ollamaCatalog'
 
 /**
- * This file used to assert a curated shortlist of hosted model ids. Those ids
- * WERE the bug: the field suggested `gemini-2.5-flash` long after Google moved
- * on, so the user picked it, saved, and only found out at "Save and test" that
- * it no longer exists. The list is fetched from the provider now, and the main
- * thing worth pinning here is that no hardcoded id crept back in.
+ * The point of this suite is the NEGATIVE: no hardcoded hosted model id may
+ * creep back into the catalog. A curated shortlist is the bug — it suggested
+ * `gemini-2.5-flash` long after Google retired it, so the user picked it,
+ * saved, and only found out at "Save and test". The live list comes from the
+ * provider (`server/llmModels.ts`); what stays here is placeholder text.
  */
 
 describe('cloudModelCatalog', () => {
@@ -84,5 +84,30 @@ describe('buildModelOptions()', () => {
     const opts = buildModelOptions('ollama_docker', fromInstalled([{ name: first }]))
     expect(opts.filter((o) => o.name === first)).toHaveLength(1)
     expect(opts[0].available).toBe(true)
+  })
+
+  it('appends the catalog for the remote Ollama too, not only the Docker one', () => {
+    // Both are Ollama; a remote instance has the same pullable tags.
+    expect(buildModelOptions('ollama_remote', []).length).toBe(OLLAMA_CATALOG.length)
+    expect(buildModelOptions('openai', []).length).toBe(0)
+  })
+
+  it('drops a blank or repeated id the server reported', () => {
+    // A duplicate id would render two identical rows in the picker, and a blank
+    // one an unselectable row.
+    const opts = buildModelOptions('gemini', [
+      { id: 'gemini-flash-latest' }, { id: '  ' }, { id: 'gemini-flash-latest' },
+    ])
+    expect(opts.map((o) => o.name)).toEqual(['gemini-flash-latest'])
+  })
+
+  it('trims an id before using it as the name', () => {
+    expect(buildModelOptions('gemini', [{ id: '  gemini-pro-latest  ' }])[0].name)
+      .toBe('gemini-pro-latest')
+  })
+
+  it('labels an unlabelled model by where it came from', () => {
+    expect(buildModelOptions('gemini', [{ id: 'g' }])[0].label).toBe('Available')
+    expect(buildModelOptions('ollama_remote', [{ id: 'g' }])[0].label).toBe('Installed')
   })
 })

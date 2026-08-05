@@ -98,6 +98,28 @@ describe('planPublish()', () => {
     expect(planPublish(store, [])).toEqual({ creates: [], links: [] })
   })
 
+  it('keys an entry off its first non-empty locale, not the first slot', () => {
+    // A Norwegian-only skill has an empty `en` slot. Keying off whatever comes
+    // first would produce an empty key and either drop it or collide every
+    // such entry into one.
+    const store = {
+      ...emptyStore(),
+      skills: [
+        makeSkill({ id: 's1', name: { en: '', no: 'Skydrift' } }),
+        makeSkill({ id: 's2', name: { en: '', no: 'Testing' } }),
+      ],
+    }
+    // Two distinct keys → two creates, not one coalesced pair.
+    expect(planPublish(store, []).creates).toHaveLength(2)
+
+    // …and the key is the Norwegian one, so an existing canonical entry under
+    // that key is LINKED rather than duplicated.
+    const existing = [canon({ id: 'c1', kind: 'skill', name: { no: 'Skydrift' }, key: 'skydrift' })]
+    const plan = planPublish(store, existing)
+    expect(plan.links).toEqual([{ kind: 'skill', localId: 's1', canonicalId: 'c1' }])
+    expect(plan.creates).toHaveLength(1)
+  })
+
   it('coalesces same-key siblings into ONE create with several localIds', () => {
     const store = {
       ...emptyStore(),

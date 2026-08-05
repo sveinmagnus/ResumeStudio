@@ -22,14 +22,16 @@ import { SECTIONS } from './sections'
  * `header` section and has no per-item navigation target).
  */
 export interface MissingField {
-  section: string       // SectionKey, or 'header' for root resume fields
+  /** A SectionKey, or 'header' for root resume fields. */
+  section: string
   itemId: string | null
   itemLabel: string
   fieldLabel: string
 }
 
 export interface LocaleCompleteness {
-  percent: number       // 0–100
+  /** 0–100. */
+  percent: number
   missing: MissingField[]
 }
 

@@ -126,7 +126,8 @@ describe('<RichField>', () => {
       const ev = fireEvent.keyDown(editor, { key: 'Enter', shiftKey })
 
       // The browser's own handling is suppressed…
-      expect(ev).toBe(false) // preventDefault() was called
+      // preventDefault() was called
+      expect(ev).toBe(false)
       // …and the separator is set with the caret live (Chrome ignores it
       // otherwise), immediately before the split.
       expect(cmds).toEqual([['defaultParagraphSeparator', 'p'], ['insertParagraph', undefined]])

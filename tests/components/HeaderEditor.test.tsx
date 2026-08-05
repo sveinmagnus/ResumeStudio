@@ -37,11 +37,11 @@ describe('<HeaderEditor>', () => {
     await waitFor(() => expect(useStore.getState().data.resume?.full_name).toBe('Astrid Solberg'))
   })
 
-  it('no longer exposes a personal-details Title field (it comes from the profile tag line now)', () => {
+  it('exposes no personal-details Title field (it comes from the profile tag line)', () => {
     seed()
     render(<HeaderEditor />)
-    // The single master "Title" was removed — the professional headline is the
-    // selected profile's tag line per view (see the Profile rework).
+    // There is no single master "Title" — the professional headline is the
+    // selected profile's tag line, chosen per view.
     expect(screen.queryByDisplayValue('Consultant')).toBeNull()
     expect(screen.queryByText('Title')).toBeNull()
   })

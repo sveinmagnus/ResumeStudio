@@ -71,7 +71,7 @@ function sectionConfigChips(vs: ViewSection): string[] {
   const s = vs.style ?? {}
   const chips: string[] = []
   if (vs.detail === 'summary') {
-    // 'Tabulated' is shown by the mode button now, not as a chip.
+    // 'Tabulated' belongs to the mode button, so it never doubles as a chip.
     if (s.summary_layout) chips.push(LAYOUT_LABEL.get(s.summary_layout) ?? s.summary_layout)
     if (s.short_desc_line === 'inline') chips.push('Short desc inline')
   } else if (vs.detail === 'full') {

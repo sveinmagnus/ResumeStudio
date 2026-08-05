@@ -4,11 +4,10 @@
  * directly (keys/URLs stay server-side, one auth perimeter), mirroring
  * translate.ts.
  *
- * This module used to be called `summarize.ts`, because drafting a one-line
- * short description was the first thing it did. It is not what it is: the same
- * configured model now powers translation, the writing coach, tailoring, import,
- * and the whole-CV advisors. `summarize.ts` is now just one FEATURE built on
- * this file — keep it that way, and don't name new config after a feature.
+ * NAME CONFIG AFTER THE LAYER, NOT A FEATURE. One configured model powers
+ * summarize, translation, the writing coach, tailoring, import and the whole-CV
+ * advisors, so config is `llm_*` / `LLM_*`. `summarize.ts` is one FEATURE built
+ * on this file — keep it that way.
  *
  * Two wire protocols, dispatched on the provider (see `endpointFor`):
  *

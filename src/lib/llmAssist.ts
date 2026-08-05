@@ -27,9 +27,12 @@ const CHARS_PER_TOKEN = 3.5
  * under the advertised context windows: the window has to hold the reply too,
  * and a small model's effective quality collapses long before its stated limit.
  */
-const SMALL_MODEL_BUDGET = 6_000   // ~1–3B local models
-const MEDIUM_MODEL_BUDGET = 20_000 // ~7–9B local models
-const LARGE_MODEL_BUDGET = 100_000 // hosted frontier models
+/** ~1–3B local models. */
+const SMALL_MODEL_BUDGET = 6_000
+/** ~7–9B local models. */
+const MEDIUM_MODEL_BUDGET = 20_000
+/** Hosted frontier models. */
+const LARGE_MODEL_BUDGET = 100_000
 
 /**
  * Parameter count parsed out of an Ollama-style tag ('llama3.2:3b' → 3).

@@ -164,19 +164,21 @@ export function ResumeList({ onUnauthorized }: ResumeListProps) {
     const name = draftName.trim()
     const prev = items?.find((r) => r.id === id)?.name
     setEditingId(null)
-    if (!name || name === prev) return // empty or unchanged → no-op
+    if (!name || name === prev) return
     setItems((curr) => curr?.map((r) => (r.id === id ? { ...r, name } : r)) ?? [])
     try {
       await api.patchResume(id, { name })
     } catch (err) {
       if (err instanceof UnauthorizedError) { onUnauthorized(); return }
       setError(`Could not rename: ${(err as Error).message}`)
-      reload() // revert to the server's truth
+      // Revert the optimistic rename to the server's truth.
+      reload()
     }
   }, [draftName, items, onUnauthorized, reload])
 
   const onSettingsChanged = useCallback(() => {
-    setSyncRefreshKey((k) => k + 1) // remount SyncPanel to re-read sync status
+    // Remounts SyncPanel so it re-reads sync status.
+    setSyncRefreshKey((k) => k + 1)
     reload()
   }, [reload])
 

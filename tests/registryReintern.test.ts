@@ -3,7 +3,7 @@ import {
   referencedCanonicalIds, collectReferencedCanonical, planReintern,
   remapCanonicalIds, reinternBackupLinks, type ReinternApi,
 } from '../src/lib/registryReintern'
-import { emptyStore, makeSkill, makeRole } from './fixtures'
+import { emptyStore, makeSkill, makeRole, makeSkillCategory } from './fixtures'
 import type { RegistryEntry, CanonicalSnapshot, ResumeStore } from '../src/types'
 
 function entry(over: Partial<RegistryEntry> & Pick<RegistryEntry, 'id' | 'kind' | 'name' | 'key'>): RegistryEntry {
@@ -80,6 +80,30 @@ describe('remapCanonicalIds()', () => {
   it('returns the same store ref when nothing links', () => {
     const store = { ...emptyStore(), skills: [makeSkill({ id: 's1' })] }
     expect(remapCanonicalIds(store, { a: 'b' })).toBe(store)
+  })
+
+  it('leaves an entry whose id already points where the map says', () => {
+    // Same object back, not a rebuilt copy: a rewritten entry is a change the
+    // sync then has to carry and show as a difference.
+    const same = makeSkill({ id: 's1', canonical_id: 'keep' })
+    const store = { ...emptyStore(), skills: [same] }
+    expect(remapCanonicalIds(store, { keep: 'keep' }).skills[0]).toBe(same)
+  })
+
+  it('remaps skill categories too, not only the three main registries', () => {
+    const store = {
+      ...emptyStore(),
+      skills: [makeSkill({ id: 's1', canonical_id: 'old' })],
+      skill_categories: [makeSkillCategory({ id: 'c1', canonical_id: 'old' })],
+    }
+    const out = remapCanonicalIds(store, { old: 'new' })
+    expect(out.skill_categories[0].canonical_id).toBe('new')
+  })
+
+  it('works on a store predating skill categories', () => {
+    const legacy = { ...emptyStore(), skills: [makeSkill({ id: 's1', canonical_id: 'old' })] }
+    delete (legacy as unknown as Record<string, unknown>).skill_categories
+    expect(remapCanonicalIds(legacy as never, { old: 'new' }).skills[0].canonical_id).toBe('new')
   })
 })
 

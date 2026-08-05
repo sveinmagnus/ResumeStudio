@@ -46,8 +46,8 @@ describe('<AuthGate>', () => {
 
   // Security skill: explicit logout must clear the server session cookie AND
   // wipe the local plaintext resume caches, so a shared machine doesn't retain
-  // the CV. (The token itself now lives only in an HttpOnly cookie, so there's
-  // nothing JS-readable to assert — we assert the logout call + cache wipe.)
+  // the CV. (The token lives only in an HttpOnly cookie, so there is nothing
+  // JS-readable to assert — we assert the logout call + the cache wipe.)
   it('"Clear local data" logs out + wipes caches with no prompt when nothing is unsynced', async () => {
     const logoutSpy = vi.spyOn(api, 'logout').mockResolvedValue(undefined)
     pending('r1', false)

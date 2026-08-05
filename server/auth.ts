@@ -130,8 +130,8 @@ export function presentedToken(req: Request): string | null {
  * - If set: requires a valid `Authorization: Bearer <token>` header OR a valid
  *   session cookie.
  *
- * All failure paths return the same generic 401 — splitting "missing" vs
- * "wrong" used to leak information about what the parser saw.
+ * All failure paths return the same generic 401: distinguishing "missing" from
+ * "wrong" leaks what the parser saw.
  */
 export function authMiddleware(req: Request, res: Response, next: NextFunction): void {
   if (!isAuthRequired()) {

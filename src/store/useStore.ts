@@ -294,13 +294,13 @@ export const useStore = create<AppState>((set, get) => {
     // goes through `mutate()`.
     dismissAttention: (key, until) => mutate((st) => patchResume(st, (r) => {
       const current = r.attention_dismissals ?? {}
-      if (current[key] === until) return null // no-op: already set to this value
+      if (current[key] === until) return null
       return { attention_dismissals: { ...current, [key]: until } }
     })),
 
     clearAttentionDismissal: (key) => mutate((st) => patchResume(st, (r) => {
       const current = r.attention_dismissals ?? {}
-      if (!(key in current)) return null // no-op: nothing to clear
+      if (!(key in current)) return null
       const next = { ...current }
       delete next[key]
       return { attention_dismissals: next }
@@ -308,7 +308,7 @@ export const useStore = create<AppState>((set, get) => {
 
     dismissDrift: (key) => mutate((st) => patchResume(st, (r) => {
       const current = r.drift_dismissals ?? []
-      if (current.includes(key)) return null // no-op: already ignored
+      if (current.includes(key)) return null
       return { drift_dismissals: [...current, key] }
     })),
 
@@ -322,7 +322,7 @@ export const useStore = create<AppState>((set, get) => {
 
     addSupportedLocale: (code) => mutate((st) => patchResume(st, (r) => {
       const c = code.trim().toLowerCase()
-      if (!c || r.supported_locales.includes(c)) return null // no-op: empty or already present
+      if (!c || r.supported_locales.includes(c)) return null
       return {
         supported_locales: sortLocales([...r.supported_locales, c]),
         updated_at: new Date().toISOString(),
@@ -333,7 +333,7 @@ export const useStore = create<AppState>((set, get) => {
 
     updateItem: (section, id, patch) => mutate((st) => {
       const arr = st.data[section] as Array<{ id: string }>
-      if (!arr.some((it) => it.id === id)) return null // no-op: id not found
+      if (!arr.some((it) => it.id === id)) return null
       const next = arr.map((it) => (it.id === id ? { ...it, ...patch } : it))
       return { data: { ...st.data, [section]: next } }
     }),
@@ -359,7 +359,7 @@ export const useStore = create<AppState>((set, get) => {
 
     removeItem: (section, id) => mutate((st) => {
       const arr = st.data[section] as Array<{ id: string }>
-      if (!arr.some((it) => it.id === id)) return null // no-op: id not found
+      if (!arr.some((it) => it.id === id)) return null
       return { data: { ...st.data, [section]: arr.filter((it) => it.id !== id) } }
     }),
 

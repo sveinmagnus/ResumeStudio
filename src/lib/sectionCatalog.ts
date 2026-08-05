@@ -1,9 +1,10 @@
 /**
  * PURE: the section-descriptor catalog (roadmap A5). One entry per content
  * section declaring how its items present as *data* — editor title/subtitle,
- * one-line summary, and the full item view. The three switches that used to
- * enumerate sections (`viewFilter.renderItem`, `viewFilter.getItemTitle/
- * getItemSubtitle`, `exporter.renderSection`) all read this catalog instead.
+ * one-line summary, and the full item view. Every render adapter
+ * (`viewFilter.renderItem`, `viewFilter.getItemTitle/getItemSubtitle`,
+ * `exporter.renderSection`) reads this catalog rather than enumerating sections
+ * in a switch of its own.
  *
  * SECURITY: descriptors return plain text or allowlisted rich-text *strings* —
  * never HTML/XML markup. The two render adapters own the escape boundary:
@@ -11,10 +12,9 @@
  * `exporter.ts` (TextRun, which XML-escapes) for DOCX. Do not concatenate
  * markup in this file.
  *
- * The HTML and DOCX paths historically drifted apart in small ways. Where the
- * drift is deliberate it is kept, but made *visible*: descriptors branch on
- * `ctx.target` so every per-path difference lives here, in one reviewed file,
- * instead of in two parallel switch statements.
+ * The HTML and DOCX paths differ in small ways. Every deliberate difference is
+ * made *visible*: descriptors branch on `ctx.target`, so it lives here in one
+ * reviewed file rather than drifting between two parallel switch statements.
  */
 
 import type { LocalizedString } from '../types'

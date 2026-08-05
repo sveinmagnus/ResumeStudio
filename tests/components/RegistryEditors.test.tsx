@@ -62,7 +62,8 @@ describe('<SkillsEditor> — add + merge', () => {
   it('auto-categorizes uncategorized skills from the library in the By category view', async () => {
     setSkillDomainsForTest({ TypeScript: 'Software Development', Kubernetes: 'Cloud & Infrastructure' })
     setSkillRelationsForTest({})
-    setSkillDomainModelForTest({}) // exact matches only — no semantic guessing here
+    // Exact matches only — no semantic guessing here
+    setSkillDomainModelForTest({})
     const kept = makeSkillCategory({ id: 'kept', name: { en: 'Kept' } })
     seed({
       ...emptyStore(),
@@ -85,7 +86,8 @@ describe('<SkillsEditor> — add + merge', () => {
     const skills = data.skills
     expect(nameOf(skills.find((s) => s.id === 's1')!.category_id!)).toBe('Software Development')
     expect(nameOf(skills.find((s) => s.id === 's2')!.category_id!)).toBe('Cloud & Infrastructure')
-    expect(skills.find((s) => s.id === 's3')!.category_id).toBe('kept') // manual category untouched
+    // Manual category untouched
+    expect(skills.find((s) => s.id === 's3')!.category_id).toBe('kept')
   })
 
   it('filters the skills list by effective category, with per-category counts', async () => {
@@ -160,7 +162,8 @@ describe('<SkillsEditor> — add + merge', () => {
     const skills = useStore.getState().data.skills
     expect(skills.find((s) => s.id === 's1')!.category_id).toBeNull()
     expect(skills.find((s) => s.id === 's2')!.category_id).toBeNull()
-    expect(skills.find((s) => s.id === 's3')!.category_id).toBe('data') // untouched
+    // Untouched
+    expect(skills.find((s) => s.id === 's3')!.category_id).toBe('data')
   })
 
   it('dismisses a related-skill suggestion without adding it', async () => {
@@ -172,7 +175,8 @@ describe('<SkillsEditor> — add + merge', () => {
     await userEvent.click(screen.getByRole('button', { name: /Dismiss Kanban/i }))
 
     expect(screen.queryByRole('button', { name: 'Kanban' })).not.toBeInTheDocument()
-    expect(useStore.getState().data.skills).toHaveLength(1) // nothing added
+    // Nothing added
+    expect(useStore.getState().data.skills).toHaveLength(1)
   })
 
   it('merges one skill into another when confirmed', async () => {
@@ -193,7 +197,8 @@ describe('<SkillsEditor> — add + merge', () => {
     await resolveConfirm('confirm')
 
     const skills = useStore.getState().data.skills
-    expect(skills).toHaveLength(1)        // source removed
+    // Source removed
+    expect(skills).toHaveLength(1)
     expect(skills[0].name.en).toBe('React')
     // The project's reference was rewritten to the target.
     expect(useStore.getState().data.projects[0].skills[0].skill_id).toBe(b.id)
@@ -318,9 +323,11 @@ describe('<IndustriesEditor> (A8.1)', () => {
     await resolveConfirm('confirm')
 
     const industries = useStore.getState().data.industries
-    expect(industries).toHaveLength(1)         // source removed
+    // Source removed
+    expect(industries).toHaveLength(1)
     expect(industries[0].id).toBe('b')
-    expect(useStore.getState().data.projects[0].industries[0].industry_id).toBe('b') // ref rewritten
+    // Ref rewritten
+    expect(useStore.getState().data.projects[0].industries[0].industry_id).toBe('b')
   })
 })
 
@@ -332,8 +339,10 @@ describe('<SkillsEditor> — batch missing-translation view', () => {
       data: {
         ...emptyStore(),
         skills: [
-          makeSkill({ id: 's1', name: { en: 'TypeScript' } }),          // missing 'no'
-          makeSkill({ id: 's2', name: { en: 'React', no: 'React' } }),  // complete
+          // Missing 'no'
+          makeSkill({ id: 's1', name: { en: 'TypeScript' } }),
+          // Complete
+          makeSkill({ id: 's2', name: { en: 'React', no: 'React' } }),
         ],
       },
       hasData: true, primaryLocale: 'en', secondaryLocale: 'no',
@@ -359,8 +368,10 @@ describe('<SkillsEditor> — batch missing-translation view', () => {
       data: {
         ...emptyStore(),
         skills: [
-          makeSkill({ id: 's1', name: { en: 'TypeScript' } }),          // missing 'no'
-          makeSkill({ id: 's2', name: { en: 'React', no: 'React' } }),  // complete
+          // Missing 'no'
+          makeSkill({ id: 's1', name: { en: 'TypeScript' } }),
+          // Complete
+          makeSkill({ id: 's2', name: { en: 'React', no: 'React' } }),
         ],
       },
       hasData: true, primaryLocale: 'en', secondaryLocale: 'no',
@@ -403,7 +414,8 @@ describe('<RolesEditor> — category view', () => {
         roles: [
           makeRole({ id: 'r1', name: { en: 'Solution Architect' }, category: 'Architecture' }),
           makeRole({ id: 'r2', name: { en: 'Backend Developer' }, category: 'Development' }),
-          makeRole({ id: 'r3', name: { en: 'Scrum Master' } }), // uncategorized
+          // Uncategorized
+          makeRole({ id: 'r3', name: { en: 'Scrum Master' } }),
         ],
       },
       hasData: true, primaryLocale: 'en', secondaryLocale: null,
@@ -431,7 +443,8 @@ describe('<RolesEditor> — category view', () => {
     expect(within(dialog).getByLabelText(/Role name/i)).toBeInTheDocument()
 
     await userEvent.type(within(dialog).getByPlaceholderText('Uncategorized'), 'Agile')
-    await userEvent.tab() // the category field commits on blur
+    // The category field commits on blur
+    await userEvent.tab()
     expect(useStore.getState().data.roles.find((r) => r.id === 'r3')!.category).toBe('Agile')
   })
 })
@@ -450,7 +463,8 @@ describe('<SkillsEditor> — category view', () => {
         skills: [
           makeSkill({ id: 's1', name: { en: 'React' }, category_id: 'frontend' }),
           makeSkill({ id: 's2', name: { en: 'PostgreSQL' }, category_id: 'data' }),
-          makeSkill({ id: 's3', name: { en: 'Docker' } }), // uncategorized
+          // Uncategorized
+          makeSkill({ id: 's3', name: { en: 'Docker' } }),
         ],
       },
       hasData: true, primaryLocale: 'en', secondaryLocale: null,
@@ -497,7 +511,8 @@ describe('<SkillsEditor> — category view', () => {
 
     const input = within(dialog).getByPlaceholderText('Uncategorized')
     await userEvent.type(input, 'Cloud Native')
-    expect((input as HTMLInputElement).value).toBe('Cloud Native') // space kept while typing
+    // Space kept while typing
+    expect((input as HTMLInputElement).value).toBe('Cloud Native')
     await userEvent.tab()
     const data = useStore.getState().data
     const s3 = data.skills.find((s) => s.id === 's3')!
@@ -551,7 +566,8 @@ describe('<SkillsEditor> — category view', () => {
     // Remove React's category via the chip "×": Frontend becomes empty but stays.
     await userEvent.click(screen.getByRole('button', { name: /remove category from React/i }))
     expect(useStore.getState().data.skills.find((s) => s.id === 's1')!.category_id).toBeNull()
-    expect(screen.getByText('Frontend')).toBeInTheDocument() // header persists (0 skills)
+    // Header persists (0 skills)
+    expect(screen.getByText('Frontend')).toBeInTheDocument()
     // Deleting it (trash) removes the category for good.
     await userEvent.click(screen.getByRole('button', { name: /Delete category "Frontend"/i }))
     expect(screen.queryByText('Frontend')).not.toBeInTheDocument()
@@ -559,7 +575,8 @@ describe('<SkillsEditor> — category view', () => {
   })
 
   it('reorders categories with the ↑/↓ header buttons (curated sort_order, not alphabetical)', async () => {
-    seedSkills() // Frontend (sort_order 0), Data (sort_order 1)
+    // Frontend (sort_order 0), Data (sort_order 1)
+    seedSkills()
     render(<SkillsEditor />)
     await userEvent.click(screen.getByRole('button', { name: /by category/i }))
 

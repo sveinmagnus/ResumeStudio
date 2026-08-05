@@ -105,9 +105,11 @@ describe('BackupWatcher', () => {
   })
 
   it('merges newer external edits picked up on the poll backstop', () => {
-    db.restoreResumes([entry({ saved_at: '2026-01-01T00:00:00.000Z' })]) // seed r1 (old)
+    // Seed r1 (old)
+    db.restoreResumes([entry({ saved_at: '2026-01-01T00:00:00.000Z' })])
     const w = make()
-    w.start() // empty folder → gate seeded empty
+    // Empty folder → gate seeded empty
+    w.start()
 
     // A sync service drops a newer r1 + a brand-new r2 into the folder.
     putFiles(dir, [
@@ -119,8 +121,10 @@ describe('BackupWatcher', () => {
 
     const byId = Object.fromEntries(db.dumpResumes().map((e) => [e.id, e]))
     expect(Object.keys(byId).sort()).toEqual(['r1', 'r2'])
-    expect(byId.r1.saved_at).toBe('2026-02-01T00:00:00.000Z') // updated to newer
-    expect(byId.r2).toBeTruthy()                              // inserted
+    // Updated to newer
+    expect(byId.r1.saved_at).toBe('2026-02-01T00:00:00.000Z')
+    // Inserted
+    expect(byId.r2).toBeTruthy()
     w.stop()
   })
 
@@ -211,7 +215,8 @@ describe('BackupWatcher', () => {
     fs.writeFileSync(file, '{ not json')
     fs.utimesSync(file, new Date('2027-01-01T00:00:00Z'), new Date('2027-01-01T00:00:00Z'))
     expect(() => pollOnce()).not.toThrow()
-    expect(db.dumpResumes()[0].saved_at).toBe('2026-01-01T00:00:00.000Z') // unchanged
+    // Unchanged
+    expect(db.dumpResumes()[0].saved_at).toBe('2026-01-01T00:00:00.000Z')
     expect(logs.some((l) => l.includes('unreadable'))).toBe(true)
 
     // Once the sync client finishes, a valid newer file merges on the next tick.
@@ -244,9 +249,11 @@ describe('BackupWatcher', () => {
     putFiles(dir, [entry({ saved_at: '2099-01-01T00:00:00.000Z' })], new Date('2027-01-01T00:00:00Z'))
     const restoreSpy = vi.spyOn(db, 'restoreResumes')
     const w = make()
-    w.start() // seeds the fingerprint from the existing folder
+    // Seeds the fingerprint from the existing folder
+    w.start()
 
-    pollOnce() // unchanged folder → cheap-exit, no read/merge
+    // Unchanged folder → cheap-exit, no read/merge
+    pollOnce()
     expect(restoreSpy).not.toHaveBeenCalled()
     w.stop()
   })
@@ -254,16 +261,19 @@ describe('BackupWatcher', () => {
   it('the outbound scheduler and inbound watcher do not collide (own write is a no-op)', () => {
     db.restoreResumes([entry()])
     const w = make()
-    w.start() // gate seeded empty (no files yet) so the next poll actually reads
+    // Gate seeded empty (no files yet) so the next poll actually reads
+    w.start()
 
     // A real scheduler writes our OWN current DB state to the same folder,
     // atomically (temp file + rename). The watcher must recognise it as ours
     // and NOT re-import it — the feedback-loop guard is the folder-vs-DB signature.
     const scheduler = new BackupScheduler({ db, dir, intervalMs: INTERVAL, log: (m) => logs.push(m) })
     const restoreSpy = vi.spyOn(db, 'restoreResumes')
-    scheduler.flush() // publishes one file per resume
+    // Publishes one file per resume
+    scheduler.flush()
 
-    pollOnce() // watcher reads the folder, folderSig === dbSig → returns before restoring
+    // Watcher reads the folder, folderSig === dbSig → returns before restoring
+    pollOnce()
     expect(restoreSpy).not.toHaveBeenCalled()
 
     scheduler.stop()
@@ -298,7 +308,8 @@ describe('BackupScheduler', () => {
       db.restoreResumes([entry(), entry({ id: 'r2', name: 'Second' })])
       const logs: string[] = []
       const s = new BackupScheduler({ db, dir, intervalMs: INTERVAL, log: (m) => logs.push(m) })
-      s.start() // runs one tick immediately
+      // Runs one tick immediately
+      s.start()
       expect(fs.readdirSync(dir).sort()).toEqual(['cv__r1.json', 'registry.json', 'second__r2.json'])
       expect(logs).toHaveLength(1)
 

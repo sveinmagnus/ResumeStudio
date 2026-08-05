@@ -35,7 +35,8 @@ async function normalizeImported(store: ResumeStore): Promise<ResumeStore> {
     ])
     return normalizeImportedSkills(store, taxonomy, classifications).store
   } catch {
-    return store // never let a taxonomy hiccup block an import
+    // A taxonomy hiccup must never block an import.
+    return store
   }
 }
 
@@ -180,7 +181,7 @@ export function ImportScreen({ compact = false, onStartFresh, onImported, onRest
       // own importer. Anything NOT matched here defaults to the Resume Studio
       // path (`importResumeStudio`) — so a self-created backup, current OR older
       // version, is the safe fallback and is never misrouted into a foreign
-      // importer (which is how a whole-store backup used to come back empty).
+      // importer, which maps none of its fields and yields an EMPTY resume.
       // Importing our own content is the priority; third-party formats are the
       // value-add layered on top.
       if (isEuropassJson(json)) {

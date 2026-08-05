@@ -21,7 +21,8 @@ beforeAll(() => {
   root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'rs-folders-')))
   fs.mkdirSync(path.join(root, 'Beta'))
   fs.mkdirSync(path.join(root, 'alpha'))
-  fs.writeFileSync(path.join(root, 'a-file.txt'), 'x') // a file, must be ignored
+  // A file, must be ignored
+  fs.writeFileSync(path.join(root, 'a-file.txt'), 'x')
 })
 
 afterAll(() => {

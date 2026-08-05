@@ -24,12 +24,17 @@ import { plainParagraphs } from './richText'
  */
 export interface LetterParts {
   senderName: string
-  senderContact: string[]     // email / phone / site lines, in reading order
-  dateline: string            // the place/date line
-  recipient: string[]         // addressee block lines (recipient, then company)
-  subject: string             // "Application for <role>", localized
+  /** Email / phone / site lines, in reading order. */
+  senderContact: string[]
+  /** The place/date line. */
+  dateline: string
+  /** Addressee block lines: recipient, then company. */
+  recipient: string[]
+  /** "Application for <role>", localized. */
+  subject: string
   greeting: string
-  paragraphs: string[]        // body split on blank lines
+  /** Body split on blank lines. */
+  paragraphs: string[]
   closing: string
   /** The view whose fonts the letter should borrow, or null for the resume default. */
   view: ResumeView | null

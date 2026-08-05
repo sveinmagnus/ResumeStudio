@@ -15,14 +15,14 @@
  *
  * ONE KIND OF LINE BREAK (see `blockify`). A value can arrive carrying three
  * different encodings of "new line" — a `<p>` boundary, a `<br>`, and a raw
- * newline in a text node (what the editor used to emit under
- * `white-space: pre-wrap`, and what every plain-text import carries). They used
- * to render differently in every target: the `<p>` got paragraph spacing, the
- * `<br>` got a tight break, and a raw newline became a break in the editor and
- * in PDF but a plain SPACE in the HTML preview and in Word. Invisible in the
- * editor, different in the export. So sanitising now CANONICALISES: outside a
- * list item every break becomes a `<p>` boundary, and the paragraph gap is one
- * shared value (`PARA_GAP_LINES`) in all four renderers.
+ * newline in a text node (what every plain-text import carries, and what a
+ * `white-space: pre-wrap` editor emits). Left alone they render differently per
+ * target: the `<p>` gets paragraph spacing, the `<br>` a tight break, and a raw
+ * newline becomes a break in the editor and in PDF but a plain SPACE in the HTML
+ * preview and in Word — invisible in the editor, different in the export. So
+ * sanitising CANONICALISES: outside a list item every break becomes a `<p>`
+ * boundary, and the paragraph gap is one shared value (`PARA_GAP_LINES`) across
+ * all four renderers.
  *
  * Pasted content (Word / Google Docs / websites) goes through the richer
  * `cleanPastedHtml` first: it maps style-based bold/italic/underline to tags,
@@ -527,7 +527,8 @@ function normalizePasted(el: Element): void {
   const tag = el.tagName
 
   if (tag === 'BR' || tag === 'UL' || tag === 'OL') return
-  if (tag === 'TD' || tag === 'TH') return // joined by the TR handler below
+  // Cells are joined into one line by the TR handler below.
+  if (tag === 'TD' || tag === 'TH') return
 
   const flags = effectiveInlineFlags(el)
   const anyFlag = flags.bold || flags.italic || flags.underline
@@ -651,7 +652,8 @@ function findWordListMarker(p: Element): Element | null {
  */
 export function richToPlain(html: string): string {
   if (!html) return ''
-  if (!hasMarkup(html)) return html  // fast path for plain-text values
+  // Fast path: a plain-text value has nothing to sanitise.
+  if (!hasMarkup(html)) return html
   const doc = new DOMParser().parseFromString(`<div id="root">${html}</div>`, 'text/html')
   const root = doc.getElementById('root')
   if (!root) return ''
@@ -853,7 +855,8 @@ function walkBlocks(node: Element, out: RichBlock[], inline: InlineState, list: 
       continue
     }
     if (tag === 'LI') {
-      if (!list.listKind) continue  // stray <li>
+    // A stray <li> with no enclosing list.
+    if (!list.listKind) continue
       list.counter += 1
       const runs = collectInlineRuns(el, inline)
       if (runs.length) {

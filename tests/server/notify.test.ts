@@ -10,7 +10,8 @@ describe('buildNotifyCommand', () => {
     expect(c.cmd).toBe('powershell')
     const script = c.args[c.args.length - 1]
     expect(script).toContain('System.Windows.Forms.MessageBox')
-    expect(script).toContain("'It''s current'") // '' escapes the apostrophe
+    // '' escapes the apostrophe
+    expect(script).toContain("'It''s current'")
     expect(script).toContain("'Resume Studio'")
     // no unescaped double quotes that Node's arg quoting would mangle
     expect(script).not.toContain('"')
@@ -21,8 +22,10 @@ describe('buildNotifyCommand', () => {
     expect(c.cmd).toBe('osascript')
     expect(c.args[0]).toBe('-e')
     expect(c.args[1]).toContain('display dialog')
-    expect(c.args[1]).toContain('\\"hi\\"')   // escaped quotes
-    expect(c.args[1]).toContain('\\\\done')   // escaped backslash
+    // Escaped quotes
+    expect(c.args[1]).toContain('\\"hi\\"')
+    // Escaped backslash
+    expect(c.args[1]).toContain('\\\\done')
   })
 
   it('Linux → notify-send with title + message as direct args (no shell)', () => {
@@ -39,7 +42,8 @@ describe('confirm dialog builders (Install / Cancel)', () => {
     expect(s).toContain("$cancel.Text = 'Cancel'")
     expect(s).toContain('exit 0')
     expect(s).toContain('exit 1')
-    expect(s).toContain("'It''s here'") // single-quote escaped
+    // Single-quote escaped
+    expect(s).toContain("'It''s here'")
   })
 
   it('macOS → osascript dialog with Cancel/Install buttons, Install default', () => {
@@ -47,7 +51,8 @@ describe('confirm dialog builders (Install / Cancel)', () => {
     expect(s).toContain('display dialog')
     expect(s).toContain('buttons {"Cancel", "Install"}')
     expect(s).toContain('default button "Install"')
-    expect(s).toContain('\\"build\\"') // escaped quotes
+    // Escaped quotes
+    expect(s).toContain('\\"build\\"')
   })
 
   it('Linux → zenity question with Install/Cancel labels', () => {

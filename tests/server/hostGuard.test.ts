@@ -28,8 +28,10 @@ describe('desktop DNS-rebinding guard', () => {
   beforeAll(async () => {
     process.env.RESUME_DB_PATH = ':memory:'
     process.env.RESUME_RATE_LIMIT_MAX = '1000000'
-    process.env.RESUME_DESKTOP = '1'       // arm the guard
-    delete process.env.RESUME_API_TOKEN    // auth disabled (the desktop case)
+    // Arm the guard
+    process.env.RESUME_DESKTOP = '1'
+    // Auth disabled (the desktop case)
+    delete process.env.RESUME_API_TOKEN
     const { createApp } = await import('../../server/app')
     app = createApp()
   })
@@ -61,7 +63,8 @@ describe('host guard is disarmed off the desktop build', () => {
   beforeAll(async () => {
     process.env.RESUME_DB_PATH = ':memory:'
     process.env.RESUME_RATE_LIMIT_MAX = '1000000'
-    delete process.env.RESUME_DESKTOP     // VPS/dev: guard off
+    // VPS/dev: guard off
+    delete process.env.RESUME_DESKTOP
     delete process.env.RESUME_API_TOKEN
     const { createApp } = await import('../../server/app')
     app = createApp()

@@ -71,8 +71,8 @@ export function AtsAuditPanel({ view }: { view: ResumeView }) {
   const gaps = coverage?.terms.filter((t) => t.status !== 'present').map((t) => t.term) ?? []
 
   // The paid second pass is scoped to this view and held in the run store:
-  // acting on an `elsewhere` verdict means leaving to re-include an item, which
-  // used to throw the report away.
+  // acting on an `elsewhere` verdict means navigating away to re-include an
+  // item, and component state would lose the report on the way.
   const { ref, result: model, parseError: error } = useAdvisorRun<AtsModelResult>(
     'ats',
     jsonReply((json) => validateAtsResponse(json, gaps)),

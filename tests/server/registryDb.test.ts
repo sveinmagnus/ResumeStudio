@@ -81,8 +81,10 @@ describe('registry CRUD', () => {
     expect(second.ok).toBe(true)
     if (!second.ok) return
     expect(second.created).toBe(false)
-    expect(second.entry.id).toBe(first.entry.id) // same canonical entry
-    expect(db.listRegistry('skill')).toHaveLength(1) // no duplicate row
+    // Same canonical entry
+    expect(second.entry.id).toBe(first.entry.id)
+    // No duplicate row
+    expect(db.listRegistry('skill')).toHaveLength(1)
   })
 
   it('persists skill extras (classification / category link)', () => {
@@ -107,9 +109,12 @@ describe('promoteFromResumes()', () => {
     skill_categories: [{ name: { en: 'Cloud' } }],
   }
   const resumeB = {
-    skills: [{ name: { en: 'React.js' } }, { name: { en: 'Kafka' } }], // React.js ≡ React
-    roles: [{ name: { en: 'Architect' } }],                            // dup of A's
-    industries: [{ name: { en: 'Finance', no: 'Finans' } }],           // same key → union adds `no`
+    // React.js ≡ React
+    skills: [{ name: { en: 'React.js' } }, { name: { en: 'Kafka' } }],
+    // Dup of A's
+    roles: [{ name: { en: 'Architect' } }],
+    // Same key → union adds `no`
+    industries: [{ name: { en: 'Finance', no: 'Finans' } }],
     skill_categories: [],
   }
 
@@ -187,7 +192,8 @@ describe('mergeRegistry() — desktop cross-machine sync', () => {
     const db = freshDb()
     db.upsertRegistryEntry({ kind: 'role', name: { en: 'SRE' } })
     db.mergeRegistry([{ id: '', kind: 'skill', key: '', name: {}, extra: {}, version: 1, updated_at: '' } as never])
-    expect(db.listRegistry('role')).toHaveLength(1) // untouched
+    // Untouched
+    expect(db.listRegistry('role')).toHaveLength(1)
   })
 
   it('skips a colliding-id row (tampered file) instead of aborting the whole merge', () => {
@@ -201,8 +207,10 @@ describe('mergeRegistry() — desktop cross-machine sync', () => {
       entry(local.entry.id, 'role', 'architect', { en: 'Architect' }, '2999-01-01T00:00:00Z'),
       entry('remote-good', 'skill', 'go', { en: 'Go' }, '2999-01-01T00:00:00Z'),
     ])
-    expect(r).toEqual({ added: 1, updated: 0 })          // only the valid sibling
-    expect(db.getRegistryEntry(local.entry.id)?.kind).toBe('skill') // original intact
+    // Only the valid sibling
+    expect(r).toEqual({ added: 1, updated: 0 })
+    // Original intact
+    expect(db.getRegistryEntry(local.entry.id)?.kind).toBe('skill')
     expect(db.getRegistryEntry('remote-good')?.name.en).toBe('Go')
   })
 })

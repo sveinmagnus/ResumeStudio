@@ -28,6 +28,19 @@ describe('normalizeKey', () => {
     ['Java 8', 'java'],           // trailing version dropped
     ['Angular v14', 'angular'],   // v-version dropped
     ['C#', 'c'],                  // punctuation stripped
+    // A combining accent folds away, so an accented name matches however it
+    // was typed. 'ø' is its own letter rather than o+accent, so NFKD leaves it
+    // and it becomes a separator — worth pinning, since it decides whether
+    // "Løsningsarkitektur" is one token or two.
+    ['Café Systems', 'cafe systems'],
+    ['Løsningsarkitektur', 'l sningsarkitektur'],
+    // Several separators in a row collapse to one gap, not several.
+    ['React -- Native', 'react native'],
+    ['  spaced   out  ', 'spaced out'],
+    // A version token is dropped wherever it sits, and a pure number alone
+    // leaves nothing behind.
+    ['Java 8 SE', 'java se'],
+    ['2024', ''],
   ])('normalizes %j → %j', (input, expected) => {
     expect(normalizeKey(input)).toBe(expected)
   })

@@ -136,7 +136,8 @@ function titleOf(item: Record<string, unknown>, locale: string): string {
 function deltaLabel(prev: string, next: string): string {
   const d = stripTags(next).length - stripTags(prev).length
   if (d > 0) return `+${d} chars`
-  if (d < 0) return `−${-d} chars` // U+2212 minus sign
+  // U+2212 MINUS SIGN, not a hyphen — it aligns with the digits.
+  if (d < 0) return `−${-d} chars`
   return 'edited'
 }
 

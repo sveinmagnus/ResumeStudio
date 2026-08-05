@@ -50,7 +50,8 @@ describe('routeClick', () => {
 
   it('ignores the version header, unknown titles, and undefined', () => {
     const h = handlers()
-    routeClick('Cartavio Resume Studio v0.2.1', h, titles) // disabled header
+    // Disabled header
+    routeClick('Cartavio Resume Studio v0.2.1', h, titles)
     routeClick('Something else', h, titles)
     routeClick(undefined, h, titles)
     expect(h.calls).toEqual([])
