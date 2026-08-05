@@ -71,8 +71,10 @@ describe('emptySummaryTargets()', () => {
       ],
     })
     expect(emptySummaryTargets(s, 'courses', ['no', 'en'])).toEqual([
-      { id: 'c1', locale: 'no', source: 'Lang norsk tekst' },
-      { id: 'c1', locale: 'en', source: 'Long English text' },
+      // Each job carries the item's heading, so the batch and the per-field
+      // button send the model the same "don't restate this" context.
+      { id: 'c1', locale: 'no', source: 'Lang norsk tekst', context: ['Course: A Course'] },
+      { id: 'c1', locale: 'en', source: 'Long English text', context: ['Course: A Course'] },
     ])
   })
 

@@ -21,7 +21,7 @@
  * and language pair.
  */
 
-import { chatComplete, isLlmConfigured, languageNameOf, LlmError } from './llm.js'
+import { chatComplete, isLlmConfigured, languageDirective, languageNameOf, LlmError } from './llm.js'
 import {
   ensureDeeplGlossary, glossaryPromptBlock, googleMarkup, googleUnmarkup,
   type WireGlossary,
@@ -330,33 +330,125 @@ export async function translate(
   }
 }
 
-// The target language is named THREE times, including as the final instruction:
-// smaller models weight the most recent instruction heavily, and the reported
-// bug (Norwegian coming back as Swedish) is exactly a weak-target-signal failure
-// for close languages. The language names carry their native form too (see
-// LANG_NAMES) so "{TARGET}" reads e.g. "Norwegian Bokmål (norsk bokmål)".
-const LLM_TRANSLATE_PROMPT =
-  'You are a professional translation engine for résumé/CV content. ' +
-  'Translate the user message from {SOURCE} into {TARGET}. ' +
-  'Preserve the original line breaks, capitalisation style and any HTML tags exactly. ' +
-  'Keep proper nouns, company names, product names and technology names untranslated. ' +
-  'If the text is already written in {TARGET}, return it unchanged. ' +
-  'Output ONLY the translation — no preamble, explanation, quotes or markdown fences. ' +
-  'Your entire response MUST be written in {TARGET} and in no other language.'
+/**
+ * The target language is named FOUR times and, crucially, twice in the turn the
+ * model reads immediately before generating: once as the task line above the
+ * text and once as the closing instruction below it, in the target language
+ * itself (see `languageDirective`).
+ *
+ * The previous version said all of this in the system prompt only, and it was
+ * not enough on 8B-class local models — the reported failure (English→Norwegian
+ * answered in Swedish) kept happening. Chat templates render the system message
+ * far from the generation point and some Ollama modelfiles dilute or drop it
+ * altogether, so an instruction that lives only there is the weakest place to
+ * put the one thing that must not be got wrong.
+ *
+ * Note what is NOT here: the languages it must avoid. Writing "not Swedish"
+ * into the prompt puts Swedish tokens in the context, which is the opposite of
+ * what a confusable target needs.
+ */
+const LLM_TRANSLATE_RULES = [
+  'You are a professional translation engine for résumé/CV content.',
+  'You translate from {SOURCE} into {TARGET}.',
+  'Preserve the original line breaks, capitalisation style and any HTML tags exactly.',
+  'Keep proper nouns, company names, product names and technology names untranslated.',
+  'If the text is already written in {TARGET}, return it unchanged.',
+  'Output ONLY the translation — no preamble, explanation, quotes or markdown fences.',
+  'Your entire response MUST be written in {TARGET} and in no other language.',
+].join(' ')
+
+/** The user turn: the task, the delimited source, then the target restated last. */
+const LLM_TRANSLATE_TASK = [
+  'Translate the text between the ### markers from {SOURCE} into {TARGET}.',
+  '',
+  '###',
+  '{TEXT}',
+  '###',
+  '',
+  'Output only the {TARGET} translation of that text — no markers, no notes, no original text.',
+  '{DIRECTIVE}',
+].join('\n')
+
+/** Retry line, added when the first reply came back in the wrong language. */
+const LLM_TRANSLATE_INSIST =
+  'The previous attempt was not written in {TARGET}. Every word of your answer must be {TARGET}.'
 
 /**
  * Strip the wrapper an LLM sometimes adds despite instructions. Unlike
  * `tidyLine` (summarize), this must PRESERVE the body: a CV field can be
  * several sentences or lines, so only fences and whole-text wrapping quotes go.
+ *
+ * The `###` markers the prompt wraps the source in are stripped too: delimiters
+ * are what make a weak model treat the text as data rather than instructions,
+ * and the price is that it sometimes echoes them back around its answer.
  */
 export function tidyTranslation(raw: string): string {
   let s = raw.trim()
   s = s.replace(/^```[a-z]*\r?\n?/i, '').replace(/\r?\n?```$/i, '').trim()
+  // Echoed delimiter lines, leading and trailing only — a '###' inside the body
+  // could be the user's own text.
+  s = s.replace(/^#{2,}[ \t]*\r?\n/, '').replace(/\r?\n[ \t]*#{2,}$/, '').trim()
   // Wrapping quotes only when they enclose the WHOLE text (not an inner quote).
   if (s.length > 1 && /^["“']/.test(s) && /["”']$/.test(s) && !/["”']/.test(s.slice(1, -1))) {
     s = s.slice(1, -1).trim()
   }
   return s
+}
+
+/**
+ * Markers that a piece of text is in a language OTHER than the mainland
+ * Scandinavian one we asked for. Function words and letters only — no
+ * dictionary, no dependency.
+ *
+ * Why only these three: they are the pairs a model actually confuses (a request
+ * for Norwegian answered in Swedish or Danish), and they are close enough that a
+ * handful of everyday words separates them reliably. For every other target the
+ * guard is a no-op, which is correct — a model does not answer a French request
+ * in Polish.
+ */
+const SCANDINAVIAN_MARKERS: Record<string, RegExp[]> = {
+  // Swedish: the vowels Norwegian/Danish write as æ/ø, plus everyday words with
+  // a different form in both of the others.
+  se: [/[äö]/i, /\boch\b/i, /\bär\b/i, /\bför\b/i, /\bfrån\b/i, /\binte\b/i, /\bmycket\b/i, /\bäven\b/i],
+  // Danish: 'af' (no/se 'av'), 'meget' (no 'mye'), 'nogle/nogen' (no 'noen'),
+  // and the -tion ending Norwegian writes -sjon.
+  dk: [/\baf\b/i, /\bmeget\b/i, /\bnogle\b/i, /\bnogen\b/i, /\b\w{3,}tion(er|en|erne|s)?\b/i],
+  // Norwegian: æ/ø against Swedish, -sjon against both, 'mye', 'ikke' (se 'inte').
+  no: [/[æø]/i, /\b\w{3,}sjon(er|en|ene|s)?\b/i, /\bmye\b/i, /\bikke\b/i],
+}
+
+/** Which languages count as "wrong" for a given Scandinavian target. */
+const SCANDINAVIAN_RIVALS: Record<string, string[]> = {
+  no: ['se', 'dk'],
+  se: ['no', 'dk'],
+  dk: ['se', 'no'],
+}
+
+/**
+ * True when `text` carries at least two distinct markers of a language that is
+ * NOT `target` — our "the model answered in Swedish again" detector.
+ *
+ * Two markers, not one, on purpose: a Norwegian CV line legitimately containing
+ * a Swedish customer name (Öhlins) trips exactly one, and re-running a correct
+ * translation costs the user time and tokens. Two everyday markers in a field
+ * this short is not a loanword, it is the wrong language.
+ *
+ * Exported for the tests, which are the only reason to believe it discriminates.
+ */
+export function looksWrongLanguage(text: string, target: string): boolean {
+  const rivals = SCANDINAVIAN_RIVALS[target]
+  if (!rivals) return false
+  const own = SCANDINAVIAN_MARKERS[target] ?? []
+  for (const rival of rivals) {
+    const hits = (SCANDINAVIAN_MARKERS[rival] ?? []).filter((re) => re.test(text)).length
+    if (hits < 2) continue
+    // Don't fire when the target's own markers are just as present — mainland
+    // Scandinavian shares most of its vocabulary, and a text showing both is
+    // more likely a mixed quotation than a whole answer in the wrong language.
+    if (own.filter((re) => re.test(text)).length >= hits) continue
+    return true
+  }
+  return false
 }
 
 /**
@@ -377,26 +469,55 @@ async function translateLlm(
   if (!from || !to) {
     throw new TranslateError(400, `The AI translator does not support ${!from ? source : target}`)
   }
-  // The glossary rides in the SYSTEM message, after the instructions: it is a
-  // constraint on how to translate, not content to translate. Already scoped by
-  // the client to terms present in this text, so it stays a few lines even on a
-  // CV with hundreds of registry entries — small enough for a 3B model to obey.
+  const fill = (s: string) => s.replace(/\{SOURCE\}/g, from).replace(/\{TARGET\}/g, to)
+  // The glossary rides in the SYSTEM message, as a constraint on how to
+  // translate rather than content to translate — but BEFORE the closing
+  // language line, so the last thing the system message says is still which
+  // language to answer in. Already scoped by the client to terms present in this
+  // text, so it stays a few lines even on a CV with hundreds of registry
+  // entries — small enough for a 3B model to obey.
   const block = glossaryPromptBlock(glossary)
-  try {
+  const directive = languageDirective(target)
+  const system = fill(LLM_TRANSLATE_RULES)
+    + (block ? `\n\n${block}` : '')
+    + (directive ? `\n\n${directive}` : '')
+
+  const ask = async (insist: boolean): Promise<string> => {
+    const closing = insist ? `${fill(LLM_TRANSLATE_INSIST)} ${directive}`.trim() : directive
+    // Replacer FUNCTIONS, not strings: a CV field containing "$1" or "$&" would
+    // otherwise be mangled by String.replace's substitution patterns.
+    const user = fill(LLM_TRANSLATE_TASK)
+      .replace('{TEXT}', () => text)
+      .replace('{DIRECTIVE}', () => closing)
+      .trimEnd()
     const raw = await chatComplete(
       [
-        {
-          role: 'system',
-          content: LLM_TRANSLATE_PROMPT.replace('{SOURCE}', from).replace(/\{TARGET\}/g, to)
-            + (block ? `\n\n${block}` : ''),
-        },
-        { role: 'user', content: text },
+        { role: 'system', content: system },
+        { role: 'user', content: user },
       ],
       // Generous headroom: translations run longer than the source, and a hard
-      // cut mid-sentence would silently truncate a CV field.
-      { maxTokens: 1600, temperature: 0.1 },
+      // cut mid-sentence would silently truncate a CV field. Temperature 0 —
+      // there is a right answer here, and sampling is one of the ways a model
+      // wanders into a neighbouring language.
+      { maxTokens: 1600, temperature: 0 },
     )
-    const out = tidyTranslation(raw)
+    return tidyTranslation(raw)
+  }
+
+  try {
+    let out = await ask(false)
+    // One retry, and only on hard evidence (see looksWrongLanguage). Prompting
+    // alone has been tried twice for this failure; a model that has already
+    // answered in the wrong language is best given the instruction again with
+    // its mistake named, and if it insists we hand back the second attempt
+    // rather than a third round-trip the user is waiting on.
+    if (out && looksWrongLanguage(out, target)) {
+      // A failed retry must not lose the answer we already have: a suspect
+      // draft the user can fix beats an error message, and the whole feature is
+      // review-required anyway.
+      const retried = await ask(true).catch(() => '')
+      if (retried) out = retried
+    }
     if (!out) throw new TranslateError(502, 'The AI model returned no translation')
     return out
   } catch (err) {

@@ -35,8 +35,8 @@ export interface TranslationAssist {
   copyBetween: (from: string, to: string) => void
   /** Draft a translation of `from` into `to`. */
   draftBetween: (from: string, to: string) => Promise<void>
-  /** Summarize `source` into `locale`. */
-  summarizeInto: (locale: string, source: string) => Promise<void>
+  /** Summarize `source` into `locale`, telling the model what the heading already says. */
+  summarizeInto: (locale: string, source: string, context?: string[]) => Promise<void>
   /**
    * Clear a locale's draft/summary/error annotations — call when the user
    * edits that column, since they've now taken ownership of the text.
@@ -108,9 +108,9 @@ export function useTranslationAssist(
     return run(to, () => api.translate(source, from, to, glossary), setDraftedLocale, 'Translation failed')
   }
 
-  const summarizeInto = (locale: string, source: string) => {
+  const summarizeInto = (locale: string, source: string, context: string[] = []) => {
     if (!source) return Promise.resolve()
-    return run(locale, () => api.summarize(source, locale), setSummarizedLocale, 'Summarize failed')
+    return run(locale, () => api.summarize(source, locale, context), setSummarizedLocale, 'Summarize failed')
   }
 
   return {

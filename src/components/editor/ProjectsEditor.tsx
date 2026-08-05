@@ -102,7 +102,7 @@ export function ProjectsEditor() {
 
           <div className="sub-block">
             <div className="sub-head">Short description <span className="sub-hint">shown in summary mode</span></div>
-            <DualField label="Short description" value={p.short_description ?? {}} onChange={(v) => updateItem('projects', p.id, { short_description: v })} summarizeFrom={p.long_description} placeholder="One concise line shown in summary mode" />
+            <DualField label="Short description" value={p.short_description ?? {}} onChange={(v) => updateItem('projects', p.id, { short_description: v })} summarizeFrom={p.long_description} summarizeItem={{ section: 'projects', item: p }} placeholder="One concise line shown in summary mode" />
           </div>
 
           <HighlightsEditor project={p} />

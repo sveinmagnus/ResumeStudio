@@ -247,35 +247,66 @@ export function llmInfo(config?: LlmConfig): LlmInfo {
 }
 
 /**
- * App locale code → the language name we put in the prompt. One entry per
- * offered locale (LOCALE_LABELS in src/lib/locales.ts) — an unlisted code
- * degrades to "the same language as the input", which is a sane fallback for
- * summarising but would silently no-op a TRANSLATION, so this table must track
- * the offered set.
+ * App locale code → how a prompt names that language. One entry per offered
+ * locale (LOCALE_LABELS in src/lib/locales.ts) — an unlisted code degrades to
+ * "the same language as the input", which is a sane fallback for summarising but
+ * would silently no-op a TRANSLATION, so this table must track the offered set.
  *
- * The name is English (what models resolve most reliably) PLUS the native name
- * in parentheses. The native word is a strong anchor for smaller models, which
+ * `name` is English (what models resolve most reliably) PLUS the native name in
+ * parentheses. The native word is a strong anchor for smaller models, which
  * otherwise conflate close languages — the reported bug was English→Norwegian
  * coming back Swedish, because "Norwegian" alone doesn't distinguish Bokmål from
  * Swedish in a 3B model's representation. `no` is spelled out as Bokmål (the
  * app's `no` is Bokmål, per the CVpartner convention) so the target is
  * unmistakable.
+ *
+ * `directive` is the same instruction WRITTEN IN THAT LANGUAGE. Naming the
+ * target in English three times was not enough on 8B-class models (it kept
+ * coming back Swedish), and the reason is mechanical: an all-English prompt
+ * leaves every token the model has seen so far pointing at English-adjacent
+ * output, so the first generated token is decided by a single content word.
+ * A sentence in the target language moves that prior — the model is already
+ * "speaking" Bokmål before it reaches the text. It is also the one signal that
+ * distinguishes bokmål from svenska WITHOUT naming the wrong language, which
+ * would only prime it (never write "not Swedish" into a prompt).
  */
-const LANG_NAMES: Record<string, string> = {
-  en: 'English', no: 'Norwegian Bokmål (norsk bokmål)', se: 'Swedish (svenska)', dk: 'Danish (dansk)',
-  de: 'German (Deutsch)', fr: 'French (français)', es: 'Spanish (español)', it: 'Italian (italiano)',
-  nl: 'Dutch (Nederlands)', pt: 'Portuguese (português)', pl: 'Polish (polski)', fi: 'Finnish (suomi)',
-  is: 'Icelandic (íslenska)', ru: 'Russian (русский)', uk: 'Ukrainian (українська)',
+interface LangEntry { name: string; directive: string }
+
+const LANGUAGES: Record<string, LangEntry> = {
+  en: { name: 'English', directive: 'Write your entire answer in English.' },
+  no: { name: 'Norwegian Bokmål (norsk bokmål)', directive: 'Skriv hele svaret på norsk bokmål.' },
+  se: { name: 'Swedish (svenska)', directive: 'Skriv hela svaret på svenska.' },
+  dk: { name: 'Danish (dansk)', directive: 'Skriv hele svaret på dansk.' },
+  de: { name: 'German (Deutsch)', directive: 'Schreibe die gesamte Antwort auf Deutsch.' },
+  fr: { name: 'French (français)', directive: 'Rédige toute ta réponse en français.' },
+  es: { name: 'Spanish (español)', directive: 'Escribe toda la respuesta en español.' },
+  it: { name: 'Italian (italiano)', directive: 'Scrivi tutta la risposta in italiano.' },
+  nl: { name: 'Dutch (Nederlands)', directive: 'Schrijf je volledige antwoord in het Nederlands.' },
+  pt: { name: 'Portuguese (português)', directive: 'Escreva toda a resposta em português.' },
+  pl: { name: 'Polish (polski)', directive: 'Napisz całą odpowiedź po polsku.' },
+  fi: { name: 'Finnish (suomi)', directive: 'Kirjoita koko vastaus suomeksi.' },
+  is: { name: 'Icelandic (íslenska)', directive: 'Skrifaðu allt svarið á íslensku.' },
+  ru: { name: 'Russian (русский)', directive: 'Напишите весь ответ на русском языке.' },
+  uk: { name: 'Ukrainian (українська)', directive: 'Напишіть усю відповідь українською мовою.' },
 }
 
 /** The English name of a locale's language, or null when we don't know it. */
 export function languageNameOf(locale: string): string | null {
-  return LANG_NAMES[locale] ?? null
+  return LANGUAGES[locale]?.name ?? null
 }
 
 /** The language name for a prompt, with a safe fallback for unknown codes. */
 export function languageName(locale: string): string {
-  return LANG_NAMES[locale] ?? 'the same language as the input'
+  return LANGUAGES[locale]?.name ?? 'the same language as the input'
+}
+
+/**
+ * The "answer in this language" sentence, written in the language itself — the
+ * closing anchor of every prompt whose output language matters. Empty for a
+ * code we don't know, so callers can append it unconditionally.
+ */
+export function languageDirective(locale: string): string {
+  return LANGUAGES[locale]?.directive ?? ''
 }
 
 /** Raised for any upstream/LLM failure; carries a safe HTTP status. */

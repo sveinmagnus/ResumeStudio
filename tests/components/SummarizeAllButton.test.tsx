@@ -144,8 +144,32 @@ describe('SummarizeAllButton — running the batch', () => {
         no: '[no] Norsk kilde', en: '[en] English source',
       })
     })
-    expect(spy).toHaveBeenCalledWith('Norsk kilde', 'no')
-    expect(spy).toHaveBeenCalledWith('English source', 'en')
+    expect(spy).toHaveBeenCalledWith('Norsk kilde', 'no', ['Course: A Course'])
+    expect(spy).toHaveBeenCalledWith('English source', 'en', ['Course: A Course'])
+  })
+
+  it('sends the item heading so the draft does not just restate it', async () => {
+    // The reported failure was a summary that repeated the customer and title.
+    // The model can only know those are already on screen if we tell it, and the
+    // batch has to send the same context the per-field button does.
+    backend(true)
+    const spy = vi.spyOn(api, 'summarize').mockResolvedValue('Drafted')
+    seed([makeCourse({
+      id: 'c1',
+      name: { en: 'Kubernetes Fundamentals' },
+      program: { en: 'CNCF' },
+      description: { en: 'Three days of hands-on cluster work' },
+    })], 'en')
+    render(<SummarizeAllButton section="courses" />)
+    await userEvent.click(await screen.findByRole('button', { name: /Bulk summarize \(1\)/ }))
+    await resolveConfirm('confirm')
+
+    await waitFor(() => expect(spy).toHaveBeenCalled())
+    expect(spy).toHaveBeenCalledWith(
+      'Three days of hands-on cluster work',
+      'en',
+      ['Course: Kubernetes Fundamentals', 'Programme: CNCF'],
+    )
   })
 
   it('applies the whole batch as ONE undo step', async () => {

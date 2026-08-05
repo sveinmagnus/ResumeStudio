@@ -213,7 +213,15 @@ router.post('/llm/test', (req: Request, res: Response): void => {
     if (cfg.provider === 'off') { res.json({ reachable: false, message: 'No AI provider is selected.' }); return }
     if (!cfg.model) { res.json({ reachable: false, message: 'Set a model name first (e.g. "llama3.2:3b").' }); return }
     try {
-      const out = await summarize('Led a small team building a customer-facing web app in React and Node.', 'en', cfg)
+      // A heading is passed too, so the test exercises the same prompt shape the
+      // editor sends rather than a simpler one that could pass while the real
+      // path fails.
+      const out = await summarize(
+        'Led a small team building a customer-facing web app in React and Node.',
+        'en',
+        ['Customer: Nordic Retail AS', 'Project name: Self-service portal'],
+        cfg,
+      )
       res.json({ reachable: true, message: `Working — e.g. "${out}"` })
     } catch (err) {
       res.json({ reachable: false, message: err instanceof LlmError ? err.message : 'AI assist test failed.' })

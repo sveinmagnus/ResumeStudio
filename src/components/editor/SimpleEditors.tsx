@@ -44,13 +44,16 @@ function thisMonth(): { year: number; month: number } {
  * carries with the same label, placeholder and `?? {}` fallback — only the
  * section, item and summarize source differ. Ten verbatim copies otherwise.
  *
- * `from` is the long-form field the AI Summarize affordance drafts from.
+ * `from` is the long-form field the AI Summarize affordance drafts from, and
+ * `item` is the whole entry — the summarizer is told what its heading already
+ * says (employer, school, title) so the drafted line doesn't just repeat it.
  */
 function ShortDescriptionField<K extends 'work_experiences' | 'educations' | 'courses'
   | 'certifications' | 'positions' | 'presentations' | 'publications' | 'honor_awards'
-  | 'recommendations' | 'key_competencies'>({ section, id, value, from }: {
+  | 'recommendations' | 'key_competencies'>({ section, id, item, value, from }: {
   section: K
   id: string
+  item: object
   value: LocalizedString | undefined
   from: LocalizedString
 }) {
@@ -61,6 +64,7 @@ function ShortDescriptionField<K extends 'work_experiences' | 'educations' | 'co
       value={value ?? {}}
       onChange={(v) => updateItem(section, id, { short_description: v } as never)}
       summarizeFrom={from}
+      summarizeItem={{ section, item }}
       placeholder="One concise line shown in summary mode"
     />
   )
@@ -120,7 +124,7 @@ export function WorkEditor() {
             section="work_experiences" item={w} source={w.long_description ?? {}} locale={primaryLocale} noun="description"
             onApply={(html) => updateItem('work_experiences', w.id, { long_description: { ...w.long_description, [primaryLocale]: html } })}
           />
-          <ShortDescriptionField section="work_experiences" id={w.id} value={w.short_description} from={w.long_description} />
+          <ShortDescriptionField section="work_experiences" id={w.id} item={w} value={w.short_description} from={w.long_description} />
           <FieldRow>
             <DateField label="Start" value={w.start} onChange={(v) => updateItem('work_experiences', w.id, { start: v })} />
             <DateField label="End" value={w.end} onChange={(v) => updateItem('work_experiences', w.id, { end: v })} allowOngoing />
@@ -283,7 +287,7 @@ export function EducationEditor() {
             section="educations" item={e} source={e.description ?? {}} locale={primaryLocale} noun="description"
             onApply={(html) => updateItem('educations', e.id, { description: { ...e.description, [primaryLocale]: html } })}
           />
-          <ShortDescriptionField section="educations" id={e.id} value={e.short_description} from={e.description} />
+          <ShortDescriptionField section="educations" id={e.id} item={e} value={e.short_description} from={e.description} />
           <FieldRow>
             <DateField label="Start" value={e.start} onChange={(v) => updateItem('educations', e.id, { start: v })} />
             <DateField label="End" value={e.end} onChange={(v) => updateItem('educations', e.id, { end: v })} allowOngoing />
@@ -337,7 +341,7 @@ export function CoursesEditor() {
             section="courses" item={c} source={c.description ?? {}} locale={primaryLocale} noun="description"
             onApply={(html) => updateItem('courses', c.id, { description: { ...c.description, [primaryLocale]: html } })}
           />
-          <ShortDescriptionField section="courses" id={c.id} value={c.short_description} from={c.description} />
+          <ShortDescriptionField section="courses" id={c.id} item={c} value={c.short_description} from={c.description} />
           <FieldRow>
             <DateField label="From" value={c.start} onChange={(v) => updateItem('courses', c.id, { start: v })} />
             <DateField label="To" value={c.end} onChange={(v) => updateItem('courses', c.id, { end: v })} allowOngoing />
@@ -383,7 +387,7 @@ export function CertificationsEditor() {
             section="certifications" item={c} source={c.description ?? {}} locale={primaryLocale} noun="description"
             onApply={(html) => updateItem('certifications', c.id, { description: { ...c.description, [primaryLocale]: html } })}
           />
-          <ShortDescriptionField section="certifications" id={c.id} value={c.short_description} from={c.description} />
+          <ShortDescriptionField section="certifications" id={c.id} item={c} value={c.short_description} from={c.description} />
           <FieldRow>
             <DateField label="Issued" value={c.issued} onChange={(v) => updateItem('certifications', c.id, { issued: v })} />
             <DateField label="Expires" value={c.expires} onChange={(v) => updateItem('certifications', c.id, { expires: v })} allowOngoing />
@@ -432,7 +436,7 @@ export function PositionsEditor() {
             section="positions" item={p} source={p.description ?? {}} locale={primaryLocale} noun="description"
             onApply={(html) => updateItem('positions', p.id, { description: { ...p.description, [primaryLocale]: html } })}
           />
-          <ShortDescriptionField section="positions" id={p.id} value={p.short_description} from={p.description} />
+          <ShortDescriptionField section="positions" id={p.id} item={p} value={p.short_description} from={p.description} />
           <FieldRow>
             <label className="pf-wrap">
               <span className="pf-label">Type</span>
@@ -490,7 +494,7 @@ export function PresentationsEditor() {
             section="presentations" item={p} source={p.description ?? {}} locale={primaryLocale} noun="abstract"
             onApply={(html) => updateItem('presentations', p.id, { description: { ...p.description, [primaryLocale]: html } })}
           />
-          <ShortDescriptionField section="presentations" id={p.id} value={p.short_description} from={p.description} />
+          <ShortDescriptionField section="presentations" id={p.id} item={p} value={p.short_description} from={p.description} />
           <FieldRow>
             <DateField label="From" value={p.start} onChange={(v) => updateItem('presentations', p.id, { start: v })} />
             <DateField label="To" value={p.end} onChange={(v) => updateItem('presentations', p.id, { end: v })} allowOngoing />
@@ -543,7 +547,7 @@ export function PublicationsEditor() {
             section="publications" item={p} source={p.abstract ?? {}} locale={primaryLocale} noun="abstract"
             onApply={(html) => updateItem('publications', p.id, { abstract: { ...p.abstract, [primaryLocale]: html } })}
           />
-          <ShortDescriptionField section="publications" id={p.id} value={p.short_description} from={p.abstract} />
+          <ShortDescriptionField section="publications" id={p.id} item={p} value={p.short_description} from={p.abstract} />
           <FieldRow>
             <label className="pf-wrap">
               <span className="pf-label">Type</span>
@@ -597,7 +601,7 @@ export function AwardsEditor() {
             section="honor_awards" item={a} source={a.description ?? {}} locale={primaryLocale} noun="description"
             onApply={(html) => updateItem('honor_awards', a.id, { description: { ...a.description, [primaryLocale]: html } })}
           />
-          <ShortDescriptionField section="honor_awards" id={a.id} value={a.short_description} from={a.description} />
+          <ShortDescriptionField section="honor_awards" id={a.id} item={a} value={a.short_description} from={a.description} />
           <DateField label="Date" value={a.date} onChange={(v) => updateItem('honor_awards', a.id, { date: v })} />
         </EditorCard>
       ))}
@@ -695,7 +699,7 @@ function CompetencyFields({ competency: k }: { competency: KeyCompetency }) {
         section="key_competencies" item={k} source={k.description ?? {}} locale={primaryLocale} noun="description"
         onApply={(html) => updateItem('key_competencies', k.id, { description: { ...k.description, [primaryLocale]: html } })}
       />
-      <ShortDescriptionField section="key_competencies" id={k.id} value={k.short_description} from={k.description} />
+      <ShortDescriptionField section="key_competencies" id={k.id} item={k} value={k.short_description} from={k.description} />
     </>
   )
 }
@@ -1064,7 +1068,7 @@ export function RecommendationsEditor() {
             section="recommendations" item={r} source={r.text ?? {}} locale={primaryLocale} noun="testimonial"
             onApply={(html) => updateItem('recommendations', r.id, { text: { ...r.text, [primaryLocale]: html } })}
           />
-          <ShortDescriptionField section="recommendations" id={r.id} value={r.short_description} from={r.text} />
+          <ShortDescriptionField section="recommendations" id={r.id} item={r} value={r.short_description} from={r.text} />
           <FieldRow>
             <TextField label="Recommender" value={r.recommender_name} onChange={(v) => updateItem('recommendations', r.id, { recommender_name: v })} />
             <TextField label="Company" value={r.recommender_company || ''} onChange={(v) => updateItem('recommendations', r.id, { recommender_company: v || null })} />

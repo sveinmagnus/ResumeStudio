@@ -44,7 +44,14 @@ The full catalog with per-feature design detail is in
   endpoint) drafts a one-line short description from a long one: per-column in
   `DualField`, or the whole section via "Bulk summarize" (confirmation-gated) in
   the section bar (`lib/summarizeBatch.ts`). Drafts are always review-required.
-  Hidden entirely when nothing is configured. **Provider wire protocols:**
+  Hidden entirely when nothing is configured. **Both paths send the item's
+  HEADING with the text** (`summaryContext()`, derived from `cvFields`'
+  `prose: false` identity fields) — a model shown only a description has no way
+  to know the customer and job title are already printed above the line, so it
+  restated them, which is what the field is for. The prompt also bans hedging by
+  name and offers "write a shorter line" as the escape, because a padded "might
+  have been involved in…" is worse in a CV than three true words.
+  **Provider wire protocols:**
   `llm.ts → endpointFor()` splits on `protocol` — most speak OpenAI **Chat
   Completions** (ollama/openai/compat/gemini/mistral; Gemini via Google's
   OpenAI-compat endpoint, both Bearer-auth); **anthropic** is the native
@@ -584,6 +591,20 @@ Navigation: `setActiveSection(key)` / `setExpandedItem(id)`. Undo/redo: `useUndo
   - **`llm`** carries no config: it borrows the Summarize model via
     `chatComplete()`. A locale it can't NAME (`languageNameOf`) is rejected up
     front rather than sent as a bare code for the model to guess at.
+  - **Pinning the target language is the whole game on a small model.** en→no
+    coming back Swedish was reported twice, and naming "Norwegian Bokmål" more
+    often in the system prompt did not fix it. What the prompt does now: the
+    target is restated in the USER turn (above the delimited source and below
+    it), because a chat template renders the system message far from the
+    generation point and some Ollama modelfiles dilute it; the closing line is
+    `languageDirective()` — the instruction WRITTEN IN the target language,
+    which is the one anchor that separates bokmål from svenska; and temperature
+    is 0. Never write the wrong language's name into the prompt ("not Swedish")
+    — that puts Swedish in the context, which is the opposite of the goal.
+    Behind that sits `looksWrongLanguage()`: two distinct function-word/letter
+    markers of a neighbouring mainland-Scandinavian language trigger exactly ONE
+    retry with the miss named. Two markers, not one, so a Swedish customer name
+    in correct Norwegian doesn't cost a re-run.
   - **Per-provider locale maps must track the 15 offered locales.** DeepL wants
     UPPERCASE (its fallback upper-cases; the others lower-case). This is the
     surface that silently breaks when a locale is added — a wrong code doesn't

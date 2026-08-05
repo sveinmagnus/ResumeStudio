@@ -3,7 +3,7 @@ import { Copy, Languages, Loader2, Sparkles } from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import type { LocalizedString } from '../../types'
 import { LOCALE_LABELS, bcp47 } from '../../lib/locales'
-import { summarizableSource } from '../../lib/summarizeBatch'
+import { summarizableSource, summaryContext } from '../../lib/summarizeBatch'
 import { useTranslationAssist } from './useTranslationAssist'
 import { canDraftBetween } from '../../lib/translateClient'
 import { useTranslationAvailable, useSummarizeAvailable } from '../../store/useTranslation'
@@ -67,6 +67,13 @@ interface DualFieldProps {
    * one-line summary into it. Rich-text source is stripped to plain first.
    */
   summarizeFrom?: LocalizedString
+  /**
+   * The item this field belongs to, used only to tell the summarizer what the
+   * entry's heading already says (customer, employer, school, title) so the
+   * drafted line doesn't just repeat it. Optional — without it the model still
+   * gets the general rule, just not the specific words.
+   */
+  summarizeItem?: { section: string; item: object }
 }
 
 /**
@@ -81,7 +88,9 @@ interface DualFieldProps {
  *     review-required draft. Only shown when the server reports a translation
  *     backend is configured (see useTranslationAvailable).
  */
-export function DualField({ label, value, onChange, multiline, rows = 3, placeholder, summarizeFrom }: DualFieldProps) {
+export function DualField({
+  label, value, onChange, multiline, rows = 3, placeholder, summarizeFrom, summarizeItem,
+}: DualFieldProps) {
   const primary = useStore((s) => s.primaryLocale)
   const secondary = useStore((s) => s.secondaryLocale)
   const translationAvailable = useTranslationAvailable()
@@ -95,6 +104,11 @@ export function DualField({ label, value, onChange, multiline, rows = 3, placeho
    */
   const summarizeSrc = (locale: string): string =>
     summarizeFrom ? summarizableSource(summarizeFrom[locale]) : ''
+
+  /** The heading lines the drafted summary must not restate — same helper the
+   *  section-level batch uses, so both send the model the same context. */
+  const summarizeCtx = (locale: string): string[] =>
+    summarizeItem ? summaryContext(summarizeItem.section, summarizeItem.item, locale) : []
 
   const set = (locale: string, text: string) => {
     const next = { ...value }
@@ -212,7 +226,7 @@ export function DualField({ label, value, onChange, multiline, rows = 3, placeho
           <button
             type="button"
             className="df-assist-btn df-summ-btn"
-            onClick={() => void summarizeInto(target, summarizeSrc(target))}
+            onClick={() => void summarizeInto(target, summarizeSrc(target), summarizeCtx(target))}
             disabled={busy}
             title="Draft a one-line summary from the description (review required)"
           >

@@ -19,6 +19,8 @@
 
 import type { ResumeStore, LocalizedString } from '../types'
 import { richToPlain } from './richText'
+import { CV_FIELDS } from './cvFields'
+import { resolve } from './locales'
 
 /** Which long field feeds which short field, per section. */
 export interface SummaryFieldPair {
@@ -74,12 +76,42 @@ export function summarizableSource(rich: string | undefined): string {
   return /[\p{L}\p{N}]/u.test(text) ? text : ''
 }
 
+/**
+ * The entry's heading as the reader sees it — "Customer: Statoil", "Employer:
+ * Cartavio", "Course: Kubernetes Fundamentals" — in `locale`.
+ *
+ * Sent with the summarize request so the prompt can name the exact words the
+ * line must NOT spend itself on. The complaint that started this was a model
+ * answering "Consultant for Statoil" for an entry already headed *Statoil —
+ * Consultant*: a model given only the description has no way to know that
+ * sentence is already on screen, so it restates the most salient thing it read.
+ *
+ * The identity fields come from `CV_FIELDS` (`prose: false`) rather than a
+ * second per-section table — that map already exists to say which fields NAME
+ * an item and which are writing, and a copy of it would drift.
+ */
+export function summaryContext(section: string, item: unknown, locale: string): string[] {
+  if (!item || typeof item !== 'object') return []
+  const rec = item as Record<string, unknown>
+  const out: string[] = []
+  for (const field of CV_FIELDS[section] ?? []) {
+    if (field.prose || field.list) continue
+    // Resolved, not raw: the heading itself falls back across locales, so a
+    // customer name stored only in `en` is still what the reader sees here.
+    const value = resolve(asLocalized(rec[field.key]), locale).trim()
+    if (value) out.push(`${field.label}: ${value}`)
+  }
+  return out
+}
+
 /** One summarize job: fill `target[locale]` of item `id` from `source`. */
 export interface SummaryTarget {
   id: string
   locale: string
   /** Plain-text source, already stripped of rich markup and trimmed. */
   source: string
+  /** The item's heading lines in `locale` — see {@link summaryContext}. */
+  context: string[]
 }
 
 /** A completed job, ready to apply. */
@@ -127,7 +159,7 @@ export function emptySummaryTargets(
       if ((target[locale] ?? '').trim()) continue          // already filled
       const text = summarizableSource(source[locale])
       if (!text) continue                                   // nothing to read
-      out.push({ id, locale, source: text })
+      out.push({ id, locale, source: text, context: summaryContext(section, item, locale) })
     }
   }
   return out

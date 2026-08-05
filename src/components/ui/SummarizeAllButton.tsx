@@ -61,7 +61,7 @@ export function SummarizeAllButton({ section }: { section: string }) {
       for (const t of targets) {
         if (cancelled.current) break
         try {
-          const text = await api.summarize(t.source, t.locale)
+          const text = await api.summarize(t.source, t.locale, t.context)
           if (text.trim()) results.push({ id: t.id, locale: t.locale, text })
         } catch (e) {
           // Stop on the first failure — if the backend is down or the model is

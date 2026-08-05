@@ -4,6 +4,7 @@ import {
   isTranslationConfigured,
   translate,
   ltLoadOnly,
+  looksWrongLanguage,
   TranslateError,
 } from '../../server/translate'
 
@@ -234,7 +235,54 @@ describe("translate() — 'llm' provider", () => {
     // The prompt must name both languages in words, not codes.
     expect(body.messages[0].content).toContain('English')
     expect(body.messages[0].content).toContain('Norwegian')
-    expect(body.messages[1].content).toBe('Hello world')
+    // The source text rides in the user turn, delimited, with the task around it.
+    expect(body.messages[1].content).toContain('Hello world')
+    expect(body.messages[1].content).toContain('###')
+  })
+
+  it('restates the target in the user turn, not only in the system message', async () => {
+    // The failure this fixes: an instruction that lives only in the system
+    // message is the furthest thing from the generation point, and some Ollama
+    // chat templates dilute or drop it outright. The target is named in the turn
+    // the model reads last — above the text and below it.
+    configureLlm()
+    const fn = mockFetch(chat('Hei verden'))
+    await translate('Hello world', 'en', 'no')
+    const user: string = JSON.parse((fn.mock.calls[0][1] as RequestInit).body as string).messages[1].content
+    expect(user.match(/Norwegian/g)?.length ?? 0).toBeGreaterThanOrEqual(2)
+    // …and it CLOSES in the target language itself.
+    expect(user.trimEnd().endsWith('Skriv hele svaret på norsk bokmål.')).toBe(true)
+  })
+
+  it('translates deterministically', async () => {
+    // Sampling is one of the ways a model wanders into a neighbouring language,
+    // and there is a right answer here.
+    configureLlm()
+    const fn = mockFetch(chat('Hei'))
+    await translate('Hi', 'en', 'no')
+    expect(JSON.parse((fn.mock.calls[0][1] as RequestInit).body as string).temperature).toBe(0)
+  })
+
+  it('never names the languages it must avoid', async () => {
+    // Writing "not Swedish" puts Swedish in the context, which is the opposite
+    // of what a confusable target needs.
+    configureLlm()
+    const fn = mockFetch(chat('Hei'))
+    await translate('Hi', 'en', 'no')
+    const body = JSON.parse((fn.mock.calls[0][1] as RequestInit).body as string)
+    const whole = `${body.messages[0].content}\n${body.messages[1].content}`
+    expect(whole).not.toContain('Swedish')
+    expect(whole).not.toContain('Danish')
+  })
+
+  it('does not let a "$1" in the source text corrupt the prompt', async () => {
+    // String.replace substitution patterns: '$&' would have injected the whole
+    // template back into the user turn.
+    configureLlm()
+    const fn = mockFetch(chat('ok'))
+    await translate('Save $1 per unit — $& and $` too', 'en', 'no')
+    const user: string = JSON.parse((fn.mock.calls[0][1] as RequestInit).body as string).messages[1].content
+    expect(user).toContain('Save $1 per unit — $& and $` too')
   })
 
   it('disambiguates Norwegian as Bokmål so it is not answered in Swedish', async () => {
@@ -257,8 +305,8 @@ describe("translate() — 'llm' provider", () => {
     const prompt: string = JSON.parse((fn.mock.calls[0][1] as RequestInit).body as string).messages[0].content
     const occurrences = prompt.match(/Norwegian/g)?.length ?? 0
     expect(occurrences).toBeGreaterThanOrEqual(2)
-    // The closing sentence pins the output language.
-    expect(prompt.trimEnd()).toMatch(/Norwegian[^.]*\.$/)
+    // The closing sentence pins the output language — written in it.
+    expect(prompt.trimEnd().endsWith('Skriv hele svaret på norsk bokmål.')).toBe(true)
   })
 
   it('names every offered locale rather than sending a bare code', async () => {
@@ -304,6 +352,109 @@ describe("translate() — 'llm' provider", () => {
     configureLlm()
     mockFetch(chat('   '))
     await expect(translate('a', 'en', 'no')).rejects.toThrow(TranslateError)
+  })
+
+  it('strips echoed ### markers but keeps one inside the body', async () => {
+    configureLlm()
+    mockFetch(chat('###\nHei verden\n###'))
+    expect(await translate('a', 'en', 'no')).toBe('Hei verden')
+
+    mockFetch(chat('Se ### i koden'))
+    expect(await translate('a', 'en', 'no')).toBe('Se ### i koden')
+  })
+
+  it('keeps the glossary above the closing language line', async () => {
+    // The glossary is a constraint on HOW to translate; the language is WHAT to
+    // answer in. Appending the glossary last (as it used to be) buried the one
+    // instruction this whole prompt exists to get right.
+    configureLlm()
+    const fn = mockFetch(chat('Hei'))
+    await translate('a', 'en', 'no', undefined, { terms: [{ from: 'board', to: 'styre' }], keep: [] })
+    const system: string = JSON.parse((fn.mock.calls[0][1] as RequestInit).body as string).messages[0].content
+    expect(system).toContain('styre')
+    expect(system.indexOf('styre')).toBeLessThan(system.indexOf('Skriv hele svaret'))
+  })
+
+  // ── The wrong-language guard ───────────────────────────────────────────────
+
+  it('retries once when the reply comes back in a neighbouring language', async () => {
+    // The reported bug: a Norwegian target answered in Swedish. Prompting alone
+    // has been strengthened twice for this; the guard is what makes it stop.
+    configureLlm()
+    const fn = vi.fn()
+      .mockResolvedValueOnce(chat('Erfaren utvecklare som arbetar med och för molntjänster'))
+      .mockResolvedValueOnce(chat('Erfaren utvikler som jobber med skytjenester'))
+    vi.stubGlobal('fetch', fn)
+
+    expect(await translate('Experienced developer', 'en', 'no'))
+      .toBe('Erfaren utvikler som jobber med skytjenester')
+    expect(fn).toHaveBeenCalledTimes(2)
+
+    // The retry names the miss without naming the wrong language.
+    const second: string = JSON.parse((fn.mock.calls[1][1] as RequestInit).body as string).messages[1].content
+    expect(second).toContain('previous attempt')
+    expect(second).not.toContain('Swedish')
+  })
+
+  it('does not retry a good translation', async () => {
+    configureLlm()
+    const fn = mockFetch(chat('Erfaren utvikler som ikke jobber med sertifisering'))
+    await translate('Experienced developer', 'en', 'no')
+    expect(fn).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps the first answer when the retry itself fails', async () => {
+    // A suspect draft the user can fix beats an error message — the whole
+    // feature is review-required anyway.
+    configureLlm()
+    const fn = vi.fn()
+      .mockResolvedValueOnce(chat('Erfaren utvecklare och är mycket engagerad'))
+      .mockResolvedValueOnce({ ok: false, status: 500 })
+    vi.stubGlobal('fetch', fn)
+    expect(await translate('x', 'en', 'no')).toBe('Erfaren utvecklare och är mycket engagerad')
+  })
+
+  it('keeps the second attempt even when it also looks wrong', async () => {
+    // Better a draft the user can fix than a third round-trip they wait on.
+    configureLlm()
+    const fn = vi.fn()
+      .mockResolvedValueOnce(chat('Erfaren utvecklare och är mycket för detta'))
+      .mockResolvedValueOnce(chat('Erfaren utvecklare och är mycket för detta igen'))
+    vi.stubGlobal('fetch', fn)
+    expect(await translate('x', 'en', 'no')).toBe('Erfaren utvecklare och är mycket för detta igen')
+    expect(fn).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('looksWrongLanguage()', () => {
+  it('spots Swedish returned for a Norwegian target', () => {
+    expect(looksWrongLanguage('Erfaren utvecklare och är mycket engagerad', 'no')).toBe(true)
+  })
+
+  it('spots Danish returned for a Norwegian target', () => {
+    expect(looksWrongLanguage('Ansvarlig for kommunikation af nogle projekter', 'no')).toBe(true)
+  })
+
+  it('spots Norwegian returned for a Swedish target', () => {
+    expect(looksWrongLanguage('Ansvarlig for informasjon, ikke mye annet', 'se')).toBe(true)
+  })
+
+  it('passes correct Norwegian, including Swedish proper nouns in it', () => {
+    expect(looksWrongLanguage('Erfaren utvikler med ansvar for sertifisering', 'no')).toBe(false)
+    // One Swedish-looking token is a customer name, not a language — firing here
+    // would cost a re-run on a translation that was already right.
+    expect(looksWrongLanguage('Leverte plattformen til Öhlins i Sverige', 'no')).toBe(false)
+  })
+
+  it('says nothing about a target outside the Scandinavian trio', () => {
+    // A model does not answer a French request in Polish; a guess here would be
+    // all false positives.
+    expect(looksWrongLanguage('Développeur expérimenté och är', 'fr')).toBe(false)
+  })
+
+  it('does not fire on text too short to carry evidence', () => {
+    expect(looksWrongLanguage('Utvikler', 'no')).toBe(false)
+    expect(looksWrongLanguage('', 'no')).toBe(false)
   })
 })
 

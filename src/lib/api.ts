@@ -732,9 +732,16 @@ export const api = {
     return json.text
   },
 
-  /** Summarize a long description into one line in `locale`'s language. Throws on failure. */
-  async summarize(text: string, locale: string): Promise<string> {
-    const res = await request('POST', '/api/summarize', { text, locale })
+  /**
+   * Summarize a long description into one line in `locale`'s language. Throws
+   * on failure.
+   *
+   * `context` is the entry's heading lines ("Customer: Statoil") — what the
+   * reader already sees, and therefore what the summary must not restate. See
+   * `lib/summarizeBatch → summaryContext`.
+   */
+  async summarize(text: string, locale: string, context: string[] = []): Promise<string> {
+    const res = await request('POST', '/api/summarize', { text, locale, context })
     if (!res.ok) {
       await fail(res, 'Summarize failed')
     }
