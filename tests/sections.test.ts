@@ -20,6 +20,42 @@ describe('sections', () => {
     expect(canonicalSectionKey('projects')).toBe('projects')
   })
 
+  /**
+   * The three view-only sections derive their items from another section's
+   * array rather than owning one. Both flags matter and neither is visible
+   * from a section's own page: `hidden` keeps it out of the sidebar (there is
+   * nothing to edit there), and `virtual` is what tells the view editor and
+   * the render adapters not to look for a store array of that name.
+   */
+  it('marks exactly the derived sections hidden and virtual', () => {
+    const derived = SECTIONS.filter((s) => s.virtual).map((s) => s.key).sort()
+    expect(derived).toEqual(['promoted_projects', 'skill_matrix', 'technology_categories'])
+
+    for (const key of derived) {
+      const def = SECTIONS.find((s) => s.key === key)!
+      expect(def.hidden, key).toBe(true)
+      // Each reads from a section that DOES own an array.
+      expect(SECTIONS.some((s) => s.key === def.storeKey && !s.virtual), key).toBe(true)
+    }
+  })
+
+  it('gives every content section its own store array, and a unique key', () => {
+    // overview and header are pages, not collections — they have no array.
+    const pages = new Set(['overview', 'header'])
+    const keys = SECTIONS.map((s) => s.key)
+    expect(new Set(keys).size).toBe(keys.length)
+
+    for (const s of SECTIONS) {
+      expect(s.label, s.key).toBeTruthy()
+      expect(s.icon, s.key).toBeTruthy()
+      if (pages.has(s.key)) continue
+      expect(s.storeKey, s.key).toBeTruthy()
+      // A section that owns its array names it after itself; only the derived
+      // ones point at somebody else's.
+      if (!s.virtual) expect(s.storeKey, s.key).toBe(s.key)
+    }
+  })
+
   it('profile + competencies are visible, editable, exportable sections', () => {
     for (const key of ['key_qualifications', 'key_competencies']) {
       const def = SECTIONS.find((s) => s.key === key)!

@@ -17,6 +17,17 @@ describe('availableSortModes()', () => {
     expect(availableSortModes('courses')).toEqual(['custom', 'alpha', 'start', 'start_asc', 'end', 'end_asc'])
     // Presentations gained a from/to range (shape v13) — same as courses.
     expect(availableSortModes('presentations')).toEqual(['custom', 'alpha', 'start', 'start_asc', 'end', 'end_asc'])
+    // The remaining two ranged sections. Every row of the capability table is
+    // independent, so one can lose its dates without the others noticing.
+    expect(availableSortModes('educations')).toEqual(['custom', 'alpha', 'start', 'start_asc', 'end', 'end_asc'])
+    expect(availableSortModes('positions')).toEqual(['custom', 'alpha', 'start', 'start_asc', 'end', 'end_asc'])
+  })
+
+  it('offers nothing date-shaped to a section that has no dates', () => {
+    // The fallback for a section absent from the table — including one that
+    // does not exist at all, which is what a stale stored sort mode names.
+    expect(availableSortModes('skills')).toEqual(['custom', 'alpha'])
+    expect(availableSortModes('not_a_section')).toEqual(['custom', 'alpha'])
   })
 
   it('adds both single date directions for single-date sections', () => {
