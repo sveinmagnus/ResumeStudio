@@ -83,6 +83,9 @@ describe('sanitizeRich — one kind of line break', () => {
     expect(sanitizeRich('a\nb')).toBe('<p>a</p><p>b</p>')
     expect(sanitizeRich('<p>a\nb</p>')).toBe('<p>a</p><p>b</p>')
     expect(sanitizeRich('a\r\nb')).toBe('<p>a</p><p>b</p>')
+    // A lone carriage return is a break too — the optional \n in the pattern
+    // is what stops it becoming an invisible character inside one paragraph.
+    expect(sanitizeRich('a\rb')).toBe('<p>a</p><p>b</p>')
     // a blank line means the same as a single newline — the user can't see
     // which one a stored value holds
     expect(sanitizeRich('a\n\nb')).toBe('<p>a</p><p>b</p>')
@@ -105,6 +108,37 @@ describe('sanitizeRich — one kind of line break', () => {
   it('trims the whitespace a split leaves at a paragraph edge', () => {
     expect(sanitizeRich('<p>a <br> b</p>')).toBe('<p>a</p><p>b</p>')
   })
+  it('trims ALL the whitespace at a block edge, not one character of it', () => {
+    // Pasted markup routinely carries several spaces or a newline at an edge;
+    // leaving one behind shows up as a stray indent in every export.
+    expect(sanitizeRich('<p>   a   </p>')).toBe('<p>a</p>')
+    expect(sanitizeRich('<p>\n\n  a  \n\n</p>')).toBe('<p>a</p>')
+    expect(sanitizeRich('<p>  <strong>a</strong>  </p>')).toBe('<p><strong>a</strong></p>')
+  })
+
+  it('drops layout whitespace inside an ORDERED list too', () => {
+    // The unordered case was covered; both tag names are checked separately.
+    expect(sanitizeRich('<ol>\n  <li>a</li>\n  <li>b</li>\n</ol>'))
+      .toBe('<ol><li>a</li><li>b</li></ol>')
+  })
+
+  it('drops a break left at the very start or end of a block', () => {
+    // A trailing <br> renders as an empty line the user cannot select or
+    // delete; canonical storage has no such thing.
+    expect(sanitizeRich('<p>a<br></p>')).toBe('<p>a</p>')
+    expect(sanitizeRich('<p><br>a</p>')).toBe('<p>a</p>')
+    expect(sanitizeRich('<ul><li>a<br></li></ul>')).toBe('<ul><li>a</li></ul>')
+    expect(sanitizeRich('<ul><li><br>a</li></ul>')).toBe('<ul><li>a</li></ul>')
+  })
+
+  it('strips a comment wherever it is nested', () => {
+    // Comments carry pasted-from-Word bookkeeping and conditional markup;
+    // the recursion is what reaches the ones inside a list item.
+    expect(sanitizeRich('<p>a<!-- note -->b</p>')).toBe('<p>ab</p>')
+    expect(sanitizeRich('<ul><li>a<!-- note --></li></ul>')).toBe('<ul><li>a</li></ul>')
+    expect(sanitizeRich('<p><strong>a<!-- deep --></strong></p>')).toBe('<p><strong>a</strong></p>')
+  })
+
   it('is idempotent — canonical input rebuilds to itself', () => {
     const inputs = [
       'a<br>b', '<p>a\nb</p>', '<ul><li>a<br>b</li></ul>', '<p><strong>a<br>b</strong></p>',
@@ -269,6 +303,13 @@ describe('plainParagraphs', () => {
     expect(plainParagraphs('a\r\nb')).toEqual(['a', 'b'])
     expect(plainParagraphs('  spaced  ')).toEqual(['spaced'])
     expect(plainParagraphs('')).toEqual([])
+  })
+
+  it('handles a lone carriage return, as old Mac and some pastes use', () => {
+    // The normalisation is \r\n? — the optional \n is what makes a bare \r a
+    // break rather than an invisible character inside one paragraph.
+    expect(plainParagraphs('a\rb')).toEqual(['a', 'b'])
+    expect(plainParagraphs('a\r\r\nb')).toEqual(['a', 'b'])
   })
 })
 

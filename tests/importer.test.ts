@@ -88,6 +88,34 @@ describe('importFromCVPartner — localized() parsing', () => {
     const store = importFromCVPartner({ title: null as unknown as object })
     expect(store.resume!.title).toEqual({})
   })
+
+  it('reads a bare string as English', () => {
+    // Some exports carry a plain string where a localized object belongs;
+    // ignoring it loses the value entirely.
+    expect(importFromCVPartner({ title: 'Consultant' as unknown as object }).resume!.title)
+      .toEqual({ en: 'Consultant' })
+  })
+
+  it('reads every pair of an interleaved array, and ignores a dangling code', () => {
+    // The loop walks in twos and must stop before a trailing code with no
+    // value — reading past the end pairs a code with undefined.
+    const store = importFromCVPartner({
+      title: ['no', 'Konsulent', 'se', 'Konsult', 'dk', 'Konsulent-dk', 'fi'],
+    })
+    expect(store.resume!.title).toEqual({ no: 'Konsulent', se: 'Konsult', dk: 'Konsulent-dk' })
+  })
+
+  it('drops an interleaved entry whose value is blank or not a string', () => {
+    const store = importFromCVPartner({
+      title: ['no', 'Konsulent', 'se', '   ', 'dk', 42 as unknown as string, 'de', null as unknown as string],
+    })
+    expect(store.resume!.title).toEqual({ no: 'Konsulent' })
+  })
+
+  it('trims interleaved values as well as object ones', () => {
+    expect(importFromCVPartner({ title: ['no', '  Konsulent  '] }).resume!.title)
+      .toEqual({ no: 'Konsulent' })
+  })
 })
 
 // ─── Locale detection (the unreliable language_codes workaround) ─────────────
