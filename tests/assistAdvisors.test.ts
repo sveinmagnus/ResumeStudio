@@ -912,4 +912,20 @@ describe('prompt builders', () => {
     expect(prompt).toMatch(/projects: long_description, short_description/)
     expect(prompt).not.toMatch(/projects:.*customer/)
   })
+
+  it('the voice pass omits a section with no editable prose at all', () => {
+    // A section listed with an empty field list reads as "you may rewrite
+    // anything here" — the opposite of what an empty list means. The field
+    // block is the two-space-indented "  section: a, b" lines.
+    const prompt = buildVoicePassPrompt(storeWithProject(), 'en')
+    expect(prompt).not.toMatch(/^ {2}\w+:\s*$/m)
+  })
+
+  it('the voice pass shows the short fields it is allowed to rewrite', () => {
+    // includeShort is on for this pass specifically: the short description is
+    // one of the fields being rewritten, so the model has to see its current
+    // value or it writes a replacement blind.
+    const s = storeWithProject({ short_description: { en: 'A terse line.' } })
+    expect(buildVoicePassPrompt(s, 'en')).toContain('A terse line.')
+  })
 })
