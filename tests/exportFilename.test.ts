@@ -25,6 +25,27 @@ describe('slugifyFilenamePart()', () => {
   it('caps very long parts', () => {
     expect(slugifyFilenamePart('x'.repeat(200)).length).toBe(80)
   })
+
+  it('collapses a RUN of illegal characters into one separator', () => {
+    // Without the +, each illegal character becomes its own space and then its
+    // own underscore: "Q3 :: Client" turns into "Q3___Client".
+    expect(slugifyFilenamePart('Q3 :: Client')).toBe('Q3_Client')
+    expect(slugifyFilenamePart('a<<>>b')).toBe('a_b')
+  })
+
+  it('strips control characters, which is the point of that range', () => {
+    // A stray control character in a CV title travels into a Content-
+    // Disposition header; some servers and browsers reject the download
+    // outright, and it is invisible in the editor.
+    const withControls = `Report${String.fromCharCode(9)}Q3${String.fromCharCode(0)}`
+    expect(slugifyFilenamePart(withControls)).toBe('Report_Q3')
+    expect(slugifyFilenamePart(String.fromCharCode(1, 2, 3))).toBe('resume')
+  })
+
+  it('takes the value it was given, not a hardcoded one', () => {
+    // The `?? ''` guards a null; the value has to be what flows on.
+    expect(slugifyFilenamePart('Consultant CV')).toBe('Consultant_CV')
+  })
 })
 
 describe('exportFilename()', () => {
