@@ -26,6 +26,62 @@ function collectText(node: unknown, out: string[] = []): string[] {
   return out
 }
 
+describe('buildPdfDocDefinition — rich text becomes pdfmake nodes', () => {
+  /** Every node in the tree, flattened, so a body's nodes can be found by text. */
+  const allNodes = (node: unknown, out: Record<string, unknown>[] = []): Record<string, unknown>[] => {
+    if (Array.isArray(node)) { for (const n of node) allNodes(n, out); return out }
+    if (node && typeof node === 'object') {
+      const rec = node as Record<string, unknown>
+      out.push(rec)
+      for (const key of ['text', 'stack', 'columns', 'content']) {
+        if (key in rec) allNodes(rec[key], out)
+      }
+      if ('table' in rec) allNodes((rec.table as Record<string, unknown>).body, out)
+    }
+    return out
+  }
+  const nodeWith = (dd: unknown, text: string) =>
+    allNodes((dd as Record<string, unknown>).content)
+      .find((n) => JSON.stringify(n.text ?? '').includes(text))!
+
+  const storeWithBody = (html: string) => ({
+    ...emptyStore(),
+    resume: makeResume({ full_name: 'Jane Doe' }),
+    projects: [makeProject({ id: 'p1', customer: { en: 'AcmeCorp' }, long_description: { en: html } })],
+  })
+  const view = () => makeView({ sections: [{ key: 'projects', detail: 'full', sort_order: 0 }] })
+
+  it('carries bold and italic runs into the node, not just the words', async () => {
+    // pdfmake takes styling per run; dropping it renders a flat paragraph that
+    // still contains every word, which is why a text-only assertion misses it.
+    const dd = await buildPdfDocDefinition(
+      storeWithBody('<p>Ran <strong>fast</strong> and <em>quietly</em>.</p>'), view(), 'en')
+    const runs = (nodeWith(dd, 'fast').text as Array<Record<string, unknown>>)
+    expect(runs.find((r) => r.text === 'fast')?.bold).toBe(true)
+    expect(runs.find((r) => r.text === 'quietly')?.italics).toBe(true)
+  })
+
+  it('prefixes list items with a bullet or a number, and indents by level', async () => {
+    const ul = await buildPdfDocDefinition(
+      storeWithBody('<ul><li>Top</li><ul><li>Nested</li></ul></ul>'), view(), 'en')
+    const top = nodeWith(ul, 'Top')
+    const nested = nodeWith(ul, 'Nested')
+    expect(JSON.stringify(top.text)).toContain('•')
+    // Deeper level → larger left margin, or a nested list renders flat.
+    expect((nested.margin as number[])[0]).toBeGreaterThan((top.margin as number[])[0])
+
+    const ol = await buildPdfDocDefinition(
+      storeWithBody('<ol><li>First</li><li>Second</li></ol>'), view(), 'en')
+    expect(JSON.stringify(nodeWith(ol, 'First').text)).toContain('1. ')
+    expect(JSON.stringify(nodeWith(ol, 'Second').text)).toContain('2. ')
+  })
+
+  it('puts the shared paragraph gap below a paragraph that has one after it', async () => {
+    const dd = await buildPdfDocDefinition(storeWithBody('<p>One.</p><p>Two.</p>'), view(), 'en')
+    expect((nodeWith(dd, 'One.').margin as number[])[3]).toBeGreaterThan(0)
+  })
+})
+
 describe('buildPdfDocDefinition', () => {
   it('produces an A4 doc with identity, section heading and item content', async () => {
     const store = {

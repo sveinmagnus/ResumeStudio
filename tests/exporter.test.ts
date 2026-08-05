@@ -6,6 +6,7 @@
  * everything except `URL.createObjectURL`, which we stub below.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { unzipSync } from 'fflate'
 import { exportDocx } from '../src/lib/exporter'
 import { buildViewSections } from '../src/lib/viewFilter'
 import {
@@ -15,6 +16,10 @@ import {
 } from './fixtures'
 import { withHeaderDefaults, withFooterDefaults } from '../src/lib/viewHeader'
 import { DEFAULT_VIEW_STYLE } from '../src/lib/viewStyle'
+import type { ResumeStore } from '../src/types'
+
+/** A view with every section enabled at full detail. */
+const fullView = () => makeView({ sections: buildViewSections() })
 
 // A real 1x1 PNG (valid bytes so the exporter's image parser embeds it).
 const PNG_1x1 =
@@ -54,7 +59,85 @@ async function blobContains(blob: Blob, needle: string): Promise<boolean> {
   return text.includes(needle)
 }
 
-// ─── Tests ──────────────────────────────────────────────────────────────────
+/**
+ * The document's real XML, unzipped.
+ *
+ * The substring scan above can only see strings that happen to survive
+ * deflation, which is why every earlier assertion is about the blob's SIZE.
+ * Reading word/document.xml lets a test say what the exporter actually wrote —
+ * spacing, indentation, list markers — instead of that it wrote more bytes
+ * than before.
+ */
+async function documentXml(blob: Blob): Promise<string> {
+  const files = unzipSync(new Uint8Array(await blob.arrayBuffer()))
+  const doc = files['word/document.xml']
+  if (!doc) throw new Error('no word/document.xml in the archive')
+  return new TextDecoder().decode(doc)
+}
+
+/** A store whose single project carries one rich-text body. */
+function storeWithBody(html: string): ResumeStore {
+  const store = emptyStore()
+  store.resume = makeResume({ full_name: 'Test Person' })
+  store.projects = [makeProject({ customer: { en: 'AcmeCo' }, long_description: { en: html } })]
+  return store
+}
+
+describe('exportDocx() — what the document actually says', () => {
+  /** Export one body and return the document's XML. */
+  const xmlFor = async (html: string): Promise<string> => {
+    await exportDocx(storeWithBody(html), fullView(), 'en')
+    return documentXml(lastBlob!)
+  }
+
+  it('writes the body text, not just more bytes', async () => {
+    expect(await xmlFor('<p>Ran the migration.</p>')).toContain('Ran the migration.')
+  })
+
+  it('prefixes an unordered item with a bullet and an ordered one with its number', async () => {
+    // The markers are written by the exporter itself — Word is given plain
+    // paragraphs with an indent, not a numbering definition — so a lost marker
+    // silently turns a list into a run of indented sentences.
+    expect(await xmlFor('<ul><li>First</li><li>Second</li></ul>')).toContain('•')
+
+    const ol = await xmlFor('<ol><li>First</li><li>Second</li></ol>')
+    expect(ol).toContain('1. ')
+    expect(ol).toContain('2. ')
+  })
+
+  /**
+   * The one paragraph element containing `text`, so an assertion is about THAT
+   * paragraph rather than about any paragraph in the document — a whole-file
+   * scan finds a heading's indent or spacing and proves nothing.
+   */
+  const paragraphWith = (xml: string, text: string): string => {
+    // Each chunk ends at a </w:p>, so it holds exactly that paragraph's
+    // properties and runs.
+    const para = xml.split('</w:p>').find((p) => p.includes(text))
+    if (para === undefined) throw new Error(`no paragraph containing ${text}`)
+    return para.slice(para.lastIndexOf('<w:p'))
+  }
+  const attr = (fragment: string, name: string): number | null => {
+    const m = new RegExp(`${name}="(\\d+)"`).exec(fragment)
+    return m ? Number(m[1]) : null
+  }
+
+  it('indents a nested list item further than its parent', async () => {
+    const xml = await xmlFor('<ul><li>Top</li><ul><li>Nested</li></ul></ul>')
+    const top = attr(paragraphWith(xml, 'Top'), 'w:left')
+    const nested = attr(paragraphWith(xml, 'Nested'), 'w:left')
+    expect(top).toBeGreaterThan(0)
+    expect(nested).toBeGreaterThan(top!)
+  })
+
+  it('separates two paragraphs of one body by the shared gap', async () => {
+    // PARA_GAP_LINES is one number for every target (CLAUDE.md §4); the DOCX
+    // twin of it is spacing/after in twips, and a paragraph followed by
+    // another inside the same body must carry it.
+    const xml = await xmlFor('<p>One.</p><p>Two.</p>')
+    expect(attr(paragraphWith(xml, 'One.'), 'w:after')).toBeGreaterThan(0)
+  })
+})
 
 describe('exportDocx()', () => {
   it('produces a valid zipped .docx blob from an empty store', async () => {
