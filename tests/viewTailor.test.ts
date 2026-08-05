@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   TAILOR_SCHEMA, buildTailorCatalog, buildTailorPrompt, isTailorFormat,
   validateTailorResponse, applyTailorResponse, InvalidTailorResponseError,
-  postingLabel, tailorPurpose,
+  postingLabel, tailorPurpose, tailorableSectionKeys,
 } from '../src/lib/viewTailor'
 import { emptyStore, makeProject, makeWork, makeSkill, makeView } from './fixtures'
 
@@ -35,6 +35,28 @@ describe('buildTailorCatalog', () => {
   it('includes the skill registry names', () => {
     expect(buildTailorCatalog(storeWithContent(), 'en').skills).toContain('TypeScript')
   })
+
+  it('names the skills in the locale being tailored, and drops the nameless', () => {
+    const store = storeWithContent()
+    store.skills = [
+      makeSkill({ name: { en: 'Cloud architecture', no: 'Skyarkitektur' } }),
+      makeSkill({ name: {} }),
+    ]
+    // A nameless entry would be an empty string in the catalog — an item the
+    // model can select and nobody can identify.
+    expect(buildTailorCatalog(store, 'no').skills).toEqual(['Skyarkitektur'])
+  })
+
+  it('offers every exportable section as a tailorable key, and nothing else', () => {
+    const keys = tailorableSectionKeys()
+    expect(keys).toContain('projects')
+    expect(keys).toContain('promoted_projects')   // synthetic, but tailorable
+    // Editor-only pages are not sections a response may set detail for.
+    expect(keys).not.toContain('overview')
+    expect(keys).not.toContain('header')
+    expect(keys).not.toContain('skills')
+    expect(new Set(keys).size).toBe(keys.length)
+  })
 })
 
 describe('buildTailorPrompt', () => {
@@ -45,6 +67,24 @@ describe('buildTailorPrompt', () => {
     expect(prompt).toContain('"no"')
     expect(prompt).toContain('Acme')
     expect(prompt).toContain('TypeScript')
+  })
+
+  it('trims the posting so the delimiters stay flush against it', () => {
+    // The posting sits between --- fences; leading blank lines from a paste
+    // push the text away from them and blur where it starts and ends.
+    const prompt = buildTailorPrompt(storeWithContent(), '\n\n  We need a TS dev \n\n', 'en')
+    expect(prompt).toContain('---\nWe need a TS dev\n---')
+  })
+})
+
+describe('InvalidTailorResponseError', () => {
+  it('names a single problem and counts several', () => {
+    // The modal shows this string when it cannot list the issues.
+    expect(new InvalidTailorResponseError([{ path: 'section_detail.projects', reason: 'bad' }]).message)
+      .toBe('section_detail.projects: bad')
+    expect(new InvalidTailorResponseError([
+      { path: 'a', reason: 'x' }, { path: 'b', reason: 'y' },
+    ]).message).toBe('Found 2 problems in the tailoring response.')
   })
 })
 
