@@ -417,3 +417,117 @@ describe('endpoints that carry a payload', () => {
     await expect(api.installUpdate()).rejects.toThrow('Not the desktop build')
   })
 })
+
+/**
+ * The cross-resume registry client (§14). Four methods, none called by a test.
+ *
+ * The registry is instance-level and shared across every resume, and it rides
+ * the desktop sync — so its optimistic-concurrency handling is the same
+ * contract as a resume save, and its URL encoding is what keeps an id with a
+ * slash or a space in it from addressing a different row.
+ */
+describe('registry client', () => {
+  it('lists every kind, and filters when asked', async () => {
+    fetchMock.mockResolvedValue(mockRes({ body: { entries: [] } }))
+    await api.listRegistry()
+    expect(callArgs()[0]).toBe('/api/registry')
+
+    fetchMock.mockResolvedValue(mockRes({ body: { entries: [] } }))
+    await api.listRegistry('skill')
+    expect(callArgs(1)[0]).toBe('/api/registry?kind=skill')
+  })
+
+  it('unwraps the entries array rather than returning the envelope', async () => {
+    const entry = { id: 'e1', kind: 'skill', name: { en: 'Go' }, version: 1 }
+    fetchMock.mockResolvedValue(mockRes({ body: { entries: [entry] } }))
+    expect(await api.listRegistry()).toEqual([entry])
+  })
+
+  it('POSTs a create and returns the created entry', async () => {
+    const entry = { id: 'e1', kind: 'skill', name: { en: 'Go' }, version: 1 }
+    fetchMock.mockResolvedValue(mockRes({ body: { entry } }))
+    expect(await api.createRegistryEntry({ kind: 'skill', name: { en: 'Go' } })).toEqual(entry)
+    const [url, init] = callArgs()
+    expect(url).toBe('/api/registry')
+    expect(init.method).toBe('POST')
+    expect(JSON.parse(init.body as string)).toEqual({ kind: 'skill', name: { en: 'Go' } })
+  })
+
+  it('PUTs an update to the entry’s own URL, encoded', async () => {
+    // An id is opaque; one containing a slash would otherwise address a
+    // different route entirely.
+    const entry = { id: 'a/b', kind: 'skill', name: { en: 'Go' }, version: 2 }
+    fetchMock.mockResolvedValue(mockRes({ body: { entry } }))
+    await api.updateRegistryEntry('a/b', { name: { en: 'Go' } })
+    expect(callArgs()[0]).toBe('/api/registry/a%2Fb')
+    expect(callArgs()[1].method).toBe('PUT')
+  })
+
+  it('turns a 409 into a RegistryConflictError CARRYING the server’s entry', async () => {
+    // The current row is what the UI needs to show "someone renamed this" —
+    // dropping it leaves a conflict the user cannot act on.
+    const current = { id: 'e1', kind: 'skill', name: { en: 'Golang' }, version: 7 }
+    fetchMock.mockResolvedValue(mockRes({ status: 409, body: { current } }))
+    await expect(api.updateRegistryEntry('e1', { name: { en: 'Go' }, base_version: 1 }))
+      .rejects.toMatchObject({ current })
+  })
+
+  it('still reports a 409 whose body cannot be parsed', async () => {
+    fetchMock.mockResolvedValue({
+      ok: false, status: 409, statusText: 'Conflict',
+      json: async () => { throw new Error('not json') },
+    } as unknown as Response)
+    await expect(api.updateRegistryEntry('e1', { name: {} })).rejects.toMatchObject({ current: null })
+  })
+
+  it('DELETEs and reports whether a row was actually removed', async () => {
+    fetchMock.mockResolvedValue(mockRes({ body: { deleted: true } }))
+    expect(await api.deleteRegistryEntry('e1')).toBe(true)
+    expect(callArgs()[1].method).toBe('DELETE')
+
+    fetchMock.mockResolvedValue(mockRes({ body: { deleted: false } }))
+    expect(await api.deleteRegistryEntry('gone')).toBe(false)
+
+    // Encoded here too — the id is opaque and may carry a slash.
+    fetchMock.mockResolvedValue(mockRes({ body: { deleted: true } }))
+    await api.deleteRegistryEntry('a/b')
+    expect(callArgs(2)[0]).toBe('/api/registry/a%2Fb')
+  })
+
+  it('throws ServerError on a failed create, update or delete', async () => {
+    for (const call of [
+      () => api.createRegistryEntry({ kind: 'skill', name: {} }),
+      () => api.updateRegistryEntry('e1', { name: {} }),
+      () => api.deleteRegistryEntry('e1'),
+      () => api.listRegistry(),
+    ]) {
+      fetchMock.mockResolvedValue(mockRes({ status: 500 }))
+      await expect(call()).rejects.toBeInstanceOf(ServerError)
+    }
+  })
+})
+
+describe('translateStatus / llmStatus — the feature gates', () => {
+  it('reports configured only when the server says so', async () => {
+    fetchMock.mockResolvedValue(mockRes({ body: { configured: true } }))
+    expect(await api.translateStatus()).toBe(true)
+    fetchMock.mockResolvedValue(mockRes({ body: { configured: false } }))
+    expect(await api.translateStatus()).toBe(false)
+  })
+
+  it('reads configured STRICTLY, so a truthy string does not enable the feature', async () => {
+    fetchMock.mockResolvedValue(mockRes({ body: { configured: 'yes' } }))
+    expect(await api.translateStatus()).toBe(false)
+  })
+
+  it('is false — never a throw — when the endpoint fails or the network is down', async () => {
+    // The Draft button just hides; an exception here would take the editor
+    // down with it.
+    // The body is deliberately a VALID enabling payload: a proxy or error page
+    // can return one with a 5xx, and only the status check rejects it.
+    fetchMock.mockResolvedValue(mockRes({ status: 500, body: { configured: true } }))
+    expect(await api.translateStatus()).toBe(false)
+    fetchMock.mockRejectedValue(new Error('offline'))
+    expect(await api.translateStatus()).toBe(false)
+  })
+})
