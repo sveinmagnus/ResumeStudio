@@ -145,3 +145,74 @@ describe('buildCoverLetterPrompt()', () => {
     expect(() => buildCoverLetterPrompt(storeWith(), makeCoverLetter(), 'en')).not.toThrow()
   })
 })
+
+/**
+ * The plain-text letter's block assembly.
+ *
+ * Every block is individually gated, and each gate has to be right in BOTH
+ * directions: a missing one drops content from the letter, an inverted one
+ * prints an empty block or a stray separator. Nothing exercised the omissions.
+ */
+describe('buildCoverLetterText — which blocks appear', () => {
+  const store = (): ResumeStore => {
+    const s = emptyStore()
+    s.resume = makeResume({
+      full_name: 'Kari Nordmann', email: 'kari@example.com', phone: '+47 900 00 000',
+    })
+    return s
+  }
+  const full = (over = {}) => makeCoverLetter({
+    company: { en: 'Equinor ASA' }, recipient: { en: 'Hiring Manager' },
+    role_applied: { en: 'Lead Architect' }, greeting: { en: 'Dear Hiring Manager,' },
+    body: { en: 'First paragraph.\n\nSecond paragraph.' }, closing: { en: 'Yours sincerely,' },
+    place_dated: 'Oslo, 1 March 2026', ...over,
+  })
+  const text = (letter = full(), s = store()) => buildCoverLetterText(s, letter, 'en')
+
+  it('lays the blocks out in reading order, separated by blank lines', () => {
+    const blocks = text().trimEnd().split('\n\n')
+    expect(blocks).toEqual([
+      'Kari Nordmann\nkari@example.com\n+47 900 00 000',
+      'Oslo, 1 March 2026',
+      'Hiring Manager\nEquinor ASA',
+      'Application for Lead Architect',
+      'Dear Hiring Manager,',
+      'First paragraph.',
+      'Second paragraph.',
+      'Yours sincerely,\nKari Nordmann',
+    ])
+  })
+
+  it('signs off with the name under the closing', () => {
+    // Two appearances on purpose — letterhead and signature — so a test that
+    // only finds the name present passes with the signature gone.
+    expect(text().trimEnd().split('\n\n').pop()).toBe('Yours sincerely,\nKari Nordmann')
+  })
+
+  it('omits a block the letter does not fill, leaving no blank one behind', () => {
+    const s = store()
+    s.resume = makeResume({ full_name: '', email: '', phone: '', website_url: '' })
+    const out = buildCoverLetterText(s, makeCoverLetter({ place_dated: 'Oslo' }), 'en')
+    expect(out.trimEnd()).toBe('Oslo')
+    expect(out).not.toContain('\n\n\n')
+  })
+
+  it('drops the head block entirely when there is no name or contact', () => {
+    const s = store()
+    s.resume = makeResume({ full_name: '', email: '', phone: '', website_url: '' })
+    expect(buildCoverLetterText(s, full(), 'en').split('\n')[0]).toBe('Oslo, 1 March 2026')
+  })
+
+  it('ends with exactly one newline', () => {
+    // A text export is fed to an ATS; trailing blank lines are noise.
+    const out = text()
+    expect(out.endsWith('\n')).toBe(true)
+    expect(out.endsWith('\n\n')).toBe(false)
+  })
+
+  it('generates a dateline when the letter has none', () => {
+    const out = text(full({ place_dated: null }))
+    expect(out.split('\n\n')[1]).toMatch(/\d{4}/)
+  })
+})
+
