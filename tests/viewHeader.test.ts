@@ -355,3 +355,43 @@ describe('footerLines()', () => {
     expect(withFooterDefaults({ note_placement: 'sideways' as never }).note_placement).toBe('after')
   })
 })
+/**
+ * The header style boundary validator (§7.8: view config is untrusted-import
+ * surface, sanitised at the render boundary).
+ */
+describe('withHeaderDefaults — the text style clamp', () => {
+  const styleOf = (over: unknown) =>
+    withHeaderDefaults({ name_style: over } as never).name_style
+
+  it('clamps an out-of-range size into 4..200', () => {
+    // A crafted import can carry any number; 0 renders nothing and 10000 makes
+    // one glyph fill the page.
+    expect(styleOf({ size_pt: 0, font: 'body' }).size_pt).toBe(4)
+    expect(styleOf({ size_pt: 10_000, font: 'body' }).size_pt).toBe(200)
+    expect(styleOf({ size_pt: 18, font: 'body' }).size_pt).toBe(18)
+  })
+
+  it('rejects a non-finite or non-numeric size, falling back to the default', () => {
+    for (const bad of [NaN, Infinity, -Infinity, '18', null, {}]) {
+      expect(styleOf({ size_pt: bad, font: 'body' }).size_pt, JSON.stringify(bad)).toBeNull()
+    }
+  })
+
+  it('rejects a font outside the allowed set', () => {
+    expect(styleOf({ size_pt: null, font: 'Comic Sans' }).font).toBe('condensed')
+    expect(styleOf({ size_pt: null, font: 'body' }).font).toBe('body')
+  })
+
+  it('survives a missing style object entirely', () => {
+    expect(styleOf(undefined)).toEqual({ size_pt: null, font: 'condensed' })
+  })
+
+  it('rejects a non-string separator', () => {
+    expect(withHeaderDefaults({ separator: 42 } as never).separator).toBe(' | ')
+    expect(withHeaderDefaults({ separator: ' · ' } as never).separator).toBe(' · ')
+  })
+
+  it('normalizes an absent logo override to null rather than undefined', () => {
+    expect(withHeaderDefaults({}).logo_override).toBeNull()
+  })
+})
