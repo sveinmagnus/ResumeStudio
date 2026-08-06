@@ -142,3 +142,38 @@ describe('searchStore', () => {
     expect(searchStore(store, 'common', 'en', 10)).toHaveLength(10)
   })
 })
+/** The search snippet — what the user reads in the Ctrl+K results list. */
+describe('contentSearch — the snippet', () => {
+  const store = (text: string): ResumeStore => {
+    const s = emptyStore()
+    s.projects = [makeProject({ id: 'p1', customer: {}, description: {}, long_description: { en: text } })]
+    return s
+  }
+  const snippetFor = (text: string, q: string) =>
+    searchStore(store(text), q, 'en')[0]?.snippet ?? ''
+
+  it('centres the snippet on the match', () => {
+    const text = `${'a'.repeat(200)} NEEDLE ${'b'.repeat(200)}`
+    const s = snippetFor(text, 'needle')
+    expect(s).toContain('NEEDLE')
+    expect(s.startsWith('…')).toBe(true)
+    expect(s.endsWith('…')).toBe(true)
+  })
+
+  it('does not open with an ellipsis when the match is at the start', () => {
+    const s = snippetFor(`NEEDLE ${'b'.repeat(200)}`, 'needle')
+    expect(s.startsWith('…')).toBe(false)
+    expect(s.endsWith('…')).toBe(true)
+  })
+
+  it('does not close with an ellipsis when the match runs to the end', () => {
+    const s = snippetFor(`${'a'.repeat(200)} NEEDLE`, 'needle')
+    expect(s.startsWith('…')).toBe(true)
+    expect(s.endsWith('…')).toBe(false)
+  })
+
+  it('leaves a short value whole, with no ellipses at all', () => {
+    const s = snippetFor('a short NEEDLE here', 'needle')
+    expect(s).toBe('a short NEEDLE here')
+  })
+})
