@@ -44,6 +44,7 @@ export function wipeLocale(store: ResumeStore, locale: string): ResumeStore {
       label: ls(kq.label),
       tag_line: ls(kq.tag_line),
       summary: ls(kq.summary),
+      summary_short: ls(kq.summary_short),
       key_points: kq.key_points.map((kp): KeyPoint => ({
         ...kp,
         name: ls(kp.name),
@@ -54,6 +55,7 @@ export function wipeLocale(store: ResumeStore, locale: string): ResumeStore {
       ...k,
       title: ls(k.title),
       description: ls(k.description),
+      short_description: ls(k.short_description),
     })),
     recommendations: store.recommendations.map((r): Recommendation => ({
       ...r,
@@ -67,6 +69,7 @@ export function wipeLocale(store: ResumeStore, locale: string): ResumeStore {
       customer_anonymized: ls(p.customer_anonymized),
       industries: p.industries.map((pi): ProjectIndustry => ({ ...pi, name: ls(pi.name) })),
       description: ls(p.description),
+      short_description: ls(p.short_description),
       long_description: ls(p.long_description),
       highlights: p.highlights.map((h) => ls(h)),
       roles: p.roles.map((r): ProjectRole => ({ ...r, name: ls(r.name) })),
@@ -78,24 +81,28 @@ export function wipeLocale(store: ResumeStore, locale: string): ResumeStore {
       role_title: ls(w.role_title),
       description: ls(w.description),
       long_description: ls(w.long_description),
+      short_description: ls(w.short_description),
     })),
     educations: store.educations.map((e): Education => ({
       ...e,
       school: ls(e.school),
       degree: ls(e.degree),
       description: ls(e.description),
+      short_description: ls(e.short_description),
     })),
     courses: store.courses.map((c): Course => ({
       ...c,
       name: ls(c.name),
       program: ls(c.program),
       description: ls(c.description),
+      short_description: ls(c.short_description),
     })),
     certifications: store.certifications.map((c): Certification => ({
       ...c,
       name: ls(c.name),
       organiser: ls(c.organiser),
       description: ls(c.description),
+      short_description: ls(c.short_description),
     })),
     spoken_languages: store.spoken_languages.map((l): SpokenLanguage => ({
       ...l,
@@ -108,12 +115,14 @@ export function wipeLocale(store: ResumeStore, locale: string): ResumeStore {
       name: ls(p.name),
       organisation: ls(p.organisation),
       description: ls(p.description),
+      short_description: ls(p.short_description),
     })),
     presentations: store.presentations.map((p): Presentation => ({
       ...p,
       title: ls(p.title),
       event: ls(p.event),
       description: ls(p.description),
+      short_description: ls(p.short_description),
     })),
     honor_awards: store.honor_awards.map((a): HonorAward => ({
       ...a,
@@ -121,12 +130,14 @@ export function wipeLocale(store: ResumeStore, locale: string): ResumeStore {
       issuer: ls(a.issuer),
       for_work: ls(a.for_work),
       description: ls(a.description),
+      short_description: ls(a.short_description),
     })),
     publications: store.publications.map((p): Publication => ({
       ...p,
       title: ls(p.title),
       publisher: ls(p.publisher),
       abstract: ls(p.abstract),
+      short_description: ls(p.short_description),
     })),
     references: store.references.map((r): Reference => ({
       ...r,
