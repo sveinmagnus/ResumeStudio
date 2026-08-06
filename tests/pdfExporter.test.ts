@@ -9,7 +9,16 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { buildPdfDocDefinition, buildCoverLetterPdfDef, __resetPdfMakeForTests } from '../src/lib/pdfExporter'
-import { emptyStore, makeResume, makeProject, makeView, makeCoverLetter } from './fixtures'
+import { unzipSync } from 'fflate'
+import { exportDocx } from '../src/lib/exporter'
+import { buildViewSections } from '../src/lib/viewFilter'
+import { withHeaderDefaults } from '../src/lib/viewHeader'
+import { DEFAULT_VIEW_STYLE, deriveTokens } from '../src/lib/viewStyle'
+import {
+  emptyStore, makeResume, makeProject, makeView, makeCoverLetter,
+  makeSkill, makeSkillCategory, makeKQ,
+} from './fixtures'
+import type { ResumeStore } from '../src/types'
 
 /** Recursively gather every `text` string in a pdfmake content tree. */
 function collectText(node: unknown, out: string[] = []): string[] {
@@ -291,5 +300,172 @@ describe('countPdfPages', () => {
     const { countPdfPages } = await import('../src/lib/pdfExporter')
     await countPdfPages(store(), makeView(), 'en')
     expect(seen.fonts.sort()).toEqual(['Courier', 'Helvetica', 'Roboto', 'Times'])
+  })
+})
+
+// ─── Skill matrix + identity (mirrors the DOCX adapter) ─────────────────────
+
+describe('skill matrix table (PDF)', () => {
+  /**
+   * 67 mutants, none covered. Same feature and same two shape rules as the
+   * DOCX table, in a second render engine — which is exactly where the two
+   * quietly diverge if only one of them is pinned.
+   */
+  const matrixStore = (withCategory: boolean): ResumeStore => {
+    const store = emptyStore()
+    if (withCategory) store.skill_categories = [makeSkillCategory({ id: 'cat1', name: { en: 'Languages' } })]
+    store.skills.push(makeSkill({
+      id: 'ts', name: { en: 'TypeScript' }, total_duration_in_years: 8, proficiency: 4,
+      category_id: withCategory ? 'cat1' : null,
+    }))
+    return store
+  }
+  const matrixView = (over: Record<string, unknown> = {}) => makeView({
+    sections: buildViewSections().map((s) =>
+      s.key === 'skill_matrix' ? { ...s, detail: 'full' as const, style: { ...s.style, ...over } } : s),
+  })
+
+  /** The matrix table node's body rows, as plain text. */
+  const matrixRows = (dd: { content: unknown }): string[][] => {
+    const found: string[][] = []
+    const walk = (n: unknown): void => {
+      if (Array.isArray(n)) { n.forEach(walk); return }
+      if (!n || typeof n !== 'object') return
+      const rec = n as Record<string, unknown>
+      // Section headings are tables too (they carry the rule under the label),
+      // so key on headerRows — only the matrix declares one.
+      const table = rec.table as { body?: unknown[][]; headerRows?: number } | undefined
+      if (table?.body && table.headerRows === 1 && !found.length) {
+        for (const row of table.body) {
+          found.push(row.map((c) => String((c as { text?: unknown })?.text ?? '')))
+        }
+      }
+      for (const v of Object.values(rec)) walk(v)
+    }
+    walk(dd.content)
+    return found
+  }
+
+  /** The same rows as objects, for the assertions that are about formatting. */
+  const matrixCells = (dd: { content: unknown }): Array<Array<Record<string, unknown>>> => {
+    const found: Array<Array<Record<string, unknown>>> = []
+    const walk = (n: unknown): void => {
+      if (Array.isArray(n)) { n.forEach(walk); return }
+      if (!n || typeof n !== 'object') return
+      const rec = n as Record<string, unknown>
+      const table = rec.table as { body?: unknown[][]; headerRows?: number } | undefined
+      if (table?.body && table.headerRows === 1 && !found.length) {
+        for (const row of table.body) found.push(row as Array<Record<string, unknown>>)
+      }
+      for (const v of Object.values(rec)) walk(v)
+    }
+    walk(dd.content)
+    return found
+  }
+
+  it('writes a header row and one row per skill, with the real values', async () => {
+    const rows = matrixRows(await buildPdfDocDefinition(matrixStore(false), matrixView(), 'en'))
+    expect(rows[0]).toEqual(['Skill', 'Experience', 'Proficiency', 'Last used'])
+    expect(rows[1]).toEqual(['TypeScript', '8 yrs', '4/5', ''])
+  })
+
+  it('adds the Category column ONLY when some row has a category', async () => {
+    const withCat = matrixRows(await buildPdfDocDefinition(matrixStore(true), matrixView(), 'en'))
+    expect(withCat[0]).toEqual(['Skill', 'Category', 'Experience', 'Proficiency', 'Last used'])
+    expect(withCat[1]).toEqual(['TypeScript', 'Languages', '8 yrs', '4/5', ''])
+  })
+
+  it('drops the Last used column when the section hides dates', async () => {
+    const rows = matrixRows(await buildPdfDocDefinition(matrixStore(false), matrixView({ hide_dates: true }), 'en'))
+    expect(rows[0]).toEqual(['Skill', 'Experience', 'Proficiency'])
+  })
+
+  it('localizes the column headings', async () => {
+    const rows = matrixRows(await buildPdfDocDefinition(matrixStore(false), matrixView(), 'no'))
+    expect(rows[0]).toEqual(['Ferdighet', 'Erfaring', 'Nivå', 'Sist brukt'])
+  })
+
+  it('marks the header row bold and accented', async () => {
+    // The layout draws a rule under it but the cells are otherwise identical to
+    // the data rows, so weight and colour are what make it read as a header —
+    // and every text assertion above passes without them.
+    const dd = await buildPdfDocDefinition(matrixStore(false), matrixView(), 'en')
+    const header = matrixCells(dd)[0]
+    expect(header[0]).toMatchObject({ bold: true })
+    expect(header[0].color).toBe(`#${deriveTokens(DEFAULT_VIEW_STYLE).accentHex}`)
+    expect(matrixCells(dd)[1][0].bold).toBeUndefined()
+  })
+
+  it('agrees cell-for-cell with the DOCX adapter', async () => {
+    // One descriptor, every adapter (CLAUDE.md §7.7). The two tables are built
+    // by separate code, so this is the assertion that notices when one grows a
+    // column the other doesn't.
+    // exportDocx downloads rather than returns; capture the blob it hands off.
+    let docx: Blob | null = null
+    Object.defineProperty(URL, 'createObjectURL', {
+      writable: true, configurable: true,
+      value: (b: Blob) => { docx = b; return 'blob:fake' },
+    })
+    Object.defineProperty(URL, 'revokeObjectURL', { writable: true, configurable: true, value: () => {} })
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+
+    await exportDocx(matrixStore(true), matrixView(), 'en')
+    const files = unzipSync(new Uint8Array(await docx!.arrayBuffer()))
+    const xml = new TextDecoder().decode(files['word/document.xml'])
+    const docxCells = [...xml.matchAll(/<w:tc>[\s\S]*?<\/w:tc>/g)]
+      .map((m) => [...m[0].matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map((t) => t[1]).join(''))
+
+    const pdfRows = matrixRows(await buildPdfDocDefinition(matrixStore(true), matrixView(), 'en'))
+    expect(pdfRows.flat()).toEqual(docxCells)
+  })
+})
+
+describe('buildIdentity (PDF)', () => {
+  const identityStore = (): ResumeStore => {
+    const store = emptyStore()
+    store.resume = makeResume({
+      full_name: 'Kari Nordmann', title: { en: 'Solution Architect' },
+      phone: '+47 900 00 000', email: 'kari@example.com',
+    })
+    return store
+  }
+
+  it('uses the profile tag line as the title, like every other adapter', async () => {
+    // REGRESSION: the PDF was the only render path that skipped
+    // viewProfileTagLine, so a resume whose title comes from its profile
+    // exported as the PDF with the legacy master title and as everything else
+    // with the tag line. §4: the tag line is the default resume title.
+    const store = identityStore()
+    store.key_qualifications.push(makeKQ({ tag_line: { en: 'Board Adviser' } }))
+    const dd = await buildPdfDocDefinition(store, makeView({ sections: buildViewSections() }), 'en')
+    const text = collectText(dd.content)
+    expect(text[1]).toBe('Board Adviser')
+    expect(text).not.toContain('Solution Architect')
+  })
+
+  it('still prefers an explicit header override', async () => {
+    const store = identityStore()
+    store.key_qualifications.push(makeKQ({ tag_line: { en: 'Board Adviser' } }))
+    const dd = await buildPdfDocDefinition(store, makeView({
+      sections: buildViewSections(),
+      header: withHeaderDefaults({ title_override: { en: 'Interim CTO' } }),
+    }), 'en')
+    expect(collectText(dd.content)[1]).toBe('Interim CTO')
+  })
+
+  it('falls back to the resume title when no profile and no override', async () => {
+    const dd = await buildPdfDocDefinition(identityStore(), makeView({ sections: buildViewSections() }), 'en')
+    expect(collectText(dd.content)[1]).toBe('Solution Architect')
+  })
+
+  it('puts the separator BETWEEN same-line contact fields, never before the first', async () => {
+    // Phone and email share a line, so there is exactly ONE separator. Counting
+    // is what distinguishes the three cases: 0 means it was never emitted, 2
+    // means it also opened the line with a stray " | ". Looking at the run
+    // BEFORE the phone number proves nothing — the field label sits there.
+    const dd = await buildPdfDocDefinition(identityStore(), makeView({ sections: buildViewSections() }), 'en')
+    const t = collectText(dd.content)
+    expect(t.filter((x) => x === ' | ')).toHaveLength(1)
+    expect(t.indexOf(' | ')).toBeGreaterThan(t.indexOf('+47 900 00 000'))
   })
 })
