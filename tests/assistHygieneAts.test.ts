@@ -908,3 +908,90 @@ describe('validateHygiene — what it refuses', () => {
     }
   })
 })
+
+/**
+ * C3's glossary derivation and scoping.
+ *
+ * The glossary is invisible — it rides the ordinary Draft button with no UI
+ * (§15) — so a rule that stops working is not something anyone sees. Its value
+ * is being CERTAIN: it mines only data that already holds a term pair, and it
+ * narrows to what the field being translated actually mentions, because a
+ * 300-entry list is not something a 3B model can obey.
+ */
+describe('glossary — derivation and scoping', () => {
+  const store = (): ResumeStore => {
+    const s = emptyStore()
+    s.skills = [makeSkill({ id: 's1', name: { en: 'Cloud', no: 'Sky' } })]
+    s.roles = [makeRole({ id: 'r1', name: { en: 'Architect', no: 'Arkitekt' } })]
+    return s
+  }
+
+  it('is empty when the two languages are the same, or either is missing', () => {
+    // Nothing to translate — and a glossary mapping a term to itself would just
+    // be noise in the prompt.
+    // `keep` too: a same-language pair reads as "written identically in both
+    // columns", so without the early return every registry name would arrive as
+    // a do-not-translate instruction.
+    // A store with an identity FIELD as well as registries — `keep` is mined
+    // from fields only, so registries alone cannot show the difference.
+    const s = store()
+    s.projects = [makeProject({ id: 'p1', customer: { en: 'Statens vegvesen' } })]
+    for (const [a, b] of [['en', 'en'], ['', 'no'], ['en', '']]) {
+      const g = buildGlossary(s, a, b)
+      expect(g.terms, `${a}->${b}`).toEqual([])
+      expect(g.keep, `${a}->${b}`).toEqual([])
+    }
+  })
+
+  it('mines the registries in the direction asked for', () => {
+    // Skills AND roles — they are separate loops, and a job title is exactly
+    // the kind of term a small model renders three different ways.
+    const fwd = buildGlossary(store(), 'en', 'no')
+    expect(fwd.terms).toContainEqual(expect.objectContaining({ from: 'Cloud', to: 'Sky' }))
+    expect(fwd.terms).toContainEqual(expect.objectContaining({ from: 'Architect', to: 'Arkitekt' }))
+    const back = buildGlossary(store(), 'no', 'en')
+    expect(back.terms).toContainEqual(expect.objectContaining({ from: 'Sky', to: 'Cloud' }))
+    expect(back.terms).toContainEqual(expect.objectContaining({ from: 'Arkitekt', to: 'Architect' }))
+  })
+
+  it('takes a name written IDENTICALLY in both columns as do-not-translate', () => {
+    // The user already told us: they chose not to translate it.
+    const s = store()
+    s.projects = [makeProject({ id: 'p1', customer: { en: 'Statens vegvesen', no: 'Statens vegvesen' } })]
+    expect(buildGlossary(s, 'en', 'no').keep).toContain('Statens vegvesen')
+  })
+
+  it('does NOT mine prose — that would need a model, which is the point of not doing it', () => {
+    const s = store()
+    s.projects = [makeProject({
+      id: 'p1', customer: {},
+      long_description: { en: 'Ran the migration', no: 'Kjørte migrasjonen' },
+    })]
+    const g = buildGlossary(s, 'en', 'no')
+    expect(g.terms.map((t) => t.from)).not.toContain('Ran the migration')
+  })
+
+  it('narrows to the terms the text actually mentions', () => {
+    const g = buildGlossary(store(), 'en', 'no')
+    const scoped = scopeGlossary(g, 'We moved it to the Cloud.')
+    expect(scoped.terms.map((t) => t.from)).toEqual(['Cloud'])
+  })
+
+  it('is empty for empty text, rather than sending everything', () => {
+    const g = buildGlossary(store(), 'en', 'no')
+    expect(scopeGlossary(g, '   ').terms).toEqual([])
+  })
+
+  it('puts the LONGEST match first', () => {
+    // A longer term is the more specific instruction, and a small model obeys
+    // the top of a list more reliably than the bottom.
+    const s = emptyStore()
+    s.skills = [
+      makeSkill({ id: 'a', name: { en: 'Cloud', no: 'Sky' } }),
+      makeSkill({ id: 'b', name: { en: 'Cloud architecture', no: 'Skyarkitektur' } }),
+    ]
+    const scoped = scopeGlossary(buildGlossary(s, 'en', 'no'), 'Our Cloud architecture is good.')
+    expect(scoped.terms[0].from).toBe('Cloud architecture')
+  })
+})
+
