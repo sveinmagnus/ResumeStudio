@@ -373,3 +373,136 @@ describe('parseRichBlocks', () => {
     expect(blocks[1]).toMatchObject({ kind: 'list-item', level: 1 })
   })
 })
+
+/**
+ * parseRichBlocks is the ONE parse every non-HTML renderer walks (DOCX, PDF,
+ * plain text), so a branch it gets wrong is wrong in three exported documents
+ * at once. walkBlocks had 52 mutants no test reached; these are its branches.
+ */
+describe('parseRichBlocks — the branches the renderers depend on', () => {
+  type Run = { text: string; bold?: boolean; italic?: boolean; underline?: boolean }
+  const runsOf = (b: unknown): Run[] => (b as { runs: Run[] }).runs
+  const textOf = (b: unknown): string => runsOf(b).map((r) => r.text).join('')
+
+  it('keeps a <br> as a newline run inside the paragraph, not a new block', () => {
+    // §4: inside an <li> a break stays a break. The parse must carry it as a
+    // run rather than splitting, or the renderers get a bullet nobody wrote.
+    const blocks = parseRichBlocks('<ul><li>one<br>two</li></ul>')
+    expect(blocks).toHaveLength(1)
+    expect(runsOf(blocks[0]).map((r) => r.text)).toEqual(['one', '\n', 'two'])
+  })
+
+  it('combines nested inline flags rather than replacing the outer one', () => {
+    const blocks = parseRichBlocks('<p><b>bold <i>both</i></b></p>')
+    const both = runsOf(blocks[0]).find((r) => r.text === 'both')
+    expect(both).toMatchObject({ bold: true, italic: true })
+  })
+
+  it('carries an inline flag INTO a nested list item', () => {
+    const blocks = parseRichBlocks('<b><ul><li>a</li></ul></b>')
+    expect(runsOf(blocks[0])[0]).toMatchObject({ bold: true })
+  })
+
+  it('normalizes a stray <li> into a paragraph rather than a bullet', () => {
+    // sanitizeRich runs FIRST, so an <li> with no enclosing list is already a
+    // <p> by the time the walker sees it. The text survives either way; what
+    // matters is that it is not emitted as a bullet nobody wrote.
+    const blocks = parseRichBlocks('<li>orphan</li>')
+    expect(blocks).toHaveLength(1)
+    expect(blocks[0].kind).toBe('paragraph')
+    expect(textOf(blocks[0])).toBe('orphan')
+  })
+
+  it('treats a value that merely CONTAINS non-allowlisted tags as plain text', () => {
+    // hasMarkup only recognises the tags storage is canonicalised to. A stored
+    // value never holds a <div>, so one in the text is something the user
+    // typed — it must print, not silently vanish as markup.
+    expect(textOf(parseRichBlocks('<div>x</div>')[0])).toBe('<div>x</div>')
+  })
+
+  it('restarts the ordered counter for each list', () => {
+    const blocks = parseRichBlocks('<ol><li>a</li><li>b</li></ol><ol><li>c</li></ol>')
+    expect(blocks.map((b) => (b as { index: number }).index)).toEqual([1, 2, 1])
+  })
+
+  it('restarts the counter for a nested list and does NOT resume the parent', () => {
+    // The nested list gets its own counter; the parent continues from where it
+    // was, so "1, 1, 2" is right and "1, 2, 3" would renumber the document.
+    const blocks = parseRichBlocks('<ol><li>a<ol><li>x</li></ol></li><li>b</li></ol>')
+    expect(blocks.map((b) => [(b as { level: number }).level, (b as { index: number }).index]))
+      .toEqual([[0, 1], [1, 1], [0, 2]])
+  })
+
+  it('flushes pending inline text as its own paragraph before a list starts', () => {
+    // Bare text followed by a list: without the flush the text is lost or
+    // absorbed into the first bullet.
+    const blocks = parseRichBlocks('lead in<ul><li>a</li></ul>')
+    expect(blocks[0]).toMatchObject({ kind: 'paragraph' })
+    expect(textOf(blocks[0])).toBe('lead in')
+    expect(blocks[1]).toMatchObject({ kind: 'list-item' })
+  })
+
+  it('emits nothing for an empty paragraph or an empty list item', () => {
+    expect(parseRichBlocks('<p></p><p>  </p>')).toEqual([])
+    expect(parseRichBlocks('<ul><li></li></ul>')).toEqual([])
+  })
+
+  it('splits a raw newline inside a paragraph into TWO blocks', () => {
+    // §4: every break is a paragraph boundary, and the canonicalisation runs
+    // before the walk — so the block structure the DOCX and PDF get agrees
+    // with the HTML preview built from the same value.
+    expect(parseRichBlocks('<p>a   \n  b</p>').map(textOf)).toEqual(['a', 'b'])
+  })
+
+  it('collapses whitespace WITHIN one line to a single space', () => {
+    expect(textOf(parseRichBlocks('<p>a     b</p>')[0])).toBe('a b')
+  })
+
+  it('marks ol as ordered and ul as not, at every level', () => {
+    const blocks = parseRichBlocks('<ul><li>a<ol><li>x</li></ol></li></ul>')
+    expect(blocks[0]).toMatchObject({ ordered: false, level: 0 })
+    expect(blocks[1]).toMatchObject({ ordered: true, level: 1 })
+  })
+})
+
+describe('cleanPastedHtml — containers and inline-style edges', () => {
+  it('treats every block container as a paragraph boundary', () => {
+    // The set exists so a paste from any site breaks where it looks like it
+    // breaks. Each of these was in the list with nothing exercising it.
+    for (const tag of ['section', 'article', 'blockquote', 'aside', 'figure', 'address']) {
+      expect(cleanPastedHtml(`<${tag}>one</${tag}><${tag}>two</${tag}>`), tag)
+        .toBe('<p>one</p><p>two</p>')
+    }
+  })
+
+  it('flattens a definition list to paragraphs', () => {
+    expect(cleanPastedHtml('<dl><dt>Term</dt><dd>Meaning</dd></dl>'))
+      .toBe('<p>Term</p><p>Meaning</p>')
+  })
+
+  it('reads numeric font-weight at the 600 boundary', () => {
+    // 600 is bold, 500 is not — the regex covers [6-9]00, and an off-by-one
+    // there silently bolds or unbolds every Google Docs paste.
+    expect(cleanPastedHtml('<span style="font-weight:600">x</span>')).toBe('<strong>x</strong>')
+    expect(cleanPastedHtml('<span style="font-weight:500">x</span>')).toBe('x')
+    expect(cleanPastedHtml('<span style="font-weight:bolder">x</span>')).toBe('<strong>x</strong>')
+  })
+
+  it('lets an inline style override the TAG in both directions', () => {
+    // The attribute wins either way: a styled span becomes bold, and a <b>
+    // styled normal does not stay bold.
+    expect(cleanPastedHtml('<p><b style="font-weight:normal">x</b></p>')).toBe('x')
+    expect(cleanPastedHtml('<p><span style="font-style:oblique">x</span></p>')).toBe('<em>x</em>')
+  })
+
+  it('reads the longhand text-decoration-line as well as the shorthand', () => {
+    expect(cleanPastedHtml('<span style="text-decoration-line:underline">x</span>')).toBe('<u>x</u>')
+    expect(cleanPastedHtml('<span style="text-decoration:none">x</span>')).toBe('x')
+  })
+
+  it('does not read a style property whose name is a suffix of another', () => {
+    // The matcher anchors on `^` or `;` so `font-style` cannot satisfy a lookup
+    // for `style`, and `-weight` cannot satisfy `font-weight`.
+    expect(cleanPastedHtml('<span style="font-style:italic">x</span>')).toBe('<em>x</em>')
+  })
+})
