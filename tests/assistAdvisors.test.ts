@@ -929,3 +929,82 @@ describe('prompt builders', () => {
     expect(buildVoicePassPrompt(s, 'en')).toContain('A terse line.')
   })
 })
+
+/**
+ * WHICH fields are identity, exhaustively.
+ *
+ * `prose: false` is the flag that stops an assist rewriting a customer's name,
+ * an employer, a school or a job title (§15: readable, never rewritable). The
+ * existing checks spot-check two of them, so flipping any of the other 21 —
+ * which is a one-character edit — leaves an A2 run free to "improve" the name
+ * of the company someone worked for.
+ *
+ * Listing them is a table assertion, and that is the point: the table IS the
+ * rule, and no property test can tell an identity field from a prose one.
+ */
+describe('cvFields — the identity fields an assist may never rewrite', () => {
+  const IDENTITY: ReadonlyArray<[string, string]> = [
+    ['key_qualifications', 'tag_line'],
+    ['key_competencies', 'title'],
+    ['projects', 'customer'],
+    ['projects', 'description'],
+    ['work_experiences', 'employer'],
+    ['work_experiences', 'role_title'],
+    ['positions', 'name'],
+    ['positions', 'organisation'],
+    ['educations', 'school'],
+    ['educations', 'degree'],
+    ['courses', 'name'],
+    ['courses', 'program'],
+    ['certifications', 'name'],
+    ['certifications', 'organiser'],
+    ['presentations', 'title'],
+    ['presentations', 'event'],
+    ['publications', 'title'],
+    ['publications', 'publisher'],
+    ['honor_awards', 'name'],
+    ['honor_awards', 'issuer'],
+    ['honor_awards', 'for_work'],
+    ['recommendations', 'recommender_title'],
+    ['recommendations', 'relationship'],
+  ]
+
+  it.each(IDENTITY)('%s.%s is identity, not prose', (section, key) => {
+    expect(fieldOf(section, key)?.prose).toBe(false)
+  })
+
+  it('has exactly these identity fields and no others', () => {
+    // The other direction: a prose field newly marked `prose: false` would make
+    // a real description unrewritable, and the per-field checks above cannot
+    // see that.
+    const actual = CV_SECTIONS.flatMap((s) =>
+      fieldsOf(s).filter((f) => !f.prose).map((f) => `${s}.${f.key}`)).sort()
+    expect(actual).toEqual(IDENTITY.map(([s, k]) => `${s}.${k}`).sort())
+  })
+
+  it('marks highlights as the only LIST field', () => {
+    // `list` changes how a value is read and written; a single-value field
+    // marked as a list reads as an array of characters.
+    const lists = CV_SECTIONS.flatMap((s) =>
+      fieldsOf(s).filter((f) => f.list).map((f) => `${s}.${f.key}`))
+    expect(lists).toEqual(['projects.highlights'])
+  })
+
+  it('gives every field a distinct, non-empty label', () => {
+    // The label is what the review UI shows beside a proposed change; a blank
+    // or duplicated one makes two proposals indistinguishable.
+    for (const s of CV_SECTIONS) {
+      const labels = fieldsOf(s).map((f) => f.label)
+      expect(labels.every((l) => l.trim().length > 0), s).toBe(true)
+      expect(new Set(labels).size, s).toBe(labels.length)
+    }
+  })
+
+  it('gives every section at least one rewritable field', () => {
+    // A section of nothing but identity fields would appear in the advisors'
+    // digest and accept no proposal — a menu entry that does nothing.
+    for (const s of CV_SECTIONS) {
+      expect(fieldsOf(s).some((f) => f.prose), s).toBe(true)
+    }
+  })
+})
