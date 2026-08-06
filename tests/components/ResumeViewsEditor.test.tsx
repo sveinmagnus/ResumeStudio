@@ -36,7 +36,29 @@ function seed() {
   })
 }
 
-describe('<ResumeViewsEditor>', () => {
+/**
+ * Per-test budget for this file, replacing the global 15s.
+ *
+ * Every test here mounts the whole view editor including the LIVE PREVIEW,
+ * which is genuinely timer-driven work: a debounced rebuild of the view HTML, a
+ * 400ms re-measure after each iframe load, and a debounced page count. That is
+ * the thing under test, so it can't be mocked away — the cheap fat was already
+ * removed (pdfExporter is stubbed above, see the note there).
+ *
+ * The result is the suite's slowest file by a wide margin: ~50s for 26 tests
+ * normally, ~214s under v8 coverage instrumentation, which costs ~2.7x. The
+ * `npm run test:coverage` job therefore failed on the export-dropdown test at
+ * 16.1s while the same test takes 2.2s uncontended — a flake produced by
+ * measuring, not a hang.
+ *
+ * Applied to the WHOLE FILE this time. It was previously scoped to the pop-out
+ * block, whose note predicted exactly what then happened: raising it for the
+ * slowest tests only moves the failure to the next-slowest sibling. Left at the
+ * global 15s everywhere else, so a real hang elsewhere still fails fast.
+ */
+const FILE_TIMEOUT_MS = 40_000
+
+describe('<ResumeViewsEditor>', { timeout: FILE_TIMEOUT_MS }, () => {
   beforeEach(() => resetStore())
 
   it('shows an empty state when there are no views', () => {
@@ -399,18 +421,7 @@ describe('<ResumeViewsEditor>', () => {
     expect(useStore.getState().data.views[0].introduction.en).toBe('Targeted for boards')
   })
 
-  /**
-   * Every test in here renders the whole view editor AND a pop-out window's
-   * worth of preview, so they land within a second or two of the 15s global
-   * limit and time out whenever the suite runs under parallel load — a flake,
-   * not a failure. Applied to the whole block rather than test-by-test: doing
-   * it individually just moved the failure to the next-slowest sibling.
-   * Scoped here rather than raising testTimeout for all 2500 tests, which would
-   * hide a real hang everywhere else.
-   */
-  const POPOUT_TIMEOUT_MS = 40_000
-
-  describe('preview pop-out / pop-in', { timeout: POPOUT_TIMEOUT_MS }, () => {
+  describe('preview pop-out / pop-in', () => {
     // A stand-in for the popped-out window: jsdom doesn't implement window.open.
     function fakeWindow() {
       return {
