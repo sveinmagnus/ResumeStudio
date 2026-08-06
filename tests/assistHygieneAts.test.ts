@@ -779,3 +779,132 @@ describe('buildAtsPrompt — what the model is asked to judge', () => {
     expect(buildAtsPrompt(coverage, 'x', 'y', 'en')).toMatch(/quote/i)
   })
 })
+
+/**
+ * The rejections C4's validator is made of.
+ *
+ * A registry merge is the most destructive act in the app and the least
+ * noticeable when wrong (§15), so this validator's job is to refuse things —
+ * and 21 of its mutants were unreached. Each refusal below either deletes the
+ * wrong entry or silently drops a proposal the user then cannot see.
+ */
+describe('validateHygiene — what it refuses', () => {
+  const hygStore = (): ResumeStore => {
+    const s = emptyStore()
+    s.skills = [
+      makeSkill({ id: 's1', name: { en: 'Kubernetes' } }),
+      makeSkill({ id: 's2', name: { en: 'K8s' } }),
+      makeSkill({ id: 's3', name: { en: 'Go' }, category_id: 'c1' }),
+    ]
+    s.skill_categories = [{ id: 'c1', resume_id: 'r', name: { en: 'Languages' }, sort_order: 0 } as never]
+    return s
+  }
+  const reply = (over: Record<string, unknown>) => ({ merges: [], categories: [], ...over })
+  const run = (over: Record<string, unknown>) => validateHygiene(reply(over), hygStore(), 'en')
+
+  describe('merges', () => {
+    it('refuses a merge of an entry into ITSELF', () => {
+      // It would delete the entry and rewrite its references to a row that no
+      // longer exists.
+      const r = run({ merges: [{ kind: 'skills', keep_id: 's1', drop_id: 's1' }] })
+      expect(r.merges).toHaveLength(0)
+      expect(r.dropped.join(' ')).toMatch(/into itself/i)
+    })
+
+    it('refuses a merge naming a registry that does not exist', () => {
+      const r = run({ merges: [{ kind: 'vegetables', keep_id: 's1', drop_id: 's2' }] })
+      expect(r.merges).toHaveLength(0)
+      expect(r.dropped.join(' ')).toMatch(/unknown registry/i)
+    })
+
+    it('refuses an entry that is not an object at all', () => {
+      const r = run({ merges: ['just a string', null] })
+      expect(r.merges).toHaveLength(0)
+      expect(r.dropped).toHaveLength(2)
+    })
+
+    it('names the 1-BASED position of each rejected proposal', () => {
+      // The message is how the user finds which row was skipped; a 0-based
+      // index points at the wrong one.
+      // Every rejection path numbers independently, so both are checked.
+      expect(run({ merges: [{ kind: 'skills', keep_id: 's1', drop_id: 's1' }] }).dropped[0])
+        .toContain('Merge 1')
+      expect(run({ merges: ['not an object'] }).dropped[0]).toContain('Merge 1')
+      expect(run({ categories: [{ skill_id: 'nope' }] }).dropped[0]).toContain('Category 1')
+    })
+
+    it('reports the reference counts of BOTH sides, not just the one being dropped', () => {
+      // The confirm names how many references are rewritten; the keeper's count
+      // is what tells the user which of two similar entries is the real one.
+      const r = run({ merges: [{ kind: 'skills', keep_id: 's1', drop_id: 's2', reason: 'same thing' }] })
+      expect(r.merges[0]).toMatchObject({
+        keepId: 's1', keepName: 'Kubernetes', dropId: 's2', dropName: 'K8s', reason: 'same thing',
+      })
+      expect(typeof r.merges[0].dropRefs).toBe('number')
+      expect(typeof r.merges[0].keepRefs).toBe('number')
+    })
+
+    it('caps the batch rather than accepting an unbounded list', () => {
+      const many = Array.from({ length: 200 }, () => ({ kind: 'skills', keep_id: 's1', drop_id: 's2' }))
+      const r = run({ merges: many })
+      expect(r.merges.length + r.dropped.length).toBeLessThanOrEqual(60)
+    })
+  })
+
+  describe('categories', () => {
+    it('refuses to re-categorise a skill the user placed, and SAYS so', () => {
+      // Silence here would look like the model simply had no opinion.
+      const r = run({ categories: [{ skill_id: 's3', category_name: 'Backend' }] })
+      expect(r.categories).toHaveLength(0)
+      expect(r.dropped.join(' ')).toMatch(/already placed/i)
+    })
+
+    it('refuses a skill that is not in the registry', () => {
+      const r = run({ categories: [{ skill_id: 'nope', category_name: 'Backend' }] })
+      expect(r.dropped.join(' ')).toMatch(/isn't in the registry/i)
+    })
+
+    it('refuses a category id that does not exist', () => {
+      const r = run({ categories: [{ skill_id: 's1', category_id: 'ghost' }] })
+      expect(r.categories).toHaveLength(0)
+      expect(r.dropped.join(' ')).toMatch(/doesn't exist/i)
+    })
+
+    it('resolves an EXISTING category id to its name, ignoring any name sent alongside', () => {
+      const r = run({ categories: [{ skill_id: 's1', category_id: 'c1', category_name: 'Wrong' }] })
+      expect(r.categories[0]).toMatchObject({ categoryName: 'Languages' })
+    })
+
+    it('accepts a brand-new category by name', () => {
+      const r = run({ categories: [{ skill_id: 's1', category_name: 'Container platforms' }] })
+      expect(r.categories[0]).toMatchObject({ categoryName: 'Container platforms' })
+    })
+
+    it('refuses a proposal with neither an id nor a name', () => {
+      const r = run({ categories: [{ skill_id: 's1' }] })
+      expect(r.categories).toHaveLength(0)
+      expect(r.dropped.join(' ')).toMatch(/no category name/i)
+    })
+
+    it('keeps the FIRST proposal for a skill and silently ignores a repeat', () => {
+      // A duplicate is not a user-visible problem — the first answer stands.
+      const r = run({ categories: [
+        { skill_id: 's1', category_name: 'First' },
+        { skill_id: 's1', category_name: 'Second' },
+      ] })
+      expect(r.categories).toHaveLength(1)
+      expect(r.categories[0]).toMatchObject({ categoryName: 'First' })
+    })
+  })
+
+  it('accepts a reply carrying only ONE of the two lists', () => {
+    expect(() => validateHygiene({ merges: [] }, hygStore(), 'en')).not.toThrow()
+    expect(() => validateHygiene({ categories: [] }, hygStore(), 'en')).not.toThrow()
+  })
+
+  it('rejects a non-object reply outright', () => {
+    for (const bad of [null, 'text', 42]) {
+      expect(() => validateHygiene(bad, hygStore(), 'en')).toThrow(InvalidHygieneError)
+    }
+  })
+})
