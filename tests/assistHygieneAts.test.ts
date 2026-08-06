@@ -1,9 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { emptyStore, makeProject, makeRole, makeSkill } from './fixtures'
-import type { ResumeStore } from '../src/types'
+import { emptyStore, makeProject, makeRole, makeSkill, makeResume, makeView } from './fixtures'
+import type { ResumeStore, ResumeView } from '../src/types'
+import { buildViewSections } from '../src/lib/viewFilter'
 import {
   auditCoverage, containsTerm, coverageTally, extractPostingTerms,
-  validateAtsResponse, InvalidAtsResponseError,
+  validateAtsResponse, InvalidAtsResponseError, runLiteralAudit, buildAtsPrompt,
 } from '../src/lib/atsAudit'
 import {
   applyHygiene, buildHygienePrompt, hasRegistryContent, hygieneImpact,
@@ -653,5 +654,128 @@ describe('glossary', () => {
   it('will not match a term inside a longer Norwegian word', () => {
     expect(mentions('Skydriften vår', 'Skydrift')).toBe(false)
     expect(mentions('Vår Skydrift er god', 'Skydrift')).toBe(true)
+  })
+})
+
+/**
+ * B4's free first pass, end to end.
+ *
+ * runLiteralAudit had 8 mutants and none killed — nothing called it, even
+ * though it is the half of this feature that works on an install with NO model
+ * configured (§15). Its whole value rests on one comparison being like-for-
+ * like: both texts come from the same builder, one through the view and one
+ * through a wide-open copy of it, so `elsewhere` really means "your CV says
+ * this, but THIS view leaves it out" rather than "the JSON differs from the
+ * export".
+ */
+describe('runLiteralAudit — the pass that needs no model', () => {
+  const store = (): ResumeStore => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'Kari Nordmann' })
+    s.skills = [makeSkill({ id: 'k8s', name: { en: 'Kubernetes' } })]
+    s.projects = [
+      makeProject({ id: 'p1', customer: { en: 'Acme' }, long_description: { en: 'Ran Kubernetes in production.' } }),
+      makeProject({ id: 'p2', customer: { en: 'Beta' }, long_description: { en: 'Wrote a lot of Fortran.' } }),
+    ]
+    return s
+  }
+  const view = (over: Partial<ResumeView> = {}) =>
+    makeView({ sections: buildViewSections(), ...over }) as ResumeView
+
+  const statusOf = (cov: { terms: { term: string; status: string }[] }, term: string) =>
+    cov.terms.find((t) => t.term.toLowerCase() === term.toLowerCase())?.status
+
+  it('marks a term the view exports as present', () => {
+    const cov = runLiteralAudit(store(), view(), 'en', 'We need Kubernetes experience.')
+    expect(statusOf(cov, 'kubernetes')).toBe('present')
+  })
+
+  it('marks a term the CV has but THIS view excludes as elsewhere', () => {
+    // The status worth having: fixable by re-including an item, with no
+    // writing at all. It only works because the master text is rendered
+    // through the same builder with the exclusions lifted.
+    const excluded = view({ excluded_item_ids: ['p2'] })
+    const cov = runLiteralAudit(store(), excluded, 'en', 'Fortran maintenance required.')
+    expect(statusOf(cov, 'fortran')).toBe('elsewhere')
+  })
+
+  it('marks a term the CV does not have at all as absent', () => {
+    // Comma-separated, because the extractor groups ADJACENT capitalised words
+    // — "Deep COBOL expertise" yields the term "Deep COBOL", not "COBOL".
+    const cov = runLiteralAudit(store(), view(), 'en', 'Kubernetes, Fortran and COBOL.')
+    expect(statusOf(cov, 'cobol')).toBe('absent')
+  })
+
+  it('lifts starred_only for the master comparison too', () => {
+    // A starred-only view hides unstarred items; without clearing the flag the
+    // master text would be just as narrow and every gap would read as absent.
+    const s = store()
+    s.projects[0].starred = true
+    const cov = runLiteralAudit(s, view({ starred_only: true }), 'en', 'Fortran maintenance required.')
+    expect(statusOf(cov, 'fortran')).toBe('elsewhere')
+  })
+
+  it('flags a term the registry knows, from EITHER the skill or role registry', () => {
+    // Both registries feed the known set; leaving roles out would mark a job
+    // title the consultant has curated as an unrecognised keyword.
+    const s = store()
+    s.roles = [makeRole({ id: 'arch', name: { en: 'Architect' } })]
+    const cov = runLiteralAudit(s, view(), 'en', 'Kubernetes, Architect and COBOL.')
+    const known = (t: string) => cov.terms.find((x) => x.term.toLowerCase() === t)!.known
+    expect(known('kubernetes')).toBe(true)
+    expect(known('architect')).toBe(true)
+    expect(known('cobol')).toBe(false)
+  })
+
+  it('puts the gaps first — the report is a to-do list', () => {
+    const cov = runLiteralAudit(store(), view({ excluded_item_ids: ['p2'] }), 'en',
+      'Kubernetes, Fortran and COBOL.')
+    const order = cov.terms.map((t) => t.status)
+    expect(order.indexOf('present')).toBe(order.length - 1)
+    expect(order[0]).not.toBe('present')
+  })
+
+  it('reports the size of the document it actually measured', () => {
+    const cov = runLiteralAudit(store(), view(), 'en', 'Kubernetes.')
+    expect(cov.documentChars).toBeGreaterThan(0)
+  })
+
+  it('returns nothing to act on for an empty posting', () => {
+    expect(runLiteralAudit(store(), view(), 'en', '').terms).toEqual([])
+  })
+})
+
+describe('buildAtsPrompt — what the model is asked to judge', () => {
+  const coverage = {
+    terms: [
+      { term: 'Kubernetes', status: 'present' as const, known: true },
+      { term: 'Fortran', status: 'elsewhere' as const, known: false },
+      { term: 'COBOL', status: 'absent' as const, known: false },
+    ],
+    documentChars: 100,
+  }
+
+  it('sends ONLY the terms the literal pass could not find', () => {
+    // A term already in the document needs no judgement, and leaving them out
+    // is what keeps this small enough for the cheap models it should run on.
+    // Scoped to the TERMS TO JUDGE block: the instructions legitimately name
+    // Kubernetes as a synonym example, so a whole-prompt search proves nothing.
+    const p = buildAtsPrompt(coverage, 'the cv text', 'the posting', 'en')
+    const judge = p.split('--- TERMS TO JUDGE ---')[1].split('---')[0]
+    expect(judge).toContain('Fortran')
+    expect(judge).toContain('COBOL')
+    expect(judge).not.toContain('Kubernetes')
+  })
+
+  it('carries the document and the posting, so a verdict can cite them', () => {
+    const p = buildAtsPrompt(coverage, 'MARKER-CV-TEXT', 'MARKER-POSTING', 'en')
+    expect(p).toContain('MARKER-CV-TEXT')
+    expect(p).toContain('MARKER-POSTING')
+  })
+
+  it('demands a QUOTE for a covered verdict', () => {
+    // §15: a covered verdict with no supporting quote is downgraded, because
+    // the quote is the evidence. The prompt has to ask for it.
+    expect(buildAtsPrompt(coverage, 'x', 'y', 'en')).toMatch(/quote/i)
   })
 })
