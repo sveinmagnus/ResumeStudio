@@ -377,3 +377,110 @@ describe('autoCategorizeSkills — invariants', () => {
     expect(store.skills[0].category_id ?? null).toBeNull()
   })
 })
+
+/**
+ * The category CRUD the By-category editor drives.
+ *
+ * assignSkillCategory and moveSkillCategory had 17 survivors between them, and
+ * both are PURE functions returning a new store — the reorder in particular
+ * drives BOTH the editor's header order and the Skills Showcase group order
+ * (§4), so an off-by-one there reshuffles an exported document.
+ */
+describe('assignSkillCategory', () => {
+  const store = (): ResumeStore => ({
+    ...emptyStore(),
+    skills: [makeSkill({ id: 's1', name: { en: 'Go' } })],
+    skill_categories: [makeSkillCategory({ id: 'c1', name: { en: 'Languages' } })],
+  })
+
+  it('links by id when the argument is one', () => {
+    const out = assignSkillCategory(store(), 's1', 'c1')
+    expect(out.skills[0].category_id).toBe('c1')
+    expect(out.skill_categories).toHaveLength(1)
+  })
+
+  it('reuses an existing category by NAME, case-insensitively', () => {
+    // Typing a name that already exists must not mint a second category with
+    // the same label — the By-category view would then show it twice.
+    const out = assignSkillCategory(store(), 's1', 'languages')
+    expect(out.skills[0].category_id).toBe('c1')
+    expect(out.skill_categories).toHaveLength(1)
+  })
+
+  it('creates a category for a genuinely new name', () => {
+    const out = assignSkillCategory(store(), 's1', 'Platforms')
+    expect(out.skill_categories).toHaveLength(2)
+    expect(out.skill_categories.find((c) => c.id === out.skills[0].category_id)!.name.en)
+      .toBe('Platforms')
+  })
+
+  it('unlinks on null or a blank name, without deleting the category', () => {
+    const linked = assignSkillCategory(store(), 's1', 'c1')
+    for (const arg of [null, '', '   ']) {
+      const out = assignSkillCategory(linked, 's1', arg)
+      expect(out.skills[0].category_id, JSON.stringify(arg)).toBeNull()
+      expect(out.skill_categories).toHaveLength(1)
+    }
+  })
+
+  it('leaves every other skill alone', () => {
+    const s = store()
+    s.skills.push(makeSkill({ id: 's2', name: { en: 'Rust' }, category_id: 'c1' }))
+    const out = assignSkillCategory(s, 's1', null)
+    expect(out.skills[1].category_id).toBe('c1')
+  })
+
+  it('does not mutate the store it was given', () => {
+    const s = store()
+    assignSkillCategory(s, 's1', 'Platforms')
+    expect(s.skills[0].category_id).toBeNull()
+    expect(s.skill_categories).toHaveLength(1)
+  })
+})
+
+describe('moveSkillCategory', () => {
+  const store = (): ResumeStore => ({
+    ...emptyStore(),
+    skill_categories: [
+      makeSkillCategory({ id: 'a', name: { en: 'A' }, sort_order: 0 }),
+      makeSkillCategory({ id: 'b', name: { en: 'B' }, sort_order: 1 }),
+      makeSkillCategory({ id: 'c', name: { en: 'C' }, sort_order: 2 }),
+    ],
+  })
+  const order = (s: ResumeStore) => skillCategoryList(s).map((c) => c.id)
+
+  it('swaps with the neighbour above', () => {
+    expect(order(moveSkillCategory(store(), 'b', 'up'))).toEqual(['b', 'a', 'c'])
+  })
+
+  it('swaps with the neighbour below', () => {
+    expect(order(moveSkillCategory(store(), 'b', 'down'))).toEqual(['a', 'c', 'b'])
+  })
+
+  it('renumbers sort_order densely after the swap', () => {
+    // The order is curated and exported; leaving stale numbers behind means the
+    // next reorder swaps the wrong pair.
+    const out = moveSkillCategory(store(), 'c', 'up')
+    expect(skillCategoryList(out).map((c) => c.sort_order)).toEqual([0, 1, 2])
+  })
+
+  it('is a no-op at either end, returning the SAME store', () => {
+    const s = store()
+    expect(moveSkillCategory(s, 'a', 'up')).toBe(s)
+    expect(moveSkillCategory(s, 'c', 'down')).toBe(s)
+  })
+
+  it('is a no-op for an unknown id, in BOTH directions', () => {
+    // 'up' happens to be caught by the lower-bound check too; only 'down'
+    // reaches a valid-looking index and would swap against nothing.
+    const s = store()
+    expect(moveSkillCategory(s, 'ghost', 'up')).toBe(s)
+    expect(moveSkillCategory(s, 'ghost', 'down')).toBe(s)
+  })
+
+  it('does not mutate the stored array', () => {
+    const s = store()
+    moveSkillCategory(s, 'b', 'up')
+    expect(s.skill_categories.map((c) => c.id)).toEqual(['a', 'b', 'c'])
+  })
+})
