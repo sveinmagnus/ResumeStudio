@@ -4,7 +4,7 @@ import {
   makeWork, makeKeyCompetency,
 } from './fixtures'
 import type { KeyCompetency, ResumeStore } from '../src/types'
-import { buildCvDigest, buildBilingualDigest, itemLabel } from '../src/lib/cvDigest'
+import { buildCvDigest, buildBilingualDigest, itemLabel, itemFacts } from '../src/lib/cvDigest'
 import { CV_SECTIONS, fieldOf, fieldsOf, isAdvisorSection, itemsOf } from '../src/lib/cvFields'
 import { validateFindings, InvalidFindingsError, FINDINGS_SCHEMA } from '../src/lib/assistFindings'
 import {
@@ -1122,3 +1122,55 @@ describe('validateProfileDraft — the bundle rules', () => {
     })
   })
 })
+
+/**
+ * itemFacts — 9 mutants, none covered.
+ *
+ * It is what GROUNDS a from-scratch description: a model asked to write about a
+ * project has nothing to go on but the customer, the name, the dates and the
+ * skills. If a fact stops being emitted the model does not fail, it invents —
+ * which is the one thing the assists must never do (§15).
+ */
+describe('cvDigest — itemFacts', () => {
+  it('emits every identity field as a labelled line, and no prose', () => {
+    const facts = itemFacts('projects', {
+      id: 'p1',
+      customer: { en: 'Acme Bank' },
+      description: { en: 'Payments platform' },
+      long_description: { en: 'A long prose description that must not appear.' },
+    }, 'en')
+    expect(facts).toContain('Customer: Acme Bank')
+    expect(facts).toContain('Project name: Payments platform')
+    expect(facts.join(' ')).not.toContain('long prose description')
+  })
+
+  it('appends the date range as its own fact', () => {
+    const facts = itemFacts('projects', {
+      id: 'p1', customer: { en: 'Acme' },
+      start: { year: 2020, month: 1 }, end: { year: 2021, month: 6 },
+    }, 'en')
+    expect(facts.some((f) => f.startsWith('Dates: '))).toBe(true)
+    expect(facts[facts.length - 1]).toMatch(/^Dates: /)
+  })
+
+  it('omits the date line entirely for an undated item', () => {
+    // "Dates: " with nothing after it is a fact about nothing.
+    const facts = itemFacts('projects', { id: 'p1', customer: { en: 'Acme' } }, 'en')
+    expect(facts.some((f) => f.startsWith('Dates'))).toBe(false)
+  })
+
+  it('skips a field that is empty rather than emitting a bare label', () => {
+    const facts = itemFacts('projects', { id: 'p1', customer: { en: 'Acme' }, description: {} }, 'en')
+    expect(facts).toEqual(['Customer: Acme'])
+  })
+
+  it('resolves each fact in the requested locale', () => {
+    const facts = itemFacts('projects', { id: 'p1', customer: { en: 'Acme', no: 'Akme' } }, 'no')
+    expect(facts).toContain('Customer: Akme')
+  })
+
+  it('is empty for a section the advisors do not know', () => {
+    expect(itemFacts('skills', { id: 's1', name: { en: 'Go' } }, 'en')).toEqual([])
+  })
+})
+

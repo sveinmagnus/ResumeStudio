@@ -259,3 +259,46 @@ describe('computeDrift()', () => {
     expect(after.findings[0].kind).toBe('numbers')
   })
 })
+/**
+ * drift's length signal — 8 mutants, none killed.
+ *
+ * It flags one language column saying materially more than the other. Both
+ * thresholds exist to stop it firing on things that are not drift: short
+ * identity fields differ in word count for grammatical reasons, and a ratio
+ * below 2 is ordinary translation expansion.
+ */
+describe('drift — the length signal', () => {
+  const store = (en: string, no: string): ResumeStore => {
+    const s = emptyStore()
+    s.projects = [makeProject({ id: 'p1', customer: {}, description: {}, long_description: { en, no } })]
+    return s
+  }
+  const words = (n: number, w = 'word') => Array(n).fill(w).join(' ')
+  const findings = (en: string, no: string) => computeDrift(store(en, no), 'en', 'no').findings
+
+  it('flags a column saying twice as much as the other', () => {
+    expect(findings(words(12), words(6)).length).toBeGreaterThan(0)
+  })
+
+  it('stays quiet below the 2x ratio', () => {
+    // Ordinary translation expansion, not drift.
+    expect(findings(words(11), words(6))).toEqual([])
+  })
+
+  it('stays quiet on SHORT fields whatever the ratio', () => {
+    // "Lead Architect" ⇄ "Ledende arkitekt" — neither side reaches the minimum,
+    // and word counts differ there for grammatical reasons, not editorial ones.
+    expect(findings(words(5), words(1))).toEqual([])
+  })
+
+  it('fires at the boundary, in both directions', () => {
+    expect(findings(words(6), words(3)).length).toBeGreaterThan(0)
+    expect(findings(words(3), words(6)).length).toBeGreaterThan(0)
+  })
+
+  it('says nothing when only one side has content', () => {
+    // A missing translation is a different report; this one compares what is
+    // there against what is there.
+    expect(findings(words(20), '')).toEqual([])
+  })
+})
