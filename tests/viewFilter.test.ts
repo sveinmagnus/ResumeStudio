@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   applyView, buildViewSections, reorderViewSections,
-  getItemTitle, getItemSubtitle, buildViewHtml, isDataImage,
+  getItemTitle, getItemSubtitle, buildViewHtml, isDataImage, escapeHtml,
   normalizeViewSections, defaultViewDetail, promotedProjectItems, sectionStarredOnly,
   viewProfileTagLine,
 } from '../src/lib/viewFilter'
@@ -1393,6 +1393,52 @@ describe('buildViewHtml()', () => {
   })
 })
 
+describe('escapeHtml()', () => {
+  /**
+   * SECURITY. The primary defence for the generated document, and until now it
+   * was only ever exercised through buildViewHtml's script-injection cases —
+   * which pin `<` and `>` and nothing else. Three of the five characters it
+   * escapes had no assertion anywhere in the suite.
+   */
+  it('escapes all five of the characters it claims to', () => {
+    expect(escapeHtml('&')).toBe('&amp;')
+    expect(escapeHtml('<')).toBe('&lt;')
+    expect(escapeHtml('>')).toBe('&gt;')
+    expect(escapeHtml('"')).toBe('&quot;')
+    expect(escapeHtml("'")).toBe('&#39;')
+  })
+
+  it('escapes the ampersand FIRST, so an entity cannot be reconstructed', () => {
+    // The ordering property is the whole reason & is in the set: if `<` were
+    // escaped before `&`, then the input `&lt;script&gt;` would come out as
+    // literal `<script>` in the document. Escaping & first makes it inert.
+    expect(escapeHtml('&lt;script&gt;')).toBe('&amp;lt;script&amp;gt;')
+    expect(escapeHtml('&amp;')).toBe('&amp;amp;')
+  })
+
+  it('closes the attribute-breakout route in both quote styles', () => {
+    // A value interpolated into an attribute must not be able to end it and
+    // start an event handler.
+    expect(escapeHtml('" onload="alert(1)')).not.toContain('"')
+    expect(escapeHtml("' onload='alert(1)")).not.toContain("'")
+  })
+
+  it('replaces EVERY occurrence, not just the first', () => {
+    expect(escapeHtml('<<>>')).toBe('&lt;&lt;&gt;&gt;')
+    expect(escapeHtml('a & b & c')).toBe('a &amp; b &amp; c')
+  })
+
+  it('leaves ordinary text — including non-ASCII — untouched', () => {
+    expect(escapeHtml('Ærlig Ståle — Kunde AS')).toBe('Ærlig Ståle — Kunde AS')
+  })
+
+  it('is empty for nullish and empty input, never "null"', () => {
+    expect(escapeHtml(null)).toBe('')
+    expect(escapeHtml(undefined)).toBe('')
+    expect(escapeHtml('')).toBe('')
+  })
+})
+
 describe('isDataImage()', () => {
   it('accepts base64 image data URLs', () => {
     expect(isDataImage('data:image/png;base64,AAAA')).toBe(true)
@@ -1415,6 +1461,25 @@ describe('isDataImage()', () => {
   })
   it('rejects a non-image data URL', () => {
     expect(isDataImage('data:text/html;base64,PHNjcmlwdD4=')).toBe(false)
+  })
+
+  it('anchors at the START, so a prefix cannot smuggle the allowlisted part in', () => {
+    // SECURITY: without the ^ anchor every one of the rejections above still
+    // passes, because they contain no allowlisted substring — so the anchor
+    // itself was unpinned. These are the strings that need it: the scheme the
+    // browser acts on is the one at the front.
+    expect(isDataImage('javascript:alert(1)//data:image/png;base64,AAAA')).toBe(false)
+    expect(isDataImage(' data:image/png;base64,AAAA')).toBe(false)
+    expect(isDataImage('https://evil.test/#data:image/png;base64,AAAA')).toBe(false)
+  })
+
+  it('requires the separator that ends the media type', () => {
+    // 'data:image/pngx' must not read as PNG, and both legal separators after
+    // the media type — ';' before parameters and ',' before inline data — are
+    // accepted.
+    expect(isDataImage('data:image/png,AAAA')).toBe(true)
+    expect(isDataImage('data:image/pngx;base64,AAAA')).toBe(false)
+    expect(isDataImage('data:image/png')).toBe(false)
   })
 })
 
