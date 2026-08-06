@@ -2267,3 +2267,152 @@ describe('buildViewHtml — the footer', () => {
     expect(html).toContain('&lt;script&gt;')
   })
 })
+
+/**
+ * The full-item layouts.
+ *
+ * `date_position` chooses between four arrangements of the same three pieces,
+ * and every one of them renders — so a layout collapsing into another is
+ * invisible to any assertion that the content came out. The two axes are
+ * independent: whether the DATE leads the meta line, and whether the meta line
+ * leads the TITLE.
+ */
+describe('buildViewHtml — full-item layouts', () => {
+  const store = (): ResumeStore => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    s.work_experiences = [makeWork({
+      id: 'w1', employer: { en: 'Acme' }, role_title: { en: 'Architect' },
+      start: { year: 2020, month: 1 }, end: { year: 2021, month: 6 },
+      // Plain, not markup: renderRichHtml needs a DOM and this suite is node.
+      long_description: { en: 'Did the work.' },
+    })]
+    return s
+  }
+  const render = (style: Record<string, unknown> = {}) =>
+    buildViewHtml(store(), makeView({
+      sections: [{ key: 'work_experiences', detail: 'full', sort_order: 0, style } as never],
+    }), 'en').replace(/<style[\s\S]*?<\/style>/g, '')
+
+  const item = (html: string) => /<div class="ve-item[^"]*">([\s\S]*?)<\/div>\s*<\/section>/.exec(html)?.[1] ?? html
+
+  it('puts the title before the meta line by default', () => {
+    const body = item(render({ date_position: 'title-org-date' }))
+    expect(body.indexOf('<h3>')).toBeLessThan(body.indexOf('ve-meta'))
+  })
+
+  it('puts the meta line ABOVE the title for the lead-* layouts', () => {
+    for (const layout of ['lead-org-date', 'lead-date-org']) {
+      const body = item(render({ date_position: layout }))
+      expect(body.indexOf('ve-meta'), layout).toBeLessThan(body.indexOf('<h3>'))
+    }
+  })
+
+  it('puts the date first in the meta line for the *-date-org layouts', () => {
+    for (const layout of ['title-date-org', 'lead-date-org']) {
+      const meta = /<div class="ve-meta">([^<]*)<\/div>/.exec(render({ date_position: layout }))?.[1] ?? ''
+      // In FULL detail the EMPLOYER is the heading and the role sits in the
+      // meta line — the reverse of the summary path, where the role is the
+      // title slot.
+      expect(meta, layout).toMatch(/^\s*Jan 2020/)
+      expect(meta, layout).toContain('Architect')
+    }
+  })
+
+  it('puts the date last for the *-org-date layouts', () => {
+    for (const layout of ['title-org-date', 'lead-org-date']) {
+      const meta = /<div class="ve-meta">([^<]*)<\/div>/.exec(render({ date_position: layout }))?.[1] ?? ''
+      expect(meta, layout).toMatch(/2021\s*$/)
+      expect(meta, layout).toMatch(/^\s*Architect/)
+    }
+  })
+
+  it('the two axes are independent — lead-date-org does BOTH', () => {
+    // The one combination that catches a layout collapsing into its neighbour.
+    const html = render({ date_position: 'lead-date-org' })
+    const body = item(html)
+    expect(body.indexOf('ve-meta')).toBeLessThan(body.indexOf('<h3>'))
+    expect(/<div class="ve-meta">([^<]*)<\/div>/.exec(html)![1]).toMatch(/^\s*Jan 2020/)
+  })
+
+  it('omits the meta line entirely when there is nothing for it', () => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    s.work_experiences = [makeWork({
+      id: 'w1', employer: { en: 'Acme' }, role_title: {},
+      start: null as never, end: null as never,
+    })]
+    const html = buildViewHtml(s, makeView({
+      sections: [{ key: 'work_experiences', detail: 'full', sort_order: 0 } as never],
+    }), 'en').replace(/<style[\s\S]*?<\/style>/g, '')
+    expect(html).not.toContain('<div class="ve-meta">')
+  })
+
+  it('drops an empty meta part rather than joining around it', () => {
+    // A hidden date must not leave "Acme · " behind.
+    const meta = /<div class="ve-meta">([^<]*)<\/div>/.exec(render({ hide_dates: true }))?.[1] ?? ''
+    expect(meta.trim()).toBe('Architect')
+  })
+
+  it('wraps the item in the bullet layout only when bullets are on', () => {
+    // Off by default, so the plain .ve-item markup stays unchanged.
+    expect(render({ item_bullets: true })).toContain('ve-bulleted')
+    expect(render({ item_bullets: true })).toContain('ve-bullet"')
+    expect(render({})).not.toContain('ve-bulleted')
+  })
+})
+
+describe('buildViewHtml — the inline and quote item layouts', () => {
+  const strip = (h: string) => h.replace(/<style[\s\S]*?<\/style>/g, '')
+
+  it('renders a language as one inline line, meta after an em-dash', () => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    s.spoken_languages = [makeSpokenLanguage({ id: 'l1', name: { en: 'Norwegian' }, level: { en: 'Native' } })]
+    const html = strip(buildViewHtml(s, makeView({
+      sections: [{ key: 'spoken_languages', detail: 'full', sort_order: 0 } as never],
+    }), 'en'))
+    expect(html).toContain('ve-inline')
+    expect(html).toContain('<strong>Norwegian</strong> — Native')
+  })
+
+  it('omits the em-dash when a language has no level', () => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    s.spoken_languages = [makeSpokenLanguage({ id: 'l1', name: { en: 'Norwegian' }, level: {} })]
+    const html = strip(buildViewHtml(s, makeView({
+      sections: [{ key: 'spoken_languages', detail: 'full', sort_order: 0 } as never],
+    }), 'en'))
+    expect(html).toContain('<strong>Norwegian</strong></div>')
+  })
+
+  it('renders a recommendation as a quote with its attribution', () => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    s.recommendations = [makeRecommendation({
+      id: 'r1', recommender_name: 'Jane Boss', recommender_title: { en: 'CTO' },
+      text: { en: 'Excellent to work with.' },
+    })]
+    const html = strip(buildViewHtml(s, makeView({
+      sections: [{ key: 'recommendations', detail: 'full', sort_order: 0 } as never],
+    }), 'en'))
+    expect(html).toContain('ve-rec-quote')
+    expect(html).toContain('Excellent to work with.')
+    expect(html).toContain('— Jane Boss')
+    expect(html).toContain('CTO')
+  })
+
+  it('omits the attribution meta span when there is none', () => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    s.recommendations = [makeRecommendation({
+      id: 'r1', recommender_name: 'Jane Boss', recommender_title: {}, relationship: {},
+      text: { en: 'Great.' },
+    })]
+    const html = strip(buildViewHtml(s, makeView({
+      sections: [{ key: 'recommendations', detail: 'full', sort_order: 0 } as never],
+    }), 'en'))
+    expect(html).toContain('— Jane Boss')
+    expect(html).not.toContain('<span class="ve-meta-inline">')
+  })
+})
