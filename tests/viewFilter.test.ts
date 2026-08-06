@@ -2026,3 +2026,244 @@ describe('skill matrix — the HTML adapter', () => {
     ])
   })
 })
+
+/**
+ * The preview header's photo and logo layout.
+ *
+ * `photoBesideName` was entirely uncovered, and the three placements it chooses
+ * between produce visibly different documents: the "…_of_name" pair sits the
+ * photo beside the NAME AND TITLE only, with contact details on their own
+ * full-width row below, while every other placement keeps the whole identity
+ * block together.
+ */
+describe('buildViewHtml — header photo and logo placement', () => {
+  const PNG =
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+P+/HgAFhAJ/wlseKgAAAABJRU5ErkJggg=='
+
+  const store = (over: Record<string, unknown> = {}): ResumeStore => {
+    const s = emptyStore()
+    s.resume = makeResume({
+      full_name: 'Kari Nordmann', title: { en: 'Architect' },
+      phone: '+47 900 00 000', profile_photo: PNG, company_logo: PNG, ...over,
+    })
+    return s
+  }
+  /**
+   * The rendered markup with the <style> block removed.
+   *
+   * Every class asserted below is also a CSS selector in the always-emitted
+   * stylesheet, so a whole-document search finds the rule and proves nothing
+   * about what was rendered.
+   */
+  const out = (header: Record<string, unknown>, s = store()) =>
+    buildViewHtml(s, makeView({ sections: buildViewSections(), header: withHeaderDefaults(header as never) }), 'en')
+      .replace(/<style[\s\S]*?<\/style>/g, '')
+
+  /** Where the photo sits relative to the identity block, structurally. */
+  const photoRow = (html: string) => /<div class="ve-nametitle-row">([\s\S]*?)<\/div>\s*<\/div>/.exec(html)?.[0] ?? ''
+
+  it('puts the photo in its own name+title row for the …_of_name placements', () => {
+    for (const placement of ['left_of_name', 'right_of_name']) {
+      const html = out({ photo_placement: placement })
+      expect(html, placement).toContain('ve-nametitle-row')
+      // The contact block sits OUTSIDE that row — that is the whole difference.
+      expect(photoRow(html), placement).not.toContain('ve-header-contact')
+      expect(html, placement).toContain('ve-header-contact')
+    }
+  })
+
+  it('keeps the identity block whole for the ordinary placements', () => {
+    for (const placement of ['left', 'right', 'below']) {
+      const html = out({ photo_placement: placement })
+      expect(html, placement).not.toContain('ve-nametitle-row')
+      expect(html, placement).toContain('ve-header-contact')
+    }
+  })
+
+  it('puts the photo AFTER the identity for "below" and before it otherwise', () => {
+    const below = out({ photo_placement: 'below' })
+    expect(below.indexOf('ve-photo ')).toBeGreaterThan(below.indexOf('ve-identity'))
+    const left = out({ photo_placement: 'left' })
+    expect(left.indexOf('ve-photo ')).toBeLessThan(left.indexOf('ve-identity'))
+  })
+
+  it('renders no photo when the placement is none', () => {
+    expect(out({ photo_placement: 'none' })).not.toContain('<img class="ve-photo')
+  })
+
+  it('SECURITY: refuses a photo that is not a raster data URL', () => {
+    // isDataImage is the guard; an http(s) URL or an SVG payload must not reach
+    // the document even with a placement asking for one.
+    for (const bad of ['https://evil.test/x.png', 'data:image/svg+xml,<svg onload=alert(1)>']) {
+      const html = out({ photo_placement: 'left' }, store({ profile_photo: bad }))
+      expect(html, bad).not.toContain('<img class="ve-photo')
+    }
+  })
+
+  it('prefers the view’s photo override over the resume photo', () => {
+    const s = store({ profile_photo: null })
+    expect(out({ photo_placement: 'left', photo_override: PNG }, s)).toContain('<img class="ve-photo')
+  })
+
+  it('places the logo banner by its own setting, and hides it when none', () => {
+    expect(out({ logo_placement: 'center' })).toContain('ve-logo-center')
+    expect(out({ logo_placement: 'right' })).toContain('ve-logo-right')
+    expect(out({ logo_placement: 'none' })).not.toContain('ve-logo-banner')
+  })
+
+  it('SECURITY: refuses a logo that is not a raster data URL', () => {
+    const s = store({ company_logo: 'https://evil.test/logo.png' })
+    expect(out({ logo_placement: 'center' }, s)).not.toContain('ve-logo-banner')
+  })
+
+  it('honours the header’s font-size overrides for the name and title', () => {
+    const html = out({
+      photo_placement: 'none',
+      name_style: { size_pt: 33, font: 'body' },
+      title_style: { size_pt: 21, font: 'body' },
+    })
+    expect(html).toContain('font-size:33pt')
+    expect(html).toContain('font-size:21pt')
+  })
+
+  it('omits the title element entirely when nothing supplies one', () => {
+    const s = store({ title: {} })
+    expect(out({ photo_placement: 'none' }, s)).not.toContain('ve-header-title')
+  })
+})
+
+/**
+ * The one-line summary's joiners.
+ *
+ * Every joiner here is a different punctuation mark chosen for a reason, and
+ * they all render, so a swap between them is invisible to a test that only
+ * checks the words came out. The rule that earns the code is `titleFirst`:
+ * it keys off what actually RENDERED first, not the configured slot order, so
+ * a section with no dates still reads "Norwegian — Native" rather than
+ * "· Native" under a date-first layout.
+ */
+describe('buildViewHtml — the inline summary joiners', () => {
+  const summaryHtml = (store: ResumeStore, key: string, style: Record<string, unknown> = {}) =>
+    buildViewHtml(store, makeView({
+      sections: [{ key, detail: 'summary', sort_order: 0, style } as never],
+    }), 'en').replace(/<style[\s\S]*?<\/style>/g, '')
+
+  const workStore = (over: Record<string, unknown> = {}): ResumeStore => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    s.work_experiences = [makeWork({
+      id: 'w1', employer: { en: 'Acme' }, role_title: { en: 'Architect' },
+      start: { year: 2020, month: 1 }, end: { year: 2021, month: 6 }, ...over,
+    })]
+    return s
+  }
+
+  it('joins the two date parts with a DASH, not a middot', () => {
+    // Within the date slot the parts read as a range; a middot there says
+    // "two separate dates", which is a different claim.
+    const html = summaryHtml(workStore(), 'work_experiences')
+    expect(html).toMatch(/2020[^<]*–[^<]*2021/)
+  })
+
+  it('joins distinct non-date parts with a middot', () => {
+    const html = summaryHtml(workStore(), 'work_experiences')
+    expect(html).toContain(' · ')
+  })
+
+  it('uses an em-dash after a leading TITLE, and a middot otherwise', () => {
+    // The classic "Title — meta" look, but ONLY when the title actually leads.
+    // The default layout is date-title-org, so the dash appears under a
+    // title-leading layout and a middot under the default.
+    const titleFirst = summaryHtml(workStore(), 'work_experiences', { summary_layout: 'title-org-date' })
+    expect(titleFirst).toContain('</strong> — ')
+
+    const dateFirst = summaryHtml(workStore(), 'work_experiences')
+    expect(dateFirst).not.toContain('</strong> — ')
+    expect(dateFirst).toContain('</span> · <strong>')
+  })
+
+  it('does NOT open with a joiner when the title does not lead', () => {
+    // A date-first layout on a section that has no dates would otherwise start
+    // the line with a bare separator.
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    s.spoken_languages = [makeSpokenLanguage({ id: 'l1', name: { en: 'Norwegian' }, level: { en: 'Native' } })]
+    const html = summaryHtml(s, 'spoken_languages', { summary_layout: 'date-title-org' })
+    const line = /<div class="ve-item ve-item-line">([\s\S]*?)<\/div>/.exec(html)?.[1] ?? ''
+    expect(line.trimStart().startsWith('·')).toBe(false)
+    expect(line.trimStart().startsWith('—')).toBe(false)
+    expect(line).toContain('Norwegian')
+    expect(line).toContain('Native')
+  })
+
+  it('wraps the TITLE slot in <strong> and the others in a meta span', () => {
+    // For Employment the title slot is the ROLE; the employer is the org slot.
+    const html = summaryHtml(workStore(), 'work_experiences')
+    expect(html).toContain('<strong>Architect</strong>')
+    expect(html).toContain('<span class="ve-meta-inline">Acme</span>')
+  })
+
+  it('renders nothing for an item with neither parts nor a short description', () => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    s.work_experiences = [makeWork({
+      id: 'w1', employer: {}, role_title: {}, short_description: {},
+      start: null as never, end: null as never,
+    })]
+    // The descriptor supplies a fallback title, so the line is not empty — but
+    // it must not be a bare joiner either.
+    const line = /<div class="ve-item ve-item-line">([\s\S]*?)<\/div>/.exec(summaryHtml(s, 'work_experiences'))?.[1] ?? ''
+    expect(line.trim().startsWith('·')).toBe(false)
+  })
+
+  it('never renders a doubled or trailing separator', () => {
+    // The parts themselves are pre-filtered upstream — summaryOf only pushes a
+    // part when its value is non-empty — so this is a property of the finished
+    // line rather than a test of the join. It is still what a reader would
+    // notice: "Acme ·  · 2020", or a line ending in a bare middot.
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    s.spoken_languages = [makeSpokenLanguage({ id: 'l1', name: { en: 'Norwegian' }, level: { en: 'Native' } })]
+    const line = /<div class="ve-item ve-item-line">([\s\S]*?)<\/div>/.exec(summaryHtml(s, 'spoken_languages'))?.[1] ?? ''
+    expect(line).toContain('Native')
+    expect(line.trimEnd().endsWith('·')).toBe(false)
+
+    expect(summaryHtml(workStore({ role_title: {} }), 'work_experiences')).not.toContain(' ·  · ')
+  })
+})
+
+describe('buildViewHtml — the footer', () => {
+  const out = (footer: Record<string, unknown>) => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'Kari Nordmann' })
+    return buildViewHtml(s, makeView({
+      sections: buildViewSections(), footer: withFooterDefaults(footer as never),
+    }), 'en').replace(/<style[\s\S]*?<\/style>/g, '')
+  }
+
+  it('renders for a separator alone, even with no text', () => {
+    // The separator IS the footer in that case — a closing rule with nothing
+    // under it is a deliberate look.
+    expect(out({ separator: 'line', copyright: 'none' })).toContain('<footer')
+  })
+
+  it('renders for text alone, with no separator', () => {
+    expect(out({ separator: 'none', copyright: 'person' })).toContain('<footer')
+  })
+
+  it('renders nothing when there is neither', () => {
+    expect(out({ separator: 'none', copyright: 'none' })).not.toContain('<footer')
+  })
+
+  it('carries the separator style as a class', () => {
+    expect(out({ separator: 'dashed', copyright: 'none' })).toContain('ve-footer-dashed')
+  })
+
+  it('SECURITY: escapes the finished footer line, not its parts', () => {
+    // The placement joins with our own separators, so escaping the parts first
+    // would double-escape and escaping never would let a note through.
+    const html = out({ separator: 'line', copyright: 'custom', copyright_custom: { en: '<script>alert(1)</script>' } })
+    expect(html).not.toContain('<script>alert(1)</script>')
+    expect(html).toContain('&lt;script&gt;')
+  })
+})
