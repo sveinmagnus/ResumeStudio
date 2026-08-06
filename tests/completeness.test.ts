@@ -352,3 +352,131 @@ describe('computeCompleteness() — used registry items (skills / roles)', () =>
     expect(out.no).toEqual({ percent: 100, missing: [] })
   })
 })
+
+/**
+ * The per-section "is there anything in this language" probe.
+ *
+ * 81 mutants no test reached: the switch has a case per section and only a
+ * couple were ever exercised, so a section could be reading the WRONG field —
+ * reporting a fully-written section as empty, or an empty one as done — and
+ * nothing would notice. The bar is deliberately permissive (any ONE key field),
+ * which is what makes a wrong field name silent rather than loud.
+ */
+describe('computeSectionCoverage — the per-section content probe', () => {
+  /** Coverage for one section, given one item. */
+  const covers = (key: string, storeKey: string, item: Record<string, unknown>): { total: number; populated: number } => {
+    const store = emptyStore() as unknown as Record<string, unknown>
+    store[storeKey] = [{ id: 'x', ...item }]
+    const row = computeSectionCoverage(store as never, 'en').find((r) => r.key === key)!
+    return { total: row.total, populated: row.populated }
+  }
+
+  // One representative field per section — enough to prove the case reads the
+  // section it claims to, which is what the mutants were free to change.
+  const CASES: Array<[string, string, string]> = [
+    ['key_qualifications', 'key_qualifications', 'summary'],
+    ['key_competencies', 'key_competencies', 'title'],
+    ['recommendations', 'recommendations', 'text'],
+    ['projects', 'projects', 'customer'],
+    ['work_experiences', 'work_experiences', 'employer'],
+    ['educations', 'educations', 'school'],
+    ['courses', 'courses', 'name'],
+    ['certifications', 'certifications', 'name'],
+    ['spoken_languages', 'spoken_languages', 'name'],
+    ['positions', 'positions', 'name'],
+    ['presentations', 'presentations', 'title'],
+    ['publications', 'publications', 'title'],
+    ['honor_awards', 'honor_awards', 'name'],
+    ['references', 'references', 'relationship'],
+  ]
+
+  it.each(CASES)('counts a %s item populated via its %s field', (key, storeKey, field) => {
+    expect(covers(key, storeKey, { [field]: { en: 'written' } })).toEqual({ total: 1, populated: 1 })
+  })
+
+  it.each(CASES)('counts a %s item UNpopulated when that field is empty', (key, storeKey, field) => {
+    expect(covers(key, storeKey, { [field]: { en: '' } })).toEqual({ total: 1, populated: 0 })
+  })
+
+  it('counts content in the REQUESTED locale only', () => {
+    const store = emptyStore()
+    store.projects = [makeProject({ id: 'p1', customer: { en: 'Acme' } })]
+    const row = (loc: string) => computeSectionCoverage(store, loc).find((r) => r.key === 'projects')!
+    expect(row('en').populated).toBe(1)
+    expect(row('no').populated).toBe(0)
+  })
+
+  it('does not count whitespace as content', () => {
+    // (Markup-only values resolve to nothing too, via richToPlain — that path
+    // needs a DOM and is pinned in the richText suite; this file runs in node.)
+    expect(covers('projects', 'projects', { long_description: { en: '   ' } }).populated).toBe(0)
+    expect(covers('projects', 'projects', { long_description: { en: 'real' } }).populated).toBe(1)
+  })
+
+  it('does not count a disabled item at all — not even in the total', () => {
+    const store = emptyStore()
+    store.projects = [
+      makeProject({ id: 'p1', customer: { en: 'Acme' } }),
+      makeProject({ id: 'p2', customer: { en: 'Beta' }, disabled: true }),
+    ]
+    expect(computeSectionCoverage(store, 'en').find((r) => r.key === 'projects'))
+      .toMatchObject({ total: 1, populated: 1 })
+  })
+
+  it('leaves the registries and views out of the reckoning', () => {
+    // Skills and roles carry language content, but the consultant does not
+    // think of them as translatable prose — measuring them would make the
+    // report say a CV is half-written when its registry is.
+    const keys = computeSectionCoverage(emptyStore(), 'en').map((r) => r.key)
+    expect(keys).not.toContain('skills')
+    expect(keys).not.toContain('roles')
+    expect(keys).not.toContain('views')
+  })
+
+  it('does not double-count a synthetic section that borrows a storeKey', () => {
+    const keys = computeSectionCoverage(emptyStore(), 'en').map((r) => r.key)
+    expect(keys).not.toContain('promoted_projects')
+    expect(keys).not.toContain('skill_matrix')
+  })
+
+  describe('the ordering, which is what makes the report actionable', () => {
+    const store = () => {
+      const s = emptyStore()
+      // projects: 2 missing. educations: 1 missing. courses: none at all.
+      // Every key field has to be blank — the bar is "any ONE of them", so a
+      // fixture's default description alone counts the item as populated.
+      const blank = { customer: {}, description: {}, long_description: {} }
+      s.projects = [
+        makeProject({ id: 'p1', ...blank }),
+        makeProject({ id: 'p2', ...blank }),
+        makeProject({ id: 'p3', ...blank, customer: { en: 'Acme' } }),
+      ]
+      s.educations = [makeEducation({ id: 'e1', school: {} })]
+      return s
+    }
+
+    it('puts the biggest gap first', () => {
+      const rows = computeSectionCoverage(store(), 'en')
+      expect(rows[0].key).toBe('projects')
+      expect(rows[1].key).toBe('educations')
+    })
+
+    it('sinks sections with no items to the bottom — they are not actionable', () => {
+      const rows = computeSectionCoverage(store(), 'en')
+      const empties = rows.filter((r) => r.total === 0)
+      const nonEmpty = rows.filter((r) => r.total > 0)
+      expect(empties.length).toBeGreaterThan(0)
+      const lastNonEmpty = rows.lastIndexOf(nonEmpty[nonEmpty.length - 1])
+      const firstEmpty = rows.indexOf(empties[0])
+      expect(firstEmpty).toBeGreaterThan(lastNonEmpty)
+    })
+
+    it('breaks an equal-gap tie by label, so the order is stable run to run', () => {
+      const s = emptyStore()
+      s.courses = [{ ...makeCourse({ id: 'c1' }), name: {} } as never]
+      s.educations = [makeEducation({ id: 'e1', school: {} })]
+      const rows = computeSectionCoverage(s, 'en').filter((r) => r.total > 0)
+      expect(rows.map((r) => r.label)).toEqual([...rows.map((r) => r.label)].sort((a, b) => a.localeCompare(b)))
+    })
+  })
+})
