@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   emptyStore, makeCertification, makeCourse, makeEducation, makeKQ, makeProject, makeView,
-  makeWork,
+  makeWork, makeKeyCompetency,
 } from './fixtures'
 import type { KeyCompetency, ResumeStore } from '../src/types'
 import { buildCvDigest, buildBilingualDigest, itemLabel } from '../src/lib/cvDigest'
@@ -1006,5 +1006,119 @@ describe('cvFields — the identity fields an assist may never rewrite', () => {
     for (const s of CV_SECTIONS) {
       expect(fieldsOf(s).some((f) => f.prose), s).toBe(true)
     }
+  })
+})
+
+/**
+ * D1's remaining validation branches (16 mutants unreached).
+ *
+ * The competency bundle is where this one can do damage: a profile OWNS an
+ * ordered bundle (§4), so a bad entry either duplicates something already in
+ * the shared library or attaches a competency that does not exist.
+ */
+describe('validateProfileDraft — the bundle rules', () => {
+  const s = (): ResumeStore => {
+    const store = emptyStore()
+    store.key_competencies = [
+      // Plain, not markup: the flattening goes through richToPlain's DOMParser
+      // and this file runs in node. That path is pinned in the richText suite.
+      makeKeyCompetency({ id: 'c1', title: { en: 'Architecture' }, description: { en: 'Designs systems.' } }),
+      makeKeyCompetency({ id: 'c2', title: { en: 'Retired' }, disabled: true }),
+    ]
+    return store
+  }
+  const draft = (bundle: unknown[], over: Record<string, unknown> = {}) =>
+    validateProfileDraft(
+      { profiles: [{ tag_line: 'Architect', summary: 'Long summary.', bundle, ...over }] },
+      s(), 'en',
+    )
+
+  it('resolves an existing competency to its live title and description', () => {
+    // Resolved from the LIBRARY, not from whatever the model sent alongside
+    // the id — otherwise a draft can quietly restate an existing competency.
+    const b = draft([{ id: 'c1', title: 'Wrong', description: 'Also wrong' }]).profiles[0].bundle[0]
+    expect(b).toMatchObject({ id: 'c1', title: 'Architecture', isNew: false })
+    expect(b.description).toBe('Designs systems.')
+  })
+
+  it('treats a DISABLED competency as not in the library', () => {
+    // Attaching one would put a competency the user retired back into a view.
+    const r = draft([{ id: 'c2' }])
+    expect(r.profiles[0].bundle).toHaveLength(0)
+    expect(r.dropped.join(' ')).toMatch(/isn't in the library/i)
+  })
+
+  it('drops an unresolvable id instead of inventing a competency for it', () => {
+    // A genuine proposal comes back with id null; an id that does not resolve
+    // is a hallucination, and creating one would duplicate the library.
+    const r = draft([{ id: 'ghost', title: 'Made up' }])
+    expect(r.profiles[0].bundle).toHaveLength(0)
+    expect(r.dropped.join(' ')).toMatch(/isn't in the library/i)
+  })
+
+  it('accepts a NEW competency proposed with no id', () => {
+    const b = draft([{ title: 'Platform engineering', description: 'Builds platforms.' }]).profiles[0].bundle[0]
+    expect(b).toMatchObject({ id: null, title: 'Platform engineering', isNew: true })
+  })
+
+  it('skips a new entry with no title at all', () => {
+    expect(draft([{ description: 'orphan' }]).profiles[0].bundle).toHaveLength(0)
+  })
+
+  it('keeps an existing competency ONCE even if proposed twice', () => {
+    // The bundle is ordered and a duplicate would render the same block twice.
+    expect(draft([{ id: 'c1' }, { id: 'c1' }]).profiles[0].bundle).toHaveLength(1)
+  })
+
+  it('ignores a bundle entry that is not an object, without failing the profile', () => {
+    const r = draft(['nonsense', null, { id: 'c1' }])
+    expect(r.profiles[0].bundle).toHaveLength(1)
+  })
+
+  it('tolerates a missing or non-array bundle', () => {
+    expect(validateProfileDraft(
+      { profiles: [{ tag_line: 'A', summary: 'B' }] }, s(), 'en',
+    ).profiles[0].bundle).toEqual([])
+  })
+
+  describe('the profile itself', () => {
+    it('needs a tag line OR a summary, not both', () => {
+      const only = (p: Record<string, unknown>) =>
+        validateProfileDraft({ profiles: [p] }, s(), 'en')
+      expect(only({ tag_line: 'Architect' }).profiles).toHaveLength(1)
+      expect(only({ summary: 'Long summary.' }).profiles).toHaveLength(1)
+      const neither = only({ rationale: 'because' })
+      expect(neither.profiles).toHaveLength(0)
+      expect(neither.dropped.join(' ')).toMatch(/no tag line or summary/i)
+    })
+
+    it('keeps the evidence quotes, capped, and drops the empty ones', () => {
+      // §15: no invented facts — the evidence is what ties a draft to the CV.
+      const r = validateProfileDraft({ profiles: [{
+        tag_line: 'A', summary: 'B',
+        evidence: ['ran the migration', '', '   ', ...Array(20).fill('more')],
+      }] }, s(), 'en')
+      expect(r.profiles[0].evidence[0]).toBe('ran the migration')
+      expect(r.profiles[0].evidence).not.toContain('')
+      expect(r.profiles[0].evidence.length).toBeLessThanOrEqual(12)
+    })
+
+    it('defaults evidence to an empty list when it is not an array', () => {
+      expect(validateProfileDraft(
+        { profiles: [{ tag_line: 'A', summary: 'B', evidence: 'nope' }] }, s(), 'en',
+      ).profiles[0].evidence).toEqual([])
+    })
+
+    it('says so when the reply parsed but held nothing usable', () => {
+      // An empty result with no explanation looks like the run silently failed.
+      const r = validateProfileDraft({ profiles: [] }, s(), 'en')
+      expect(r.profiles).toHaveLength(0)
+      expect(r.dropped.join(' ')).toMatch(/no usable profiles/i)
+    })
+
+    it('rejects a reply that is not an object, or has no profiles array', () => {
+      expect(() => validateProfileDraft(null, s(), 'en')).toThrow(/not a JSON object/i)
+      expect(() => validateProfileDraft({ nope: [] }, s(), 'en')).toThrow(/no "profiles" array/i)
+    })
   })
 })
