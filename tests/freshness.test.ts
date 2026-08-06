@@ -3,7 +3,8 @@ import {
   freshnessReport, isResumeStale, DEFAULT_FRESHNESS,
   snoozeUntil, certWarningKey, staleWarningKey,
 } from '../src/lib/freshness'
-import { emptyStore, makeCertification, makeProject, makeWork } from './fixtures'
+import { emptyStore, makeCertification, makeProject, makeWork, makeResume } from './fixtures'
+import type { ResumeStore } from '../src/types'
 
 // Fixed "now" so the relative checks are deterministic.
 const NOW = new Date('2026-06-15T00:00:00Z')
@@ -275,3 +276,107 @@ describe('isResumeStale', () => {
     expect(isResumeStale('not-a-date', NOW, 6)).toBe(false)
   })
 })
+
+/**
+ * The exemption and ordering rules.
+ *
+ * The report is only useful if it is trustworthy: a warning about the job you
+ * currently hold is noise that teaches the user to ignore the panel, and an
+ * unordered list buries the urgent item. Both rules had survivors.
+ */
+describe('freshness — exemptions and ordering', () => {
+  const store = (): ResumeStore => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'Kari' })
+    return s
+  }
+  const old = { year: NOW.getFullYear() - 12, month: 1 }
+  const older = { year: NOW.getFullYear() - 20, month: 1 }
+
+  it('exempts a SINGLE ongoing employment — that is the current job', () => {
+    const s = store()
+    s.work_experiences = [makeWork({ id: 'w1', employer: { en: 'Acme' }, start: old, end: null })]
+    expect(freshnessReport(s, NOW, 'en').staleOngoing).toHaveLength(0)
+  })
+
+  it('exempts NONE when several are open — one may be a forgotten leftover', () => {
+    const s = store()
+    s.work_experiences = [
+      makeWork({ id: 'w1', employer: { en: 'Acme' }, start: old, end: null }),
+      makeWork({ id: 'w2', employer: { en: 'Beta' }, start: older, end: null }),
+    ]
+    expect(freshnessReport(s, NOW, 'en').staleOngoing).toHaveLength(2)
+  })
+
+  it('does not count a DISABLED open item toward the exemption', () => {
+    // A soft-deleted row must not make the real open job look like one of two.
+    const s = store()
+    s.work_experiences = [
+      makeWork({ id: 'w1', employer: { en: 'Acme' }, start: old, end: null }),
+      makeWork({ id: 'w2', employer: { en: 'Beta' }, start: older, end: null, disabled: true }),
+    ]
+    expect(freshnessReport(s, NOW, 'en').staleOngoing).toHaveLength(0)
+  })
+
+  it('treats an unspecified allocation as full time for the project exemption', () => {
+    // An open project with no part-time allocation set is assumed to be the
+    // main engagement — that is what makes the single-project exemption work
+    // for the common case where nobody fills the field in.
+    const s = store()
+    s.projects = [makeProject({ id: 'p1', customer: { en: 'Acme' }, start: old, end: null, percent_allocated: null })]
+    expect(freshnessReport(s, NOW, 'en').staleOngoing).toHaveLength(0)
+  })
+
+  it('does not exempt a part-time open project', () => {
+    const s = store()
+    s.projects = [makeProject({ id: 'p1', customer: { en: 'Acme' }, start: old, end: null, percent_allocated: 40 })]
+    expect(freshnessReport(s, NOW, 'en').staleOngoing).toHaveLength(1)
+  })
+
+  it('puts the OLDEST stale item first', () => {
+    const s = store()
+    s.work_experiences = [
+      makeWork({ id: 'w1', employer: { en: 'Newer' }, start: old, end: null }),
+      makeWork({ id: 'w2', employer: { en: 'Older' }, start: older, end: null }),
+    ]
+    expect(freshnessReport(s, NOW, 'en').staleOngoing.map((x) => x.label)).toEqual(['Older', 'Newer'])
+  })
+
+  it('counts the total across all three lists', () => {
+    const s = store()
+    s.work_experiences = [
+      makeWork({ id: 'w1', employer: { en: 'A' }, start: old, end: null }),
+      makeWork({ id: 'w2', employer: { en: 'B' }, start: older, end: null }),
+    ]
+    const r = freshnessReport(s, NOW, 'en')
+    expect(r.total).toBe(r.expiredCerts.length + r.expiringCerts.length + r.staleOngoing.length)
+    expect(r.total).toBe(2)
+  })
+
+  describe('snoozing', () => {
+    const future = new Date(NOW.getTime() + 86_400_000).toISOString()
+    const past = new Date(NOW.getTime() - 86_400_000).toISOString()
+    const withDismissal = (until: string) => {
+      const s = store()
+      s.work_experiences = [makeWork({ id: 'w1', employer: { en: 'Acme' }, start: old, end: null })]
+      s.work_experiences.push(makeWork({ id: 'w2', employer: { en: 'Beta' }, start: older, end: null }))
+      s.resume = makeResume({ full_name: 'Kari', attention_dismissals: { [staleWarningKey('work_experiences', 'w1')]: until } })
+      return freshnessReport(s, NOW, 'en')
+    }
+
+    it('hides a warning whose snooze has not lapsed', () => {
+      const r = withDismissal(future)
+      expect(r.staleOngoing.map((x) => x.label)).toEqual(['Beta'])
+      expect(r.snoozed.map((x) => x.label)).toEqual(['Acme'])
+    })
+
+    it('shows it again once the snooze has lapsed', () => {
+      expect(withDismissal(past).staleOngoing.map((x) => x.label).sort()).toEqual(['Acme', 'Beta'])
+    })
+
+    it('ignores an unparseable snooze date rather than hiding forever', () => {
+      expect(withDismissal('not a date').staleOngoing).toHaveLength(2)
+    })
+  })
+})
+

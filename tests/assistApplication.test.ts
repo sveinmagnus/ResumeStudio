@@ -293,3 +293,100 @@ describe('intake instructions', () => {
     expect(prompt).toMatch(/2 languages/)
   })
 })
+
+/**
+ * B5's body tidying, and the remaining validator branches.
+ *
+ * tidyBody had 18 mutants and none of its four rules was exercised. It exists
+ * because the model writes a greeting and a sign-off however firmly the prompt
+ * says not to — and the drafted body lands in a field that ALREADY has its own
+ * greeting and closing above and below it, so a stray one is duplicated in the
+ * exported letter.
+ */
+describe('letter angles — tidying the drafted body', () => {
+  const bodyOf = (body: string) =>
+    validateLetterAngles({ angles: [{ label: 'A', body }] })[0].body
+
+  it('strips a greeting the model added anyway', () => {
+    // Each of these opens a letter in one of the languages this app supports.
+    for (const hello of ['Dear Hiring Manager,', 'Hi there!', 'Hello,', 'Hei,', 'Kjære Hiring Manager,']) {
+      expect(bodyOf(`${hello}\n\nI am writing about the role.`), hello)
+        .toBe('I am writing about the role.')
+    }
+  })
+
+  it('strips a sign-off block, including the name line under it', () => {
+    for (const bye of ['Kind regards', 'Best regards', 'Sincerely', 'Yours sincerely', 'Regards', 'Mvh', 'Med vennlig hilsen']) {
+      expect(bodyOf(`I am writing about the role.\n\n${bye},\nKari Nordmann`), bye)
+        .toBe('I am writing about the role.')
+    }
+  })
+
+  it('unwraps a fenced code block', () => {
+    expect(bodyOf('```\nI am writing about the role.\n```')).toBe('I am writing about the role.')
+    expect(bodyOf('```text\nI am writing about the role.\n```')).toBe('I am writing about the role.')
+  })
+
+  it('only strips a greeting at the START and a sign-off at the END', () => {
+    // A letter may legitimately quote either mid-paragraph; removing those
+    // would delete the applicant's own words.
+    const body = 'They said "Dear Sir" in the advert.\n\nI would sign it Kind regards, but not here.\n\nFinal line.'
+    expect(bodyOf(body)).toBe(body)
+  })
+
+  it('leaves a body with neither alone', () => {
+    expect(bodyOf('I am writing about the role.')).toBe('I am writing about the role.')
+  })
+
+  it('reports a reply whose only angle has no body, rather than returning nothing', () => {
+    // An empty list would render as a panel that ran and found nothing to say.
+    expect(() => validateLetterAngles({ angles: [{ label: 'A', body: '   ' }] }))
+      .toThrow(/no usable letters/i)
+  })
+})
+
+describe('letter critique — the remaining branches', () => {
+  it('defaults an unknown severity to medium rather than to the worst', () => {
+    // Crying wolf on every note makes the real ones invisible.
+    const r = validateLetterCritique({ notes: [{ title: 'T', detail: 'D', severity: 'catastrophic' }] })
+    expect(r.notes[0].severity).toBe('medium')
+  })
+
+  it('sorts the most severe first', () => {
+    const r = validateLetterCritique({ notes: [
+      { title: 'low one', detail: 'd', severity: 'low' },
+      { title: 'high one', detail: 'd', severity: 'high' },
+      { title: 'medium one', detail: 'd', severity: 'medium' },
+    ] })
+    expect(r.notes.map((n) => n.severity)).toEqual(['high', 'medium', 'low'])
+  })
+
+  it('falls back to the detail when a note has no title', () => {
+    // A note with no heading renders as a blank row you cannot act on.
+    const r = validateLetterCritique({ notes: [{ detail: 'The opening restates the CV.' }] })
+    expect(r.notes[0].title).toBe('The opening restates the CV.')
+  })
+
+  it('skips a note with neither a title nor a detail', () => {
+    const r = validateLetterCritique({ overall: 'Fine.', notes: [{ severity: 'high' }] })
+    expect(r.notes).toEqual([])
+  })
+
+  it('carries an ask only when there is one', () => {
+    // `ask` is the escape valve (§15); an empty one would render an empty
+    // question box.
+    const withAsk = validateLetterCritique({ notes: [{ title: 'T', detail: 'D', ask: 'Which team?' }] })
+    expect(withAsk.notes[0].ask).toBe('Which team?')
+    const without = validateLetterCritique({ notes: [{ title: 'T', detail: 'D', ask: '  ' }] })
+    expect('ask' in without.notes[0]).toBe(false)
+  })
+
+  it('accepts an overall read with NO notes — that is a clean bill', () => {
+    expect(validateLetterCritique({ overall: 'Reads well.', notes: [] }).overall).toBe('Reads well.')
+  })
+
+  it('rejects a reply with neither an overall read nor a note', () => {
+    // Not a clean bill — an empty response.
+    expect(() => validateLetterCritique({ notes: [] })).toThrow(InvalidLetterAdviceError)
+  })
+})

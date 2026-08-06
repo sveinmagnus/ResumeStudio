@@ -1787,3 +1787,131 @@ describe('single profile per view + tag-line title', () => {
     expect(html).toContain('Master Title')
   })
 })
+
+/**
+ * The per-section visual chrome. dividerRule had 20 mutants no test reached
+ * and 6 killed — every style but 'dashed' was unexercised, and they all render
+ * *something*, so a swap between them is invisible to a test that only checks
+ * markup came back.
+ */
+describe('section divider styles', () => {
+  const cssFor = (over: Record<string, unknown>): string => {
+    const store = emptyStore()
+    store.resume = makeResume({ full_name: 'X' })
+    store.work_experiences = [makeWork({ id: 'w1', employer: { en: 'Acme' } })]
+    return buildViewHtml(store, makeView({
+      sections: [{ key: 'work_experiences', detail: 'full', sort_order: 0, style: over as never }],
+    }), 'en')
+  }
+
+  it('draws each divider style differently', () => {
+    // Every case returns a border, so the risk is one case falling through to
+    // another — which no "has a border" assertion would notice.
+    expect(cssFor({ item_divider: true, divider_style: 'thick' })).toMatch(/border-bottom:\s*2px solid/)
+    expect(cssFor({ item_divider: true, divider_style: 'dashed' })).toMatch(/border-bottom:\s*1px dashed/)
+    expect(cssFor({ item_divider: true, divider_style: 'dotted' })).toMatch(/border-bottom:\s*1px dotted/)
+    expect(cssFor({ item_divider: true, divider_style: 'double' })).toMatch(/border-bottom:\s*3px double/)
+    expect(cssFor({ item_divider: true, divider_style: 'line' })).toMatch(/border-bottom:\s*1px solid/)
+  })
+
+  it('draws the short rule as a background gradient, not a border', () => {
+    // A border cannot be width-limited, which is the whole reason this case
+    // exists — so it must NOT also emit a border.
+    const css = cssFor({ item_divider: true, divider_style: 'short' })
+    expect(css).toMatch(/background-image:\s*linear-gradient/)
+    expect(css).toMatch(/background-size:\s*48px 1px/)
+    expect(css).toMatch(/\.ve-item\s*\{[^}]*border-bottom:\s*none/)
+  })
+
+  it('draws nothing at all for space', () => {
+    const css = cssFor({ item_divider: true, divider_style: 'space' })
+    expect(css).toMatch(/\.ve-item\s*\{[^}]*border-bottom:\s*none/)
+    expect(css).not.toMatch(/linear-gradient/)
+  })
+
+  it('suppresses the rule entirely when item_divider is off, whatever the style', () => {
+    const css = cssFor({ item_divider: false, divider_style: 'thick' })
+    expect(css).not.toMatch(/border-bottom:\s*2px solid/)
+    expect(css).toMatch(/\.ve-item\s*\{[^}]*padding-bottom:\s*0px/)
+  })
+})
+
+describe('tabulated summary — the grid', () => {
+  const store = () => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    return s
+  }
+  const tabulated = (s: ReturnType<typeof store>) => buildViewHtml(s, makeView({
+    sections: [{ key: 'work_experiences', detail: 'summary', sort_order: 0, style: { tabulate: true } as never }],
+  }), 'en')
+
+  it('inserts a separator column only BETWEEN start and end', () => {
+    const s = store()
+    s.work_experiences = [makeWork({
+      id: 'w1', employer: { en: 'Acme' },
+      start: { year: 2020, month: 1 }, end: { year: 2021, month: 6 },
+    })]
+    const html = tabulated(s)
+    // Count the rendered SPANS, not the class name — it also appears in the
+    // stylesheet, which would make any count off by the CSS rules.
+    expect((html.match(/<span class="ve-tab-sep">/g) ?? []).length).toBe(1)
+  })
+
+  it('leaves the separator EMPTY for a row missing one side of the range', () => {
+    // The column still exists so the grid stays aligned, but a lone "·" beside
+    // a single date reads as a broken range.
+    const s = store()
+    s.work_experiences = [
+      makeWork({ id: 'w1', employer: { en: 'Acme' }, start: { year: 2020, month: 1 }, end: { year: 2021, month: 6 } }),
+      makeWork({ id: 'w2', employer: { en: 'Beta' }, start: null as never, end: null as never }),
+    ]
+    const html = tabulated(s)
+    expect(html).toContain('<span class="ve-tab-sep">·</span>')
+    expect(html).toContain('<span class="ve-tab-sep"></span>')
+  })
+
+  it('gives text columns a flexible track and date columns a rigid one', () => {
+    // Computed from column KINDS only — the comment says it is safe to inline
+    // BECAUSE it never touches user data, so the shape is worth pinning.
+    const s = store()
+    s.work_experiences = [makeWork({
+      id: 'w1', employer: { en: 'Acme' }, start: { year: 2020, month: 1 }, end: { year: 2021, month: 6 },
+    })]
+    // The GRID DIV's inline style, not the stylesheet's own grid rules.
+    const m = /<div class="ve-tab-grid" style="grid-template-columns:([^"]+)">/.exec(tabulated(s))
+    expect(m).not.toBeNull()
+    // employer + start + sep + end → one flexible text track, three rigid ones.
+    expect(m![1]).toContain('minmax(0, max-content)')
+    expect(m![1].split(' ').filter((t) => t === 'max-content').length).toBeGreaterThan(0)
+  })
+
+  it('keeps a blank item as a labelled row rather than an empty one', () => {
+    // The descriptor supplies a fallback title, so the grid is never empty —
+    // an item with nothing filled in still occupies a row you can see and fix,
+    // instead of silently vanishing from the export.
+    const s = store()
+    s.work_experiences = [makeWork({ id: 'w1', employer: {}, role_title: {}, start: null as never, end: null as never })]
+    const html = tabulated(s)
+    expect(html).toContain('<span class="ve-tab-title">Role</span>')
+    // One column only — nothing else had a value, so no empty date tracks.
+    const m = /<div class="ve-tab-grid" style="grid-template-columns:([^"]+)">/.exec(html)
+    expect(m![1].trim()).toBe('minmax(0, max-content)')
+  })
+
+  it('escapes each line and then joins with its OWN <br>, never the reverse', () => {
+    // SECURITY: a part may carry newlines (the Languages Europass column). If
+    // the join happened first, the <br> would be escaped and the payload would
+    // not — this asserts the order.
+    const s = store()
+    s.spoken_languages = [makeSpokenLanguage({
+      id: 'l1', name: { en: 'English\n<img src=x onerror=alert(1)>' }, level: { en: 'Native' },
+    })]
+    const html = buildViewHtml(s, makeView({
+      sections: [{ key: 'spoken_languages', detail: 'summary', sort_order: 0, style: { tabulate: true } as never }],
+    }), 'en')
+    expect(html).toContain('<br>')
+    expect(html).not.toContain('<img src=x')
+    expect(html).toContain('&lt;img')
+  })
+})

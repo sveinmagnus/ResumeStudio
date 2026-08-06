@@ -529,3 +529,98 @@ describe('importFromCVPartner — subsidiary sections', () => {
     expect(store.key_competencies.map((c) => c.sort_order)).toEqual([0, 1])
   })
 })
+
+/**
+ * The per-skill experience an import derives from a project's dates.
+ *
+ * 19 mutants, none killed — nothing called it. It is not internal bookkeeping:
+ * it lands on every ProjectSkill as duration_in_years, which is summed into the
+ * Skill Matrix's Experience column, so getting it wrong overstates or
+ * understates a number the reader treats as a fact about the person.
+ */
+describe('importFromCVPartner — project duration', () => {
+  /** Import one project with the given dates and read back a skill's duration. */
+  const durationOf = (dates: Record<string, string>): number => {
+    const store = importFromCVPartner({
+      project_experiences: [{
+        _id: 'p1',
+        customer: { en: 'Acme' },
+        project_experience_skills: [{ _id: 'sk1', tags: { en: 'Go' } }],
+        ...dates,
+      }],
+    } as never)
+    return store.projects[0].skills[0].duration_in_years
+  }
+
+  it('spans January of the first year to DECEMBER of the last', () => {
+    // month_from defaults to January and month_to to December, so a project
+    // given only years covers both of them: 2020..2021 measures 23 months, not
+    // the 12 that defaulting month_to to January would give. That default is
+    // worth a year per project across a whole CV.
+    expect(durationOf({ year_from: '2020', year_to: '2021' })).toBeCloseTo(23 / 12, 2)
+  })
+
+  it('measures a single-year project as eleven months, not twelve', () => {
+    // Jan 1 to Dec 1 — the end month is a point, not an inclusive month. Worth
+    // stating so nobody "fixes" it into a rounder number by accident.
+    expect(durationOf({ year_from: '2020', year_to: '2020' })).toBeCloseTo(11 / 12, 2)
+  })
+
+  it('honours explicit months at both ends', () => {
+    // Jan 2020 → Jun 2020 is five months of elapsed time.
+    expect(durationOf({ year_from: '2020', month_from: '1', year_to: '2020', month_to: '6' }))
+      .toBeCloseTo(5 / 12, 1)
+  })
+
+  it('is zero when the project has no start year at all', () => {
+    expect(durationOf({ year_to: '2021' })).toBe(0)
+  })
+
+  it('treats an EMPTY year_to as ongoing, not as year zero', () => {
+    // '' is what the export writes for a running project. Parsed as a year it
+    // would produce a huge negative span; the guard is what makes it "until
+    // now" instead.
+    const ongoing = durationOf({ year_from: '2020', year_to: '' })
+    const thisYear = new Date().getFullYear()
+    expect(ongoing).toBeGreaterThan(thisYear - 2020 - 1)
+    expect(ongoing).toBeLessThan(thisYear - 2020 + 1.1)
+  })
+
+  it('treats a missing year_to as ongoing too', () => {
+    expect(durationOf({ year_from: '2020' })).toBeGreaterThan(1)
+  })
+
+  it('never reports a negative duration for a backwards range', () => {
+    // Real exports carry typos. A negative would subtract from the matrix.
+    expect(durationOf({ year_from: '2021', month_from: '6', year_to: '2020', month_to: '1' })).toBe(0)
+  })
+
+  it('adds the skill offset on top, keeping the two separate', () => {
+    const store = importFromCVPartner({
+      project_experiences: [{
+        _id: 'p1',
+        customer: { en: 'Acme' },
+        year_from: '2020', year_to: '2020',
+        project_experience_skills: [
+          { _id: 'sk1', tags: { en: 'Go' }, offset_duration_in_years: 3 },
+        ],
+      }],
+    } as never)
+    const skill = store.projects[0].skills[0]
+    expect(skill.duration_in_years).toBeCloseTo(11 / 12, 2)
+    expect(skill.offset_in_years).toBe(3)
+    expect(skill.total_duration_in_years).toBeCloseTo(3 + 11 / 12, 2)
+  })
+
+  it('defaults a missing offset to 0 rather than NaN', () => {
+    const store = importFromCVPartner({
+      project_experiences: [{
+        _id: 'p1', customer: { en: 'Acme' }, year_from: '2020', year_to: '2020',
+        project_experience_skills: [{ _id: 'sk1', tags: { en: 'Go' } }],
+      }],
+    } as never)
+    const skill = store.projects[0].skills[0]
+    expect(skill.offset_in_years).toBe(0)
+    expect(Number.isNaN(skill.total_duration_in_years)).toBe(false)
+  })
+})

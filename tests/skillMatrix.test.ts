@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { skillMatrixRows, fmtLastUsed, fmtProficiency } from '../src/lib/skillMatrix'
 import { buildViewHtml, buildViewSections } from '../src/lib/viewFilter'
 import { emptyStore, makeProject, makeSkill, makeSkillCategory, makeView } from './fixtures'
+import { xs } from '../src/lib/exportStrings'
 import type { ProjectSkill } from '../src/types'
 
 const ps = (skill_id: string, duration = 0): ProjectSkill => ({
@@ -199,5 +200,61 @@ describe('skill matrix in buildViewHtml', () => {
     const html = buildViewHtml(matrixStore(), makeView({ sections }), 'en')
     expect(html).not.toContain('Last used')
     expect(html).not.toContain('Ongoing')
+  })
+})
+/**
+ * The skill matrix's per-skill usage scan — the numbers in the Experience and
+ * Last used columns are derived here, and a reader takes them as facts.
+ */
+describe('skillMatrixRows — the usage scan', () => {
+  const ps = (skill_id: string, duration = 0) => ({
+    id: `ps-${skill_id}-${Math.random()}`, skill_id, name: {},
+    duration_in_years: duration, offset_in_years: 0, total_duration_in_years: 0, sort_order: 0,
+  })
+
+  it('ignores a DISABLED project when deriving usage', () => {
+    // A soft-deleted project is out of every export; counting it would put
+    // experience in the matrix that the CV never shows.
+    const s = emptyStore()
+    s.skills = [makeSkill({ id: 'go', name: { en: 'Go' }, total_duration_in_years: 0 })]
+    s.projects = [makeProject({
+      id: 'p1', disabled: true, skills: [ps('go')] as never,
+      start: { year: 2020, month: 1 }, end: null,
+    })]
+    const row = skillMatrixRows(s, makeView(), 'en').find((r) => r.name === 'Go')!
+    expect(row.ongoing).toBe(false)
+    expect(row.lastUsed).toBeNull()
+  })
+
+  it('ignores a project skill with no registry link', () => {
+    const s = emptyStore()
+    s.skills = [makeSkill({ id: 'go', name: { en: 'Go' } })]
+    s.projects = [makeProject({
+      id: 'p1', skills: [{ ...ps(''), skill_id: '' }] as never,
+      start: { year: 2020, month: 1 }, end: { year: 2021, month: 1 },
+    })]
+    expect(skillMatrixRows(s, makeView(), 'en').find((r) => r.name === 'Go')!.lastUsed).toBeNull()
+  })
+
+  it('marks a skill used by an OPEN-ENDED project as ongoing', () => {
+    const s = emptyStore()
+    s.skills = [makeSkill({ id: 'go', name: { en: 'Go' } })]
+    s.projects = [makeProject({
+      id: 'p1', skills: [ps('go')] as never, start: { year: 2020, month: 1 }, end: null,
+    })]
+    const row = skillMatrixRows(s, makeView(), 'en').find((r) => r.name === 'Go')!
+    expect(row.ongoing).toBe(true)
+    expect(fmtLastUsed(row, 'en', 'my')).toBe(xs('ongoing', 'en'))
+  })
+
+  it('reports the LATEST end date across several projects', () => {
+    const s = emptyStore()
+    s.skills = [makeSkill({ id: 'go', name: { en: 'Go' } })]
+    s.projects = [
+      makeProject({ id: 'p1', skills: [ps('go')] as never, start: { year: 2015, month: 1 }, end: { year: 2016, month: 1 } }),
+      makeProject({ id: 'p2', skills: [ps('go')] as never, start: { year: 2020, month: 1 }, end: { year: 2021, month: 6 } }),
+    ]
+    expect(skillMatrixRows(s, makeView(), 'en').find((r) => r.name === 'Go')!.lastUsed)
+      .toEqual({ year: 2021, month: 6 })
   })
 })

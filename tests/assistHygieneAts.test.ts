@@ -1,9 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { emptyStore, makeProject, makeRole, makeSkill } from './fixtures'
-import type { ResumeStore } from '../src/types'
+import { emptyStore, makeProject, makeRole, makeSkill, makeResume, makeView } from './fixtures'
+import type { ResumeStore, ResumeView } from '../src/types'
+import { buildViewSections } from '../src/lib/viewFilter'
 import {
   auditCoverage, containsTerm, coverageTally, extractPostingTerms,
-  validateAtsResponse, InvalidAtsResponseError,
+  validateAtsResponse, InvalidAtsResponseError, runLiteralAudit, buildAtsPrompt,
 } from '../src/lib/atsAudit'
 import {
   applyHygiene, buildHygienePrompt, hasRegistryContent, hygieneImpact,
@@ -655,3 +656,342 @@ describe('glossary', () => {
     expect(mentions('Vår Skydrift er god', 'Skydrift')).toBe(true)
   })
 })
+
+/**
+ * B4's free first pass, end to end.
+ *
+ * runLiteralAudit had 8 mutants and none killed — nothing called it, even
+ * though it is the half of this feature that works on an install with NO model
+ * configured (§15). Its whole value rests on one comparison being like-for-
+ * like: both texts come from the same builder, one through the view and one
+ * through a wide-open copy of it, so `elsewhere` really means "your CV says
+ * this, but THIS view leaves it out" rather than "the JSON differs from the
+ * export".
+ */
+describe('runLiteralAudit — the pass that needs no model', () => {
+  const store = (): ResumeStore => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'Kari Nordmann' })
+    s.skills = [makeSkill({ id: 'k8s', name: { en: 'Kubernetes' } })]
+    s.projects = [
+      makeProject({ id: 'p1', customer: { en: 'Acme' }, long_description: { en: 'Ran Kubernetes in production.' } }),
+      makeProject({ id: 'p2', customer: { en: 'Beta' }, long_description: { en: 'Wrote a lot of Fortran.' } }),
+    ]
+    return s
+  }
+  const view = (over: Partial<ResumeView> = {}) =>
+    makeView({ sections: buildViewSections(), ...over }) as ResumeView
+
+  const statusOf = (cov: { terms: { term: string; status: string }[] }, term: string) =>
+    cov.terms.find((t) => t.term.toLowerCase() === term.toLowerCase())?.status
+
+  it('marks a term the view exports as present', () => {
+    const cov = runLiteralAudit(store(), view(), 'en', 'We need Kubernetes experience.')
+    expect(statusOf(cov, 'kubernetes')).toBe('present')
+  })
+
+  it('marks a term the CV has but THIS view excludes as elsewhere', () => {
+    // The status worth having: fixable by re-including an item, with no
+    // writing at all. It only works because the master text is rendered
+    // through the same builder with the exclusions lifted.
+    const excluded = view({ excluded_item_ids: ['p2'] })
+    const cov = runLiteralAudit(store(), excluded, 'en', 'Fortran maintenance required.')
+    expect(statusOf(cov, 'fortran')).toBe('elsewhere')
+  })
+
+  it('marks a term the CV does not have at all as absent', () => {
+    // Comma-separated, because the extractor groups ADJACENT capitalised words
+    // — "Deep COBOL expertise" yields the term "Deep COBOL", not "COBOL".
+    const cov = runLiteralAudit(store(), view(), 'en', 'Kubernetes, Fortran and COBOL.')
+    expect(statusOf(cov, 'cobol')).toBe('absent')
+  })
+
+  it('lifts starred_only for the master comparison too', () => {
+    // A starred-only view hides unstarred items; without clearing the flag the
+    // master text would be just as narrow and every gap would read as absent.
+    const s = store()
+    s.projects[0].starred = true
+    const cov = runLiteralAudit(s, view({ starred_only: true }), 'en', 'Fortran maintenance required.')
+    expect(statusOf(cov, 'fortran')).toBe('elsewhere')
+  })
+
+  it('flags a term the registry knows, from EITHER the skill or role registry', () => {
+    // Both registries feed the known set; leaving roles out would mark a job
+    // title the consultant has curated as an unrecognised keyword.
+    const s = store()
+    s.roles = [makeRole({ id: 'arch', name: { en: 'Architect' } })]
+    const cov = runLiteralAudit(s, view(), 'en', 'Kubernetes, Architect and COBOL.')
+    const known = (t: string) => cov.terms.find((x) => x.term.toLowerCase() === t)!.known
+    expect(known('kubernetes')).toBe(true)
+    expect(known('architect')).toBe(true)
+    expect(known('cobol')).toBe(false)
+  })
+
+  it('puts the gaps first — the report is a to-do list', () => {
+    const cov = runLiteralAudit(store(), view({ excluded_item_ids: ['p2'] }), 'en',
+      'Kubernetes, Fortran and COBOL.')
+    const order = cov.terms.map((t) => t.status)
+    expect(order.indexOf('present')).toBe(order.length - 1)
+    expect(order[0]).not.toBe('present')
+  })
+
+  it('reports the size of the document it actually measured', () => {
+    const cov = runLiteralAudit(store(), view(), 'en', 'Kubernetes.')
+    expect(cov.documentChars).toBeGreaterThan(0)
+  })
+
+  it('returns nothing to act on for an empty posting', () => {
+    expect(runLiteralAudit(store(), view(), 'en', '').terms).toEqual([])
+  })
+})
+
+describe('buildAtsPrompt — what the model is asked to judge', () => {
+  const coverage = {
+    terms: [
+      { term: 'Kubernetes', status: 'present' as const, known: true },
+      { term: 'Fortran', status: 'elsewhere' as const, known: false },
+      { term: 'COBOL', status: 'absent' as const, known: false },
+    ],
+    documentChars: 100,
+  }
+
+  it('sends ONLY the terms the literal pass could not find', () => {
+    // A term already in the document needs no judgement, and leaving them out
+    // is what keeps this small enough for the cheap models it should run on.
+    // Scoped to the TERMS TO JUDGE block: the instructions legitimately name
+    // Kubernetes as a synonym example, so a whole-prompt search proves nothing.
+    const p = buildAtsPrompt(coverage, 'the cv text', 'the posting', 'en')
+    const judge = p.split('--- TERMS TO JUDGE ---')[1].split('---')[0]
+    expect(judge).toContain('Fortran')
+    expect(judge).toContain('COBOL')
+    expect(judge).not.toContain('Kubernetes')
+  })
+
+  it('carries the document and the posting, so a verdict can cite them', () => {
+    const p = buildAtsPrompt(coverage, 'MARKER-CV-TEXT', 'MARKER-POSTING', 'en')
+    expect(p).toContain('MARKER-CV-TEXT')
+    expect(p).toContain('MARKER-POSTING')
+  })
+
+  it('demands a QUOTE for a covered verdict', () => {
+    // §15: a covered verdict with no supporting quote is downgraded, because
+    // the quote is the evidence. The prompt has to ask for it.
+    expect(buildAtsPrompt(coverage, 'x', 'y', 'en')).toMatch(/quote/i)
+  })
+})
+
+/**
+ * The rejections C4's validator is made of.
+ *
+ * A registry merge is the most destructive act in the app and the least
+ * noticeable when wrong (§15), so this validator's job is to refuse things —
+ * and 21 of its mutants were unreached. Each refusal below either deletes the
+ * wrong entry or silently drops a proposal the user then cannot see.
+ */
+describe('validateHygiene — what it refuses', () => {
+  const hygStore = (): ResumeStore => {
+    const s = emptyStore()
+    s.skills = [
+      makeSkill({ id: 's1', name: { en: 'Kubernetes' } }),
+      makeSkill({ id: 's2', name: { en: 'K8s' } }),
+      makeSkill({ id: 's3', name: { en: 'Go' }, category_id: 'c1' }),
+    ]
+    s.skill_categories = [{ id: 'c1', resume_id: 'r', name: { en: 'Languages' }, sort_order: 0 } as never]
+    return s
+  }
+  const reply = (over: Record<string, unknown>) => ({ merges: [], categories: [], ...over })
+  const run = (over: Record<string, unknown>) => validateHygiene(reply(over), hygStore(), 'en')
+
+  describe('merges', () => {
+    it('refuses a merge of an entry into ITSELF', () => {
+      // It would delete the entry and rewrite its references to a row that no
+      // longer exists.
+      const r = run({ merges: [{ kind: 'skills', keep_id: 's1', drop_id: 's1' }] })
+      expect(r.merges).toHaveLength(0)
+      expect(r.dropped.join(' ')).toMatch(/into itself/i)
+    })
+
+    it('refuses a merge naming a registry that does not exist', () => {
+      const r = run({ merges: [{ kind: 'vegetables', keep_id: 's1', drop_id: 's2' }] })
+      expect(r.merges).toHaveLength(0)
+      expect(r.dropped.join(' ')).toMatch(/unknown registry/i)
+    })
+
+    it('refuses an entry that is not an object at all', () => {
+      const r = run({ merges: ['just a string', null] })
+      expect(r.merges).toHaveLength(0)
+      expect(r.dropped).toHaveLength(2)
+    })
+
+    it('names the 1-BASED position of each rejected proposal', () => {
+      // The message is how the user finds which row was skipped; a 0-based
+      // index points at the wrong one.
+      // Every rejection path numbers independently, so both are checked.
+      expect(run({ merges: [{ kind: 'skills', keep_id: 's1', drop_id: 's1' }] }).dropped[0])
+        .toContain('Merge 1')
+      expect(run({ merges: ['not an object'] }).dropped[0]).toContain('Merge 1')
+      expect(run({ categories: [{ skill_id: 'nope' }] }).dropped[0]).toContain('Category 1')
+    })
+
+    it('reports the reference counts of BOTH sides, not just the one being dropped', () => {
+      // The confirm names how many references are rewritten; the keeper's count
+      // is what tells the user which of two similar entries is the real one.
+      const r = run({ merges: [{ kind: 'skills', keep_id: 's1', drop_id: 's2', reason: 'same thing' }] })
+      expect(r.merges[0]).toMatchObject({
+        keepId: 's1', keepName: 'Kubernetes', dropId: 's2', dropName: 'K8s', reason: 'same thing',
+      })
+      expect(typeof r.merges[0].dropRefs).toBe('number')
+      expect(typeof r.merges[0].keepRefs).toBe('number')
+    })
+
+    it('caps the batch rather than accepting an unbounded list', () => {
+      const many = Array.from({ length: 200 }, () => ({ kind: 'skills', keep_id: 's1', drop_id: 's2' }))
+      const r = run({ merges: many })
+      expect(r.merges.length + r.dropped.length).toBeLessThanOrEqual(60)
+    })
+  })
+
+  describe('categories', () => {
+    it('refuses to re-categorise a skill the user placed, and SAYS so', () => {
+      // Silence here would look like the model simply had no opinion.
+      const r = run({ categories: [{ skill_id: 's3', category_name: 'Backend' }] })
+      expect(r.categories).toHaveLength(0)
+      expect(r.dropped.join(' ')).toMatch(/already placed/i)
+    })
+
+    it('refuses a skill that is not in the registry', () => {
+      const r = run({ categories: [{ skill_id: 'nope', category_name: 'Backend' }] })
+      expect(r.dropped.join(' ')).toMatch(/isn't in the registry/i)
+    })
+
+    it('refuses a category id that does not exist', () => {
+      const r = run({ categories: [{ skill_id: 's1', category_id: 'ghost' }] })
+      expect(r.categories).toHaveLength(0)
+      expect(r.dropped.join(' ')).toMatch(/doesn't exist/i)
+    })
+
+    it('resolves an EXISTING category id to its name, ignoring any name sent alongside', () => {
+      const r = run({ categories: [{ skill_id: 's1', category_id: 'c1', category_name: 'Wrong' }] })
+      expect(r.categories[0]).toMatchObject({ categoryName: 'Languages' })
+    })
+
+    it('accepts a brand-new category by name', () => {
+      const r = run({ categories: [{ skill_id: 's1', category_name: 'Container platforms' }] })
+      expect(r.categories[0]).toMatchObject({ categoryName: 'Container platforms' })
+    })
+
+    it('refuses a proposal with neither an id nor a name', () => {
+      const r = run({ categories: [{ skill_id: 's1' }] })
+      expect(r.categories).toHaveLength(0)
+      expect(r.dropped.join(' ')).toMatch(/no category name/i)
+    })
+
+    it('keeps the FIRST proposal for a skill and silently ignores a repeat', () => {
+      // A duplicate is not a user-visible problem — the first answer stands.
+      const r = run({ categories: [
+        { skill_id: 's1', category_name: 'First' },
+        { skill_id: 's1', category_name: 'Second' },
+      ] })
+      expect(r.categories).toHaveLength(1)
+      expect(r.categories[0]).toMatchObject({ categoryName: 'First' })
+    })
+  })
+
+  it('accepts a reply carrying only ONE of the two lists', () => {
+    expect(() => validateHygiene({ merges: [] }, hygStore(), 'en')).not.toThrow()
+    expect(() => validateHygiene({ categories: [] }, hygStore(), 'en')).not.toThrow()
+  })
+
+  it('rejects a non-object reply outright', () => {
+    for (const bad of [null, 'text', 42]) {
+      expect(() => validateHygiene(bad, hygStore(), 'en')).toThrow(InvalidHygieneError)
+    }
+  })
+})
+
+/**
+ * C3's glossary derivation and scoping.
+ *
+ * The glossary is invisible — it rides the ordinary Draft button with no UI
+ * (§15) — so a rule that stops working is not something anyone sees. Its value
+ * is being CERTAIN: it mines only data that already holds a term pair, and it
+ * narrows to what the field being translated actually mentions, because a
+ * 300-entry list is not something a 3B model can obey.
+ */
+describe('glossary — derivation and scoping', () => {
+  const store = (): ResumeStore => {
+    const s = emptyStore()
+    s.skills = [makeSkill({ id: 's1', name: { en: 'Cloud', no: 'Sky' } })]
+    s.roles = [makeRole({ id: 'r1', name: { en: 'Architect', no: 'Arkitekt' } })]
+    return s
+  }
+
+  it('is empty when the two languages are the same, or either is missing', () => {
+    // Nothing to translate — and a glossary mapping a term to itself would just
+    // be noise in the prompt.
+    // `keep` too: a same-language pair reads as "written identically in both
+    // columns", so without the early return every registry name would arrive as
+    // a do-not-translate instruction.
+    // A store with an identity FIELD as well as registries — `keep` is mined
+    // from fields only, so registries alone cannot show the difference.
+    const s = store()
+    s.projects = [makeProject({ id: 'p1', customer: { en: 'Statens vegvesen' } })]
+    for (const [a, b] of [['en', 'en'], ['', 'no'], ['en', '']]) {
+      const g = buildGlossary(s, a, b)
+      expect(g.terms, `${a}->${b}`).toEqual([])
+      expect(g.keep, `${a}->${b}`).toEqual([])
+    }
+  })
+
+  it('mines the registries in the direction asked for', () => {
+    // Skills AND roles — they are separate loops, and a job title is exactly
+    // the kind of term a small model renders three different ways.
+    const fwd = buildGlossary(store(), 'en', 'no')
+    expect(fwd.terms).toContainEqual(expect.objectContaining({ from: 'Cloud', to: 'Sky' }))
+    expect(fwd.terms).toContainEqual(expect.objectContaining({ from: 'Architect', to: 'Arkitekt' }))
+    const back = buildGlossary(store(), 'no', 'en')
+    expect(back.terms).toContainEqual(expect.objectContaining({ from: 'Sky', to: 'Cloud' }))
+    expect(back.terms).toContainEqual(expect.objectContaining({ from: 'Arkitekt', to: 'Architect' }))
+  })
+
+  it('takes a name written IDENTICALLY in both columns as do-not-translate', () => {
+    // The user already told us: they chose not to translate it.
+    const s = store()
+    s.projects = [makeProject({ id: 'p1', customer: { en: 'Statens vegvesen', no: 'Statens vegvesen' } })]
+    expect(buildGlossary(s, 'en', 'no').keep).toContain('Statens vegvesen')
+  })
+
+  it('does NOT mine prose — that would need a model, which is the point of not doing it', () => {
+    const s = store()
+    s.projects = [makeProject({
+      id: 'p1', customer: {},
+      long_description: { en: 'Ran the migration', no: 'Kjørte migrasjonen' },
+    })]
+    const g = buildGlossary(s, 'en', 'no')
+    expect(g.terms.map((t) => t.from)).not.toContain('Ran the migration')
+  })
+
+  it('narrows to the terms the text actually mentions', () => {
+    const g = buildGlossary(store(), 'en', 'no')
+    const scoped = scopeGlossary(g, 'We moved it to the Cloud.')
+    expect(scoped.terms.map((t) => t.from)).toEqual(['Cloud'])
+  })
+
+  it('is empty for empty text, rather than sending everything', () => {
+    const g = buildGlossary(store(), 'en', 'no')
+    expect(scopeGlossary(g, '   ').terms).toEqual([])
+  })
+
+  it('puts the LONGEST match first', () => {
+    // A longer term is the more specific instruction, and a small model obeys
+    // the top of a list more reliably than the bottom.
+    const s = emptyStore()
+    s.skills = [
+      makeSkill({ id: 'a', name: { en: 'Cloud', no: 'Sky' } }),
+      makeSkill({ id: 'b', name: { en: 'Cloud architecture', no: 'Skyarkitektur' } }),
+    ]
+    const scoped = scopeGlossary(buildGlossary(s, 'en', 'no'), 'Our Cloud architecture is good.')
+    expect(scoped.terms[0].from).toBe('Cloud architecture')
+  })
+})
+

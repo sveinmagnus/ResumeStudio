@@ -8,8 +8,9 @@ import { buildViewSections } from '../src/lib/viewFilter'
 import { DEFAULT_VIEW_STYLE } from '../src/lib/viewStyle'
 import {
   emptyStore, makeProject, makeWork, makeReference, makeRecommendation,
-  makeSpokenLanguage, makeView, makeKQ, makeSkill, makeSkillCategory,
+  makeSpokenLanguage, makeView, makeKQ, makeSkill, makeSkillCategory, makeResume,
 } from './fixtures'
+import type { ResumeStore } from '../src/types'
 
 function sampleStore() {
   const store = emptyStore()
@@ -257,5 +258,141 @@ describe('buildViewMarkdown', () => {
     expect(md).toContain('## Skills Showcase')
     expect(md).toContain('Languages')
     expect(md).toContain('Rust')
+  })
+})
+
+/**
+ * The skill matrix in the two text formats.
+ *
+ * 72 mutants in buildViewDoc were unreached, and the matrix is the bulk of
+ * them: it is the one section with a genuinely DIFFERENT rendering per format —
+ * Markdown gets a real pipe table, plain text gets dash-joined lines because
+ * ATS parsers mangle column art. Neither was exercised.
+ */
+describe('skill matrix in the text adapters', () => {
+  const matrixStore = (withCategory = false): ResumeStore => {
+    const store = emptyStore()
+    store.resume = makeResume({ full_name: 'Kari Nordmann' })
+    if (withCategory) store.skill_categories = [makeSkillCategory({ id: 'cat1', name: { en: 'Languages' } })]
+    store.skills.push(makeSkill({
+      id: 'ts', name: { en: 'TypeScript' }, total_duration_in_years: 8, proficiency: 4,
+      category_id: withCategory ? 'cat1' : null,
+    }))
+    return store
+  }
+  const matrixView = (over: Record<string, unknown> = {}) => makeView({
+    sections: buildViewSections().map((s) =>
+      s.key === 'skill_matrix' ? { ...s, detail: 'full' as const, style: { ...s.style, ...over } } : s),
+  })
+
+  describe('markdown', () => {
+    const md = (store = matrixStore(), view = matrixView()) =>
+      buildViewMarkdown(store, view, 'en').split('\n')
+
+    it('writes a real pipe table with a separator row', () => {
+      const lines = md()
+      const head = lines.find((l) => l.startsWith('| Skill'))!
+      expect(head).toBe('| Skill | Experience | Proficiency | Last used |')
+      expect(lines[lines.indexOf(head) + 1]).toBe('| --- | --- | --- | --- |')
+      expect(lines[lines.indexOf(head) + 2]).toBe('| TypeScript | 8 yrs | 4/5 |  |')
+    })
+
+    it('keeps the separator row the same width as the header', () => {
+      // A pipe table with a mismatched separator does not render as a table at
+      // all — it comes out as literal pipes in whatever reads the Markdown.
+      const lines = md(matrixStore(true))
+      const head = lines.find((l) => l.startsWith('| Skill'))!
+      const sep = lines[lines.indexOf(head) + 1]
+      expect(sep.split('|').length).toBe(head.split('|').length)
+    })
+
+    it('adds the Category column only when a row has one', () => {
+      expect(md(matrixStore(true)).find((l) => l.startsWith('| Skill')))
+        .toBe('| Skill | Category | Experience | Proficiency | Last used |')
+      expect(md()).not.toContain('| Skill | Category | Experience | Proficiency | Last used |')
+    })
+
+    it('drops the Last used column when the section hides dates', () => {
+      const head = md(matrixStore(), matrixView({ hide_dates: true })).find((l) => l.startsWith('| Skill'))!
+      expect(head).toBe('| Skill | Experience | Proficiency |')
+    })
+  })
+
+  describe('plain text', () => {
+    const txt = (store = matrixStore(), view = matrixView()) =>
+      buildViewText(store, view, 'en').split('\n')
+
+    it('uses dash-joined lines rather than a table', () => {
+      // ATS parsers mangle column art, which is the whole reason this format
+      // differs from the Markdown one.
+      const lines = txt()
+      expect(lines.some((l) => l.startsWith('|'))).toBe(false)
+      expect(lines).toContain('- TypeScript — 8 yrs — 4/5')
+    })
+
+    it('drops empty cells instead of leaving bare separators', () => {
+      // An unknown proficiency must not render as "TypeScript —  — ".
+      const store = emptyStore()
+      store.resume = makeResume({ full_name: 'X' })
+      store.skills.push(makeSkill({ id: 'go', name: { en: 'Go' }, total_duration_in_years: 0, proficiency: 0 }))
+      expect(txt(store)).toContain('- Go')
+    })
+
+    it('underlines the heading to at least four characters', () => {
+      const lines = txt()
+      const i = lines.findIndex((l) => /^SKILL MATRIX$/.test(l))
+      expect(i).toBeGreaterThan(-1)
+      expect(lines[i + 1]).toMatch(/^-{4,}$/)
+      expect(lines[i + 1].length).toBe('SKILL MATRIX'.length)
+    })
+
+    it('omits the heading entirely when the section hides it', () => {
+      const lines = txt(matrixStore(), matrixView({ hide_heading: true }))
+      expect(lines.some((l) => /^SKILL MATRIX$/.test(l))).toBe(false)
+      expect(lines).toContain('- TypeScript — 8 yrs — 4/5')
+    })
+  })
+
+  it('renders nothing at all when the registry has no skills', () => {
+    const store = emptyStore()
+    store.resume = makeResume({ full_name: 'X' })
+    expect(buildViewText(store, matrixView(), 'en')).not.toMatch(/SKILL MATRIX/)
+  })
+})
+
+describe('the text adapters’ identity block', () => {
+  const store = () => {
+    const s = emptyStore()
+    s.resume = makeResume({
+      full_name: 'Kari Nordmann', title: { en: 'Solution Architect' },
+      phone: '+47 900 00 000', email: 'kari@example.com',
+    })
+    return s
+  }
+  const view = () => makeView({ sections: buildViewSections() })
+
+  it('shouts the name in plain text and heads it in Markdown', () => {
+    // Plain text has no headings, so capitals are the only signal available.
+    expect(buildViewText(store(), view(), 'en').split('\n')[0]).toBe('KARI NORDMANN')
+    expect(buildViewMarkdown(store(), view(), 'en').split('\n')[0]).toBe('# Kari Nordmann')
+  })
+
+  it('italicises the title in Markdown and leaves it plain in text', () => {
+    expect(buildViewMarkdown(store(), view(), 'en').split('\n')[1]).toBe('*Solution Architect*')
+    expect(buildViewText(store(), view(), 'en').split('\n')[1]).toBe('Solution Architect')
+  })
+
+  it('prefers the profile tag line over the resume title, like every adapter', () => {
+    const s = store()
+    s.key_qualifications.push(makeKQ({ tag_line: { en: 'Board Adviser' } }))
+    expect(buildViewText(s, view(), 'en').split('\n')[1]).toBe('Board Adviser')
+  })
+
+  it('joins same-line contact fields with the header separator', () => {
+    const line = buildViewText(store(), view(), 'en').split('\n')
+      .find((l) => l.includes('+47 900 00 000'))!
+    expect(line).toContain(' | ')
+    expect(line).toContain('kari@example.com')
+    expect(line.startsWith(' | ')).toBe(false)
   })
 })

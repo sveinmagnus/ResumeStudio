@@ -495,3 +495,96 @@ describe('end-to-end: paste → validate → map → append', () => {
     expect(out.roles).toHaveLength(1)
   })
 })
+
+/**
+ * The field kinds the existing cases never reach: date, list and bool.
+ *
+ * Validation is the ONLY thing standing between a model's improvised JSON and
+ * the open resume, and each kind is a separate arm of one switch — so an arm
+ * nobody exercises accepts whatever the model sent. `date` matters most: it is
+ * used by 15 fields across the specs, and a bad one does not fail loudly, it
+ * lands as a wrong or missing year on a CV entry.
+ */
+describe('validateBulkImport() — the unexercised field kinds', () => {
+  const courses = (item: Record<string, unknown>) => () =>
+    validateBulkImport(file('courses', [{ name: 'X', ...item }]), 'courses')
+
+  describe('date', () => {
+    it('takes a bare year as a number or a string', () => {
+      expect(courses({ completed: 2019 })).not.toThrow()
+      expect(courses({ completed: '2019' })).not.toThrow()
+    })
+
+    it('takes a { year, month } object, with month optional', () => {
+      expect(courses({ completed: { year: 2019, month: 6 } })).not.toThrow()
+      expect(courses({ completed: { year: 2019, month: null } })).not.toThrow()
+      expect(courses({ completed: { year: 2019 } })).not.toThrow()
+    })
+
+    it('rejects a year outside 1000–3000, naming the value', () => {
+      // A two-digit year is the mistake to catch: '19' would otherwise land as
+      // year 19 and sort the entry before everything else in the CV.
+      expect(courses({ completed: 19 })).toThrow(/4-digit year/)
+      expect(courses({ completed: 99999 })).toThrow(/4-digit year/)
+      expect(courses({ completed: 'last year' })).toThrow(/4-digit year/)
+    })
+
+    it('rejects a month outside 1–12, and a fractional one', () => {
+      expect(courses({ completed: { year: 2019, month: 0 } })).toThrow(/month 1/)
+      expect(courses({ completed: { year: 2019, month: 13 } })).toThrow(/month 1/)
+      expect(courses({ completed: { year: 2019, month: 6.5 } })).toThrow(/month 1/)
+    })
+
+    it('points at the sub-field, not just the date', () => {
+      expect(courses({ completed: { year: 2019, month: 13 } })).toThrow(/completed\.month/)
+      expect(courses({ completed: { year: 19, month: 6 } })).toThrow(/completed\.year/)
+    })
+
+    it('rejects a shape that is neither a year nor an object', () => {
+      expect(courses({ completed: [2019] })).toThrow(/year number or a \{ year, month \} object/)
+    })
+
+    it('treats null as "not given" rather than as an error', () => {
+      expect(courses({ completed: null })).not.toThrow()
+    })
+  })
+
+  describe('list', () => {
+    const proj = (item: Record<string, unknown>) => () =>
+      validateBulkImport(file('projects', [{ customer: 'Acme', ...item }]), 'projects')
+
+    it('accepts an array of strings, and of numbers', () => {
+      expect(proj({ skills: ['Go', 'Kubernetes'] })).not.toThrow()
+      expect(proj({ skills: [1, 2] })).not.toThrow()
+    })
+
+    it('rejects a bare string where a list belongs', () => {
+      // A model asked for a list often sends "Go, Kubernetes" instead; silently
+      // accepting it would intern one skill named after the whole sentence.
+      expect(proj({ skills: 'Go, Kubernetes' })).toThrow(/expected an array of strings/)
+    })
+
+    it('names the offending INDEX when one entry is the wrong shape', () => {
+      expect(proj({ skills: ['Go', { name: 'Kubernetes' }] })).toThrow(/skills\[1\]/)
+    })
+
+    it('tolerates a null entry rather than failing the whole batch', () => {
+      expect(proj({ skills: ['Go', null] })).not.toThrow()
+    })
+  })
+
+  describe('bool', () => {
+    const edu = (item: Record<string, unknown>) => () =>
+      validateBulkImport(file('educations', [{ school: 'NTNU', ...item }]), 'educations')
+
+    it('accepts a real boolean', () => {
+      expect(edu({ exchange: true })).not.toThrow()
+      expect(edu({ exchange: false })).not.toThrow()
+    })
+
+    it('rejects the STRING "true", which is what a model usually sends', () => {
+      expect(edu({ exchange: 'true' })).toThrow(/expected true or false/)
+      expect(edu({ exchange: 1 })).toThrow(/expected true or false/)
+    })
+  })
+})

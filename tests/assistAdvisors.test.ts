@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import {
   emptyStore, makeCertification, makeCourse, makeEducation, makeKQ, makeProject, makeView,
-  makeWork,
+  makeWork, makeKeyCompetency,
 } from './fixtures'
 import type { KeyCompetency, ResumeStore } from '../src/types'
-import { buildCvDigest, buildBilingualDigest, itemLabel } from '../src/lib/cvDigest'
+import { buildCvDigest, buildBilingualDigest, itemLabel, itemFacts } from '../src/lib/cvDigest'
 import { CV_SECTIONS, fieldOf, fieldsOf, isAdvisorSection, itemsOf } from '../src/lib/cvFields'
 import { validateFindings, InvalidFindingsError, FINDINGS_SCHEMA } from '../src/lib/assistFindings'
 import {
@@ -929,3 +929,248 @@ describe('prompt builders', () => {
     expect(buildVoicePassPrompt(s, 'en')).toContain('A terse line.')
   })
 })
+
+/**
+ * WHICH fields are identity, exhaustively.
+ *
+ * `prose: false` is the flag that stops an assist rewriting a customer's name,
+ * an employer, a school or a job title (§15: readable, never rewritable). The
+ * existing checks spot-check two of them, so flipping any of the other 21 —
+ * which is a one-character edit — leaves an A2 run free to "improve" the name
+ * of the company someone worked for.
+ *
+ * Listing them is a table assertion, and that is the point: the table IS the
+ * rule, and no property test can tell an identity field from a prose one.
+ */
+describe('cvFields — the identity fields an assist may never rewrite', () => {
+  const IDENTITY: ReadonlyArray<[string, string]> = [
+    ['key_qualifications', 'tag_line'],
+    ['key_competencies', 'title'],
+    ['projects', 'customer'],
+    ['projects', 'description'],
+    ['work_experiences', 'employer'],
+    ['work_experiences', 'role_title'],
+    ['positions', 'name'],
+    ['positions', 'organisation'],
+    ['educations', 'school'],
+    ['educations', 'degree'],
+    ['courses', 'name'],
+    ['courses', 'program'],
+    ['certifications', 'name'],
+    ['certifications', 'organiser'],
+    ['presentations', 'title'],
+    ['presentations', 'event'],
+    ['publications', 'title'],
+    ['publications', 'publisher'],
+    ['honor_awards', 'name'],
+    ['honor_awards', 'issuer'],
+    ['honor_awards', 'for_work'],
+    ['recommendations', 'recommender_title'],
+    ['recommendations', 'relationship'],
+  ]
+
+  it.each(IDENTITY)('%s.%s is identity, not prose', (section, key) => {
+    expect(fieldOf(section, key)?.prose).toBe(false)
+  })
+
+  it('has exactly these identity fields and no others', () => {
+    // The other direction: a prose field newly marked `prose: false` would make
+    // a real description unrewritable, and the per-field checks above cannot
+    // see that.
+    const actual = CV_SECTIONS.flatMap((s) =>
+      fieldsOf(s).filter((f) => !f.prose).map((f) => `${s}.${f.key}`)).sort()
+    expect(actual).toEqual(IDENTITY.map(([s, k]) => `${s}.${k}`).sort())
+  })
+
+  it('marks highlights as the only LIST field', () => {
+    // `list` changes how a value is read and written; a single-value field
+    // marked as a list reads as an array of characters.
+    const lists = CV_SECTIONS.flatMap((s) =>
+      fieldsOf(s).filter((f) => f.list).map((f) => `${s}.${f.key}`))
+    expect(lists).toEqual(['projects.highlights'])
+  })
+
+  it('gives every field a distinct, non-empty label', () => {
+    // The label is what the review UI shows beside a proposed change; a blank
+    // or duplicated one makes two proposals indistinguishable.
+    for (const s of CV_SECTIONS) {
+      const labels = fieldsOf(s).map((f) => f.label)
+      expect(labels.every((l) => l.trim().length > 0), s).toBe(true)
+      expect(new Set(labels).size, s).toBe(labels.length)
+    }
+  })
+
+  it('gives every section at least one rewritable field', () => {
+    // A section of nothing but identity fields would appear in the advisors'
+    // digest and accept no proposal — a menu entry that does nothing.
+    for (const s of CV_SECTIONS) {
+      expect(fieldsOf(s).some((f) => f.prose), s).toBe(true)
+    }
+  })
+})
+
+/**
+ * D1's remaining validation branches (16 mutants unreached).
+ *
+ * The competency bundle is where this one can do damage: a profile OWNS an
+ * ordered bundle (§4), so a bad entry either duplicates something already in
+ * the shared library or attaches a competency that does not exist.
+ */
+describe('validateProfileDraft — the bundle rules', () => {
+  const s = (): ResumeStore => {
+    const store = emptyStore()
+    store.key_competencies = [
+      // Plain, not markup: the flattening goes through richToPlain's DOMParser
+      // and this file runs in node. That path is pinned in the richText suite.
+      makeKeyCompetency({ id: 'c1', title: { en: 'Architecture' }, description: { en: 'Designs systems.' } }),
+      makeKeyCompetency({ id: 'c2', title: { en: 'Retired' }, disabled: true }),
+    ]
+    return store
+  }
+  const draft = (bundle: unknown[], over: Record<string, unknown> = {}) =>
+    validateProfileDraft(
+      { profiles: [{ tag_line: 'Architect', summary: 'Long summary.', bundle, ...over }] },
+      s(), 'en',
+    )
+
+  it('resolves an existing competency to its live title and description', () => {
+    // Resolved from the LIBRARY, not from whatever the model sent alongside
+    // the id — otherwise a draft can quietly restate an existing competency.
+    const b = draft([{ id: 'c1', title: 'Wrong', description: 'Also wrong' }]).profiles[0].bundle[0]
+    expect(b).toMatchObject({ id: 'c1', title: 'Architecture', isNew: false })
+    expect(b.description).toBe('Designs systems.')
+  })
+
+  it('treats a DISABLED competency as not in the library', () => {
+    // Attaching one would put a competency the user retired back into a view.
+    const r = draft([{ id: 'c2' }])
+    expect(r.profiles[0].bundle).toHaveLength(0)
+    expect(r.dropped.join(' ')).toMatch(/isn't in the library/i)
+  })
+
+  it('drops an unresolvable id instead of inventing a competency for it', () => {
+    // A genuine proposal comes back with id null; an id that does not resolve
+    // is a hallucination, and creating one would duplicate the library.
+    const r = draft([{ id: 'ghost', title: 'Made up' }])
+    expect(r.profiles[0].bundle).toHaveLength(0)
+    expect(r.dropped.join(' ')).toMatch(/isn't in the library/i)
+  })
+
+  it('accepts a NEW competency proposed with no id', () => {
+    const b = draft([{ title: 'Platform engineering', description: 'Builds platforms.' }]).profiles[0].bundle[0]
+    expect(b).toMatchObject({ id: null, title: 'Platform engineering', isNew: true })
+  })
+
+  it('skips a new entry with no title at all', () => {
+    expect(draft([{ description: 'orphan' }]).profiles[0].bundle).toHaveLength(0)
+  })
+
+  it('keeps an existing competency ONCE even if proposed twice', () => {
+    // The bundle is ordered and a duplicate would render the same block twice.
+    expect(draft([{ id: 'c1' }, { id: 'c1' }]).profiles[0].bundle).toHaveLength(1)
+  })
+
+  it('ignores a bundle entry that is not an object, without failing the profile', () => {
+    const r = draft(['nonsense', null, { id: 'c1' }])
+    expect(r.profiles[0].bundle).toHaveLength(1)
+  })
+
+  it('tolerates a missing or non-array bundle', () => {
+    expect(validateProfileDraft(
+      { profiles: [{ tag_line: 'A', summary: 'B' }] }, s(), 'en',
+    ).profiles[0].bundle).toEqual([])
+  })
+
+  describe('the profile itself', () => {
+    it('needs a tag line OR a summary, not both', () => {
+      const only = (p: Record<string, unknown>) =>
+        validateProfileDraft({ profiles: [p] }, s(), 'en')
+      expect(only({ tag_line: 'Architect' }).profiles).toHaveLength(1)
+      expect(only({ summary: 'Long summary.' }).profiles).toHaveLength(1)
+      const neither = only({ rationale: 'because' })
+      expect(neither.profiles).toHaveLength(0)
+      expect(neither.dropped.join(' ')).toMatch(/no tag line or summary/i)
+    })
+
+    it('keeps the evidence quotes, capped, and drops the empty ones', () => {
+      // §15: no invented facts — the evidence is what ties a draft to the CV.
+      const r = validateProfileDraft({ profiles: [{
+        tag_line: 'A', summary: 'B',
+        evidence: ['ran the migration', '', '   ', ...Array(20).fill('more')],
+      }] }, s(), 'en')
+      expect(r.profiles[0].evidence[0]).toBe('ran the migration')
+      expect(r.profiles[0].evidence).not.toContain('')
+      expect(r.profiles[0].evidence.length).toBeLessThanOrEqual(12)
+    })
+
+    it('defaults evidence to an empty list when it is not an array', () => {
+      expect(validateProfileDraft(
+        { profiles: [{ tag_line: 'A', summary: 'B', evidence: 'nope' }] }, s(), 'en',
+      ).profiles[0].evidence).toEqual([])
+    })
+
+    it('says so when the reply parsed but held nothing usable', () => {
+      // An empty result with no explanation looks like the run silently failed.
+      const r = validateProfileDraft({ profiles: [] }, s(), 'en')
+      expect(r.profiles).toHaveLength(0)
+      expect(r.dropped.join(' ')).toMatch(/no usable profiles/i)
+    })
+
+    it('rejects a reply that is not an object, or has no profiles array', () => {
+      expect(() => validateProfileDraft(null, s(), 'en')).toThrow(/not a JSON object/i)
+      expect(() => validateProfileDraft({ nope: [] }, s(), 'en')).toThrow(/no "profiles" array/i)
+    })
+  })
+})
+
+/**
+ * itemFacts — 9 mutants, none covered.
+ *
+ * It is what GROUNDS a from-scratch description: a model asked to write about a
+ * project has nothing to go on but the customer, the name, the dates and the
+ * skills. If a fact stops being emitted the model does not fail, it invents —
+ * which is the one thing the assists must never do (§15).
+ */
+describe('cvDigest — itemFacts', () => {
+  it('emits every identity field as a labelled line, and no prose', () => {
+    const facts = itemFacts('projects', {
+      id: 'p1',
+      customer: { en: 'Acme Bank' },
+      description: { en: 'Payments platform' },
+      long_description: { en: 'A long prose description that must not appear.' },
+    }, 'en')
+    expect(facts).toContain('Customer: Acme Bank')
+    expect(facts).toContain('Project name: Payments platform')
+    expect(facts.join(' ')).not.toContain('long prose description')
+  })
+
+  it('appends the date range as its own fact', () => {
+    const facts = itemFacts('projects', {
+      id: 'p1', customer: { en: 'Acme' },
+      start: { year: 2020, month: 1 }, end: { year: 2021, month: 6 },
+    }, 'en')
+    expect(facts.some((f) => f.startsWith('Dates: '))).toBe(true)
+    expect(facts[facts.length - 1]).toMatch(/^Dates: /)
+  })
+
+  it('omits the date line entirely for an undated item', () => {
+    // "Dates: " with nothing after it is a fact about nothing.
+    const facts = itemFacts('projects', { id: 'p1', customer: { en: 'Acme' } }, 'en')
+    expect(facts.some((f) => f.startsWith('Dates'))).toBe(false)
+  })
+
+  it('skips a field that is empty rather than emitting a bare label', () => {
+    const facts = itemFacts('projects', { id: 'p1', customer: { en: 'Acme' }, description: {} }, 'en')
+    expect(facts).toEqual(['Customer: Acme'])
+  })
+
+  it('resolves each fact in the requested locale', () => {
+    const facts = itemFacts('projects', { id: 'p1', customer: { en: 'Acme', no: 'Akme' } }, 'no')
+    expect(facts).toContain('Customer: Akme')
+  })
+
+  it('is empty for a section the advisors do not know', () => {
+    expect(itemFacts('skills', { id: 's1', name: { en: 'Go' } }, 'en')).toEqual([])
+  })
+})
+

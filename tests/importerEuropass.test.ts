@@ -237,3 +237,150 @@ describe('importFromEuropassXml', () => {
     expect(empty.work_experiences).toEqual([])
   })
 })
+
+/**
+ * The shape tolerance the JSON path is built out of.
+ *
+ * Europass exports vary by version and by which fields the person filled in:
+ * the same value arrives as a bare string in one file and as `{ name }` or
+ * `{ label }` in another. Every one of those fallbacks is an `||` or `??`
+ * chain, and mutating any link leaves an import that still succeeds and
+ * silently drops a field. Nothing exercised the alternate shapes.
+ */
+describe('importFromEuropassJson — the alternate shapes real exports use', () => {
+  const profile = (over: Record<string, unknown>) => importFromEuropassJson({
+    profile: { personalInformation: { firstName: 'Kari', lastName: 'Nordmann' }, ...over },
+  } as never)
+
+  describe('work experience', () => {
+    const work = (w: Record<string, unknown>) => profile({ workExperiences: [w] }).work_experiences
+
+    it('reads the employer as a bare string or as { name }', () => {
+      expect(work({ employer: 'Acme AS' })[0].employer.en).toBe('Acme AS')
+      expect(work({ employer: { name: 'Acme AS' } })[0].employer.en).toBe('Acme AS')
+    })
+
+    it('reads the role from occupation, occupation.label, or position', () => {
+      expect(work({ occupation: 'Architect' })[0].role_title.en).toBe('Architect')
+      expect(work({ occupation: { label: 'Architect' } })[0].role_title.en).toBe('Architect')
+      expect(work({ position: 'Architect' })[0].role_title.en).toBe('Architect')
+    })
+
+    it('takes the description from whichever of the three fields is present', () => {
+      expect(work({ employer: 'A', mainActivities: 'Did things' })[0].description.en).toBe('Did things')
+      expect(work({ employer: 'A', summary: 'Did things' })[0].description.en).toBe('Did things')
+      expect(work({ employer: 'A', description: 'Did things' })[0].description.en).toBe('Did things')
+    })
+
+    it('prefers mainActivities when several are present', () => {
+      // The chain is ordered; a different winner changes what the CV says.
+      expect(work({ employer: 'A', mainActivities: 'first', summary: 'second' })[0].description.en)
+        .toBe('first')
+    })
+
+    it('reads the dates from startDate/endDate or from/to', () => {
+      expect(work({ employer: 'A', startDate: '2020-03', endDate: '2021-06' })[0].start)
+        .toEqual({ year: 2020, month: 3 })
+      const alt = work({ employer: 'A', from: '2020-03', to: '2021-06' })[0]
+      expect(alt.start).toEqual({ year: 2020, month: 3 })
+      expect(alt.end).toEqual({ year: 2021, month: 6 })
+    })
+
+    it('treats ongoing:true as an open end, overriding any endDate present', () => {
+      const w = work({ employer: 'A', startDate: '2020', endDate: '2021', ongoing: true })[0]
+      expect(w.end).toBeNull()
+    })
+
+    it('skips an entry with neither an employer nor a role', () => {
+      // Europass files carry blank rows; importing them adds items with no
+      // heading that the consultant then has to find and delete.
+      expect(work({ mainActivities: 'orphan text' })).toHaveLength(0)
+      expect(work({ employer: 'A' })).toHaveLength(1)
+      expect(work({ occupation: 'A' })).toHaveLength(1)
+    })
+  })
+
+  describe('education', () => {
+    const edu = (e: Record<string, unknown>) => profile({ educationTrainings: [e] }).educations
+
+    it('reads the school from organisationName, organisation.name or school', () => {
+      expect(edu({ organisationName: 'NTNU' })[0].school.en).toBe('NTNU')
+      expect(edu({ organisation: { name: 'NTNU' } })[0].school.en).toBe('NTNU')
+      expect(edu({ school: 'NTNU' })[0].school.en).toBe('NTNU')
+    })
+
+    it('reads the degree from qualification, title or degree', () => {
+      expect(edu({ qualification: 'MSc' })[0].degree.en).toBe('MSc')
+      expect(edu({ title: 'MSc' })[0].degree.en).toBe('MSc')
+      expect(edu({ degree: 'MSc' })[0].degree.en).toBe('MSc')
+    })
+
+    it('falls back from description to mainSubjects', () => {
+      expect(edu({ school: 'N', mainSubjects: 'Maths' })[0].description.en).toBe('Maths')
+    })
+
+    it('merges the two array names an export may use', () => {
+      // Older files say educations, newer ones educationTrainings; a file with
+      // both must not lose either half.
+      const store = importFromEuropassJson({
+        profile: {
+          personalInformation: { firstName: 'K' },
+          educationTrainings: [{ school: 'A' }],
+          educations: [{ school: 'B' }],
+        },
+      } as never)
+      expect(store.educations.map((e) => e.school.en)).toEqual(['A', 'B'])
+    })
+
+    it('skips an entry with neither a school nor a degree', () => {
+      expect(edu({ description: 'orphan' })).toHaveLength(0)
+    })
+  })
+
+  describe('personal information', () => {
+    it('joins the name from its two parts', () => {
+      expect(profile({}).resume!.full_name).toBe('Kari Nordmann')
+    })
+
+    it('reads an email whether the array holds strings or objects', () => {
+      expect(importFromEuropassJson({ profile: { personalInformation: { emails: ['a@x.io'] } } } as never)
+        .resume!.email).toBe('a@x.io')
+      expect(importFromEuropassJson({ profile: { personalInformation: { emails: [{ email: 'a@x.io' }] } } } as never)
+        .resume!.email).toBe('a@x.io')
+    })
+
+    it('reads a phone whether the array holds strings or objects', () => {
+      expect(importFromEuropassJson({ profile: { personalInformation: { phones: ['+47 900'] } } } as never)
+        .resume!.phone).toBe('+47 900')
+      expect(importFromEuropassJson({ profile: { personalInformation: { phones: [{ phoneNumber: '+47 900' }] } } } as never)
+        .resume!.phone).toBe('+47 900')
+    })
+
+    it('joins city and country, and omits the comma when only one is given', () => {
+      const at = (addr: Record<string, unknown>) =>
+        importFromEuropassJson({ profile: { personalInformation: { addresses: [addr] } } } as never)
+          .resume!.place_of_residence.en
+      expect(at({ city: 'Oslo', country: 'Norway' })).toBe('Oslo, Norway')
+      expect(at({ city: 'Oslo' })).toBe('Oslo')
+      expect(at({ country: 'Norway' })).toBe('Norway')
+    })
+
+    it('takes the headline from preference.headline or personalInformation.headline', () => {
+      expect(profile({ preference: { headline: 'Architect' } }).resume!.title.en).toBe('Architect')
+      expect(importFromEuropassJson({
+        profile: { personalInformation: { firstName: 'K', headline: 'Architect' } },
+      } as never).resume!.title.en).toBe('Architect')
+    })
+
+    it('turns aboutMe into a profile, from either shape', () => {
+      expect(profile({ aboutMe: 'I build systems.' }).key_qualifications[0].summary.en)
+        .toBe('I build systems.')
+      expect(profile({ aboutMe: { description: 'I build systems.' } }).key_qualifications[0].summary.en)
+        .toBe('I build systems.')
+    })
+
+    it('adds NO profile when there is nothing to say', () => {
+      expect(profile({}).key_qualifications).toHaveLength(0)
+    })
+  })
+})

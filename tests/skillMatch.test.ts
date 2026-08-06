@@ -122,3 +122,67 @@ describe('matchSemantic — thresholds', () => {
     expect(matchSemantic(['a'], { a: { X: 1 } })).toBeNull() // below minScore
   })
 })
+
+/**
+ * The fuzzy tier's budget.
+ *
+ * It is what turns a typo into a match, and it is length-scaled on purpose:
+ * below 5 characters an edit-distance match is noise, not a near-miss, and a
+ * fixed budget would categorise short skill names essentially at random. Every
+ * band edge had survivors.
+ */
+describe('matchSkill — the fuzzy budget', () => {
+  const index = (...names: Array<[string, string]>) =>
+    buildDomainIndex(Object.fromEntries(names))
+
+  it('refuses a short name outright — a 1-edit match there is noise', () => {
+    // "Go" vs " Go" vs "Rx": at four characters or fewer almost everything is
+    // within one edit of something.
+    expect(matchSkillDomain('java', index(['jaba', 'Languages']))?.tier).not.toBe('fuzzy')
+    expect(matchSkillDomain('rust', index(['ruse', 'Languages']))?.tier).not.toBe('fuzzy')
+  })
+
+  it('allows ONE edit at five and six characters', () => {
+    // A genuine one-edit typo: a transposition ('pyhton') is TWO edits under
+    // Levenshtein, which is exactly the distinction the budget turns on.
+    expect(matchSkillDomain('pythom', index(['python', 'Languages'])))
+      .toMatchObject({ domain: 'Languages', tier: 'fuzzy' })
+    expect(matchSkillDomain('kotlim', index(['kotlin', 'Languages'])))
+      .toMatchObject({ domain: 'Languages', tier: 'fuzzy' })
+  })
+
+  it('does NOT allow two edits at six characters', () => {
+    expect(matchSkillDomain('kotlxm', index(['kotlin', 'Languages']))?.tier).not.toBe('fuzzy')
+  })
+
+  it('allows two edits from seven characters up — and not at six', () => {
+    // The band edge is at 6, so a SEVEN-character name is the first that gets
+    // two. Moving the edge either way changes which typos are forgiven.
+    expect(matchSkillDomain('kubernetez', index(['kubernetes', 'Platforms'])))
+      .toMatchObject({ domain: 'Platforms', tier: 'fuzzy' })
+    expect(matchSkillDomain('anguxax', index(['angular', 'Frameworks'])))
+      .toMatchObject({ domain: 'Frameworks', tier: 'fuzzy' })
+  })
+
+  it('answers from the exact tier even when a near-miss also exists', () => {
+    // The tiers are ordered, so a name present in the library never reaches
+    // the fuzzy scan at all — which is why fuzzy's own distance-0 skip is
+    // defensive rather than load-bearing.
+    const idx = index(['docker', 'Platforms'], ['dockek', 'Wrong'])
+    expect(matchSkillDomain('docker', idx)).toMatchObject({ tier: 'exact', domain: 'Platforms' })
+  })
+
+  it('prefers the NEAREST candidate when several are within budget', () => {
+    const idx = index(['postgres', 'Databases'], ['postgrey', 'Other'])
+    // One edit from 'postgres', two from 'postgrey'.
+    expect(matchSkillDomain('postgrer', idx)?.domain).toBe('Databases')
+  })
+
+  it('never reports an exact name as a fuzzy match', () => {
+    // Distance 0 is the exact tier's job; letting it through here would label
+    // a perfectly good match as an approximate one.
+    const hit = matchSkillDomain('python', index(['python', 'Languages']))
+    expect(hit?.tier).toBe('exact')
+  })
+})
+

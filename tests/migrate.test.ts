@@ -882,3 +882,160 @@ describe('stripSkillTags (v14)', () => {
     expect(out.projects[0]).toBe(store.projects[0])
   })
 })
+
+/**
+ * The two biggest migrations' remaining branches.
+ *
+ * migrateStore is the single choke point for data entering from outside (§8),
+ * and these two rewrite REFERENCES — an id that lands wrong doesn't fail, it
+ * quietly points a project at the wrong industry or a skill at the wrong
+ * category, in data that is then saved over the original.
+ */
+describe('internProjectIndustries — the v3/v4 paths', () => {
+  const proj = (over: Record<string, unknown>) =>
+    ({ ...makeProject({ id: 'p1' }), ...over }) as never
+  const run = (store: Partial<ResumeStore>) =>
+    internProjectIndustries({ ...emptyStore(), ...store } as ResumeStore)
+
+  it('snapshots the name from the REGISTRY when a v3 link resolves', () => {
+    // The link is authoritative; the denormalized name on the project may be
+    // stale, and taking it would freeze an outdated name into the snapshot.
+    const out = run({
+      industries: [{ id: 'i1', resume_id: 'r', name: { en: 'Banking' }, sort_order: 0, disabled: false }],
+      projects: [proj({ industry_id: 'i1', industry: { en: 'Stale name' }, industries: undefined })],
+    })
+    expect(out.projects[0].industries).toHaveLength(1)
+    expect(out.projects[0].industries[0]).toMatchObject({ industry_id: 'i1', name: { en: 'Banking' } })
+  })
+
+  it('falls back to the project’s own name when the link dangles', () => {
+    const out = run({ projects: [proj({ industry_id: 'ghost', industry: { en: 'Banking' }, industries: undefined })] })
+    expect(out.projects[0].industries[0]).toMatchObject({ industry_id: 'ghost', name: { en: 'Banking' } })
+  })
+
+  it('does not duplicate a link the project already carries', () => {
+    const out = run({
+      projects: [proj({
+        industry_id: 'i1',
+        industries: [{ id: 'x', industry_id: 'i1', name: { en: 'Banking' }, sort_order: 0 }],
+      })],
+    })
+    expect(out.projects[0].industries).toHaveLength(1)
+  })
+
+  it('reuses an existing registry entry rather than interning a second one', () => {
+    const out = run({
+      industries: [{ id: 'i1', resume_id: 'r', name: { en: 'Banking' }, sort_order: 0, disabled: false }],
+      projects: [proj({ industry: { en: 'banking' }, industries: undefined })],
+    })
+    expect(out.industries).toHaveLength(1)
+    expect(out.projects[0].industries[0].industry_id).toBe('i1')
+  })
+
+  it('interns two projects naming the same industry ONCE', () => {
+    const out = run({
+      projects: [
+        proj({ id: 'p1', industry: { en: 'Banking' }, industries: undefined }),
+        { ...makeProject({ id: 'p2' }), industry: { en: 'Banking' }, industries: undefined } as never,
+      ],
+    })
+    expect(out.industries).toHaveLength(1)
+    expect(out.projects[0].industries[0].industry_id).toBe(out.projects[1].industries[0].industry_id)
+  })
+
+  it('strips the legacy fields whichever path ran', () => {
+    const out = run({ projects: [proj({ industry_id: 'i1', industry: { en: 'B' }, industries: undefined })] })
+    const raw = out.projects[0] as unknown as Record<string, unknown>
+    expect('industry' in raw).toBe(false)
+    expect('industry_id' in raw).toBe(false)
+  })
+
+  it('leaves a clean v4 project — and the whole store — untouched', () => {
+    // Idempotence: the same reference back means a later save is not dirtied by
+    // a migration that had nothing to do.
+    const store = { ...emptyStore(), industries: [], projects: [makeProject({ id: 'p1' })] } as ResumeStore
+    expect(internProjectIndustries(store)).toBe(store)
+  })
+
+  it('rewrites a store whose industries array is missing entirely', () => {
+    const store = { ...emptyStore(), projects: [makeProject({ id: 'p1' })] } as ResumeStore
+    delete (store as unknown as Record<string, unknown>).industries
+    const out = internProjectIndustries(store)
+    expect(out).not.toBe(store)
+    expect(Array.isArray(out.industries)).toBe(true)
+  })
+
+  it('ignores a blank industry name rather than interning an unnamed entry', () => {
+    const out = run({ projects: [proj({ industry: { en: '  ' }, industries: undefined })] })
+    expect(out.industries).toHaveLength(0)
+    expect(out.projects[0].industries).toHaveLength(0)
+  })
+})
+
+describe('unifyShowcaseCategories — dedup, order and idempotence', () => {
+  const run = (store: Partial<ResumeStore>, techCats?: unknown[]) => {
+    const s = { ...emptyStore(), ...store } as ResumeStore
+    if (techCats) (s as unknown as Record<string, unknown>).technology_categories = techCats
+    return unifyShowcaseCategories(s)
+  }
+
+  it('keeps the curated showcase ORDER, with registry categories after', () => {
+    // The showcase order is what the user arranged; appending it after the
+    // alphabetical registry list would silently reshuffle their display.
+    const out = run(
+      { skills: [], skill_categories: ['Alpha'] as never },
+      [
+        { id: 't2', name: { en: 'Zulu' }, sort_order: 1, skills: [] },
+        { id: 't1', name: { en: 'Mike' }, sort_order: 0, skills: [] },
+      ],
+    )
+    expect(out.skill_categories.map((c) => c.name.en)).toEqual(['Mike', 'Zulu', 'Alpha'])
+  })
+
+  it('deduplicates a registry category that repeats a showcase group’s name', () => {
+    // Both shapes reach this: a v5 string list AND an already-entity list that
+    // a legacy showcase array is being merged into.
+    const fromStrings = run({ skills: [], skill_categories: ['Mike'] as never },
+      [{ id: 't1', name: { en: 'Mike' }, sort_order: 0, skills: [] }])
+    expect(fromStrings.skill_categories).toHaveLength(1)
+
+    const fromEntities = run(
+      { skills: [], skill_categories: [makeSkillCategory({ id: 'c1', name: { en: 'Mike' } })] },
+      [{ id: 't1', name: { en: 'Mike' }, sort_order: 0, skills: [] }],
+    )
+    expect(fromEntities.skill_categories).toHaveLength(1)
+  })
+
+  it('interns each distinct free-text skill category once', () => {
+    const out = run({
+      skills: [
+        { ...makeSkill({ id: 's1' }), category: 'Backend' } as never,
+        { ...makeSkill({ id: 's2' }), category: 'Backend' } as never,
+        { ...makeSkill({ id: 's3' }), category: 'Frontend' } as never,
+      ],
+      skill_categories: [] as never,
+    })
+    expect(out.skill_categories.map((c) => c.name.en).sort()).toEqual(['Backend', 'Frontend'])
+    expect(out.skills[0].category_id).toBe(out.skills[1].category_id)
+    expect(out.skills[0].category_id).not.toBe(out.skills[2].category_id)
+  })
+
+  it('leaves an already-migrated store untouched, by reference', () => {
+    const store = {
+      ...emptyStore(),
+      skills: [makeSkill({ id: 's1', category_id: 'c1' })],
+      skill_categories: [makeSkillCategory({ id: 'c1', name: { en: 'Backend' } })],
+    } as ResumeStore
+    expect(unifyShowcaseCategories(store)).toBe(store)
+  })
+
+  it('drops the legacy string fields off every skill', () => {
+    const out = run({
+      skills: [{ ...makeSkill({ id: 's1' }), category: 'Backend', default_category: 'x' } as never],
+      skill_categories: [] as never,
+    })
+    const raw = out.skills[0] as unknown as Record<string, unknown>
+    expect('category' in raw).toBe(false)
+    expect('default_category' in raw).toBe(false)
+  })
+})

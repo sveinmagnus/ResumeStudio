@@ -229,3 +229,127 @@ describe('revokeImageObjectUrl()', () => {
     vi.unstubAllGlobals()
   })
 })
+
+/**
+ * The JPEG marker walk and the parser's edges.
+ *
+ * 48 mutants survived here. The existing cases all put the SOF marker
+ * immediately after SOI, which never exercises the segment-skipping loop — and
+ * that loop is the part that decides whether a real photo (which always has
+ * JFIF/EXIF segments first) is measured or silently rejected. A rejected header
+ * image is one that never appears in the export.
+ */
+describe('imageInfoFromDataUrl() — the JPEG scan and the edges', () => {
+  /**
+   * SOI, then the given segments, then a SOF0 carrying 64x128, then a little
+   * trailing data — the scan loop needs a byte beyond the frame header, which
+   * every real JPEG has (the entropy-coded image follows it).
+   */
+  const jpeg = (segments: number[]): number[] => pad([
+    0xff, 0xd8,
+    ...segments,
+    0xff, 0xc0, 0x00, 0x11, 0x08, 0x00, 0x40, 0x00, 0x80,
+    0, 0, 0, 0,
+  ], 40)
+
+  it('walks PAST earlier segments to find the frame header', () => {
+    // A JFIF APP0 (16 bytes) comes before SOF in every camera/editor JPEG.
+    const app0 = [0xff, 0xe0, 0x00, 0x10, ...Array(14).fill(0)]
+    const info = imageInfoFromDataUrl(dataUrl('image/jpeg', jpeg(app0)))
+    expect(info).not.toBeNull()
+    expect(info!.width).toBe(128)
+    expect(info!.height).toBe(64)
+  })
+
+  it('skips several segments, using each one’s own declared length', () => {
+    const app0 = [0xff, 0xe0, 0x00, 0x10, ...Array(14).fill(0)]
+    const com = [0xff, 0xfe, 0x00, 0x06, ...Array(4).fill(0x41)]
+    const info = imageInfoFromDataUrl(dataUrl('image/jpeg', jpeg([...app0, ...com])))
+    expect(info!.width).toBe(128)
+  })
+
+  it('skips a segment’s PAYLOAD rather than scanning through it', () => {
+    // Real EXIF payloads contain arbitrary bytes, including pairs that look
+    // exactly like a frame header. Advancing by the DECLARED length steps over
+    // them; advancing by anything less lands inside the payload, and the next
+    // 0xFF it finds there is read as the image's own dimensions.
+    //
+    // The two bytes at the tail of this APP0 payload are that trap: they sit
+    // precisely where a skip that forgets to count the 2-byte marker lands.
+    const app0 = [
+      0xff, 0xe0, 0x00, 0x10,       // APP0, declared length 16
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 12 bytes of payload…
+      0xff, 0xc0,                   // …then a decoy that looks like SOF0
+    ]
+    const info = imageInfoFromDataUrl(dataUrl('image/jpeg', jpeg(app0)))
+    expect(info).not.toBeNull()
+    expect(info!.width).toBe(128)
+    expect(info!.height).toBe(64)
+  })
+
+  it('reads a progressive JPEG’s SOF2 as well as a baseline SOF0', () => {
+    const bytes = pad([
+      0xff, 0xd8, 0xff, 0xc2, 0x00, 0x11, 0x08, 0x00, 0x40, 0x00, 0x80,
+    ], 26)
+    expect(imageInfoFromDataUrl(dataUrl('image/jpeg', bytes))!.width).toBe(128)
+  })
+
+  it('does NOT mistake DHT/JPG/DAC for a frame header', () => {
+    // C4, C8 and CC sit inside the C0..CF range but carry no dimensions —
+    // reading them as SOF yields whatever bytes follow, as confident nonsense.
+    for (const marker of [0xc4, 0xc8, 0xcc]) {
+      const seg = [0xff, marker, 0x00, 0x06, 0x11, 0x22, 0x33, 0x44]
+      const info = imageInfoFromDataUrl(dataUrl('image/jpeg', jpeg(seg)))
+      expect(info, `marker ${marker.toString(16)}`).not.toBeNull()
+      // Still the real SOF0 further along, not the decoy.
+      expect(info!.width, `marker ${marker.toString(16)}`).toBe(128)
+    }
+  })
+
+  it('steps over 0xFF fill bytes between segments', () => {
+    const info = imageInfoFromDataUrl(dataUrl('image/jpeg', jpeg([0x00, 0x00])))
+    expect(info!.width).toBe(128)
+  })
+
+  it('gives up rather than looping on a segment claiming an impossible length', () => {
+    // len < 2 cannot be advanced past; without the guard the scan never
+    // terminates on a corrupt file.
+    const bytes = pad([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x00, 0, 0, 0, 0, 0, 0], 26)
+    expect(imageInfoFromDataUrl(dataUrl('image/jpeg', bytes))).toBeNull()
+  })
+
+  it('is null for a JPEG with no frame header at all', () => {
+    const bytes = pad([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, ...Array(14).fill(0)], 40)
+    expect(imageInfoFromDataUrl(dataUrl('image/jpeg', bytes))).toBeNull()
+  })
+
+  it('reads a bottom-up BMP’s negative height as a positive one', () => {
+    // A negative height means rows are stored bottom-up; it is still that many
+    // rows, and a negative would scale the image inside out in the export.
+    const bytes = pad([
+      0x42, 0x4d, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x28, 0, 0, 0,
+      0x40, 0x00, 0x00, 0x00,             // width = 64
+      0xd0, 0xff, 0xff, 0xff,             // height = -48
+    ], 26)
+    const info = imageInfoFromDataUrl(dataUrl('image/bmp', bytes))
+    expect(info!.height).toBe(48)
+    expect(info!.width).toBe(64)
+  })
+
+  it('rejects a payload too short to hold any header', () => {
+    expect(imageInfoFromDataUrl(dataUrl('image/png', [0x89, 0x50, 0x4e, 0x47]))).toBeNull()
+  })
+
+  it('rejects a data URL whose base64 will not decode', () => {
+    expect(imageInfoFromDataUrl('data:image/png;base64,!!!not base64!!!')).toBeNull()
+  })
+
+  it('rejects a data URL that is not base64-encoded', () => {
+    expect(imageInfoFromDataUrl('data:image/png,rawbytes')).toBeNull()
+  })
+
+  it('tolerates surrounding whitespace', () => {
+    const url = dataUrl('image/png', pad([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 26))
+    expect(imageInfoFromDataUrl(`  ${url}\n`)).not.toBeNull()
+  })
+})

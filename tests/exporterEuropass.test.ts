@@ -228,3 +228,59 @@ describe('exportEuropassXml', () => {
     expect(() => importFromEuropassXml(xml)).not.toThrow()
   })
 })
+/**
+ * The Europass exporter's per-entry fallbacks — it round-trips the importer,
+ * so a field that stops being written is a field an export/import cycle loses.
+ */
+describe('exportEuropassXml — per-entry fallbacks', () => {
+  const parse = (xml: string) => new DOMParser().parseFromString(xml, 'application/xml')
+  const store = (w: Partial<Parameters<typeof makeWork>[0]>): ResumeStore => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'Kari Nordmann' })
+    s.work_experiences = [makeWork({ id: 'w1', employer: { en: 'Acme' }, ...w })]
+    return s
+  }
+  const xmlFor = (w: Partial<Parameters<typeof makeWork>[0]>) =>
+    parse(exportEuropassXml(store(w), makeView({ sections: buildViewSections() }), 'en'))
+  const textOf = (doc: Document, tag: string) =>
+    Array.from(doc.getElementsByTagName(tag)).map((e) => e.textContent)
+
+  it('prefers the long description and falls back to the short one', () => {
+    // Europass has ONE free-text field per entry; without the fallback an entry
+    // with only a short description exports with no activities at all.
+    expect(textOf(xmlFor({ long_description: { en: 'Long text' }, description: { en: 'Short text' } }), 'Activities'))
+      .toEqual(['Long text'])
+    expect(textOf(xmlFor({ long_description: {}, description: { en: 'Short text' } }), 'Activities'))
+      .toEqual(['Short text'])
+  })
+
+  it('writes no Activities element when neither is filled', () => {
+    expect(textOf(xmlFor({ long_description: {}, description: {} }), 'Activities')).toEqual([])
+  })
+
+  it('marks an ongoing role with Current, not with an absent To', () => {
+    // The importer keys `end: null` off exactly this, so dropping it makes a
+    // current role read as undated on the way back in.
+    const doc = xmlFor({ start: { year: 2020, month: 3 }, end: null })
+    expect(textOf(doc, 'Current')).toEqual(['true'])
+    expect(doc.getElementsByTagName('To')).toHaveLength(0)
+    expect(doc.getElementsByTagName('From')).toHaveLength(1)
+  })
+
+  it('does NOT mark a closed role as current', () => {
+    const doc = xmlFor({ start: { year: 2020, month: 3 }, end: { year: 2021, month: 6 } })
+    expect(textOf(doc, 'Current')).toEqual([])
+    expect(doc.getElementsByTagName('To')).toHaveLength(1)
+  })
+
+  it('does not call an undated-but-open role current either', () => {
+    // No start and no end is missing data, not an ongoing job.
+    const doc = xmlFor({ start: null, end: null })
+    expect(doc.getElementsByTagName('Period')).toHaveLength(0)
+  })
+
+  it('emits the employer website only when there is one', () => {
+    expect(xmlFor({ company_url: 'https://acme.test' }).getElementsByTagName('Website')).toHaveLength(1)
+    expect(xmlFor({ company_url: null }).getElementsByTagName('Website')).toHaveLength(0)
+  })
+})

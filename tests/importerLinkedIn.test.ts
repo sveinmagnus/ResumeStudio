@@ -192,3 +192,40 @@ describe('importFromLinkedIn', () => {
     expect(nested.resume?.full_name).toBe('Svein Sørensen')
   })
 })
+
+/** LinkedIn writes "Mar 2020" or a bare year; 12 mutants, none of them edges. */
+describe('parseLinkedInDate — the month table and the edges', () => {
+  it('reads a month name and a year', () => {
+    expect(parseLinkedInDate('Mar 2020')).toEqual({ year: 2020, month: 3 })
+    expect(parseLinkedInDate('December 2021')).toEqual({ year: 2021, month: 12 })
+    expect(parseLinkedInDate('jan 1999')).toEqual({ year: 1999, month: 1 })
+  })
+
+  it('reads every month abbreviation', () => {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+    months.forEach((m, i) => {
+      expect(parseLinkedInDate(`${m} 2020`), m).toEqual({ year: 2020, month: i + 1 })
+    })
+  })
+
+  it('reads a bare year', () => {
+    expect(parseLinkedInDate('2020')).toEqual({ year: 2020, month: null })
+  })
+
+  it('keeps the year when the month word is not one', () => {
+    // Losing the whole date over an unreadable month is worse than losing the
+    // month; LinkedIn exports carry localised month names.
+    expect(parseLinkedInDate('Mai 2020')).toEqual({ year: 2020, month: null })
+  })
+
+  it('is null for empty, missing and unparseable input', () => {
+    expect(parseLinkedInDate('')).toBeNull()
+    expect(parseLinkedInDate(undefined)).toBeNull()
+    expect(parseLinkedInDate('Present')).toBeNull()
+    expect(parseLinkedInDate('99')).toBeNull()
+  })
+
+  it('tolerates extra whitespace', () => {
+    expect(parseLinkedInDate('  Mar   2020 ')).toEqual({ year: 2020, month: 3 })
+  })
+})

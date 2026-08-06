@@ -10,6 +10,11 @@ import {
   type AIImportV1,
 } from '../src/lib/aiImport'
 import { resolve } from '../src/lib/locales'
+import {
+  emptyStore, makeProject, makeWork, makeEducation, makeCourse, makeCertification,
+  makeSkill, makeRole, makeKQ, makeKeyCompetency, makeSpokenLanguage,
+  makeSkillCategory, makeRecommendation, makeResume,
+} from './fixtures'
 
 /** Minimal valid envelope with overrides merged in. */
 function draft(over: Partial<AIImportV1> = {}): AIImportV1 {
@@ -393,3 +398,64 @@ describe('summarizeImportedStore()', () => {
     expect(sum.total).toBe(0)
   })
 })
+
+/**
+ * The import preview's tally. 14 survivors: it is the LAST thing a user sees
+ * before a file becomes a new resume, so a section missing from the list is a
+ * section they were never told about.
+ */
+describe('summarizeImportedStore', () => {
+  it('lists only the sections that have something in them', () => {
+    const s = emptyStore()
+    s.projects = [makeProject({ id: 'p1' })]
+    s.skills = [makeSkill({ id: 's1' })]
+    const out = summarizeImportedStore(s)
+    expect(out.lines.map((l) => l.label)).toEqual(['projects', 'skills'])
+    expect(out.lines.every((l) => l.count > 0)).toBe(true)
+  })
+
+  it('totals the counts it actually listed', () => {
+    const s = emptyStore()
+    s.projects = [makeProject({ id: 'p1' }), makeProject({ id: 'p2' })]
+    s.skills = [makeSkill({ id: 's1' })]
+    expect(summarizeImportedStore(s).total).toBe(3)
+  })
+
+  it('counts every section it claims to', () => {
+    // Each label maps to a real array; a mistyped one silently reports zero and
+    // the section vanishes from the preview.
+    const s = emptyStore()
+    s.projects = [makeProject({ id: 'p1' })]
+    s.work_experiences = [makeWork({ id: 'w1' })]
+    s.educations = [makeEducation({ id: 'e1' })]
+    s.courses = [makeCourse({ id: 'c1' })]
+    s.certifications = [makeCertification({ id: 'cert1' })]
+    s.skills = [makeSkill({ id: 's1' })]
+    s.roles = [makeRole({ id: 'r1' })]
+    s.key_qualifications = [makeKQ({ id: 'kq1' })]
+    s.key_competencies = [makeKeyCompetency({ id: 'kc1' })]
+    s.spoken_languages = [makeSpokenLanguage({ id: 'l1' })]
+    s.skill_categories = [makeSkillCategory({ id: 'sc1' })]
+    s.recommendations = [makeRecommendation({ id: 'rec1' })]
+    const out = summarizeImportedStore(s)
+    expect(out.total).toBe(12)
+    expect(out.lines).toHaveLength(12)
+    expect(out.lines.every((l) => l.count === 1)).toBe(true)
+  })
+
+  it('survives a store with no skill_categories array at all', () => {
+    const s = emptyStore()
+    delete (s as unknown as Record<string, unknown>).skill_categories
+    expect(() => summarizeImportedStore(s)).not.toThrow()
+  })
+
+  it('reports the name and locale from the resume, with safe defaults', () => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'Kari', default_locale: 'no' })
+    expect(summarizeImportedStore(s)).toMatchObject({ full_name: 'Kari', primary_locale: 'no' })
+    const bare = emptyStore()
+    bare.resume = null
+    expect(summarizeImportedStore(bare)).toMatchObject({ full_name: '', primary_locale: 'en' })
+  })
+})
+

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { mergeStores, deepEqual } from '../src/lib/threeWayMerge'
-import { emptyStore, makeProject, makeSkill, makeResume, makeView } from './fixtures'
+import { emptyStore, makeProject, makeSkill, makeResume, makeView, makeKQ } from './fixtures'
 import { buildViewSections } from '../src/lib/viewFilter'
 import type { ResumeStore, Project } from '../src/types'
 
@@ -435,3 +435,60 @@ describe('mergeStores — structural tolerance', () => {
     expect(res.adopted).toBe(0)
   })
 })
+
+/**
+ * The conflict panel's value rendering.
+ *
+ * `show` had 23 mutants and 9 killed. It is what the user READS when deciding
+ * whether to keep their edit or take the server's — a value rendered wrongly
+ * makes an identical-looking pair, or an empty one, out of a real difference.
+ */
+describe('threeWayMerge — how a conflicting value is shown', () => {
+  const conflictOn = (base: unknown, mine: unknown, theirs: unknown) => {
+    const s = (title: unknown) => ({
+      ...emptyStore(),
+      key_qualifications: [{ ...makeKQ({ id: 'k1' }), summary: title } as never],
+    })
+    return mergeStores(s(base), s(mine), s(theirs)).conflicts
+  }
+
+  it('shows a localized value by its first non-empty text', () => {
+    const c = conflictOn({ en: 'base' }, { en: 'mine' }, { en: 'theirs' })
+    expect(c[0]).toMatchObject({ mine: 'mine', theirs: 'theirs' })
+  })
+
+  it('conflicts PER LOCALE, not per field', () => {
+    // A localized value is descended into, so two sides editing different
+    // language columns of one field do not collide — and when they edit the
+    // same column, the panel names that column rather than the whole field.
+    const c = conflictOn({ en: 'base' }, { en: '', no: 'mitt' }, { en: '', no: 'deres' })
+    expect(c[0]).toMatchObject({ mine: 'mitt', theirs: 'deres' })
+    expect(c[0].field).toContain('no')
+  })
+
+  it('renders an absent value as a dash, not as empty', () => {
+    const c = conflictOn({ en: 'base' }, null, { en: 'theirs' })
+    expect(c[0].mine).toBe('—')
+  })
+
+  it('counts array items, singular and plural', () => {
+    // A list is summarised by its LENGTH — the panel has one line per field,
+    // and dumping the contents there would make the choice unreadable.
+    const s = (locales: string[]) =>
+      ({ ...emptyStore(), resume: { ...makeResume(), supported_locales: locales } as never })
+    const one = mergeStores(s(['en']), s(['en', 'no']), s(['en'])).conflicts
+    const many = mergeStores(s(['en']), s(['en', 'no']), s(['en', 'se', 'dk'])).conflicts
+    expect(one.length + many.length).toBeGreaterThan(0)
+    expect((one[0] ?? many[0]).mine).toMatch(/^\d+ items?$/)
+    if (many[0]) expect(many[0].theirs).toBe('3 items')
+  })
+
+  it('summarises a single-element list in the singular', () => {
+    const s = (locales: string[]) =>
+      ({ ...emptyStore(), resume: { ...makeResume(), supported_locales: locales } as never })
+    const c = mergeStores(s([]), s(['en']), s(['en', 'no', 'se'])).conflicts
+    expect(c[0].mine).toBe('1 item')
+    expect(c[0].theirs).toBe('3 items')
+  })
+})
+
