@@ -109,9 +109,11 @@ function allTestFiles() {
  *
  * The whole point of the scoped run is that the dry run loads a handful of
  * files rather than all 165. A census of the repo says the median module has
- * ONE importer besides its own test and only two (api, viewFilter) have more
- * than six, so this ceiling costs nothing for 77 of 82 modules and bounds the
- * two that would otherwise pull in most of the component suite.
+ * ONE importer besides its own test and only three (api, viewFilter,
+ * viewHeader) have more than six, so this ceiling costs nothing for almost
+ * every module and bounds the few that would otherwise pull in most of the
+ * component suite. WHICH files fill the budget matters as much as how many —
+ * see testCost below.
  */
 const MAX_TEST_FILES = 6
 
@@ -135,6 +137,28 @@ const capped = new Set()
  * the run just never loaded it. Reading that report meant re-deriving, by
  * hand, which entries were real; this makes the number mean what it says.
  */
+/**
+ * Roughly what a test file costs to run, so the MAX_TEST_FILES budget is spent
+ * on cheap files first.
+ *
+ * A jsdom component test is one to two orders of magnitude slower than a node
+ * one: it mounts React, and the heaviest of them (ResumeViewsEditor, which
+ * drives the live preview) takes ~50s on its own. Stryker re-runs the covering
+ * tests once per surviving mutant, so a single such file inside the cut is the
+ * difference between a module finishing and a module timing out — which is
+ * exactly what happened to viewFilter, whose 739 mutants were being measured
+ * against the slowest file in the suite because it sorted sixth by path.
+ *
+ * Cheap files also lose nothing in coverage terms: an importer that mounts a
+ * component touches a lib module incidentally, while a node test that imports
+ * it is usually asserting on it directly.
+ */
+function testCost(p) {
+  if (p.startsWith('tests/components/')) return 2
+  if (p.startsWith('tests/server/')) return 1
+  return 0
+}
+
 function testsFor(base) {
   const own = [`tests/${base}.test.ts`, `tests/${base}.test.tsx`]
     .filter((p) => existsSync(path.join(ROOT, p)))
@@ -144,6 +168,8 @@ function testsFor(base) {
     .filter((f) => imports.test(f.text))
     .map((f) => f.path)
     .filter((p) => !own.includes(p))
+    // Cheapest first, then by path so the choice is stable between runs.
+    .sort((a, b) => testCost(a) - testCost(b) || a.localeCompare(b))
 
   const all = [...own, ...importers]
   if (all.length > MAX_TEST_FILES) capped.add(base)
