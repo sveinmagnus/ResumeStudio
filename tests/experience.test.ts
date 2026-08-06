@@ -187,3 +187,153 @@ describe('formatting helpers', () => {
     expect(monthsToYears(6)).toBe(0.5)
   })
 })
+
+/**
+ * Where the experience numbers come from.
+ *
+ * These feed the Skill Matrix's Experience column and the registry editors, so
+ * a reader takes them as facts about the person. The union is the whole point:
+ * two projects running at the same time are ONE stretch of calendar time, and
+ * counting them twice inflates a career.
+ */
+describe('skillExperience / roleExperience — the union and its sources', () => {
+  const ym = (year: number, month: number) => ({ year, month })
+  const NOW = new Date('2026-06-15T00:00:00Z')
+
+  const withSkill = (projects: Array<Record<string, unknown>>, over: Record<string, unknown> = {}) => {
+    const s = emptyStore()
+    s.skills = [makeSkill({ id: 'go', name: { en: 'Go' }, ...over })]
+    s.projects = projects.map((p, i) => makeProject({
+      id: `p${i}`,
+      skills: [{ id: `ps${i}`, skill_id: 'go', name: {}, duration_in_years: 0, offset_in_years: 0, total_duration_in_years: 0, sort_order: 0 }],
+      ...p,
+    } as never))
+    return skillExperience(s, s.skills[0], NOW)
+  }
+
+  it('counts overlapping projects ONCE', () => {
+    // Jan–Dec 2020 and Jun 2020–Jun 2021: one continuous 18-month stretch, not
+    // 12 + 13.
+    expect(withSkill([
+      { start: ym(2020, 1), end: ym(2020, 12) },
+      { start: ym(2020, 6), end: ym(2021, 6) },
+    ]).computedMonths).toBe(18)
+  })
+
+  it('counts adjacent months as one continuous stretch', () => {
+    // Jan–Mar then Apr–Jun is six months, with no gap invented between them.
+    expect(withSkill([
+      { start: ym(2020, 1), end: ym(2020, 3) },
+      { start: ym(2020, 4), end: ym(2020, 6) },
+    ]).computedMonths).toBe(6)
+  })
+
+  it('keeps a real gap out of the total', () => {
+    // 2020 (12) + 2022 (12) is 24 months of work, not 36 months of elapsed time.
+    expect(withSkill([
+      { start: ym(2020, 1), end: ym(2020, 12) },
+      { start: ym(2022, 1), end: ym(2022, 12) },
+    ]).computedMonths).toBe(24)
+  })
+
+  it('does not let a NESTED range shorten the one containing it', () => {
+    // Mar–Jun sits entirely inside Jan–Dec. Taking the later end unconditionally
+    // would cut the total from twelve months to six.
+    expect(withSkill([
+      { start: ym(2020, 1), end: ym(2020, 12) },
+      { start: ym(2020, 3), end: ym(2020, 6) },
+    ]).computedMonths).toBe(12)
+  })
+
+  it('counts a single-month project as one month, not zero', () => {
+    expect(withSkill([{ start: ym(2020, 5), end: ym(2020, 5) }]).computedMonths).toBe(1)
+  })
+
+  it('runs an open-ended project up to now', () => {
+    const months = withSkill([{ start: ym(2025, 6), end: null }]).computedMonths
+    expect(months).toBe(13) // Jun 2025 … Jun 2026 inclusive
+  })
+
+  it('ignores a DISABLED project and one with no start', () => {
+    // Both are invisible in every export; counting them puts experience in the
+    // matrix that the CV never shows.
+    expect(withSkill([
+      { start: ym(2020, 1), end: ym(2020, 12) },
+      { start: ym(2015, 1), end: ym(2015, 12), disabled: true },
+      { start: null, end: ym(2016, 12) },
+    ]).computedMonths).toBe(12)
+  })
+
+  it('ignores a project that does not use the skill', () => {
+    const s = emptyStore()
+    s.skills = [makeSkill({ id: 'go', name: { en: 'Go' } })]
+    s.projects = [makeProject({ id: 'p1', skills: [], start: ym(2020, 1), end: ym(2020, 12) })]
+    expect(skillExperience(s, s.skills[0], NOW).computedMonths).toBe(0)
+  })
+
+  describe('the legacy fallback', () => {
+    it('uses the stored number ONLY when no dated usage exists', () => {
+      const only = withSkill([], { total_duration_in_years: 4 })
+      expect(only).toMatchObject({ computedMonths: 48, usesFallback: true })
+    })
+
+    it('prefers real dates over the stored number', () => {
+      const dated = withSkill([{ start: ym(2020, 1), end: ym(2020, 12) }], { total_duration_in_years: 40 })
+      expect(dated).toMatchObject({ computedMonths: 12, usesFallback: false })
+    })
+
+    it('does not fall back on a zero or absent stored number', () => {
+      expect(withSkill([], { total_duration_in_years: 0 }))
+        .toMatchObject({ computedMonths: 0, usesFallback: false })
+    })
+  })
+
+  describe('the manual adjustment', () => {
+    it('adds a positive offset on top of the computed months', () => {
+      const r = withSkill([{ start: ym(2020, 1), end: ym(2020, 12) }], { experience_offset_years: 2 })
+      expect(r).toMatchObject({ computedMonths: 12, adjustmentMonths: 24, totalMonths: 36 })
+    })
+
+    it('subtracts a negative offset', () => {
+      const r = withSkill([{ start: ym(2020, 1), end: ym(2020, 12) }], { experience_offset_years: -0.5 })
+      expect(r).toMatchObject({ adjustmentMonths: -6, totalMonths: 6 })
+    })
+
+    it('never reports a negative total', () => {
+      const r = withSkill([{ start: ym(2020, 1), end: ym(2020, 12) }], { experience_offset_years: -10 })
+      expect(r.totalMonths).toBe(0)
+    })
+  })
+
+  describe('roleExperience draws on three sources', () => {
+    const roleStore = () => {
+      const s = emptyStore()
+      s.roles = [makeRole({ id: 'arch', name: { en: 'Architect' } })]
+      return s
+    }
+
+    it('counts projects, employments and positions, merged as one union', () => {
+      const s = roleStore()
+      s.projects = [makeProject({ id: 'p1', roles: [{ id: 'r1', role_id: 'arch', name: {}, sort_order: 0 }] as never, start: ym(2020, 1), end: ym(2020, 6) })]
+      s.work_experiences = [makeWork({ id: 'w1', role_ids: ['arch'], start: ym(2020, 4), end: ym(2020, 12) })]
+      s.positions = [{ ...makePosition({ id: 'pos1' }), role_ids: ['arch'], start: ym(2021, 1), end: ym(2021, 6) } as never]
+      // Jan–Dec 2020 (overlapping pair merged) + Jan–Jun 2021.
+      expect(roleExperience(s, s.roles[0], NOW).computedMonths).toBe(18)
+    })
+
+    it('ignores disabled rows in every one of the three', () => {
+      const s = roleStore()
+      s.projects = [makeProject({ id: 'p1', disabled: true, roles: [{ id: 'r1', role_id: 'arch', name: {}, sort_order: 0 }] as never, start: ym(2020, 1), end: ym(2020, 6) })]
+      s.work_experiences = [makeWork({ id: 'w1', disabled: true, role_ids: ['arch'], start: ym(2020, 1), end: ym(2020, 6) })]
+      s.positions = [{ ...makePosition({ id: 'pos1' }), disabled: true, role_ids: ['arch'], start: ym(2020, 1), end: ym(2020, 6) } as never]
+      expect(roleExperience(s, s.roles[0], NOW).computedMonths).toBe(0)
+    })
+
+    it('survives a position with no role_ids array at all', () => {
+      const s = roleStore()
+      s.positions = [{ ...makePosition({ id: 'pos1' }), start: ym(2020, 1), end: ym(2020, 6) } as never]
+      delete (s.positions[0] as unknown as Record<string, unknown>).role_ids
+      expect(() => roleExperience(s, s.roles[0], NOW)).not.toThrow()
+    })
+  })
+})
