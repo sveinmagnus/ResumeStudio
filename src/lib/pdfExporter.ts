@@ -31,7 +31,7 @@ import { resolve, type DateFormat } from './locales'
 import { xs, fmtYears } from './exportStrings'
 import { SECTION_CATALOG, summaryTitleMeta, type AnyItem as CatalogItem, type CatalogCtx, type ItemView } from './sectionCatalog'
 import { skillMatrixRows, fmtLastUsed, fmtProficiency, type SkillMatrixRow } from './skillMatrix'
-import { applyView } from './viewFilter'
+import { applyView, viewProfileTagLine } from './viewFilter'
 import { planViewSections, sectionItems, renderKeyFor } from './viewSectionPlan'
 import { parseRichBlocks, plainParagraphs } from './richText'
 import {
@@ -309,14 +309,15 @@ function scaleImage(info: ImageInfo, maxW: number, maxH: number): { width: numbe
 }
 
 function buildIdentity(
-  r: Resume, header: ViewHeaderConfig, store: ResumeStore, locale: string, tokens: StyleTokens,
+  r: Resume, header: ViewHeaderConfig, store: ResumeStore, view: ResumeView, locale: string,
+  tokens: StyleTokens,
 ): PdfNode[] {
   const accent = `#${tokens.headingHex}`
   const out: PdfNode[] = [{
     text: r.full_name, bold: true, color: accent, font: resolveFontPdf(header.name_style.font, tokens.bodyFontId),
     fontSize: header.name_style.size_pt ?? tokens.h1Pt, margin: [0, 0, 0, 3] as Margin,
   }]
-  const titleText = L(header.title_override, locale) || L(r.title, locale)
+  const titleText = L(header.title_override, locale) || viewProfileTagLine(store, view, locale) || L(r.title, locale)
   if (titleText) {
     out.push({
       text: titleText, color: TITLE_INK, font: resolveFontPdf(header.title_style.font, tokens.bodyFontId),
@@ -384,7 +385,7 @@ export async function buildPdfDocDefinition(
       content.push({ image: logoUrl, width, height, alignment: header.logo_placement, margin: [0, 0, 0, 10] as Margin })
     }
 
-    const identity = buildIdentity(r, header, store, locale, baseTokens)
+    const identity = buildIdentity(r, header, store, view, locale, baseTokens)
     const p = header.photo_placement
 
     if (p !== 'none' && photoInfo && photoUrl) {

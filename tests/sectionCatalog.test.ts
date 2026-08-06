@@ -450,3 +450,184 @@ describe('editor titles and subtitles (parity with the old switches)', () => {
     expect(SECTION_CATALOG.work_experiences.subtitle!(w, 'en')).toBe('Engineer · Jan 2020 – Present')
   })
 })
+
+/**
+ * The five simple sections — each had ~30-40 mutants and exactly one killed,
+ * because the only thing asserting anything about them is the "has a
+ * descriptor" check at the top of this file. Their `full`/`summary` bodies were
+ * never called.
+ *
+ * What is worth pinning is not that they return a title — it is the two things
+ * that DIFFER between them and from the sections already covered: the per-target
+ * branch (`ctx.target === 'html'` drops extraLines, because the HTML renderer
+ * links the item rather than printing a bare URL beneath it) and the hideDates
+ * contract that anonymized views rely on.
+ */
+describe('the simple sections', () => {
+  const text: CatalogCtx = { locale: 'en', hideDates: false, target: 'text' }
+  const noDates: CatalogCtx = { locale: 'en', hideDates: true, target: 'docx' }
+
+  describe('certifications', () => {
+    const cert = item({
+      name: { en: 'AWS Solutions Architect' },
+      organiser: { en: 'Amazon' },
+      issued: { year: 2022, month: 3 },
+      expires: { year: 2025, month: 3 },
+      credential_url: 'https://verify.example/abc',
+      description: { en: 'Professional level.' },
+    })
+
+    it('carries the name, organiser, issue date and body', () => {
+      const v = SECTION_CATALOG.certifications.full!(cert, docx)!
+      expect(v.title).toBe('AWS Solutions Architect')
+      expect(v.meta).toEqual(['Amazon'])
+      expect(v.body).toBe('Professional level.')
+      expect(v.date).toContain('2022')
+    })
+
+    it('appends the expiry to the date — but only away from HTML', () => {
+      expect(SECTION_CATALOG.certifications.full!(cert, docx)!.date).toMatch(/expires/)
+      expect(SECTION_CATALOG.certifications.full!(cert, html)!.date).not.toMatch(/expires/)
+    })
+
+    it('emits the credential URL as an extra line away from HTML', () => {
+      expect(SECTION_CATALOG.certifications.full!(cert, docx)!.extraLines)
+        .toEqual(['https://verify.example/abc'])
+      expect(SECTION_CATALOG.certifications.full!(cert, html)!.extraLines ?? []).toEqual([])
+    })
+
+    it('drops the expiry along with the issue date when the view hides dates', () => {
+      // hideDates blanks the issue date; the expiry is appended to it and must
+      // go with it, or an anonymized export still prints a year.
+      expect(SECTION_CATALOG.certifications.full!(cert, noDates)!.date).toBe('')
+    })
+
+    it('falls back to a generic label rather than an empty summary title', () => {
+      const s = SECTION_CATALOG.certifications.summary!(item({}), docx)!
+      expect(s.parts.find((p) => p.key === 'title')?.value).toBe('Certification')
+    })
+  })
+
+  describe('courses (a RANGE since shape v11)', () => {
+    const course = item({
+      name: { en: 'Advanced Kubernetes' }, program: { en: 'CNCF' },
+      start: { year: 2023, month: 1 }, end: { year: 2023, month: 6 },
+      description: { en: 'Six months.' },
+    })
+
+    it('renders start-end, not a single completion date', () => {
+      const v = SECTION_CATALOG.courses.full!(course, docx)!
+      expect(v.date).toContain('2023')
+      expect(v.date).toMatch(/–/)
+      expect(v.meta).toEqual(['CNCF'])
+    })
+
+    it('splits the range into separate summary parts', () => {
+      const s = SECTION_CATALOG.courses.summary!(course, docx)!
+      const at = (k: string) => s.parts.find((p) => p.key === k)?.value
+      expect(at('title')).toBe('Advanced Kubernetes')
+      expect(at('org')).toBe('CNCF')
+      expect(at('start')).toBeTruthy()
+      expect(at('end')).toBeTruthy()
+    })
+
+    it('marks an ongoing course as present rather than blank', () => {
+      const s = SECTION_CATALOG.courses.summary!(item({ ...course, end: null }), docx)!
+      expect(s.parts.find((p) => p.key === 'end')?.value).toBeTruthy()
+    })
+
+    it('blanks the range when the view hides dates', () => {
+      expect(SECTION_CATALOG.courses.full!(course, noDates)!.date).toBe('')
+      const s = SECTION_CATALOG.courses.summary!(course, noDates)!
+      expect(s.parts.find((p) => p.key === 'start')?.value ?? '').toBe('')
+    })
+  })
+
+  describe('presentations (a RANGE since shape v13)', () => {
+    const talk = item({
+      title: { en: 'Scaling Postgres' }, event: { en: 'JavaZone' },
+      start: { year: 2024, month: 9 }, end: { year: 2024, month: 9 },
+      url: 'https://talks.example/pg', description: { en: 'A talk.' },
+    })
+
+    it('uses the event as meta and the range as the date', () => {
+      const v = SECTION_CATALOG.presentations.full!(talk, docx)!
+      expect(v.title).toBe('Scaling Postgres')
+      expect(v.meta).toEqual(['JavaZone'])
+      expect(v.date).toContain('2024')
+    })
+
+    it('emits the talk URL as an extra line away from HTML', () => {
+      expect(SECTION_CATALOG.presentations.full!(talk, text)!.extraLines).toEqual(['https://talks.example/pg'])
+      expect(SECTION_CATALOG.presentations.full!(talk, html)!.extraLines ?? []).toEqual([])
+    })
+
+    it('omits the extra line when there is no URL', () => {
+      const v = SECTION_CATALOG.presentations.full!(item({ ...talk, url: '' }), docx)!
+      expect(v.extraLines ?? []).toEqual([])
+    })
+  })
+
+  describe('honor_awards', () => {
+    const award = item({
+      name: { en: 'Employee of the Year' }, issuer: { en: 'Cartavio AS' },
+      date: { year: 2021, month: 12 }, description: { en: 'For the migration.' },
+    })
+
+    it('uses the issuer as meta and the award date as the date', () => {
+      const v = SECTION_CATALOG.honor_awards.full!(award, docx)!
+      expect(v.title).toBe('Employee of the Year')
+      expect(v.meta).toEqual(['Cartavio AS'])
+      expect(v.date).toContain('2021')
+      expect(v.body).toBe('For the migration.')
+    })
+
+    it('drops the issuer from meta when absent, rather than leaving a blank', () => {
+      const v = SECTION_CATALOG.honor_awards.full!(item({ ...award, issuer: {} }), docx)!
+      expect(v.meta).toEqual([])
+    })
+
+    it('blanks the date when the view hides dates', () => {
+      expect(SECTION_CATALOG.honor_awards.full!(award, noDates)!.date).toBe('')
+    })
+  })
+
+  describe('publications', () => {
+    const paper = item({
+      title: { en: 'On Sharding' }, publisher: { en: 'ACM' },
+      publication_type: 'article', co_authors: ['Ada Lovelace', 'Alan Turing'],
+      date: { year: 2020, month: 5 }, abstract: { en: 'We shard.' },
+      url: 'https://doi.example/1',
+    })
+
+    it('combines publisher and type into one line', () => {
+      expect(SECTION_CATALOG.publications.full!(paper, docx)!.meta[0]).toBe('ACM (Article)')
+    })
+
+    it('keeps the type alone when there is no publisher, and vice versa', () => {
+      expect(SECTION_CATALOG.publications.full!(item({ ...paper, publisher: {} }), docx)!.meta[0])
+        .toBe('(Article)')
+      expect(SECTION_CATALOG.publications.full!(item({ ...paper, publication_type: '' }), docx)!.meta[0])
+        .toBe('ACM')
+    })
+
+    it('lists co-authors as their own meta line', () => {
+      expect(SECTION_CATALOG.publications.full!(paper, docx)!.meta)
+        .toEqual(['ACM (Article)', 'With Ada Lovelace, Alan Turing'])
+    })
+
+    it('omits the co-author line entirely when the paper is solo', () => {
+      const v = SECTION_CATALOG.publications.full!(item({ ...paper, co_authors: [] }), docx)!
+      expect(v.meta).toEqual(['ACM (Article)'])
+    })
+
+    it('uses the abstract as the body', () => {
+      expect(SECTION_CATALOG.publications.full!(paper, docx)!.body).toBe('We shard.')
+    })
+
+    it('emits the URL as an extra line away from HTML', () => {
+      expect(SECTION_CATALOG.publications.full!(paper, docx)!.extraLines).toEqual(['https://doi.example/1'])
+      expect(SECTION_CATALOG.publications.full!(paper, html)!.extraLines ?? []).toEqual([])
+    })
+  })
+})
