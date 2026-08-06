@@ -1915,3 +1915,114 @@ describe('tabulated summary — the grid', () => {
     expect(html).toContain('&lt;img')
   })
 })
+
+/**
+ * The skill matrix in the HTML adapter — the one the consultant actually looks
+ * at while editing, and the only one of the four that had no test.
+ *
+ * That is worth stating plainly: the DOCX, PDF and both text renderings of this
+ * table are now pinned, and the live preview was left as the gap. Its cells
+ * also carry the escaping ("All cell values are escaped right here — keep it
+ * that way"), which nothing checked.
+ */
+describe('skill matrix — the HTML adapter', () => {
+  const matrixStore = (withCategory = false): ResumeStore => {
+    const store = emptyStore()
+    store.resume = makeResume({ full_name: 'Kari Nordmann' })
+    if (withCategory) store.skill_categories = [makeSkillCategory({ id: 'cat1', name: { en: 'Languages' } })]
+    store.skills.push(makeSkill({
+      id: 'ts', name: { en: 'TypeScript' }, total_duration_in_years: 8, proficiency: 4,
+      category_id: withCategory ? 'cat1' : null,
+    }))
+    return store
+  }
+  const matrixView = (over: Record<string, unknown> = {}) => makeView({
+    sections: buildViewSections().map((s) =>
+      s.key === 'skill_matrix' ? { ...s, detail: 'full' as const, style: { ...s.style, ...over } } : s),
+  })
+  const html = (store = matrixStore(), view = matrixView()) => buildViewHtml(store, view, 'en')
+  /** The matrix table's cell text, in document order. */
+  const cells = (out: string): string[] =>
+    [...(/<table class="ve-matrix">[\s\S]*?<\/table>/.exec(out)?.[0] ?? '')
+      .matchAll(/<t[hd]>([\s\S]*?)<\/t[hd]>/g)].map((m) => m[1])
+
+  it('writes a header row and one row per skill', () => {
+    const c = cells(html())
+    expect(c.slice(0, 4)).toEqual(['Skill', 'Experience', 'Proficiency', 'Last used'])
+    expect(c.slice(4, 8)).toEqual(['TypeScript', '8 yrs', '4/5', ''])
+  })
+
+  it('adds the Category column only when a row has one', () => {
+    expect(cells(html(matrixStore(true))).slice(0, 5))
+      .toEqual(['Skill', 'Category', 'Experience', 'Proficiency', 'Last used'])
+    expect(cells(html())[1]).toBe('Experience')
+  })
+
+  it('drops the Last used column when the section hides dates', () => {
+    const c = cells(html(matrixStore(), matrixView({ hide_dates: true })))
+    expect(c.slice(0, 3)).toEqual(['Skill', 'Experience', 'Proficiency'])
+    expect(c).not.toContain('Last used')
+  })
+
+  it('localizes the column headings', () => {
+    const out = buildViewHtml(matrixStore(), matrixView(), 'no')
+    expect(cells(out).slice(0, 4)).toEqual(['Ferdighet', 'Erfaring', 'Nivå', 'Sist brukt'])
+  })
+
+  it('summary detail shows only HIGHLIGHTED skills; full shows every one', () => {
+    // The section's two detail levels mean different things here than
+    // elsewhere: 'full' is every skill, 'summary' is the highlighted ones. A
+    // view set to summary that still listed everything would leak the whole
+    // registry into a deliberately short CV.
+    const s = matrixStore()
+    s.skills.push(makeSkill({
+      id: 'go', name: { en: 'Go' }, total_duration_in_years: 2, proficiency: 3,
+      is_highlighted: true,
+    }))
+    const view = (detail: 'full' | 'summary') => makeView({
+      sections: buildViewSections().map((x) =>
+        x.key === 'skill_matrix' ? { ...x, detail } : x),
+    })
+    expect(cells(buildViewHtml(s, view('full'), 'en'))).toContain('TypeScript')
+    const summary = cells(buildViewHtml(s, view('summary'), 'en'))
+    expect(summary).toContain('Go')
+    expect(summary).not.toContain('TypeScript')
+  })
+
+  it('renders no section at all when the registry has no skills', () => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    // The rendered TABLE, not the class name — that also appears in the
+    // stylesheet, which is always emitted.
+    expect(html(s)).not.toContain('<table class="ve-matrix">')
+  })
+
+  it('SECURITY: escapes every cell, including the heading row', () => {
+    // The values reach the document through string interpolation rather than
+    // through renderItem, so this table has its own escaping to get wrong.
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    s.skill_categories = [makeSkillCategory({ id: 'c1', name: { en: '<img src=x onerror=alert(1)>' } })]
+    s.skills.push(makeSkill({
+      id: 'evil', name: { en: '<script>alert(1)</script>' }, category_id: 'c1',
+      total_duration_in_years: 3, proficiency: 2,
+    }))
+    const out = html(s)
+    expect(out).not.toContain('<script>alert(1)</script>')
+    expect(out).not.toContain('<img src=x')
+    expect(out).toContain('&lt;script&gt;')
+    expect(out).toContain('&lt;img')
+  })
+
+  it('agrees cell for cell with the DOCX and PDF adapters', () => {
+    // One descriptor, every adapter (§7.7). This is the assertion that notices
+    // when one of the four grows or loses a column — the same check the DOCX
+    // and PDF pair already carry, now extended to the preview.
+    const store = matrixStore(true)
+    const view = matrixView()
+    expect(cells(buildViewHtml(store, view, 'en'))).toEqual([
+      'Skill', 'Category', 'Experience', 'Proficiency', 'Last used',
+      'TypeScript', 'Languages', '8 yrs', '4/5', '',
+    ])
+  })
+})
