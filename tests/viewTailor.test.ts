@@ -219,3 +219,97 @@ describe('applyTailorResponse', () => {
     }
   })
 })
+
+/**
+ * The per-field rejections.
+ *
+ * The existing cases prove issues are COLLECTED rather than thrown one at a
+ * time; these prove each field is actually checked. A field nobody validates
+ * passes whatever the model sent straight into a view — and section_detail in
+ * particular decides what appears in an exported CV.
+ */
+describe('validateTailorResponse — per-field checks', () => {
+  const base = { $schema: TAILOR_SCHEMA, view_name: 'Board CV' }
+  const bad = (over: Record<string, unknown>) => () =>
+    validateTailorResponse({ ...base, ...over })
+  const pathsOf = (fn: () => unknown): string[] => {
+    try { fn(); return [] } catch (e) {
+      return (e as InvalidTailorResponseError).issues.map((i) => i.path)
+    }
+  }
+
+  it('accepts a string or a number for the text fields', () => {
+    // A model that answers with a bare year for a name is coerced, not refused.
+    expect(bad({ view_name: 'X', introduction: 2026 })).not.toThrow()
+  })
+
+  it('rejects a non-scalar view_name or introduction, naming which', () => {
+    expect(pathsOf(bad({ view_name: { en: 'X' } }))).toContain('view_name')
+    expect(pathsOf(bad({ introduction: ['a'] }))).toContain('introduction')
+  })
+
+  it('treats a null text field as simply absent', () => {
+    expect(bad({ view_name: null, introduction: null })).not.toThrow()
+  })
+
+  describe('section_detail', () => {
+    it('accepts the three legal details', () => {
+      for (const d of ['off', 'summary', 'full']) {
+        expect(bad({ section_detail: { projects: d } }), d).not.toThrow()
+      }
+    })
+
+    it('rejects any other detail, naming the SECTION that carried it', () => {
+      // The path is what makes a rejected reply fixable — "section_detail" on
+      // its own does not say which key was wrong.
+      expect(pathsOf(bad({ section_detail: { projects: 'partial' } })))
+        .toContain('section_detail.projects')
+      expect(pathsOf(bad({ section_detail: { projects: 3 } })))
+        .toContain('section_detail.projects')
+    })
+
+    it('rejects a section_detail that is not an object at all', () => {
+      expect(pathsOf(bad({ section_detail: ['projects'] }))).toContain('section_detail')
+      expect(pathsOf(bad({ section_detail: 'full' }))).toContain('section_detail')
+    })
+
+    it('treats a null section_detail as absent', () => {
+      expect(bad({ section_detail: null })).not.toThrow()
+    })
+  })
+
+  describe('the id arrays', () => {
+    it('accepts strings and numbers', () => {
+      expect(bad({ exclude_item_ids: ['a', 1], gaps: ['x'] })).not.toThrow()
+    })
+
+    it('rejects a non-array, naming the field', () => {
+      expect(pathsOf(bad({ exclude_item_ids: 'a' }))).toContain('exclude_item_ids')
+      expect(pathsOf(bad({ gaps: { a: 1 } }))).toContain('gaps')
+    })
+
+    it('names the offending INDEX when one entry is wrong', () => {
+      expect(pathsOf(bad({ exclude_item_ids: ['a', { id: 'b' }] })))
+        .toContain('exclude_item_ids[1]')
+      expect(pathsOf(bad({ gaps: ['ok', null, ['nested']] }))).toContain('gaps[2]')
+    })
+
+    it('treats a null array as absent', () => {
+      expect(bad({ exclude_item_ids: null, gaps: null })).not.toThrow()
+    })
+  })
+
+  it('checks BOTH id arrays, not just the first', () => {
+    // They share one loop; dropping either from the list would leave it
+    // unvalidated while every existing case still passed.
+    const paths = pathsOf(bad({ exclude_item_ids: 'a', gaps: 'b' }))
+    expect(paths).toContain('exclude_item_ids')
+    expect(paths).toContain('gaps')
+  })
+
+  it('checks BOTH text fields, not just the first', () => {
+    const paths = pathsOf(bad({ view_name: {}, introduction: {} }))
+    expect(paths).toContain('view_name')
+    expect(paths).toContain('introduction')
+  })
+})

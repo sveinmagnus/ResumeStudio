@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { buildCareerTimeline, monthsToLabel } from '../src/lib/careerTimeline'
 import { emptyStore, makeWork, makeProject, makeEducation } from './fixtures'
+import type { ResumeStore } from '../src/types'
 
 const NOW = new Date('2026-06-15T00:00:00Z') // → nowMonths = 2026*12 + 6
 const opts = { now: NOW }
@@ -214,5 +215,107 @@ describe('monthsToLabel', () => {
   it('formats absolute months as "MMM YYYY"', () => {
     expect(monthsToLabel(2020 * 12 + 3)).toBe('Mar 2020')
     expect(monthsToLabel(2026 * 12 + 12)).toBe('Dec 2026')
+  })
+})
+
+/**
+ * The bar labels.
+ *
+ * A timeline bar is a rectangle with a name on it — if the name falls back
+ * wrongly the chart shows "Project" three times over and the user cannot tell
+ * which stretch is which.
+ */
+describe('buildCareerTimeline — bar labels', () => {
+  const NOW2 = new Date('2026-06-15T00:00:00Z')
+  /** One track's bars — the result is split per track, not a flat list. */
+  const bars = (store: ResumeStore, track: 'employment' | 'education' | 'projects') =>
+    buildCareerTimeline(store, 'en', { now: NOW2, includeProjects: true })[track].bars
+
+  it('labels an employment by employer, with the role beneath', () => {
+    const s = emptyStore()
+    s.work_experiences = [makeWork({
+      id: 'w1', employer: { en: 'Acme' }, role_title: { en: 'Architect' },
+      start: { year: 2020, month: 1 }, end: { year: 2021, month: 6 },
+    })]
+    expect(bars(s, 'employment')[0]).toMatchObject({ label: 'Acme', sublabel: 'Architect' })
+  })
+
+  it('falls back to a generic employment label rather than a blank bar', () => {
+    const s = emptyStore()
+    s.work_experiences = [makeWork({
+      id: 'w1', employer: {}, role_title: {},
+      start: { year: 2020, month: 1 }, end: { year: 2021, month: 6 },
+    })]
+    expect(bars(s, 'employment')[0]).toMatchObject({ label: 'Employer', sublabel: '' })
+  })
+
+  it('labels a project by customer, falling through to its name', () => {
+    const s = emptyStore()
+    s.projects = [
+      makeProject({ id: 'p1', customer: { en: 'Acme' }, description: { en: 'Payments' }, start: { year: 2020, month: 1 }, end: { year: 2020, month: 6 } }),
+      makeProject({ id: 'p2', customer: {}, description: { en: 'Payments' }, start: { year: 2021, month: 1 }, end: { year: 2021, month: 6 } }),
+      makeProject({ id: 'p3', customer: {}, description: {}, start: { year: 2022, month: 1 }, end: { year: 2022, month: 6 } }),
+    ]
+    expect(bars(s, 'projects').map((b) => b.label)).toEqual(['Acme', 'Payments', 'Project'])
+  })
+
+  it('lists a project’s industries as its sublabel, comma-joined', () => {
+    const s = emptyStore()
+    s.projects = [makeProject({
+      id: 'p1', customer: { en: 'Acme' }, start: { year: 2020, month: 1 }, end: { year: 2020, month: 6 },
+      industries: [
+        { id: 'i1', industry_id: 'x', name: { en: 'Banking' }, sort_order: 0 },
+        { id: 'i2', industry_id: 'y', name: { en: 'Insurance' }, sort_order: 1 },
+      ],
+    })]
+    expect(bars(s, 'projects')[0].sublabel).toBe('Banking, Insurance')
+  })
+
+  it('drops an unnamed industry rather than leaving a dangling comma', () => {
+    const s = emptyStore()
+    s.projects = [makeProject({
+      id: 'p1', customer: { en: 'Acme' }, start: { year: 2020, month: 1 }, end: { year: 2020, month: 6 },
+      industries: [
+        { id: 'i1', industry_id: 'x', name: { en: 'Banking' }, sort_order: 0 },
+        { id: 'i2', industry_id: 'y', name: {}, sort_order: 1 },
+      ],
+    })]
+    expect(bars(s, 'projects')[0].sublabel).toBe('Banking')
+  })
+
+  it('labels an education by school, with the degree beneath', () => {
+    const s = emptyStore()
+    s.educations = [makeEducation({
+      id: 'e1', school: { en: 'NTNU' }, degree: { en: 'MSc' },
+      start: { year: 2014, month: 8 }, end: { year: 2019, month: 6 },
+    })]
+    expect(bars(s, 'education')[0]).toMatchObject({ label: 'NTNU', sublabel: 'MSc' })
+  })
+
+  it('falls back to a generic education label', () => {
+    const s = emptyStore()
+    s.educations = [makeEducation({
+      id: 'e1', school: {}, degree: {},
+      start: { year: 2014, month: 8 }, end: { year: 2019, month: 6 },
+    })]
+    expect(bars(s, 'education')[0].label).toBe('Education')
+  })
+
+  it('includes projects by DEFAULT, and drops them only when told to', () => {
+    // The default is on — a timeline without the project track would be mostly
+    // empty for a consultant whose work is all client engagements.
+    const s = emptyStore()
+    s.projects = [makeProject({ id: 'p1', customer: { en: 'Acme' }, start: { year: 2020, month: 1 }, end: { year: 2020, month: 6 } })]
+    expect(buildCareerTimeline(s, 'en', { now: NOW2 }).projects.bars).toHaveLength(1)
+    expect(buildCareerTimeline(s, 'en', { now: NOW2, includeProjects: false }).projects.bars).toEqual([])
+  })
+
+  it('skips a disabled or undated project', () => {
+    const s = emptyStore()
+    s.projects = [
+      makeProject({ id: 'p1', customer: { en: 'Gone' }, disabled: true, start: { year: 2020, month: 1 }, end: { year: 2020, month: 6 } }),
+      makeProject({ id: 'p2', customer: { en: 'Undated' }, start: null as never, end: null as never }),
+    ]
+    expect(bars(s, 'projects')).toEqual([])
   })
 })
