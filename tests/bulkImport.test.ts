@@ -588,3 +588,131 @@ describe('validateBulkImport() — the unexercised field kinds', () => {
     })
   })
 })
+
+/**
+ * Registry interning and the envelope guards.
+ *
+ * A bulk add interns against what the resume ALREADY has, so a paste that
+ * mentions "Kubernetes" reuses the existing skill rather than minting a second
+ * one. That match is by NAME across every locale, because the existing entry may
+ * only ever have had a Norwegian name.
+ */
+describe('mapBulkItems — registry interning', () => {
+  const store = (over: Partial<ResumeStore> = {}): ResumeStore => ({
+    ...emptyStore(),
+    resume: makeResume({ id: 'r1', full_name: 'X' }),
+    ...over,
+  })
+  const mapProjects = (s: ResumeStore, items: Array<Record<string, unknown>>) =>
+    mapBulkItems(
+      validateBulkImport(file('projects', items), 'projects'),
+      bulkSpec('projects')!, s, 'en',
+    )
+
+  it('reuses an existing skill by name, case- and space-insensitively', () => {
+    const s = store({ skills: [makeSkill({ id: 'k8s', name: { en: 'Kubernetes' } })] })
+    const out = mapProjects(s, [{ customer: 'Acme', skills: ['  kubernetes  '] }])
+    expect(out.additions.skills).toEqual([])
+    expect((out.items[0].skills as Array<{ skill_id: string }>)[0].skill_id).toBe('k8s')
+  })
+
+  it('matches an existing entry by ANY of its locales', () => {
+    // The existing skill may only ever have had a Norwegian name — matching one
+    // representative name would mint a duplicate.
+    const s = store({ skills: [makeSkill({ id: 'sky', name: { no: 'Skytjenester' } })] })
+    const out = mapProjects(s, [{ customer: 'Acme', skills: ['Skytjenester'] }])
+    expect(out.additions.skills).toEqual([])
+  })
+
+  it('creates a skill for a genuinely new name, in the default locale', () => {
+    const out = mapProjects(store(), [{ customer: 'Acme', skills: ['Kubernetes'] }])
+    expect(out.additions.skills).toHaveLength(1)
+    expect(out.additions.skills[0].name).toEqual({ en: 'Kubernetes' })
+  })
+
+  it('interns one name ONCE across several items', () => {
+    const out = mapProjects(store(), [
+      { customer: 'Acme', skills: ['Kubernetes'] },
+      { customer: 'Beta', skills: ['kubernetes'] },
+    ])
+    expect(out.additions.skills).toHaveLength(1)
+  })
+
+  it('creates a new skill unhighlighted and unmeasured', () => {
+    // Highlighting drives the Skills Showcase; a bulk add must not fill it.
+    const out = mapProjects(store(), [{ customer: 'Acme', skills: ['Kubernetes'] }])
+    expect(out.additions.skills[0]).toMatchObject({
+      is_highlighted: false, total_duration_in_years: 0, proficiency: 0, category_id: null,
+    })
+  })
+
+  it('numbers new roles AFTER the ones the resume already has', () => {
+    // Colliding sort_order values make the registry order arbitrary.
+    const s = store({ roles: [makeRole({ id: 'a', name: { en: 'PM' }, sort_order: 0 })] })
+    const out = mapProjects(s, [{ customer: 'Acme', roles: ['Architect', 'Developer'] }])
+    expect(out.additions.roles.map((r) => r.sort_order)).toEqual([1, 2])
+  })
+
+  it('creates a new role unstarred and enabled', () => {
+    const out = mapProjects(store(), [{ customer: 'Acme', roles: ['Architect'] }])
+    expect(out.additions.roles[0]).toMatchObject({ starred: false, disabled: false })
+  })
+
+  it('reuses an existing role by name too', () => {
+    const s = store({ roles: [makeRole({ id: 'arch', name: { en: 'Architect' } })] })
+    const out = mapProjects(s, [{ customer: 'Acme', roles: ['architect'] }])
+    expect(out.additions.roles).toEqual([])
+  })
+
+  it('stamps every mapped item with the resume’s own id', () => {
+    const out = mapProjects(store(), [{ customer: 'Acme' }])
+    expect(out.items[0].resume_id).toBe('r1')
+  })
+
+  it('survives a store with no resume rather than throwing', () => {
+    const s = { ...emptyStore(), resume: null }
+    expect(() => mapProjects(s, [{ customer: 'Acme' }])).not.toThrow()
+  })
+})
+
+describe('validateBulkImport — the envelope guards', () => {
+  it('rejects a missing $schema as well as a wrong one', () => {
+    expect(() => validateBulkImport({ section: 'courses', items: [{ name: 'X' }] }, 'courses'))
+      .toThrow(/\$schema/)
+    expect(() => validateBulkImport(
+      { $schema: 'resumestudio-bulk/v1', section: 'courses', items: [{ name: 'X' }] }, 'courses',
+    )).not.toThrow()
+  })
+
+  it('rejects an EMPTY section string, not only a wrong one', () => {
+    expect(() => validateBulkImport(
+      { $schema: BULK_IMPORT_SCHEMA, section: '', items: [{ name: 'X' }] }, 'courses',
+    )).toThrow(/section/)
+  })
+
+  it('names both the file’s section and the target when they differ', () => {
+    // The whole point of carrying `section` is a message the user can act on.
+    let msg = ''
+    try { validateBulkImport(file('projects', [{ customer: 'X' }]), 'courses') }
+    catch (e) { msg = (e as Error).message }
+    expect(msg).toMatch(/Projects/)
+    expect(msg).toMatch(/Courses/)
+  })
+
+  it('says "unknown section" for a name no spec claims', () => {
+    let msg = ''
+    try {
+      validateBulkImport(
+        { $schema: BULK_IMPORT_SCHEMA, section: 'vegetables', items: [{ name: 'X' }] }, 'courses',
+      )
+    } catch (e) { msg = (e as Error).message }
+    expect(msg).toMatch(/unknown section/i)
+  })
+
+  it('lists the legal enum values in the message', () => {
+    let msg = ''
+    try { validateBulkImport(file('work_experiences', [{ employment_type: 'gig' }]), 'work_experiences') }
+    catch (e) { msg = (e as Error).message }
+    expect(msg).toMatch(/permanent/)
+  })
+})
