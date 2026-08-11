@@ -729,3 +729,106 @@ describe('scaleImage via the header images', () => {
     expect(Number(n.height)).toBeGreaterThan(0)
   })
 })
+
+/**
+ * Tags, extra lines, the section-heading rule, and the empty-body guard —
+ * the parts of the PDF adapter still unreached after the item layouts.
+ */
+describe('pdfExporter — tags, extra lines and the heading rule', () => {
+  const runs = (node: unknown, out: Array<Record<string, unknown>> = []): Array<Record<string, unknown>> => {
+    if (Array.isArray(node)) { node.forEach((n) => runs(n, out)); return out }
+    if (!node || typeof node !== 'object') return out
+    const rec = node as Record<string, unknown>
+    if (typeof rec.text === 'string') out.push(rec)
+    for (const v of Object.values(rec)) if (v && typeof v === 'object') runs(v, out)
+    return out
+  }
+  const texts = (d: { content: unknown }) => runs(d.content).map((r) => String(r.text))
+
+  const projectStore = (over: Record<string, unknown> = {}): ResumeStore => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    s.skills = [makeSkill({ id: 'go', name: { en: 'Go' } }), makeSkill({ id: 'k8s', name: { en: 'Kubernetes' } })]
+    s.projects = [makeProject({
+      id: 'p1', customer: { en: 'Acme' },
+      skills: [
+        { id: 'ps1', skill_id: 'go', name: { en: 'Go' }, duration_in_years: 0, offset_in_years: 0, total_duration_in_years: 0, sort_order: 0 },
+        { id: 'ps2', skill_id: 'k8s', name: { en: 'Kubernetes' }, duration_in_years: 0, offset_in_years: 0, total_duration_in_years: 0, sort_order: 1 },
+      ],
+      ...over,
+    } as never)]
+    return s
+  }
+  const dd = (s: ResumeStore, style: Record<string, unknown> = {}) =>
+    buildPdfDocDefinition(s, makeView({
+      sections: [{ key: 'projects', detail: 'full', sort_order: 0, style } as never],
+    }), 'en')
+
+  it('lists an item’s tags, comma-joined, behind an italic label', async () => {
+    const doc = await dd(projectStore())
+    expect(texts(doc).some((x) => x.includes('Go, Kubernetes'))).toBe(true)
+    const label = runs(doc.content).find((r) => /skills/i.test(String(r.text)))
+    expect(label?.italics).toBe(true)
+  })
+
+  it('emits no tag node at all when an item has none', async () => {
+    // Not just "no skill names" — no LABEL either. An empty tags node renders
+    // as a stray "Skills:" with nothing after it.
+    const t = texts(await dd(projectStore({ skills: [] })))
+    expect(t.some((x) => x.includes('Go'))).toBe(false)
+    expect(t.some((x) => /skills/i.test(x))).toBe(false)
+  })
+
+  it('pushes no empty run when a section tags WITHOUT a label', async () => {
+    // The Skills Showcase emits tags with an empty tagsLabel — the one section
+    // where the label guard is reachable. Pushing it unconditionally leaves an
+    // empty run in front of the skill list.
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    s.skill_categories = [makeSkillCategory({ id: 'c1', name: { en: 'Languages' } })]
+    s.skills = [makeSkill({ id: 'go', name: { en: 'Go' }, category_id: 'c1', is_highlighted: true })]
+    const doc = await buildPdfDocDefinition(s, makeView({
+      sections: [{ key: 'technology_categories', detail: 'full', sort_order: 0 } as never],
+    }), 'en')
+    expect(texts(doc)).toContain('Go')
+    expect(runs(doc.content).filter((r) => r.text === '')).toEqual([])
+  })
+
+  it('renders each extra line as its own subtle paragraph', async () => {
+    // Certifications put the credential URL there.
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    s.certifications = [makeCertification({
+      id: 'c1', name: { en: 'AWS SA' }, credential_url: 'https://verify.example/abc',
+    })]
+    const d = await buildPdfDocDefinition(s, makeView({
+      sections: [{ key: 'certifications', detail: 'full', sort_order: 0 } as never],
+    }), 'en')
+    // The SUBTLE grey specifically — para() always sets some colour, so
+    // "has a colour" would pass with the styling dropped.
+    const line = runs(d.content).find((r) => String(r.text).includes('verify.example'))
+    expect(line).toBeDefined()
+    expect(line!.color).toBe('#666666')
+  })
+
+  it('draws a rule under the section heading and nowhere else', async () => {
+    // The heading is a one-row table whose only border is the bottom one; a rule
+    // above it would read as a divider from the previous section. hLineWidth is
+    // a CALLBACK, so it has to be invoked — a stringified layout cannot show it.
+    const d = await dd(projectStore())
+    expect(JSON.stringify(d.content)).toContain('"border":[false,false,false,true]')
+    const heading = (d.content as Array<Record<string, unknown>>)
+      .find((n) => n.table && (n.layout as Record<string, unknown>)?.hLineWidth)!
+    const hLineWidth = (heading.layout as { hLineWidth: (i: number) => number }).hLineWidth
+    expect(hLineWidth(0)).toBe(0)
+    expect(hLineWidth(1)).toBeGreaterThan(0)
+  })
+
+  it('renders nothing for an empty rich-text body', async () => {
+    const s = projectStore({ long_description: { en: '' }, description: {} })
+    // An empty body must produce NO paragraph, not a blank one — a blank
+    // paragraph is visible in the PDF as an unexplained gap.
+    const t = texts(await dd(s))
+    expect(t.filter((x) => x.trim() === '')).toEqual([])
+  })
+})
