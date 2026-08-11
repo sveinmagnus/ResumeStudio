@@ -903,3 +903,230 @@ describe('exportDocx — item layouts', () => {
     })
   })
 })
+
+/**
+ * The rich-text and heading plumbing every DOCX section runs through.
+ *
+ * These are the shared builders — one wrong constant here changes every item in
+ * the document at once, which is exactly why they were the biggest survivor
+ * pocket in the file.
+ */
+describe('exportDocx — the shared paragraph builders', () => {
+  const bodyStore = (html: string): ResumeStore => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    s.projects = [makeProject({ id: 'p1', customer: { en: 'Acme' }, long_description: { en: html } })]
+    return s
+  }
+  const xmlOf = async (html: string, style: Record<string, unknown> = {}) => {
+    await exportDocx(bodyStore(html), makeView({
+      sections: [{ key: 'projects', detail: 'full', sort_order: 0, style } as never],
+    }), 'en')
+    return documentXml(lastBlob!)
+  }
+  const paraWith = (xml: string, text: string) => {
+    const p = xml.split('</w:p>').find((x) => x.includes(text))
+    if (p === undefined) throw new Error(`no paragraph with ${text}`)
+    return p.slice(p.lastIndexOf('<w:p'))
+  }
+  const num = (frag: string, name: string) => {
+    const m = new RegExp(`${name}="(-?\\d+)"`).exec(frag)
+    return m ? Number(m[1]) : null
+  }
+
+  it('emits NO paragraph for an empty body', async () => {
+    // An empty paragraph still takes vertical space in Word, so the COUNT is
+    // what matters: the same document with a one-line body has exactly one more.
+    const empty = (await xmlOf('')).split('<w:p>').length
+    const filled = (await xmlOf('<p>Body.</p>')).split('<w:p>').length
+    expect(filled).toBe(empty + 1)
+  })
+
+  describe('list markers and indentation', () => {
+    it('numbers an ordered list from its own index, and bullets an unordered one', async () => {
+      const ol = await xmlOf('<ol><li>First</li><li>Second</li></ol>')
+      expect(ol).toContain('1. ')
+      expect(ol).toContain('2. ')
+      const ul = await xmlOf('<ul><li>First</li></ul>')
+      expect(ul).toContain('•')
+      expect(ul).not.toContain('1. ')
+    })
+
+    it('indents each nesting level by a further fixed step', async () => {
+      // The step is what makes the hierarchy readable; a flat indent loses it.
+      const xml = await xmlOf('<ul><li>Top</li><ul><li>Nested</li><ul><li>Deep</li></ul></ul></ul>')
+      // The step is a fixed 360 twips (0.25"). Asserting only that the steps
+      // are EQUAL passes for any multiple of it, so the values are named.
+      expect(num(paraWith(xml, 'Top'), 'w:left')).toBe(360)
+      expect(num(paraWith(xml, 'Nested'), 'w:left')).toBe(720)
+      expect(num(paraWith(xml, 'Deep'), 'w:left')).toBe(1080)
+    })
+
+    it('gives a list item a tighter gap than a paragraph', async () => {
+      // Bullets read as a group; paragraph spacing between them looks like a
+      // series of separate statements.
+      const list = num(paraWith(await xmlOf('<ul><li>One</li></ul>'), 'One'), 'w:after')!
+      const para = num(paraWith(await xmlOf('<p>One</p>'), 'One'), 'w:after')!
+      expect(list).toBeLessThan(para)
+    })
+  })
+
+  describe('inline runs', () => {
+    it('carries bold, italic and underline onto their runs', async () => {
+      const xml = await xmlOf('<p><b>bold</b> <i>ital</i> <u>und</u></p>')
+      const para = paraWith(xml, 'bold')
+      expect(para).toContain('<w:b/>')
+      expect(para).toContain('<w:i/>')
+      expect(para).toContain('<w:u')
+      // …and a plain run carries NONE of them, so each flag comes from the run
+      // rather than being set on everything.
+      const plain = paraWith(await xmlOf('<p>plain</p>'), 'plain')
+      expect(plain).not.toContain('<w:u')
+      expect(plain).not.toContain('<w:b/>')
+      expect(plain).not.toContain('<w:i/>')
+    })
+
+    it('turns a <br> inside a list item into a REAL Word break', async () => {
+      // A raw newline in <w:t> is XML whitespace — Word renders it as a SPACE
+      // while the preview and PDF show a break, which is the bug this avoids.
+      const xml = await xmlOf('<ul><li>one<br>two</li></ul>')
+      expect(paraWith(xml, 'two')).toContain('<w:br/>')
+    })
+
+    it('emits exactly ONE empty run, and it is the one carrying the break', async () => {
+      // A <br> arrives as its own '\n' run, which splits to ['','']. The guard
+      // skips the LEADING empty piece and keeps the second — that kept run is
+      // what carries break:1, so Word gets a break rather than a stray space.
+      // Dropping the guard adds a second empty run; dropping the break makes
+      // the line a space instead.
+      const xml = await xmlOf('<ul><li>one<br>two</li></ul>')
+      const para = paraWith(xml, 'two')
+      const pieces = [...para.matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map((m) => m[1])
+      expect(pieces).toEqual(['• ', 'one', '', 'two'])
+      expect([...para.matchAll(/<w:br\/>/g)]).toHaveLength(1)
+    })
+  })
+
+  describe('section headings', () => {
+    it('shouts the label and rules it off in the accent colour', async () => {
+      const xml = await xmlOf('<p>x</p>')
+      const heading = paraWith(xml, 'PROJECTS')
+      expect(heading).toContain('<w:b/>')
+      expect(heading).toContain(deriveTokens(DEFAULT_VIEW_STYLE).accentHex)
+      expect(heading).toMatch(/<w:bottom /)
+    })
+
+    it('replaces a hidden heading with a SPACER, not with nothing', async () => {
+      // Dropping it entirely butts the section straight against the previous
+      // one; the spacer keeps the rhythm.
+      const xml = await xmlOf('<p>x</p>', { hide_heading: true })
+      expect(xml).not.toContain('PROJECTS')
+      const firstBody = paraWith(xml, 'Acme')
+      expect(xml.indexOf('<w:p') ).toBeLessThan(xml.indexOf(firstBody))
+    })
+  })
+
+  describe('the summary short-description placement', () => {
+    const shortStore = () => {
+      const s = emptyStore()
+      s.resume = makeResume({ full_name: 'X' })
+      s.projects = [makeProject({
+        id: 'p1', customer: { en: 'Acme' }, description: { en: 'Payments' },
+        short_description: { en: 'One line.' },
+      })]
+      return s
+    }
+    const summaryXml = async (style: Record<string, unknown>) => {
+      await exportDocx(shortStore(), makeView({
+        sections: [{ key: 'projects', detail: 'summary', sort_order: 0, style } as never],
+      }), 'en')
+      return documentXml(lastBlob!)
+    }
+
+    it('folds the short description INTO the line when asked inline', async () => {
+      const xml = await summaryXml({ short_desc_line: 'inline' })
+      expect(paraWith(xml, 'One line.')).toContain('Acme')
+    })
+
+    it('puts it on its own line otherwise', async () => {
+      const xml = await summaryXml({ short_desc_line: 'below' })
+      expect(paraWith(xml, 'One line.')).not.toContain('Acme')
+    })
+
+    it('emits no short line at all when there is no short description', async () => {
+      const s = shortStore()
+      s.projects[0].short_description = {}
+      await exportDocx(s, makeView({
+        sections: [{ key: 'projects', detail: 'summary', sort_order: 0 } as never],
+      }), 'en')
+      expect(await documentXml(lastBlob!)).not.toContain('One line.')
+    })
+  })
+
+  describe('key points', () => {
+    const pointsXml = async (points: Array<{ label?: Record<string, string>; body: Record<string, string> }>) => {
+      const s = emptyStore()
+      s.resume = makeResume({ full_name: 'X' })
+      s.key_qualifications = [makeKQ({
+        id: 'kq1', summary: { en: 'Summary.' },
+        key_points: points.map((p, i) => ({
+          id: `kp${i}`, name: p.label ?? {}, long_description: p.body, sort_order: i, disabled: false,
+        })) as never,
+      })]
+      await exportDocx(s, makeView({
+        sections: [{ key: 'key_qualifications', detail: 'full', sort_order: 0 } as never],
+      }), 'en')
+      return documentXml(lastBlob!)
+    }
+
+    it('bullets a labelled point and separates the label with a dash', async () => {
+      const xml = await pointsXml([{ label: { en: 'Cloud' }, body: { en: 'Ran it.' } }])
+      expect(xml).toContain('• Cloud')
+      expect(xml).toContain(' — ')
+      expect(xml).toContain('Ran it.')
+    })
+
+    it('bullets an unlabelled point without a dash', async () => {
+      const xml = await pointsXml([{ body: { en: 'Ran it.' } }])
+      expect(xml).toContain('•')
+      expect(xml).not.toContain(' — ')
+    })
+
+    it('joins a multi-paragraph point onto one line with a space', async () => {
+      const xml = await pointsXml([{ body: { en: 'First.\n\nSecond.' } }])
+      const pieces = [...paraWith(xml, 'First.').matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)]
+        .map((m) => m[1])
+      // A separator run stands between the halves — without it they render as
+      // "First.Second." on one line.
+      expect(pieces).toContain('First.')
+      expect(pieces).toContain('Second.')
+      expect(pieces.slice(pieces.indexOf('First.'), pieces.indexOf('Second.'))).toContain(' ')
+    })
+  })
+
+  it('labels a tag list when the descriptor supplies one, and omits it otherwise', async () => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    s.skills = [makeSkill({ id: 'go', name: { en: 'Go' } })]
+    s.projects = [makeProject({
+      id: 'p1', customer: { en: 'Acme' },
+      skills: [{ id: 'ps1', skill_id: 'go', name: { en: 'Go' }, duration_in_years: 0, offset_in_years: 0, total_duration_in_years: 0, sort_order: 0 }],
+    })]
+    await exportDocx(s, makeView({
+      sections: [{ key: 'projects', detail: 'full', sort_order: 0 } as never],
+    }), 'en')
+    expect(await documentXml(lastBlob!)).toContain('Go')
+  })
+
+  it('aligns a logo banner by its placement', async () => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X', company_logo: PNG_1x1 })
+    for (const [placement, want] of [['right', 'right'], ['center', 'center']] as const) {
+      await exportDocx(s, makeView({
+        sections: buildViewSections(),
+        header: withHeaderDefaults({ logo_placement: placement }),
+      }), 'en')
+      expect(await documentXml(lastBlob!), placement).toContain(`w:val="${want}"`)
+    }
+  })
+})
