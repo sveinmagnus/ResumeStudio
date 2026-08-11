@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { emptyStore, makeEducation, makeProject, makeSkill, makeView } from './fixtures'
+import { emptyStore, makeEducation, makeProject, makeSkill, makeView, makeCoverLetter, makeResume,
+} from './fixtures'
 import type { CoverLetter, ResumeStore } from '../src/types'
 import {
   buildJobFitPrompt, validateJobFit, fitTally, hasPosting, InvalidJobFitError,
@@ -388,5 +389,99 @@ describe('letter critique — the remaining branches', () => {
   it('rejects a reply with neither an overall read nor a note', () => {
     // Not a clean bill — an empty response.
     expect(() => validateLetterCritique({ notes: [] })).toThrow(InvalidLetterAdviceError)
+  })
+})
+
+/**
+ * B5's gate and its prompt inputs.
+ *
+ * hasLetterContext decides whether the Run button works at all. Too strict and a
+ * usable letter cannot be drafted; too loose and the model is asked to write from
+ * nothing, which is exactly when it invents an employer.
+ */
+describe('letterAdvice — the run gate and prompt inputs', () => {
+  const letter = (over: Record<string, unknown> = {}) => makeCoverLetter(over as never)
+
+  it('needs a posting of real length, measured AFTER trimming', () => {
+    const short = 'a'.repeat(40)
+    expect(hasLetterContext(letter({ posting: short }))).toBe(false)
+    expect(hasLetterContext(letter({ posting: `${short}b` }))).toBe(true)
+    // Padding is not content.
+    expect(hasLetterContext(letter({ posting: `${'a'.repeat(30)}${' '.repeat(60)}` }))).toBe(false)
+  })
+
+  it('accepts a stated ROLE even with no posting', () => {
+    // A consultant who knows the job title can still get angles worth reading.
+    expect(hasLetterContext(letter({ posting: '', role_applied: { en: 'Lead Architect' } }))).toBe(true)
+  })
+
+  it('does not accept a whitespace-only role', () => {
+    expect(hasLetterContext(letter({ posting: '', role_applied: { en: '   ' } }))).toBe(false)
+  })
+
+  it('accepts a role stated in ANY locale', () => {
+    expect(hasLetterContext(letter({ posting: '', role_applied: { no: 'Løsningsarkitekt' } }))).toBe(true)
+  })
+
+  it('refuses when there is neither', () => {
+    expect(hasLetterContext(letter({ posting: '', role_applied: {} }))).toBe(false)
+  })
+
+  describe('the angles prompt', () => {
+    const store = () => {
+      const s = emptyStore()
+      s.resume = makeResume({ full_name: 'Kari Nordmann' })
+      return s
+    }
+
+    it('names the applicant, and says so explicitly when unnamed', () => {
+      // The model addresses the letter; an empty name would produce 'APPLICANT: '
+      // and an invented signature.
+      expect(buildLetterAnglesPrompt(store(), letter({ role_applied: { en: 'Architect' } }), 'en'))
+        .toContain('Kari Nordmann')
+      const anon = store()
+      anon.resume = makeResume({ full_name: '   ' })
+      expect(buildLetterAnglesPrompt(anon, letter({ role_applied: { en: 'Architect' } }), 'en'))
+        .toMatch(/APPLICANT: \(unnamed\)/)
+    })
+
+    it('trims the company and role it states', () => {
+      const p = buildLetterAnglesPrompt(store(), letter({
+        company: { en: '  Equinor  ' }, role_applied: { en: '  Architect  ' },
+      }), 'en')
+      expect(p).toContain('Equinor')
+      expect(p).not.toContain('  Equinor')
+    })
+  })
+
+  describe('the critique prompt', () => {
+    it('carries the body for the locale being reviewed', () => {
+      const s = emptyStore()
+      s.resume = makeResume({ full_name: 'Kari' })
+      const l = makeCoverLetter({ body: { en: 'English body.', no: 'Norsk tekst.' } } as never)
+      expect(buildLetterCritiquePrompt(s, l, 'no')).toContain('Norsk tekst.')
+      expect(buildLetterCritiquePrompt(s, l, 'no')).not.toContain('English body.')
+    })
+
+    it('reads the body slot RAW, without falling back to another locale', () => {
+      // A critique of the English text presented as a review of the Norwegian
+      // one would report problems that are not in the letter being read.
+      const s = emptyStore()
+      s.resume = makeResume({ full_name: 'Kari' })
+      const l = makeCoverLetter({ body: { en: 'English body.' } } as never)
+      expect(buildLetterCritiquePrompt(s, l, 'no')).not.toContain('English body.')
+    })
+  })
+
+  it('numbers unnamed angles from 1', () => {
+    const angles = validateLetterAngles({
+      angles: [{ body: 'First letter.' }, { body: 'Second letter.' }],
+    })
+    expect(angles.map((a) => a.name)).toEqual(['Option 1', 'Option 2'])
+  })
+
+  it('keeps a label the model supplied', () => {
+    expect(validateLetterAngles({ angles: [{ name: 'The turnaround', body: 'x' }] })[0].name)
+      .toBe('The turnaround')
   })
 })
