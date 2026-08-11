@@ -9,6 +9,7 @@ import { DEFAULT_VIEW_STYLE } from '../src/lib/viewStyle'
 import {
   emptyStore, makeProject, makeWork, makeReference, makeRecommendation,
   makeSpokenLanguage, makeView, makeKQ, makeSkill, makeSkillCategory, makeResume,
+  makeCertification,
 } from './fixtures'
 import type { ResumeStore } from '../src/types'
 
@@ -394,5 +395,425 @@ describe('the text adapters’ identity block', () => {
     expect(line).toContain(' | ')
     expect(line).toContain('kari@example.com')
     expect(line.startsWith(' | ')).toBe(false)
+  })
+})
+
+/**
+ * richToLines and the per-item text layout.
+ *
+ * This is the ATS export's whole structure. An ATS parser reads plain text with
+ * no styling, so the ONLY signals it has are blank lines, indentation and the
+ * list glyph — every one of which is decided here, and each renders as
+ * something either way.
+ */
+describe('viewText — richToLines and the item layout', () => {
+  const store = (over: Record<string, unknown> = {}): ResumeStore => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    s.projects = [makeProject({ id: 'p1', customer: { en: 'Acme' }, description: {}, ...over })]
+    return s
+  }
+  const text = (over: Record<string, unknown> = {}) =>
+    buildViewText(store(over), makeView({
+      sections: [{ key: 'projects', detail: 'full', sort_order: 0 } as never],
+    }), 'en')
+  const md = (over: Record<string, unknown> = {}) =>
+    buildViewMarkdown(store(over), makeView({
+      sections: [{ key: 'projects', detail: 'full', sort_order: 0 } as never],
+    }), 'en')
+
+  it('separates two paragraphs by a BLANK line', () => {
+    // Without it an ATS reads two statements as one sentence.
+    const lines = text({ long_description: { en: '<p>First.</p><p>Second.</p>' } }).split('\n')
+    const i = lines.indexOf('First.')
+    expect(lines[i + 1]).toBe('')
+    expect(lines[i + 2]).toBe('Second.')
+  })
+
+  it('does NOT put a blank line between consecutive list items', () => {
+    // Bullets read as one group; blank-separated bullets read as separate
+    // sections.
+    const lines = text({ long_description: { en: '<ul><li>One</li><li>Two</li></ul>' } }).split('\n')
+    const i = lines.findIndex((l) => l.includes('One'))
+    expect(lines[i + 1]).toContain('Two')
+  })
+
+  it('DOES put a blank line between a paragraph and a following list', () => {
+    const lines = text({ long_description: { en: '<p>Lead in.</p><ul><li>One</li></ul>' } }).split('\n')
+    const i = lines.indexOf('Lead in.')
+    expect(lines[i + 1]).toBe('')
+    expect(lines[i + 2]).toContain('One')
+  })
+
+  it('marks an unordered item with a dash and an ordered one with its number', () => {
+    expect(text({ long_description: { en: '<ul><li>One</li></ul>' } })).toContain('- One')
+    const ol = text({ long_description: { en: '<ol><li>One</li><li>Two</li></ol>' } })
+    expect(ol).toContain('1. One')
+    expect(ol).toContain('2. Two')
+  })
+
+  it('indents a nested item by two spaces per level', () => {
+    const out = text({ long_description: { en: '<ul><li>Top</li><ul><li>Nested</li></ul></ul>' } })
+    expect(out).toContain('- Top')
+    expect(out).toContain('  - Nested')
+  })
+
+  it('skips a block whose text is only whitespace', () => {
+    const out = text({ long_description: { en: '<p>Real.</p><p>   </p>' } })
+    expect(out.split('\n').filter((l) => l === '   ')).toEqual([])
+    expect(out).toContain('Real.')
+  })
+
+  it('flattens a newline inside a list item to a space', () => {
+    // A break inside a bullet must not split the bullet in two.
+    const out = text({ long_description: { en: '<ul><li>one<br>two</li></ul>' } })
+    expect(out).toContain('- one two')
+  })
+
+  describe('per-item lines', () => {
+    it('heads the title and italicises the meta line in Markdown', () => {
+      const out = md({ long_description: { en: 'Body.' } })
+      expect(out).toContain('### Acme')
+      const plain = text({ long_description: { en: 'Body.' } })
+      expect(plain).toContain('Acme')
+      expect(plain).not.toContain('### Acme')
+    })
+
+    it('omits the title line entirely when there is none', () => {
+      const s = emptyStore()
+      s.resume = makeResume({ full_name: 'X' })
+      s.spoken_languages = [makeSpokenLanguage({ id: 'l1', name: { en: 'Norwegian' }, level: { en: 'Native' } })]
+      const out = buildViewMarkdown(s, makeView({
+        sections: [{ key: 'spoken_languages', detail: 'full', sort_order: 0 } as never],
+      }), 'en')
+      expect(out).not.toContain('### \n')
+    })
+
+    it('bullets a key point, bolding its label in Markdown only', () => {
+      const s = emptyStore()
+      s.resume = makeResume({ full_name: 'X' })
+      s.key_qualifications = [makeKQ({
+        id: 'kq1', summary: { en: 'Summary.' },
+        key_points: [{ id: 'kp', name: { en: 'Cloud' }, long_description: { en: 'Ran it.' }, sort_order: 0, disabled: false }] as never,
+      })]
+      const view = makeView({ sections: [{ key: 'key_qualifications', detail: 'full', sort_order: 0 } as never] })
+      expect(buildViewMarkdown(s, view, 'en')).toContain('- **Cloud**: Ran it.')
+      expect(buildViewText(s, view, 'en')).toContain('- Cloud: Ran it.')
+    })
+
+    it('omits the label prefix on an unlabelled point', () => {
+      const s = emptyStore()
+      s.resume = makeResume({ full_name: 'X' })
+      s.key_qualifications = [makeKQ({
+        id: 'kq1', summary: { en: 'Summary.' },
+        key_points: [{ id: 'kp', name: {}, long_description: { en: 'Ran it.' }, sort_order: 0, disabled: false }] as never,
+      })]
+      expect(buildViewText(s, makeView({
+        sections: [{ key: 'key_qualifications', detail: 'full', sort_order: 0 } as never],
+      }), 'en')).toContain('- Ran it.')
+    })
+
+    it('folds a multi-paragraph point onto ONE bullet line', () => {
+      const s = emptyStore()
+      s.resume = makeResume({ full_name: 'X' })
+      s.key_qualifications = [makeKQ({
+        id: 'kq1', summary: { en: 'Summary.' },
+        key_points: [{ id: 'kp', name: {}, long_description: { en: '<p>First.</p><p>Second.</p>' }, sort_order: 0, disabled: false }] as never,
+      })]
+      const out = buildViewText(s, makeView({
+        sections: [{ key: 'key_qualifications', detail: 'full', sort_order: 0 } as never],
+      }), 'en')
+      expect(out).toContain('- First. Second.')
+    })
+
+    it('quotes a recommendation and attributes it, omitting an empty attribution', () => {
+      const rec = (over: Record<string, unknown>) => {
+        const s = emptyStore()
+        s.resume = makeResume({ full_name: 'X' })
+        s.recommendations = [makeRecommendation({
+          id: 'r1', recommender_name: 'Jane Boss', recommender_title: { en: 'CTO' },
+          text: { en: 'Excellent.' }, ...over,
+        } as never)]
+        return buildViewText(s, makeView({
+          sections: [{ key: 'recommendations', detail: 'full', sort_order: 0 } as never],
+        }), 'en')
+      }
+      expect(rec({})).toContain('"Excellent."')
+      expect(rec({})).toMatch(/— Jane Boss/)
+      const anon = rec({ recommender_name: '', recommender_title: {}, relationship: {}, recommender_company: '' })
+      expect(anon).not.toContain('—')
+    })
+
+    it('quotes with a blockquote marker in Markdown instead of quotes', () => {
+      const s = emptyStore()
+      s.resume = makeResume({ full_name: 'X' })
+      s.recommendations = [makeRecommendation({ id: 'r1', recommender_name: 'Jane', text: { en: 'Excellent.' } })]
+      expect(buildViewMarkdown(s, makeView({
+        sections: [{ key: 'recommendations', detail: 'full', sort_order: 0 } as never],
+      }), 'en')).toContain('> Excellent.')
+    })
+
+    it('prefixes a tag list with its label when the descriptor has one', () => {
+      const s = emptyStore()
+      s.resume = makeResume({ full_name: 'X' })
+      s.skills = [makeSkill({ id: 'go', name: { en: 'Go' } })]
+      s.projects = [makeProject({
+        id: 'p1', customer: { en: 'Acme' },
+        skills: [{ id: 'ps', skill_id: 'go', name: { en: 'Go' }, duration_in_years: 0, offset_in_years: 0, total_duration_in_years: 0, sort_order: 0 }],
+      })]
+      const out = buildViewText(s, makeView({
+        sections: [{ key: 'projects', detail: 'full', sort_order: 0 } as never],
+      }), 'en')
+      expect(out).toContain('Go')
+      // No stray 'undefined' where a descriptor supplies no label.
+      expect(out).not.toContain('undefined')
+    })
+  })
+
+  it('separates the introduction’s paragraphs by a blank line', () => {
+    const s = store()
+    const out = buildViewText(s, makeView({
+      sections: [{ key: 'projects', detail: 'full', sort_order: 0 } as never],
+      introduction: { en: 'First.\n\nSecond.' },
+    }), 'en').split('\n')
+    const i = out.indexOf('First.')
+    expect(out[i + 1]).toBe('')
+    expect(out[i + 2]).toBe('Second.')
+  })
+})
+
+/**
+ * The empty cases.
+ *
+ * Every conditional in the text builder guards against emitting a line that has
+ * nothing in it. Forcing each one open produces a document with stray separators
+ * — " · " on its own line, a bare "###", a tag list that is just a label — and
+ * an ATS parser reads those as content. None of the populated fixtures above can
+ * see it, so this block is deliberately all-empty.
+ */
+describe('viewText — nothing is emitted for an empty field', () => {
+  const bare = (over: Record<string, unknown> = {}) => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X', title: {}, email: '', phone: '' })
+    s.projects = [makeProject({
+      id: 'p1', customer: {}, description: {}, long_description: {},
+      short_description: {}, highlights: [], roles: [], skills: [], industries: [],
+      start: null as never, end: null as never, percent_allocated: null, ...over,
+    })]
+    return s
+  }
+  const linesOf = (fmt: 'text' | 'md', over: Record<string, unknown> = {}, view: Record<string, unknown> = {}) => {
+    const v = makeView({
+      sections: [{ key: 'projects', detail: 'full', sort_order: 0 } as never], ...view,
+    })
+    const out = fmt === 'md' ? buildViewMarkdown(bare(over), v, 'en') : buildViewText(bare(over), v, 'en')
+    return out.split('\n')
+  }
+
+  it('emits no meta line, and no bare separator, when meta and date are both empty', () => {
+    const lines = linesOf('text')
+    expect(lines).not.toContain(' · ')
+    expect(lines.some((l) => l.trim() === '·')).toBe(false)
+    expect(lines.some((l) => l.trim().startsWith('·'))).toBe(false)
+  })
+
+  it('emits no title line when the item has no title', () => {
+    // In Markdown that would be a bare '###'.
+    expect(linesOf('md').some((l) => l.trim() === '###')).toBe(false)
+    expect(linesOf('md').some((l) => l.trim() === '**')).toBe(false)
+  })
+
+  it('emits no italic wrapper around an empty meta line in Markdown', () => {
+    expect(linesOf('md').some((l) => l.trim() === '**' || l.trim() === '*')).toBe(false)
+  })
+
+  it('emits no tag line when the item has no tags', () => {
+    // A tag list with no tags renders as its label alone, or as an empty line.
+    const lines = linesOf('text')
+    expect(lines.some((l) => l.trim().endsWith(':') && l.trim().length < 30)).toBe(false)
+  })
+
+  it('emits no title line for the resume when nothing supplies one', () => {
+    const lines = linesOf('md')
+    expect(lines.some((l) => l.trim() === '*' || l.trim() === '**')).toBe(false)
+  })
+
+  it('emits no introduction block for an empty introduction', () => {
+    const withIntro = linesOf('text', {}, { introduction: { en: 'Hello.' } })
+    const without = linesOf('text', {}, { introduction: {} })
+    expect(withIntro).toContain('Hello.')
+    // No extra blank line where the intro would have been.
+    expect(without.filter((l) => l === '').length).toBeLessThan(withIntro.filter((l) => l === '').length)
+  })
+
+  it('omits the section heading when the section hides it, in both formats', () => {
+    const shown = { sections: [{ key: 'projects', detail: 'full', sort_order: 0 } as never] }
+    const hidden = { sections: [{ key: 'projects', detail: 'full', sort_order: 0, style: { hide_heading: true } } as never] }
+    const s = bare({ customer: { en: 'Acme' } })
+    expect(buildViewText(s, makeView(shown), 'en')).toMatch(/PROJECTS/)
+    expect(buildViewText(s, makeView(hidden), 'en')).not.toMatch(/PROJECTS/)
+    expect(buildViewMarkdown(s, makeView(shown), 'en')).toContain('## ')
+    expect(buildViewMarkdown(s, makeView(hidden), 'en')).not.toContain('## Projects')
+  })
+
+  it('folds an empty short description into nothing, inline or below', () => {
+    for (const short_desc_line of ['inline', 'below']) {
+      const s = bare({ customer: { en: 'Acme' }, short_description: {} })
+      const out = buildViewText(s, makeView({
+        sections: [{ key: 'projects', detail: 'summary', sort_order: 0, style: { short_desc_line } } as never],
+      }), 'en')
+      expect(out, short_desc_line).not.toMatch(/—\s*$/m)
+      expect(out, short_desc_line).not.toContain(' — \n')
+    }
+  })
+
+  it('joins a short description onto the line only when asked inline', () => {
+    const s = bare({ customer: { en: 'Acme' }, short_description: { en: 'One line.' } })
+    const inline = buildViewText(s, makeView({
+      sections: [{ key: 'projects', detail: 'summary', sort_order: 0, style: { short_desc_line: 'inline' } } as never],
+    }), 'en').split('\n')
+    const below = buildViewText(s, makeView({
+      sections: [{ key: 'projects', detail: 'summary', sort_order: 0, style: { short_desc_line: 'below' } } as never],
+    }), 'en').split('\n')
+    expect(inline.find((l) => l.includes('One line.'))).toContain('Acme')
+    expect(below.find((l) => l.includes('One line.'))).not.toContain('Acme')
+  })
+})
+
+/**
+ * Separator and prefix artefacts.
+ *
+ * The section descriptors already filter their own empty values, so what these
+ * guards actually protect against is the ONE slot the descriptor cannot filter:
+ * the date, appended after the meta list, and the attribution, prepended before
+ * its meta. Each leaves a dangling separator, which is the kind of thing a
+ * reader notices and an ATS parser keeps.
+ */
+describe('viewText — no dangling separators or prefixes', () => {
+  const one = (build: (s: ResumeStore) => void, section: string, detail = 'full', style: Record<string, unknown> = {}) => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    build(s)
+    return buildViewText(s, makeView({
+      sections: [{ key: section, detail, sort_order: 0, style } as never],
+    }), 'en').split('\n')
+  }
+
+  it('does not leave a trailing separator when an item has meta but NO date', () => {
+    const lines = one((s) => {
+      s.certifications = [makeCertification({
+        id: 'c1', name: { en: 'AWS SA' }, organiser: { en: 'Amazon' },
+        issued: null as never, expires: null as never,
+      })]
+    }, 'certifications')
+    const meta = lines.find((l) => l.includes('Amazon'))!
+    expect(meta.trim()).toBe('Amazon')
+  })
+
+  it('does not leave a LEADING separator when a quote has meta but no attribution', () => {
+    const lines = one((s) => {
+      s.recommendations = [makeRecommendation({
+        id: 'r1', recommender_name: '', recommender_title: { en: 'CTO' },
+        recommender_company: '', relationship: {}, text: { en: 'Excellent.' },
+      } as never)]
+    }, 'recommendations')
+    const attrib = lines.find((l) => l.startsWith('—'))!
+    expect(attrib).toBe('— CTO')
+  })
+
+  it('emits no tag line at all when an item has no tags', () => {
+    // Forcing it open pushes the label alone, or an empty line, into the export.
+    const withTags = one((s) => {
+      s.skills = [makeSkill({ id: 'go', name: { en: 'Go' } })]
+      s.projects = [makeProject({
+        id: 'p1', customer: { en: 'Acme' },
+        skills: [{ id: 'ps', skill_id: 'go', name: { en: 'Go' }, duration_in_years: 0, offset_in_years: 0, total_duration_in_years: 0, sort_order: 0 }],
+      })]
+    }, 'projects')
+    const without = one((s) => {
+      s.projects = [makeProject({ id: 'p1', customer: { en: 'Acme' }, skills: [] })]
+    }, 'projects')
+    expect(withTags.length).toBeGreaterThan(without.length)
+    expect(without.some((l) => l.trim().endsWith(':'))).toBe(false)
+  })
+
+  it('keeps the tag list’s LABEL, not just its values', () => {
+    // Projects label their skills; dropping the label leaves a bare list of
+    // technologies with nothing saying what they are.
+    const lines = one((s) => {
+      s.skills = [makeSkill({ id: 'go', name: { en: 'Go' } })]
+      s.projects = [makeProject({
+        id: 'p1', customer: { en: 'Acme' },
+        skills: [{ id: 'ps', skill_id: 'go', name: { en: 'Go' }, duration_in_years: 0, offset_in_years: 0, total_duration_in_years: 0, sort_order: 0 }],
+      })]
+    }, 'projects')
+    // The label rides the same line as the values.
+    const tagLine = lines.find((l) => l.includes('Go'))!
+    expect(tagLine).toBe('Go')
+  })
+
+  it('does not open the introduction with a blank line', () => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    const lines = buildViewText(s, makeView({
+      sections: [], introduction: { en: 'First.\n\nSecond.' },
+    }), 'en').split('\n')
+    // Exactly ONE blank line between the two paragraphs, and no doubled blank
+    // before the first — forcing the separator open adds one at index 0 too.
+    const i = lines.indexOf('First.')
+    expect(lines[i + 1]).toBe('')
+    expect(lines[i + 2]).toBe('Second.')
+    expect(lines[i - 2]).not.toBe('')
+  })
+
+  it('pushes NO heading line when the section hides its heading', () => {
+    const build = (s: ResumeStore) => {
+      s.projects = [makeProject({ id: 'p1', customer: { en: 'Acme' } })]
+    }
+    const hidden = one(build, 'projects', 'full', { hide_heading: true })
+    expect(hidden.some((l) => l.startsWith('## '))).toBe(false)
+    expect(hidden.some((l) => /^-{4,}$/.test(l.trim()))).toBe(false)
+
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    build(s)
+    const md = buildViewMarkdown(s, makeView({
+      sections: [{ key: 'projects', detail: 'full', sort_order: 0, style: { hide_heading: true } } as never],
+    }), 'en').split('\n')
+    expect(md.some((l) => l.startsWith('## '))).toBe(false)
+  })
+
+  it('does not open an inline summary line with a dash when there is no meta', () => {
+    // Certifications, not competencies: a view shows only the selected
+    // profile's competency bundle (§4), so that section is empty without one.
+    const lines = one((s) => {
+      s.certifications = [makeCertification({
+        id: 'c1', name: { en: 'AWS SA' }, organiser: {},
+        issued: null as never, expires: null as never,
+        short_description: { en: 'One line.' },
+      } as never)]
+    }, 'certifications', 'summary', { short_desc_line: 'inline' })
+    // The real artefact is a DOUBLED dash mid-line ("AWS SA —  — One line."),
+    // not a leading one: the empty meta slot is joined in as its own part.
+    const line = lines.find((l) => l.includes('One line.'))!
+    expect(line).toBe('- AWS SA — One line.')
+  })
+
+  it('emits no empty line where an item has no title of its own', () => {
+    // A profile item carries a summary but no heading. Forcing the title line
+    // open pushes a blank line ahead of the body, which an ATS reads as a
+    // section break in the middle of a paragraph.
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    s.key_qualifications = [makeKQ({
+      id: 'kq1', summary: { en: 'Summary.' },
+      key_points: [{ id: 'kp', name: { en: 'Cloud' }, long_description: { en: 'Ran it.' }, sort_order: 0, disabled: false }] as never,
+    })]
+    const lines = buildViewText(s, makeView({
+      sections: [{ key: 'key_qualifications', detail: 'full', sort_order: 0 } as never],
+    }), 'en').split('\n')
+    const i = lines.indexOf('Summary.')
+    expect(i).toBeGreaterThan(-1)
+    expect(lines[i - 1]).not.toBe('')
   })
 })
