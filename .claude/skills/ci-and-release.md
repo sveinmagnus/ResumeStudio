@@ -15,12 +15,13 @@ build & release invariants), and the `software-testing` skill (the local gate).
 
 | Job | Steps | Local equivalent |
 |---|---|---|
-| **verify** | `npm ci` → `npm run typecheck` → `npm test` → `npm run build` | the §11 gate, in order |
-| **e2e smoke** | build → `npx playwright install --with-deps chromium` → `npx playwright test` | `npm run test:e2e` |
+| **verify** | `npm ci` → `npm run lint` → `npm run check:text` → `npm run typecheck` → `npm test` → `npm run build` → `npm run check:bundle` | the §11 gate, in order |
+| **coverage** | `npm run test:coverage` (thresholds in `vite.config.ts`) | `npm run test:coverage` |
+| **e2e smoke** | build → `npx playwright install --with-deps chromium firefox webkit` → `npx playwright test` | `npm run test:e2e` |
 | **depcheck** (advisory, `continue-on-error`) | `npx depcheck@1.4.7` | `npx depcheck@1.4.7` |
 
 **Triage order = the gate order** (each catches what the previous misses):
-typecheck → test → build → e2e. Reproduce locally with the *same* command the
+lint → typecheck → test → build → e2e. Reproduce locally with the *same* command the
 job ran before touching anything — CI failures here are almost always real, not
 environmental (the harness noise in `software-testing` §6 is about *local* runs).
 
@@ -29,11 +30,14 @@ environmental (the harness noise in `software-testing` §6 is about *local* runs
   `tsc` can't: missing third-party exports, broken dynamic imports, lazy-chunk
   regressions (see the `export-pipeline` skill — `exporter`/`pdfmake` must stay
   split chunks).
-- **e2e red** → it boots the REAL prod server (`e2e/smoke.spec.ts`). Failure
-  artifacts: the job uploads `test-results/` as `playwright-traces` on failure
-  (7-day retention) — open the trace before guessing. Keep this suite thin
-  (happy paths only); a flaky assertion here is usually a missing readiness
-  wait, not a product bug (`software-testing` §5).
+- **e2e red** → it boots the REAL prod server (`e2e/smoke.spec.ts`) on all three
+  engines. Failure artifacts: the job uploads `test-results/` as
+  `playwright-traces` on failure (7-day retention) — open the trace before
+  guessing. Keep this suite thin (happy paths only); a flaky assertion here is
+  usually a missing readiness wait, not a product bug (`software-testing` §5).
+  Which engines fail is itself the diagnosis: **all three** is a product bug,
+  **firefox only, locally, on Windows** is the browsers-path trap documented in
+  `playwright.config.ts` (not the app).
 - **depcheck red does NOT block merge** — it's advisory (`continue-on-error`,
   `|| true`), surfaced in the job summary. It flags unused deps + phantom
   (undeclared) imports. Act on real findings; never "fix" CI by making it

@@ -31,16 +31,15 @@ export default defineConfig({
    * The same seven specs run on each: they are thin happy paths, so triple is
    * still under a minute and a half.
    *
-   * WINDOWS CAVEAT: Firefox is the only one of the three whose launcher
+   * WINDOWS: keep the browsers OUT of %LOCALAPPDATA% — set
+   * PLAYWRIGHT_BROWSERS_PATH to a plain path and install there. Firefox alone
    * resolves a private side-by-side assembly (`mozglue`), and SxS probing does
-   * not follow MSIX file-system redirection. A run started from inside a
-   * packaged app — where %LOCALAPPDATA% maps into the package's LocalCache —
-   * therefore dies at `browserType.launch: spawn UNKNOWN`, logging "Dependent
-   * Assembly mozglue could not be found"; the same binary launches from its
-   * un-redirected path. Point PLAYWRIGHT_BROWSERS_PATH outside AppData and
-   * reinstall. Do not read this as a Firefox or app fault, and do not "fix" it
-   * by dropping the project: Chromium and WebKit declare no private
-   * assemblies, so they pass while genuinely broken paths go unnoticed.
+   * not follow MSIX file-system redirection, so under a packaged app — whose
+   * %LOCALAPPDATA% maps into its own LocalCache — the launch dies at
+   * `spawn UNKNOWN` with "Dependent Assembly mozglue could not be found" while
+   * the identical binary runs from its un-redirected path. Chromium and WebKit
+   * declare no private assemblies and pass either way, so dropping the firefox
+   * project would hide that misconfiguration instead of fixing it.
    */
   projects: [
     { name: 'chromium', use: { ...devices['Desktop Chrome'] } },

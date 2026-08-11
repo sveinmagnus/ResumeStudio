@@ -129,6 +129,17 @@ Before filing something as a bug, rule out the harness. Common false alarms:
 - **Stale local/persisted state** — localStorage cache, a DB row from a prior
   manual `PUT`, a service worker. Clear it and retry.
 - **Pop-up blockers / permissions** for print/export/clipboard flows.
+- **A worktree's own `node_modules`** can lag `package-lock.json`. It survives
+  lint, typecheck and build, then fails at runtime — a stale pdfmake once left
+  the 0.3 font containers resolving to the parent install while the core
+  resolved to a 0.2 copy in the worktree, and the only symptom was
+  `addFontContainer is not a function` in the browser. `npm ci` there before
+  believing anything else.
+- **Only Firefox failing, only locally, only on Windows** is the
+  `PLAYWRIGHT_BROWSERS_PATH` trap (see `playwright.config.ts`), not a product
+  bug. Note the converse: a failure that reproduces on Chromium *and* WebKit is
+  not engine-specific no matter which engine reported it first — check a second
+  engine before theorising about the first.
 
 Conversely, **don't dismiss a real failure as "flaky."** If you can't explain
 *why* it's environmental, treat it as real until proven otherwise.
