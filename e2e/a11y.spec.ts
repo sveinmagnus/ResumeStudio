@@ -47,6 +47,19 @@ async function violationsOn(page: Page, opts: { excludeIframes?: boolean } = {})
   // Let pending work settle first: a half-rendered card measures as a
   // half-rendered card, and reports colours the finished page never shows.
   await page.waitForLoadState('networkidle')
+  // Then wait for the fade-ins to actually FINISH, rather than trusting the
+  // reduced-motion emulation to have collapsed them. It does on Chromium; on
+  // WebKit the cards were still fading when axe sampled them, and axe measures
+  // composited colour — so `--ink-faint` (#666D79) was read as #979ca4, #b0b3ba
+  // and #828283 on the same page, three points in one animation. Every one of
+  // those is a failure about a colour the app never finishes painting.
+  // Infinite animations (the async spinners) are excluded: they never finish,
+  // and waiting on one would hang instead of measuring.
+  await page.waitForFunction(() => {
+    return document.getAnimations()
+      .filter((a) => a.effect?.getTiming().iterations !== Infinity)
+      .every((a) => a.playState === 'finished' || a.playState === 'idle')
+  }, null, { timeout: 10_000 })
   let builder = new AxeBuilder({ page }).withTags(WCAG)
   if (opts.excludeIframes) builder = builder.exclude('iframe')
   const { violations } = await builder.analyze()
@@ -100,9 +113,24 @@ test('the Resume Views editor has no WCAG A/AA violations', async ({ page }) => 
  * break invisibly: it is visually hidden until focused, so a mouse user never
  * sees it and no screenshot shows it missing.
  */
-test('the skip link is the first tab stop and moves focus into the content', async ({ page }) => {
+test('the skip link is the first tab stop and moves focus into the content', async ({ page, browserName }) => {
+  /**
+   * Not applicable on WebKit, and this is a platform setting rather than an
+   * app defect. Safari ships with "Press Tab to highlight each item on a
+   * webpage" OFF, so Tab visits form controls and buttons only — never links.
+   * Measured rather than assumed: the first six Tab stops here are
+   * `button.rsw-trigger`, `button.lang-trigger`, `button.ah-settings`, … with
+   * no anchor among them, while Chromium's first stop is the skip link itself.
+   * The link is present and correct; a Safari user reaches it via Option+Tab or
+   * by enabling full keyboard access. Asserting Chromium's tab model on WebKit
+   * would only teach us to ignore a red suite.
+   */
+  test.skip(browserName === 'webkit', 'Safari does not Tab to links by default (platform setting)')
   await createResume(page)
-  await page.keyboard.press('Tab')
+  // Send the first Tab THROUGH the document rather than to the raw keyboard:
+  // otherwise the key can arrive before the page has keyboard focus, nothing
+  // is focused, and `:focus` matches nothing. Intermittent on Firefox.
+  await page.locator('body').press('Tab')
 
   const first = page.locator(':focus')
   await expect(first).toHaveText(/skip/i)
