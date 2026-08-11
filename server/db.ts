@@ -677,6 +677,29 @@ export const promoteFromResumes: RegistryStore['promoteFromResumes'] = (datas) =
 export const mergeRegistry: RegistryStore['mergeRegistry'] = (entries) => defaultDb().mergeRegistry(entries)
 
 /**
+ * Is this the failure of a DAMAGED database file, rather than an ordinary
+ * error?
+ *
+ * SQLite reports the whole class as plain `Error`, so the message is the only
+ * discriminator available. Pure and exported so the classification is testable
+ * without corrupting a file, and so the launcher can tell the one failure a
+ * user cannot act on ("something threw") from the one they can ("the file at
+ * this path is damaged; your data is in the sync folder").
+ *
+ * Deliberately narrow. A missing directory, a permissions problem or a locked
+ * file are NOT this: they are fixable in place and must keep their own errors.
+ */
+export function isCorruptDbError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message.toLowerCase() : ''
+  return (
+    message.includes('file is not a database') ||
+    message.includes('disk image is malformed') ||
+    message.includes('database corruption') ||
+    message.includes('malformed database schema')
+  )
+}
+
+/**
  * The shared singleton DB instance (same one the routes use). The desktop
  * launcher needs the real handle — not just the free-function wrappers — for
  * the boot-time restore, the backup scheduler, and `close()` on shutdown.

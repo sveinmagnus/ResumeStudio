@@ -381,6 +381,22 @@ your local network.
 
 - **Nothing opened in the browser.** The window/log prints the URL — open it
   manually. Pop-up/launch blockers can stop the auto-open.
+- **"The database is damaged" on startup (or the app doesn't appear at all).**
+  A bad shutdown, a failing disk, or a cloud client syncing `resume.db` itself
+  can leave the file unreadable. The app **refuses to start rather than
+  replacing it** — starting fresh would look identical to "the app deleted my
+  CVs" and would overwrite a file that may still be recoverable. It says so in
+  a popup and in `resume-studio.log` (§3), naming the file.
+
+  To recover: quit the app, rename `resume.db` (e.g. to `resume.db.damaged`) —
+  keep it, don't delete it — and start the app again. It creates an empty
+  database, and then:
+  - if you use a **sync folder**, your resumes come straight back from it (§5);
+  - otherwise use **Import** with your most recent backup.
+
+  Delete the damaged file only once you've confirmed your data is back. And if
+  a sync client is replicating the data folder itself, stop it: sync the
+  per-resume JSON files instead (§5 explains why).
 - **Where are the logs?** `resume-studio.log` in the data folder (§3).
 - **"Restore from folder" is greyed out.** No resume files exist in the sync
   folder yet — click **Back up now** on the first machine first (or let it run a

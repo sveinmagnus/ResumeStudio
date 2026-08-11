@@ -26,7 +26,7 @@
 import fs from 'fs'
 import path from 'path'
 import { createApp } from '../app.js'
-import { getDefaultDb, closeDefaultDb } from '../db.js'
+import { getDefaultDb, closeDefaultDb, isCorruptDbError } from '../db.js'
 import { resolvePaths } from '../config.js'
 import { loadOrInitSettings } from '../settings.js'
 import { scanBackupDir } from '../backupFiles.js'
@@ -112,7 +112,47 @@ async function main(): Promise<void> {
 
   // Build the singleton DB now (reads RESUME_DB_PATH we just set) so the boot
   // restore, the routes, and the scheduler all share one handle.
-  const db = getDefaultDb()
+  /**
+   * Open the database, and explain the one failure the user can actually act
+   * on instead of dying with a stack trace.
+   *
+   * A damaged file makes `node:sqlite` throw "file is not a database" / "disk
+   * image is malformed" right here, before anything is on screen. The generic
+   * handler at the bottom of this file prints that and exits — which is fine
+   * from the .cmd launcher, and INVISIBLE from the windowless .vbs one, where
+   * the app simply never appears and the user has no idea why.
+   *
+   * So: name the file, say the data is not overwritten, point at the sync
+   * folder, and pop a native dialog so the windowless path is not silent. We
+   * deliberately do NOT rename or recreate the database — the damaged file may
+   * still be recoverable, and destroying it to get a clean boot would trade a
+   * confusing start for permanent data loss.
+   */
+  let db
+  try {
+    db = getDefaultDb()
+  } catch (err) {
+    if (!isCorruptDbError(err)) throw err
+    const detail = (err as Error).message
+    log('')
+    log('  ERROR: the resume database is damaged and cannot be opened.')
+    log(`    file   : ${paths.dbPath}`)
+    log(`    reason : ${detail}`)
+    log('    Your data has NOT been changed or deleted, and this file is left as-is.')
+    log(backupDir
+      ? `    Recovery: your resumes are also in the sync folder (${backupDir}). Move the damaged file aside and restart to rebuild from it.`
+      : '    Recovery: move the damaged file aside and restart, then import your most recent backup.')
+    log('')
+    notify(
+      'Resume Studio could not start',
+      `The database at ${paths.dbPath} is damaged. It has been left untouched — see the log for how to recover.`,
+      log,
+    )
+    logStream.end(() => process.exit(1))
+    // Keep the process alive briefly so the log flush and the popup survive.
+    await new Promise((resolve) => setTimeout(resolve, 3000))
+    return
+  }
 
   // ── Boot restore: pull newer edits from the sync folder ──────────────────
   // Non-destructive merge (newest-wins per resume) — safe to run every launch.
