@@ -492,3 +492,95 @@ describe('threeWayMerge — how a conflicting value is shown', () => {
   })
 })
 
+
+/**
+ * deepEqual and the add/remove asymmetry.
+ *
+ * deepEqual decides whether a value CHANGED. A false positive means an edit is
+ * silently discarded; a false negative means the user is asked about something
+ * they did not touch. Both are worse than a merge conflict, because neither is
+ * visible.
+ */
+describe('threeWayMerge — deepEqual', () => {
+  it('is false for values of different types that look alike', () => {
+    // '1' and 1 stringify the same but are not the same edit.
+    expect(deepEqual(1, '1')).toBe(false)
+    expect(deepEqual(true, 'true')).toBe(false)
+    expect(deepEqual(0, false)).toBe(false)
+  })
+
+  it('treats null and undefined as distinct from a value, and from each other', () => {
+    expect(deepEqual(null, undefined)).toBe(false)
+    expect(deepEqual(null, '')).toBe(false)
+    expect(deepEqual(undefined, 0)).toBe(false)
+    expect(deepEqual(null, null)).toBe(true)
+  })
+
+  it('compares arrays by length AND by element', () => {
+    expect(deepEqual([1, 2], [1, 2])).toBe(true)
+    expect(deepEqual([1, 2], [1, 2, 3])).toBe(false)
+    expect(deepEqual([1, 2], [2, 1])).toBe(false)
+  })
+
+  it('is false when only ONE side is an array', () => {
+    expect(deepEqual([1], 1)).toBe(false)
+    expect(deepEqual({ 0: 1 }, [1])).toBe(false)
+  })
+
+  it('compares plain objects by their keys and values', () => {
+    expect(deepEqual({ en: 'a' }, { en: 'a' })).toBe(true)
+    expect(deepEqual({ en: 'a' }, { en: 'b' })).toBe(false)
+    expect(deepEqual({ en: 'a' }, { en: 'a', no: 'b' })).toBe(false)
+  })
+
+  it('compares nested structures all the way down', () => {
+    expect(deepEqual({ a: [{ b: 1 }] }, { a: [{ b: 1 }] })).toBe(true)
+    expect(deepEqual({ a: [{ b: 1 }] }, { a: [{ b: 2 }] })).toBe(false)
+  })
+})
+
+describe('threeWayMerge — one-sided adds and removes', () => {
+  const withProjects = (projects: Project[]): ResumeStore =>
+    ({ ...emptyStore(), resume: makeResume({ full_name: 'X' }), projects })
+  const p = (id: string, customer: string) => makeProject({ id, customer: { en: customer } })
+
+  it('keeps an item only I added', () => {
+    const base = withProjects([p('a', 'Acme')])
+    const mine = withProjects([p('a', 'Acme'), p('b', 'Beta')])
+    const theirs = withProjects([p('a', 'Acme')])
+    const out = mergeStores(base, mine, theirs)
+    expect(out.merged.projects.map((x) => x.id).sort()).toEqual(['a', 'b'])
+    expect(out.conflicts).toEqual([])
+  })
+
+  it('keeps an item only THEY added', () => {
+    const base = withProjects([p('a', 'Acme')])
+    const mine = withProjects([p('a', 'Acme')])
+    const theirs = withProjects([p('a', 'Acme'), p('c', 'Gamma')])
+    const out = mergeStores(base, mine, theirs)
+    expect(out.merged.projects.map((x) => x.id).sort()).toEqual(['a', 'c'])
+    expect(out.conflicts).toEqual([])
+  })
+
+  it('keeps both sides’ additions', () => {
+    const base = withProjects([p('a', 'Acme')])
+    const mine = withProjects([p('a', 'Acme'), p('b', 'Beta')])
+    const theirs = withProjects([p('a', 'Acme'), p('c', 'Gamma')])
+    expect(mergeStores(base, mine, theirs).merged.projects.map((x) => x.id).sort())
+      .toEqual(['a', 'b', 'c'])
+  })
+
+  it('honours a deletion made on one side only', () => {
+    const base = withProjects([p('a', 'Acme'), p('b', 'Beta')])
+    const mine = withProjects([p('a', 'Acme')])
+    const theirs = withProjects([p('a', 'Acme'), p('b', 'Beta')])
+    expect(mergeStores(base, mine, theirs).merged.projects.map((x) => x.id)).toEqual(['a'])
+  })
+
+  it('does not resurrect an item both sides deleted', () => {
+    const base = withProjects([p('a', 'Acme'), p('b', 'Beta')])
+    const mine = withProjects([p('a', 'Acme')])
+    const theirs = withProjects([p('a', 'Acme')])
+    expect(mergeStores(base, mine, theirs).merged.projects.map((x) => x.id)).toEqual(['a'])
+  })
+})
