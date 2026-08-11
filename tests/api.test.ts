@@ -531,3 +531,145 @@ describe('translateStatus / llmStatus — the feature gates', () => {
     expect(await api.translateStatus()).toBe(false)
   })
 })
+
+/**
+ * The desktop and AI-assist endpoints — 83 unreached mutants.
+ *
+ * These are the calls that decide whether a feature APPEARS and, in llmStatus's
+ * case, what the app promises about privacy. They all use `safe()`, so a failure
+ * must degrade to a defined answer rather than throw into the UI.
+ */
+describe('llmStatus — the privacy and capability flags', () => {
+  const ok = (body: unknown) => fetchMock.mockResolvedValue(mockRes({ body }))
+
+  it('reads a configured backend and reports where it runs', async () => {
+    ok({ configured: true, provider: 'ollama', model: 'llama3.1:8b', local: true })
+    expect(await api.llmStatus()).toMatchObject({
+      configured: true, provider: 'ollama', model: 'llama3.1:8b', local: true,
+    })
+  })
+
+  it('fails CLOSED on local — a server that does not say so is treated as remote', async () => {
+    // Getting this wrong promises privacy the app does not have.
+    for (const local of [undefined, 'yes', 1, null]) {
+      ok({ configured: true, provider: 'compat', model: 'm', local })
+      expect((await api.llmStatus()).local, JSON.stringify(local)).toBe(false)
+    }
+  })
+
+  it('fails CLOSED on high-end — an unstated flag is not high-end', async () => {
+    // Getting this wrong runs a whole-CV review on a 3B model and presents the
+    // result as advice (§15).
+    for (const flag of [undefined, 'true', 1]) {
+      ok({ configured: true, provider: 'ollama', model: 'm', local: true, high_end: flag })
+      expect((await api.llmStatus()).highEnd, JSON.stringify(flag)).toBeFalsy()
+    }
+    ok({ configured: true, provider: 'ollama', model: 'm', local: true, high_end: true })
+    expect((await api.llmStatus()).highEnd).toBe(true)
+  })
+
+  it('reads `configured` strictly, so a truthy value does not enable the surface', async () => {
+    ok({ configured: 'yes', provider: 'ollama', model: 'm' })
+    expect(await api.llmStatus()).toMatchObject({ configured: false })
+  })
+
+  it('reports not-configured — never throws — on a failure or a dead server', async () => {
+    fetchMock.mockResolvedValue(mockRes({ status: 500, body: { configured: true, local: true } }))
+    expect(await api.llmStatus()).toMatchObject({ configured: false })
+    fetchMock.mockRejectedValue(new Error('offline'))
+    expect(await api.llmStatus()).toMatchObject({ configured: false })
+  })
+
+  it('defaults the provider and model to empty strings rather than undefined', async () => {
+    // They are rendered directly in the settings panel.
+    ok({ configured: true, local: true })
+    expect(await api.llmStatus()).toMatchObject({ provider: '', model: '' })
+  })
+})
+
+describe('the Docker controls', () => {
+  const cases: Array<[string, (a: 'start' | 'stop' | 'status') => Promise<{ available: boolean; message?: string }>, string]> = [
+    ['translateDocker', (a) => api.translateDocker(a), '/api/settings/docker'],
+    ['ollamaDocker', (a) => api.ollamaDocker(a), '/api/settings/llm/docker'],
+  ]
+
+  it.each(cases)('%s POSTs the action to %s', async (_name, call, url) => {
+    fetchMock.mockResolvedValue(mockRes({ body: { available: true } }))
+    await call('start')
+    expect(callArgs()[0]).toBe(url)
+    expect(callArgs()[1].method).toBe('POST')
+    expect(JSON.parse(callArgs()[1].body as string)).toMatchObject({ action: 'start' })
+  })
+
+  it.each(cases)('%s reports unavailable with the server’s message on a failure', async (_name, call) => {
+    // Managed Docker is best-effort and must never throw into the request path
+    // (§14) — the panel shows the reason instead.
+    // The server's reason travels in `error`; anything else falls back to the
+    // generic message, which is why the field name is worth pinning.
+    fetchMock.mockResolvedValue(mockRes({ status: 500, body: { error: 'daemon not running' } }))
+    const r = await call('start')
+    expect(r.available).toBe(false)
+    expect(r.message).toContain('daemon not running')
+
+    fetchMock.mockResolvedValue(mockRes({ status: 500, body: { message: 'wrong field' } }))
+    expect((await call('start')).message).not.toContain('wrong field')
+  })
+
+  it.each(cases)('%s reports unavailable when the request itself fails', async (_name, call) => {
+    fetchMock.mockRejectedValue(new Error('offline'))
+    const r = await call('status')
+    expect(r.available).toBe(false)
+    expect(r.message).toBeTruthy()
+  })
+
+  it.each(cases)('%s names the action in BOTH fallback messages', async (_name, call) => {
+    // "stop failed" and "start failed" are different problems to the reader,
+    // and there are two fallbacks: the one used when the request itself fails,
+    // and the one used when the server answers 5xx with no reason.
+    fetchMock.mockRejectedValue(new Error('offline'))
+    expect((await call('stop')).message).toContain('stop')
+
+    fetchMock.mockResolvedValue(mockRes({ status: 500, body: {} }))
+    const r = await call('stop')
+    expect(r.available).toBe(false)
+    expect(r.message).toContain('stop')
+    expect(r.message).toContain('500')
+  })
+
+  it('carries the model on the Ollama pull, and omits it otherwise', async () => {
+    fetchMock.mockResolvedValue(mockRes({ body: { available: true } }))
+    await api.ollamaDocker('start', 'llama3.1:8b')
+    expect(JSON.parse(callArgs()[1].body as string)).toMatchObject({ model: 'llama3.1:8b' })
+  })
+})
+
+describe('exportBackupZip', () => {
+  const zipRes = (disposition?: string) => ({
+    ok: true, status: 200, statusText: 'OK',
+    headers: { get: (h: string) => (h === 'Content-Disposition' ? disposition ?? null : null) },
+    blob: async () => new Blob(['zip']),
+    json: async () => ({}),
+  } as unknown as Response)
+
+  it('prefers the filename the SERVER supplied — it carries the date', async () => {
+    fetchMock.mockResolvedValue(zipRes('attachment; filename="resumes-2026-06-01.zip"'))
+    const anchor = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    await api.exportBackupZip()
+    expect((anchor.mock.instances[0] as HTMLAnchorElement).download)
+      .toBe('resumes-2026-06-01.zip')
+  })
+
+  it('falls back to a fixed name when the server sent no disposition', async () => {
+    fetchMock.mockResolvedValue(zipRes(undefined))
+    const anchor = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    await api.exportBackupZip()
+    expect((anchor.mock.instances[0] as HTMLAnchorElement).download).toMatch(/\.zip$/)
+  })
+
+  it('throws rather than downloading an error page as a zip', async () => {
+    // Specifically a ServerError: without the status check it would fall
+    // through to res.blob() and throw a TypeError, which `Error` also matches.
+    fetchMock.mockResolvedValue(mockRes({ status: 500 }))
+    await expect(api.exportBackupZip()).rejects.toBeInstanceOf(ServerError)
+  })
+})
