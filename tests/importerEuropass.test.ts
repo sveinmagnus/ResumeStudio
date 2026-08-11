@@ -384,3 +384,142 @@ describe('importFromEuropassJson — the alternate shapes real exports use', () 
     })
   })
 })
+
+/**
+ * The remaining live survivors, checked against the current suite rather than
+ * the report: the date parser's own bounds, the XML path's ongoing marker, and
+ * the language lists.
+ */
+describe('importerEuropass — parser bounds and the XML language lists', () => {
+  describe('parseEuropassDate month bounds', () => {
+    it('accepts the two edges and rejects just outside them', () => {
+      // The string form takes "YYYY-MM"; a month of 00 or 13 is data corruption
+      // and must become null rather than a 13th month nobody can render.
+      expect(parseEuropassDate('2020-01')).toEqual({ year: 2020, month: 1 })
+      expect(parseEuropassDate('2020-12')).toEqual({ year: 2020, month: 12 })
+      expect(parseEuropassDate('2020-00')).toEqual({ year: 2020, month: null })
+      expect(parseEuropassDate('2020-13')).toEqual({ year: 2020, month: null })
+    })
+
+    it('keeps the year when the month is out of range', () => {
+      // Losing the whole date over a bad month is worse than losing the month.
+      expect(parseEuropassDate('2020-99')).toEqual({ year: 2020, month: null })
+    })
+
+    it('trims surrounding whitespace before matching', () => {
+      expect(parseEuropassDate('  2020-06  ')).toEqual({ year: 2020, month: 6 })
+    })
+
+    it('needs the year ANCHORED at the start', () => {
+      // "v2020" is a version string, not a date.
+      expect(parseEuropassDate('v2020-06')).toBeNull()
+    })
+  })
+
+  describe('the XML path', () => {
+    const xml = (body: string) =>
+      `<?xml version="1.0"?><SkillsPassport><LearnerInfo>${body}</LearnerInfo></SkillsPassport>`
+
+    it('reads Period > Current as the ongoing marker, case-exactly', () => {
+      // The exporter writes <Current>true</Current>; anything else is a closed
+      // period, and treating it as ongoing would show a finished job as current.
+      const ongoing = importFromEuropassXml(xml(`<WorkExperienceList><WorkExperience>
+        <Employer><Name>Acme</Name></Employer>
+        <Period><From year="2020" month="--01"/><Current>true</Current></Period>
+      </WorkExperience></WorkExperienceList>`), 'en')
+      expect(ongoing.work_experiences[0].end).toBeNull()
+
+      const closed = importFromEuropassXml(xml(`<WorkExperienceList><WorkExperience>
+        <Employer><Name>Acme</Name></Employer>
+        <Period><From year="2020" month="--01"/><To year="2021" month="--06"/></Period>
+      </WorkExperience></WorkExperienceList>`), 'en')
+      expect(closed.work_experiences[0].end).toEqual({ year: 2021, month: 6 })
+    })
+
+    it('does not treat a non-"true" Current as ongoing', () => {
+      const store = importFromEuropassXml(xml(`<WorkExperienceList><WorkExperience>
+        <Employer><Name>Acme</Name></Employer>
+        <Period><From year="2020" month="--01"/><Current>false</Current><To year="2021" month="--06"/></Period>
+      </WorkExperience></WorkExperienceList>`), 'en')
+      expect(store.work_experiences[0].end).toEqual({ year: 2021, month: 6 })
+    })
+
+    it('puts a mother tongue in the list as Native', () => {
+      const store = importFromEuropassXml(xml(
+        `<MotherTongueList><MotherTongue><Description><Label>Norwegian</Label></Description></MotherTongue></MotherTongueList>`,
+      ), 'en')
+      expect(store.spoken_languages[0]).toMatchObject({
+        name: { en: 'Norwegian' }, level: { en: 'Native' },
+      })
+    })
+
+    it('skips a mother tongue with no label rather than adding a blank row', () => {
+      const store = importFromEuropassXml(xml(
+        `<MotherTongueList><MotherTongue><Description><Label>  </Label></Description></MotherTongue></MotherTongueList>`,
+      ), 'en')
+      expect(store.spoken_languages).toEqual([])
+    })
+
+    it('reads a foreign language level from Listening, falling back to the group', () => {
+      const withListening = importFromEuropassXml(xml(
+        `<ForeignLanguageList><ForeignLanguage><Description><Label>German</Label></Description>
+          <ProficiencyLevel><Listening>B2</Listening></ProficiencyLevel>
+        </ForeignLanguage></ForeignLanguageList>`,
+      ), 'en')
+      expect(withListening.spoken_languages[0].level.en).toBe('B2')
+
+      const groupOnly = importFromEuropassXml(xml(
+        `<ForeignLanguageList><ForeignLanguage><Description><Label>German</Label></Description>
+          <ProficiencyLevel>B1</ProficiencyLevel>
+        </ForeignLanguage></ForeignLanguageList>`,
+      ), 'en')
+      expect(groupOnly.spoken_languages[0].level.en).toBe('B1')
+    })
+
+    it('numbers the languages in document order across both lists', () => {
+      const store = importFromEuropassXml(xml(
+        `<MotherTongueList><MotherTongue><Description><Label>Norwegian</Label></Description></MotherTongue></MotherTongueList>
+         <ForeignLanguageList><ForeignLanguage><Description><Label>German</Label></Description></ForeignLanguage></ForeignLanguageList>`,
+      ), 'en')
+      expect(store.spoken_languages.map((l) => l.sort_order)).toEqual([0, 1])
+    })
+  })
+})
+
+describe('importerEuropass — education dates and value coercion', () => {
+  const profile = (over: Record<string, unknown>) => importFromEuropassJson({
+    profile: { personalInformation: { firstName: 'Kari' }, ...over },
+  } as never)
+  const edu = (e: Record<string, unknown>) => profile({ educationTrainings: [e] }).educations[0]
+
+  it('reads an education’s dates from startDate/endDate or from/to', () => {
+    // Older exports use from/to; dropping either alternative silently undates
+    // half a CV.
+    expect(edu({ school: 'NTNU', startDate: '2014-08', endDate: '2019-06' }))
+      .toMatchObject({ start: { year: 2014, month: 8 }, end: { year: 2019, month: 6 } })
+    expect(edu({ school: 'NTNU', from: '2014-08', to: '2019-06' }))
+      .toMatchObject({ start: { year: 2014, month: 8 }, end: { year: 2019, month: 6 } })
+  })
+
+  it('treats an ongoing education as open-ended, overriding any end date', () => {
+    expect(edu({ school: 'NTNU', startDate: '2014-08', endDate: '2019-06', ongoing: true }).end)
+      .toBeNull()
+  })
+
+  it('only "true" opens the range — not false, and not a truthy string', () => {
+    // A studied-and-finished degree must not read as still in progress.
+    expect(edu({ school: 'NTNU', endDate: '2019-06', ongoing: false }).end)
+      .toEqual({ year: 2019, month: 6 })
+    expect(edu({ school: 'NTNU', endDate: '2019-06', ongoing: 'yes' }).end)
+      .toEqual({ year: 2019, month: 6 })
+  })
+
+  it('trims whitespace out of every string it reads', () => {
+    // Europass exports carry padded values; an untrimmed name shows up
+    // indented in the header and sorts wrongly in the picker.
+    const store = importFromEuropassJson({
+      profile: { personalInformation: { firstName: '  Kari  ', lastName: ' Nordmann ' } },
+    } as never)
+    expect(store.resume!.full_name).toBe('Kari Nordmann')
+  })
+})
