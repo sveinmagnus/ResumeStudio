@@ -1,6 +1,6 @@
 ---
 name: ci-and-release
-description: How Resume Studio's GitHub Actions CI and release pipeline actually work, and how to triage a failing check. Use when a CI job (typecheck/test/build/e2e/depcheck) is red, when a `v*` release build fails or ships wrong artifacts, when cutting a release, or when touching .github/workflows/ci.yml or release.yml. Encodes the real failure modes these workflows were built to prevent (version drift, split releases, missing update sidecars, the SQLite runtime requirement).
+description: How Resume Studio's GitHub Actions CI and release pipeline actually work, and how to triage a failing check. Use when a CI job (verify/coverage/e2e/depcheck) is red, when a `v*` release build fails or ships wrong artifacts, when cutting a release, or when touching .github/workflows/ci.yml or release.yml. Encodes the real failure modes these workflows were built to prevent (version drift, split releases, missing update sidecars, the SQLite runtime requirement).
 ---
 
 # CI & release pipeline
