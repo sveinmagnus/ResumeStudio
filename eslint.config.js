@@ -498,7 +498,7 @@ export default tseslint.config(
       // Assertions that live in a shared helper are still assertions. Naming
       // them keeps the rule useful for tests that genuinely assert nothing.
       'vitest/expect-expect': ['error', {
-        assertFunctionNames: ['expect', 'expectFullCoverage', 'assertSafe'],
+        assertFunctionNames: ['expect', 'expectFullCoverage', 'assertSafe', 'expectValidOoxml'],
       }],
 
       /**

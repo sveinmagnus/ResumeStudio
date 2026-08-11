@@ -266,7 +266,27 @@ the provider you configured; there is no third-party middleman.
 
 ---
 
+## Licence, privacy and security
+
+- **[LICENSE](./LICENSE)** — proprietary; © Cartavio AS, all rights reserved.
+  Published builds may be installed and run; the source is not licensed for
+  reuse. Your résumé content is yours and is unaffected by this.
+- **[PRIVACY.md](./PRIVACY.md)** — what is stored, where, and what leaves your
+  machine. Short version: nothing does, unless you configure an AI or
+  translation provider or a sync folder. No account, no telemetry, no
+  Cartavio-operated server.
+- **[SECURITY.md](./SECURITY.md)** — how to report a vulnerability (privately,
+  via GitHub), and what is in and out of scope.
+- **[THIRD-PARTY-LICENSES.md](./THIRD-PARTY-LICENSES.md)** — the open-source
+  components that ship inside the app, including the bundled fonts and the
+  Apache-2.0 skill taxonomy.
+- **[CHANGELOG.md](./CHANGELOG.md)** — what changed, newest first.
+
+---
+
 ## Working with the codebase
+
+Releasing is documented in [RELEASING.md](./RELEASING.md).
 
 See [CLAUDE.md](./CLAUDE.md) for:
 - The data model and layered architecture

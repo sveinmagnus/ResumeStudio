@@ -25,7 +25,7 @@ import {
   checkForUpdate, stageUpdate, nodeBinaryName, installBlocker, ChecksumError,
   type UpdateInfo, type StagedUpdate,
 } from './updater.js'
-import { APP_VERSION } from '../version.js'
+import { APP_VERSION, APP_VERSION_LABEL } from '../version.js'
 
 export type UpdateState =
   | 'idle' | 'checking' | 'available' | 'uptodate' | 'downloading' | 'staged' | 'applying' | 'error'
@@ -67,7 +67,11 @@ export interface UpdateTrayView {
 export interface UpdateStatusView {
   supported: boolean
   state: UpdateState
+  /** The bare semver, compared against the latest release. */
   currentVersion: string
+  /** The same thing formatted for a human: `v0.10.2` from the release build,
+   *  `Dev-<commit>` from anything else. The client renders it verbatim. */
+  versionLabel: string
   latestVersion: string | null
   updateAvailable: boolean
   /** True only when a per-platform asset exists to install in place. An update
@@ -117,9 +121,8 @@ function setState(next: UpdateState): void {
  * only when an installable update is ready. Both items always exist in the menu.
  */
 export function trayView(): UpdateTrayView {
-  const version = cfg?.appVersion ?? process.env.RESUME_APP_VERSION ?? '0.0.0'
   const view: UpdateTrayView = {
-    versionLabel: `Cartavio Resume Studio v${version}`,
+    versionLabel: `Cartavio Resume Studio ${APP_VERSION_LABEL}`,
     checkTitle: 'Check for updates',
     checkEnabled: true,
     installTitle: 'Install update',
@@ -169,6 +172,9 @@ export function getUpdateStatus(): UpdateStatusView {
     // `||`, not `??`: a set-but-EMPTY RESUME_APP_VERSION is "unset" as far as
     // we're concerned, and `??` would happily report an empty version string.
     currentVersion: cfg?.appVersion?.trim() || process.env.RESUME_APP_VERSION?.trim() || APP_VERSION,
+    // Formatted server-side so every display site agrees, and so a dev server
+    // can never present itself as the released build (see server/version.ts).
+    versionLabel: APP_VERSION_LABEL,
     latestVersion: info?.latestVersion ?? null,
     updateAvailable: info?.updateAvailable ?? false,
     // "Can we install it for you?" — an asset we couldn't verify is not

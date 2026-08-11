@@ -473,6 +473,18 @@ CSS custom properties in `src/index.css` are the design system:
 
 **Minimum text size is 11px** (bumped in v0.3.1). Don't add new text below 11px.
 
+**Contrast is verified against all THREE surfaces, not just white.** `--paper`,
+`--paper-raised` and `--paper-sunken` are different backgrounds, and a token
+that clears AA on white can fail on the sunken one — `--ink-faint` did exactly
+that (4.83:1 on paper, 4.37:1 on sunken, and field labels sit on sunken inside
+an expanded card). Two consequences worth holding: **never dim text with
+`opacity`** on a container — it composites the text toward the background, so
+the real ratio is whatever the blend lands on and no token can tell you what
+that is; and `--gold` is an **indicator colour only** (3.6:1 — clears the 3:1
+non-text threshold, fails the 4.5:1 text one). `e2e/a11y.spec.ts` is what
+actually enforces this: the jsdom axe suite cannot, because jsdom has no layout
+and its colour-contrast rule is inert.
+
 **Utility classes** (use instead of redefining inline): `.check-row`, `.skip-link`, `.sr-only`, `.pf-*`. `index.css` also owns the global `:focus-visible` ring, `forced-colors` outline fallback, and `prefers-reduced-motion` collapse — don't duplicate those per component.
 
 When adding a component, copy the inline `<style>` pattern from an existing one (e.g. `DualField.tsx`). Use the tokens; don't introduce new colors casually.
@@ -680,6 +692,9 @@ npm run test:e2e          # build + Playwright smoke suite
 - **React components** — `tests/components/*.test.tsx` (RTL) cover every editor, shell, and ui primitive (render → interact → assert through the store).
 - **Server** — `tests/server/*.test.ts` (node env): `db`, `translate`/`translateDocker`, `settings`, `config`, `backup`, `auth` (bearer + cookie matrix), plus route suites via **supertest** against `createApp()` with `RESUME_DB_PATH=':memory:'`.
 - **E2E smoke** — `e2e/smoke.spec.ts` boots the REAL prod server and drives create → edit/auto-save/reload → view preview → unknown-id bounce. Keep it thin (happy paths only).
+- **E2E accessibility** — `e2e/a11y.spec.ts` runs axe with REAL layout (so contrast is actually evaluated, unlike the jsdom suite) plus keyboard-only journeys: skip link, reaching a field by Tab, and a visible focus ring on every stop. The two suites are complementary, not redundant — see §6.
+- **Export integrity** — `tests/exportIntegrity.test.ts` asserts the DOCX is a valid OOXML *package* (well-formed parts, no dangling relationship ids, every content type declared), which is what decides whether Word offers to "recover" the file. `exporter.test.ts` asserts what the document SAYS; this asserts that it opens. Its negative-control block corrupts a real archive to prove the checks can fail.
+- **Scale** — `tests/scale.test.ts` + `tests/server/scale.test.ts` measure a realistic large CV (50 projects × 15 locales + images, `tests/helpers/largeStore.ts`) against the payload-weight thresholds and the render budgets, and pin that snapshots stay image-free. The budgets are set above today's measurements: read the printed number before changing one.
 - **Fixtures** — `tests/fixtures.ts` exports `emptyStore()` + `makeProject()`/`makeWork()`/… — use these so shape changes are one-place fixes.
 
 ### Not covered
@@ -805,6 +820,7 @@ Full end-user + build docs in **`DESKTOP.md`**. Load-bearing invariants for work
 - **Managed translate = the app drives Docker** (it doesn't bundle the engine). `translateDocker.ts` shells out argv-only; best-effort, never throws into the request path. After changing translate settings the client calls `resetTranslationAvailability()`. Keys are write-only over the API (`toView()` returns `*_set` booleans, never the value).
 - **Auto-update = staged-swap, not Electron.** `updater.ts` checks GitHub Releases, downloads the per-platform `.tar.gz` (host-allowlisted — SSRF guard), extracts with system `tar`, validates the tree. To replace files a running process can't overwrite (esp. `node.exe` on Windows) it writes a detached per-OS swap script (`buildSwapScript`) that waits for our PID, mirrors the staged build over `RESUME_INSTALL_DIR`, relaunches, and self-deletes. Gated by `isUpdateSupported()` — VPS reports `supported:false` and 403s (a server must never rewrite its own files). `RESUME_NO_UPDATE` disables; `RESUME_UPDATE_REPO` overrides. Keep `assetNameFor` in `updater.ts` and its copy in `build-desktop.mjs` in sync.
 - **Version source of truth (don't reintroduce the v0.3.2 drift bug).** A *published* build's version is the **git tag** — `release.yml` derives it from `GITHUB_REF_NAME`, exports `RESUME_APP_VERSION`, and **hard-fails if `package.json` doesn't match the tag**. To cut a release: bump `package.json` **and** `package-lock.json`, commit, then tag `vX.Y.Z`. Local `npm run build:desktop` (no env) uses `package.json`.
+- **Two version strings, and only CI may claim the release one.** `APP_VERSION` stays a bare semver (the updater compares it to the latest release); `APP_VERSION_LABEL` is what humans read — `v<semver>` **only** when `RESUME_BUILD_CHANNEL=release`, which is set in exactly one place (`release.yml`, beside the tag check), otherwise `Dev-<commit>`. The channel is **declared, never sniffed**, for the same reason as `llm_high_end` (§15): a local `build:desktop` produces a near-identical tree, so anything the tree can observe about itself would let a working copy claim to be the artifact users downloaded. The tray, the Version tab, the picker footer and the update banner all render the server's label **verbatim** — don't re-add a `v` prefix at a display site, since `Dev-…` has no version number to prefix.
 - **Windows update UX:** the swap is a **visible PowerShell window** with a progress bar (`Wait-Process`, file-by-file `Copy-Item`); the **relaunch is windowless** via `wscript.exe` (invoked by name — never by file association, which opened a text editor and was the original install bug) running `Resume Studio (no window).vbs`. POSIX stays a detached `sh` script. See `DESKTOP.md §6`.
 
 ---

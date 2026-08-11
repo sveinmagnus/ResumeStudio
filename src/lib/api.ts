@@ -303,6 +303,12 @@ export interface UpdateStatus {
   supported: boolean
   state: UpdateState
   currentVersion: string
+  /** The version as a HUMAN reads it, formatted by the server and rendered
+   *  verbatim: `v0.10.2` for a released build, `Dev-<commit>` for anything
+   *  else. Display sites must not re-prefix it — only a release build has a
+   *  version number to put a `v` in front of. `currentVersion` stays the bare
+   *  semver the updater compares. */
+  versionLabel: string
   latestVersion: string | null
   updateAvailable: boolean
   /** True only when a per-platform build exists to install in place. An update
@@ -318,7 +324,7 @@ export interface UpdateStatus {
 }
 
 const UPDATE_UNSUPPORTED: UpdateStatus = {
-  supported: false, state: 'idle', currentVersion: '0.0.0', latestVersion: null,
+  supported: false, state: 'idle', currentVersion: '0.0.0', versionLabel: '', latestVersion: null,
   updateAvailable: false, downloadable: false, progress: 0, lastCheckedAt: null,
   notes: '', htmlUrl: null, error: null,
 }

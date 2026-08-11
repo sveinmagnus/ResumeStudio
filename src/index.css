@@ -48,7 +48,12 @@
   --paper-sunken: #f0f4f8;
   --ink: #111111;
   --ink-soft: #374151;
-  --ink-faint: #6B7280;
+  /* Darkened from #6B7280, which was verified against --paper only (4.83:1)
+     and failed on --paper-sunken (4.37:1) — where field labels actually sit,
+     inside an expanded card. This value clears AA on all three surfaces
+     (5.21 / 4.95 / 4.72). Found by the real-browser axe pass; jsdom has no
+     layout, so its colour-contrast rule is inert and never saw it. */
+  --ink-faint: #666D79;
   --line: #d1d8e8;
   --line-strong: #b0bcd4;
 
@@ -72,6 +77,9 @@
   --warn-ink: #8a5b00; --warn-wash: #fff7e6;
   --err-ink: #b91c1c;  --err-wash: #fef2f2;
 
+  /* Star / featured INDICATOR only — icons and borders, never text. It is
+     3.6:1 on paper, which clears the 3:1 non-text threshold (WCAG 1.4.11) and
+     would fail the 4.5:1 text one. Use --warn-ink if you need words. */
   --gold: #9a7b3f;
 
   --shadow-sm: 0 1px 2px rgba(0,46,110,0.08);

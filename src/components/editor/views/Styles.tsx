@@ -349,7 +349,14 @@ export function Styles() {
         display: flex; align-items: center; gap: 8px; padding: 5px 8px;
         border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--paper-raised);
       }
-      .rv-hdr-field.is-off { opacity: .55; background: var(--paper-sunken); }
+      /* .7, not .55: opacity composites the TEXT toward the background, so a
+         dimmed row's real contrast is whatever the blend lands on — at .55 the
+         field name measured 4.07:1 on this background, under the 4.5 AA floor.
+         The controls inside are genuinely disabled (WCAG-exempt); the text is
+         not, so it has to clear the bar. .7 measures 6.76:1 and still reads as
+         off. Don't lower it without re-measuring, and don't put faint-ink text
+         in this row — at any usable opacity it cannot pass. */
+      .rv-hdr-field.is-off { opacity: .7; background: var(--paper-sunken); }
       .rv-hdr-ord { display: flex; flex-direction: column; flex-shrink: 0; }
       .rv-hdr-ord .rv-ord-btn { width: 20px; height: 16px; }
       .rv-hdr-show { display: inline-flex; align-items: center; flex-shrink: 0; }

@@ -13,7 +13,11 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
-        target: 'http://localhost:3001',
+        // Kept in step with scripts/dev-server.mjs, which pins the API port to
+        // the same variable. Deliberately NOT `PORT`: launchers inject that to
+        // choose the CLIENT's port, and having both processes read it is what
+        // made the dev API unreachable from the in-app browser preview.
+        target: `http://localhost:${process.env.RESUME_SERVER_PORT ?? 3001}`,
         changeOrigin: true,
       },
     },

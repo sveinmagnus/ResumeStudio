@@ -5,7 +5,7 @@
 kcp_version: "0.20"
 project: resume-studio
 version: 0.10.2
-updated: "2026-07-31"
+updated: "2026-08-11"
 language: en
 hints:
   recommended_entry_point: claude-instructions
@@ -14,10 +14,10 @@ units:
   # ── Instruction layer (eager — Claude Code auto-loads CLAUDE.md) ──────────
   - id: claude-instructions
     path: CLAUDE.md
-    intent: "How must an agent work in this codebase? Architecture map, data model, store patterns, conventions (incl. the v0.3.1 accessibility invariants + the version source-of-truth rule), and what not to change. Holds invariants only — the exhaustive feature catalog is in feature-map."
+    intent: "How must an agent work in this codebase? Architecture map, data model, store patterns, conventions (incl. the v0.3.1 accessibility invariants, the three-surface contrast rule, and the version/build-channel source-of-truth rules), and what not to change. Holds invariants only — the exhaustive feature catalog is in feature-map."
     scope: global
     audience: [agent, developer]
-    validated: "2026-08-05"
+    validated: "2026-08-11"
     update_frequency: weekly
     triggers: [conventions, architecture, data-model, store, persistence, sections, accessibility, routing]
     content_structure:
@@ -272,10 +272,10 @@ units:
 
   - id: site-features
     path: docs/features.md
-    intent: "What does Resume Studio do today, feature by feature? (Most current end-user feature list.)"
+    intent: "What does Resume Studio do today, feature by feature? (Most current end-user feature list.) Its privacy/security section now points at PRIVACY.md and SECURITY.md for the detail."
     scope: global
     audience: [human, agent]
-    validated: "2026-07-31"
+    validated: "2026-08-11"
     update_frequency: monthly
     triggers: [features, capabilities, what-shipped]
     not_for: ["architecture", "implementation detail"]
@@ -384,6 +384,79 @@ units:
     hints:
       token_estimate: 1100
 
+  # ── Legal, policy and release (added for the 1.0.0 preparation) ───────────
+  - id: license
+    path: LICENSE
+    intent: "Under what terms is Resume Studio licensed? Proprietary, all rights reserved to Cartavio AS; published builds may be run but not redistributed or modified. Résumé content belongs to the user and is out of scope."
+    format: text
+    scope: global
+    audience: [human, developer]
+    validated: "2026-08-11"
+    update_frequency: as-needed
+    triggers: [license, licensing, copyright, proprietary, redistribution]
+    hints:
+      token_estimate: 500
+
+  - id: third-party-licenses
+    path: THIRD-PARTY-LICENSES.md
+    intent: "Which third-party components ship inside the app and under what licences? Bundled fonts (Apache-2.0 / Ubuntu Font Licence), the Quadim skill taxonomy (Apache-2.0), the runtime npm dependencies, and the bundled Node binary. build-desktop.mjs hard-fails if this file is missing from a release."
+    scope: global
+    audience: [human, developer, agent]
+    validated: "2026-08-11"
+    update_frequency: as-needed
+    depends_on: [license]
+    triggers: [third-party, attribution, notice, fonts, taxonomy, dependencies, apache]
+    hints:
+      token_estimate: 900
+
+  - id: privacy-policy
+    path: PRIVACY.md
+    intent: "What personal data does Resume Studio store, where, and what leaves the machine? Covers the update check, the AI and translation providers (nothing is sent until one is configured), the sync folder, tombstone-based erasure, and the absence of telemetry. The user-facing counterpart to the desktop sync design."
+    scope: global
+    audience: [human, developer, agent]
+    validated: "2026-08-11"
+    update_frequency: as-needed
+    depends_on: [desktop-guide]
+    triggers: [privacy, gdpr, personal-data, telemetry, erasure, data-handling, providers]
+    hints:
+      token_estimate: 1800
+
+  - id: security-policy
+    path: SECURITY.md
+    intent: "How is a vulnerability reported (privately, via GitHub advisories) and what is in scope? Names the untrusted-input surfaces — importers, render boundaries, the API, the updater, secret handling — and what is deliberately out of scope, such as a server run without RESUME_API_TOKEN."
+    scope: global
+    audience: [human, developer, agent]
+    validated: "2026-08-11"
+    update_frequency: as-needed
+    depends_on: [skill-security-review]
+    triggers: [security, vulnerability, disclosure, reporting, scope]
+    hints:
+      token_estimate: 900
+
+  - id: changelog
+    path: CHANGELOG.md
+    intent: "What changed in each release, newest first? Full detail for 1.0.0 (a quality milestone, not a feature release); earlier 0.x lines summarised by wave with dates."
+    scope: global
+    audience: [human, developer, agent]
+    validated: "2026-08-11"
+    update_frequency: as-needed
+    depends_on: [feature-map]
+    triggers: [changelog, release-notes, history, what-changed, version]
+    hints:
+      token_estimate: 1500
+
+  - id: releasing-checklist
+    path: RELEASING.md
+    intent: "How is a release cut, and what must be checked first? The tag-driven sequence, the gates CI does and does not run, the manual checks no gate can make (opening a DOCX in Word, rehearsing the auto-update), and the three ways the release path has already failed."
+    scope: project
+    audience: [human, developer, agent]
+    validated: "2026-08-11"
+    update_frequency: as-needed
+    depends_on: [release-policy, ci-policy]
+    triggers: [release, releasing, tag, version-bump, checklist, upgrade-rehearsal]
+    hints:
+      token_estimate: 1400
+
 relationships:
   - from: claude-instructions
     to: skill-store-persistence
@@ -430,4 +503,20 @@ relationships:
   # The AI exchange schema is a projection of the internal data model.
   - from: data-model
     to: ai-import-schema
+    type: context
+  # Releasing is where the legal texts become obligations: a desktop build is a
+  # redistribution, so the checklist and the build script both depend on them.
+  - from: releasing-checklist
+    to: third-party-licenses
+    type: context
+  - from: license
+    to: third-party-licenses
+    type: context
+  # The sync design is what makes per-person erasure possible; the privacy note
+  # is that design stated in the terms a data subject would ask about.
+  - from: desktop-guide
+    to: privacy-policy
+    type: context
+  - from: security-policy
+    to: privacy-policy
     type: context

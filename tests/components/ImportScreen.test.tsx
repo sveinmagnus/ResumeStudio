@@ -167,6 +167,34 @@ describe('<ImportScreen>', () => {
     fetchSpy.mockRestore()
   })
 
+  /**
+   * The zip entries are now read through a `filter`, so entries a crafted
+   * archive declares as enormous are never inflated. That filter also drops
+   * everything that isn't a CSV — which is exactly the mechanism that could
+   * silently break the real LinkedIn path while every other test stayed green,
+   * since the only other zip test carries JSON and expects it to be ignored.
+   */
+  it('still imports a LinkedIn export zip through the CSV filter', async () => {
+    const { zipSync, strToU8 } = await import('fflate')
+    const zip = zipSync({
+      'Profile.csv': strToU8('First Name,Last Name,Headline\nAda,Lovelace,Engineer\n'),
+      'Positions.csv': strToU8(
+        'Company Name,Title,Started On,Finished On\nAnalytical Engines,Engineer,Jan 1843,Dec 1844\n',
+      ),
+      // A non-CSV sibling the filter must skip without disturbing the import.
+      'Rich Media.html': strToU8('<html></html>'),
+    })
+    const onImported = vi.fn()
+    const { container } = render(<ImportScreen onStartFresh={() => {}} onImported={onImported} />)
+    const file = new File([zip], 'Basic_LinkedInDataExport.zip', { type: 'application/zip' })
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement
+    await userEvent.upload(input, file)
+
+    await waitFor(() => expect(onImported).toHaveBeenCalledTimes(1))
+    const [store] = onImported.mock.calls[0]
+    expect(store.work_experiences.length).toBeGreaterThan(0)
+  })
+
   it('rejects a non-object JSON file with a clear message', async () => {
     const onImported = vi.fn()
     const { container } = render(<ImportScreen onStartFresh={() => {}} onImported={onImported} />)

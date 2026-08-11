@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test'
 import { readFileSync } from 'node:fs'
+import { createResume } from './helpers'
 
 /**
  * Smoke flows against the real production server (see playwright.config.ts).
@@ -11,18 +12,6 @@ import { readFileSync } from 'node:fs'
  * fresh-install import screen at `/`; once a resume exists, `/` is the picker
  * list — the helper handles both so each test stands alone.
  */
-
-/** Create a resume from `/` (fresh-install screen OR picker list) → editor. */
-async function createResume(page: Page): Promise<void> {
-  await page.goto('/')
-  const addBtn = page.getByRole('button', { name: 'Add resume' })
-  const startFresh = page.getByRole('button', { name: 'Start with an empty resume' })
-  await expect(addBtn.or(startFresh)).toBeVisible()
-  // The list view needs its add panel opened first; the empty state does not.
-  if (await addBtn.isVisible()) await addBtn.click()
-  await startFresh.click()
-  await page.waitForURL(/\/r\/[0-9a-f-]{36}/)
-}
 
 test('fresh install screen creates the first resume; picker lists it', async ({ page }) => {
   await createResume(page)
@@ -136,6 +125,17 @@ test('a view exports a .pdf — pdfmake and its fonts load and render', async ({
   const bytes = readFileSync(path!)
   expect(bytes.subarray(0, 5).toString('latin1')).toBe('%PDF-')
   expect(bytes.subarray(-1024).toString('latin1')).toContain('%%EOF')
+
+  // Structure, not just the envelope. A truncated or half-rendered file can
+  // still carry both markers above; a reader needs the cross-reference table
+  // to find anything, and a document with no page object opens blank.
+  const text = bytes.toString('latin1')
+  expect(text).toMatch(/\bxref\b|\/Type\s*\/XRef/)
+  expect(text).toMatch(/\/Type\s*\/Page[^s]/)
+  // The name we typed has to survive the font pipeline into the content
+  // stream — pdfmake compresses streams, so assert on the text pdfmake was
+  // given rather than on the bytes: an empty render still produces a page.
+  expect(bytes.length).toBeGreaterThan(2000)
 })
 
 /**

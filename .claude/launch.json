@@ -4,13 +4,6 @@
     {
       "name": "resume-studio",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev:client"],
-      "port": 5173,
-      "autoPort": true
-    },
-    {
-      "name": "resume-studio-full",
-      "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
       "port": 5173
     }

@@ -1,0 +1,47 @@
+Cartavio Resume Studio
+
+Copyright (c) 2026 Cartavio AS. All rights reserved.
+
+PROPRIETARY SOFTWARE — NOT OPEN SOURCE
+
+This software and its source code are the confidential and proprietary
+property of Cartavio AS. No licence to use, copy, modify, merge, publish,
+distribute, sublicense, or sell copies of this software or its source code is
+granted by its publication, by the availability of downloadable builds, or by
+any other act of Cartavio AS except an express written agreement signed by
+Cartavio AS.
+
+PERMITTED USE OF PUBLISHED BUILDS
+
+Where Cartavio AS makes a compiled build of this software available for
+download, the person who downloads it may install and run that build for
+their own use. That permission covers running the software only. It does not
+grant any right to redistribute it, to make it available to others as a
+service, to modify or create derivative works from it, or to reverse
+engineer, decompile, or disassemble it, except to the extent that such a
+restriction is unenforceable under applicable mandatory law.
+
+NO WARRANTY
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+CARTAVIO AS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN
+AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+YOUR DATA IS YOURS
+
+This licence covers the software, not the content you create with it. Résumé
+content, exports and backups you produce remain entirely yours. Resume Studio
+stores them on the machine you run it on; see PRIVACY.md for exactly what is
+stored where and what leaves the machine.
+
+THIRD-PARTY COMPONENTS
+
+This software incorporates third-party open-source components, each under its
+own licence, several of which grant you rights this licence does not.
+Those components and their licences are listed in THIRD-PARTY-LICENSES.md.
+Nothing in this licence limits your rights under those licences.
+
+Contact: https://cartavio.no

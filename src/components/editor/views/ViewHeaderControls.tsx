@@ -256,8 +256,12 @@ function HeaderTextStyleControl({
     <div className="rv-hdr-type">
       <span className="rv-vs-label">{label}</span>
       <div className="rv-hdr-type-row">
+        {/* The visible "label" above this row is a <span> covering TWO controls,
+            so neither inherits a name from it. Compose one per control instead —
+            "Name font" / "Name font size" — the same shape DualField uses. */}
         <select
           className="rv-vs-select"
+          aria-label={`${label} font`}
           value={value.font}
           onChange={(e) => onChange({ ...value, font: e.target.value })}
         >
@@ -270,6 +274,7 @@ function HeaderTextStyleControl({
           min={6} max={72}
           value={value.size_pt ?? ''}
           placeholder={autoLabel}
+          aria-label={`${label} font size in points`}
           title="Font size in points (blank = automatic)"
           onChange={(e) => onChange({ ...value, size_pt: e.target.value ? parseInt(e.target.value) : null })}
         />

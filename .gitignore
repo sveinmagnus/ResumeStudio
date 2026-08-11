@@ -13,6 +13,11 @@ release-dist/
 # Runtime data — database lives here, never commit it
 data/
 
+# Real exports/DBs used to rehearse migrations. Every file here is one
+# identified person's CV, so it stays out of the repo — commit the anonymised
+# fixtures derived from it, never the source.
+corpus/
+
 # Environment — contains the API secret token
 .env
 .env.local

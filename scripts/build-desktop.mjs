@@ -49,6 +49,26 @@ const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
 const VERSION = process.env.RESUME_APP_VERSION?.trim() || pkg.version || '0.0.0'
 log(`version    : ${VERSION}${process.env.RESUME_APP_VERSION ? ' (from RESUME_APP_VERSION)' : ' (from package.json)'}`)
 
+// Which build IS this, for the version string a user reads (server/version.ts)?
+//
+// `release` is DECLARED by the tag-triggered workflow, never inferred here: a
+// local `build:desktop` produces a near-identical tree, so any sniffing would
+// let a working-tree build claim to be the artifact people downloaded. Default
+// dev, and bake the commit so a `Dev-<commit>` report is actionable.
+const CHANNEL = process.env.RESUME_BUILD_CHANNEL?.trim().toLowerCase() === 'release' ? 'release' : 'dev'
+const COMMIT = (() => {
+  const baked = process.env.RESUME_BUILD_COMMIT?.trim() || process.env.GITHUB_SHA?.trim()
+  if (baked) return baked.slice(0, 7)
+  try {
+    return execFileSync('git', ['rev-parse', '--short=7', 'HEAD'], {
+      cwd: root, encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim()
+  } catch {
+    return ''
+  }
+})()
+log(`channel    : ${CHANNEL}${CHANNEL === 'release' ? '' : ` (reports Dev-${COMMIT || 'local'})`}`)
+
 // The release-asset name for THIS platform/arch — must match
 // server/desktop/updater.ts `assetNameFor` (intentionally duplicated: a build
 // script can't import the TS module) and what the auto-updater downloads.
@@ -196,6 +216,23 @@ if (fs.existsSync(composeSrc)) {
   log('(docker-compose.yml absent — managed-translate will be unavailable)')
 }
 
+// ── 5c. Copy the legal texts ────────────────────────────────────────────────
+// A desktop build is a REDISTRIBUTION, and several bundled components require
+// their licence and attribution to travel with it: Apache-2.0 (the Quadim
+// skill taxonomy in src/generated, and Roboto inside pdfmake), the Ubuntu Font
+// Licence (public/fonts), and the MIT/ISC notice requirements. Shipping the
+// binaries without these is the one packaging mistake that is invisible in
+// testing and is nevertheless a licence breach. Hard-fail rather than warn:
+// a release that quietly drops them is worse than a build that stops.
+for (const legal of ['LICENSE', 'THIRD-PARTY-LICENSES.md', 'PRIVACY.md']) {
+  const src = path.join(root, legal)
+  if (!fs.existsSync(src)) {
+    console.error(`[build-desktop] ERROR: ${legal} is missing — it must ship with the build.`)
+    process.exit(1)
+  }
+  fs.copyFileSync(src, path.join(release, legal))
+}
+
 
 // ── 6. Write launcher shim(s) for this platform ─────────────────────────────
 log('writing launcher shim(s) …')
@@ -209,6 +246,8 @@ set "RESUME_INSTALL_DIR=%~dp0."
 set "RESUME_CLIENT_DIR=%~dp0app\\dist"
 set "RESUME_COMPOSE_FILE=%~dp0docker-compose.yml"
 set "RESUME_APP_VERSION=${VERSION}"
+set "RESUME_BUILD_CHANNEL=${CHANNEL}"
+set "RESUME_BUILD_COMMIT=${COMMIT}"
 rem Tip: the sync folder and translation are configured from the in-app
 rem Settings screen (gear icon) — no need to edit this file.
 "%~dp0node.exe" "%~dp0app\\launcher.cjs"
@@ -222,6 +261,8 @@ sh.Environment("PROCESS")("RESUME_INSTALL_DIR") = root
 sh.Environment("PROCESS")("RESUME_CLIENT_DIR") = root & "app\\dist"
 sh.Environment("PROCESS")("RESUME_COMPOSE_FILE") = root & "docker-compose.yml"
 sh.Environment("PROCESS")("RESUME_APP_VERSION") = "${VERSION}"
+sh.Environment("PROCESS")("RESUME_BUILD_CHANNEL") = "${CHANNEL}"
+sh.Environment("PROCESS")("RESUME_BUILD_COMMIT") = "${COMMIT}"
 sh.Run """" & root & "node.exe"" """ & root & "app\\launcher.cjs""", 0, False
 `)
 } else {
@@ -233,6 +274,8 @@ export RESUME_INSTALL_DIR="$DIR"
 export RESUME_CLIENT_DIR="$DIR/app/dist"
 export RESUME_COMPOSE_FILE="$DIR/docker-compose.yml"
 export RESUME_APP_VERSION="${VERSION}"
+export RESUME_BUILD_CHANNEL="${CHANNEL}"
+export RESUME_BUILD_COMMIT="${COMMIT}"
 # Tip: the sync folder and translation are configured from the in-app
 # Settings screen (gear icon) — no need to edit this file.
 exec "$DIR/node" "$DIR/app/launcher.cjs"

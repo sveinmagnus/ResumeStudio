@@ -20,7 +20,7 @@ export function VersionTab() {
 
       <div className="sm-row">
         <span>Current version</span>
-        <span className="sm-pill">{upd ? `v${upd.currentVersion}` : '…'}</span>
+        <span className="sm-pill">{upd ? (upd.versionLabel || `v${upd.currentVersion}`) : '…'}</span>
       </div>
 
       {!upd?.supported && (

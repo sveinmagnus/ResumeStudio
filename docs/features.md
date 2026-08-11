@@ -300,6 +300,12 @@ and fix the thing a finding just told you about and come back to the rest.
   imported view configs are sanitised before they reach the export or preview
   pipelines.
 
+The full detail — every host the app can contact, what each provider receives,
+how sync folders and deletion work — is in
+[PRIVACY.md](https://github.com/sveinmagnus/resumestudio/blob/main/PRIVACY.md).
+To report a security issue, see
+[SECURITY.md](https://github.com/sveinmagnus/resumestudio/blob/main/SECURITY.md).
+
 ---
 
 Ready to try it? [Head to the downloads.](download.html)

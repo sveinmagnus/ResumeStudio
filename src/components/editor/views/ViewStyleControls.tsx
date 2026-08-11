@@ -162,6 +162,7 @@ export function ViewStyleControls({ style, onChange }: { style: ViewStyle; onCha
             <input
               type="text"
               className="rv-vs-hex"
+              aria-label="Heading colour hex value"
               value={style.heading_color ?? style.accent_color}
               onChange={(e) => {
                 const v = e.target.value.trim()
@@ -183,6 +184,7 @@ export function ViewStyleControls({ style, onChange }: { style: ViewStyle; onCha
             <input
               type="text"
               className="rv-vs-hex"
+              aria-label="Accent colour hex value"
               value={style.accent_color}
               onChange={(e) => {
                 const v = e.target.value.trim()

@@ -278,7 +278,10 @@ describe('isAbortError', () => {
 describe('probes that must never throw', () => {
   const OFF_ASSIST = { configured: false, provider: '', model: '', local: false, highEnd: false }
   const OFF_UPDATE = {
-    supported: false, state: 'idle', currentVersion: '0.0.0', latestVersion: null,
+    // Empty label, not a guessed one: with no server there is nothing to
+    // report, and every display site falls back on its own (`versionLabel ||
+    // …`) rather than showing a version this build can't vouch for.
+    supported: false, state: 'idle', currentVersion: '0.0.0', versionLabel: '', latestVersion: null,
     updateAvailable: false, downloadable: false, progress: 0, lastCheckedAt: null,
     notes: '', htmlUrl: null, error: null,
   }

@@ -72,7 +72,7 @@ export function UpdateBanner({ onUnauthorized }: UpdateBannerProps) {
         ) : (
           <>
             <strong>Resume Studio v{status.latestVersion} is available.</strong>{' '}
-            <span className="ub-cur">You have v{status.currentVersion}.</span>
+            <span className="ub-cur">You have {status.versionLabel || `v${status.currentVersion}`}.</span>
           </>
         )}
         {err && <div className="ub-err" role="alert"><AlertCircle size={12} /> {err}</div>}

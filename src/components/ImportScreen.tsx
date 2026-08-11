@@ -23,6 +23,16 @@ import type { ResumeStore, CanonicalSnapshot } from '../types'
 const YEAR = new Date().getFullYear()
 
 /**
+ * Caps on what a dropped .zip may inflate to in the browser, mirroring
+ * `server/backupZip.ts → MAX_ENTRY_BYTES`. Generous: a real LinkedIn export's
+ * largest CSV is a few MB, and the caps exist to stop a crafted archive, not to
+ * police ordinary files.
+ */
+const MAX_UNZIP_ENTRY_BYTES = 32 * 1024 * 1024
+/** Total across every entry read, so many small lying entries can't add up. */
+const MAX_UNZIP_BYTES = 128 * 1024 * 1024
+
+/**
  * Canonicalize a freshly-imported store's skill names against the Quadim
  * library (F12 pt2) and stamp authoritative classifications (F12 pt4). Skipped
  * for backups, whose names are intentional. The taxonomy/classifications are
@@ -144,10 +154,30 @@ export function ImportScreen({ compact = false, onStartFresh, onImported, onRest
         // fflate is lazy-loaded so the unzip code only ships when someone
         // actually drops a .zip.
         const { unzipSync, strFromU8 } = await import('fflate')
-        const entries = unzipSync(new Uint8Array(await file.arrayBuffer()))
+        // Only the CSVs are read here, and only to answer "is this a LinkedIn
+        // export?" — our own backup archive is forwarded to the server as the
+        // raw file, which applies its own per-entry cap (server/backupZip.ts).
+        // Filtering in `unzipSync` rather than after it is the whole point: an
+        // entry excluded here is never inflated, so a zip that declares
+        // gigabytes costs nothing. Without this a decompression bomb took the
+        // tab down — self-inflicted, but the server has had this guard since it
+        // was written and the asymmetry was an oversight, not a decision.
+        let budget = MAX_UNZIP_BYTES
+        const entries = unzipSync(new Uint8Array(await file.arrayBuffer()), {
+          filter: (entry) => {
+            if (!/\.csv$/i.test(entry.name)) return false
+            // `originalSize` is the header's claim, not proof — but it is all
+            // there is before inflating. The running budget bounds the other
+            // direction, so many small-but-lying entries can't add up either.
+            const declared = entry.originalSize ?? 0
+            if (declared > MAX_UNZIP_ENTRY_BYTES || declared > budget) return false
+            budget -= declared
+            return true
+          },
+        })
         const files: Record<string, string> = {}
         for (const [name, bytes] of Object.entries(entries)) {
-          if (/\.csv$/i.test(name)) files[name] = strFromU8(bytes)
+          files[name] = strFromU8(bytes)
         }
         if (isLinkedInExport(files)) {
           const store = await normalizeImported(importFromLinkedIn(files))

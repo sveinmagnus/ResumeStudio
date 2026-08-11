@@ -83,7 +83,9 @@ export function ResumeList({ onUnauthorized }: ResumeListProps) {
 
   useEffect(() => {
     api.updateStatus()
-      .then((s) => setAppVersion(s.currentVersion && s.currentVersion !== '0.0.0' ? s.currentVersion : null))
+      .then((s) => setAppVersion(
+        s.versionLabel || (s.currentVersion && s.currentVersion !== '0.0.0' ? `v${s.currentVersion}` : null),
+      ))
       .catch(() => setAppVersion(null))
   }, [])
 
@@ -369,7 +371,7 @@ export function ResumeList({ onUnauthorized }: ResumeListProps) {
         {appVersion && (
           <>
             <span className="rl-footer-dot">·</span>
-            <span title="Installed version">v{appVersion}</span>
+            <span title="Installed version">{appVersion}</span>
           </>
         )}
         {storage && (
