@@ -1039,3 +1039,230 @@ describe('unifyShowcaseCategories — dedup, order and idempotence', () => {
     expect('default_category' in raw).toBe(false)
   })
 })
+
+/**
+ * The migrations' text handling and per-field guards.
+ *
+ * Every one of these trims before deciding whether a value EXISTS. A migration
+ * that treats "   " as content folds a blank field into a real one, producing a
+ * description that opens with a stray separator — and it does that once,
+ * destructively, in data that is then saved back.
+ */
+describe('migrate — text guards and per-field defaults', () => {
+  describe('appendLocalized', () => {
+    it('joins two paragraphs with a blank line between them', () => {
+      expect(appendLocalized({ en: 'First.' }, { en: 'Second.' }).en).toBe('First.\n\nSecond.')
+    })
+
+    it('treats a whitespace-only addition as nothing', () => {
+      expect(appendLocalized({ en: 'First.' }, { en: '   ' })).toEqual({ en: 'First.' })
+    })
+
+    it('treats a whitespace-only BASE as empty rather than joining onto it', () => {
+      // Otherwise the result opens with two blank lines.
+      expect(appendLocalized({ en: '   ' }, { en: 'Second.' }).en).toBe('Second.')
+    })
+
+    it('keeps each locale separate', () => {
+      expect(appendLocalized({ en: 'A', no: 'X' }, { en: 'B' })).toEqual({ en: 'A\n\nB', no: 'X' })
+    })
+
+    it('adds a locale the base does not have', () => {
+      expect(appendLocalized({ en: 'A' }, { no: 'Y' })).toEqual({ en: 'A', no: 'Y' })
+    })
+  })
+
+  describe('buildRoleParagraph', () => {
+    const role = (over: Record<string, unknown> = {}) => ({
+      id: 'r1', name: { en: 'Architect' },
+      long_description: { en: 'Led the design.' }, summary: { en: 'Summary.' },
+      ...over,
+    }) as never
+
+    it('labels the paragraph with the role name and joins both bodies', () => {
+      const out = buildRoleParagraph(role(), ['en'])
+      expect(out.en).toBe('Architect: Led the design.\n\nSummary.')
+    })
+
+    it('omits the label when the role has no name', () => {
+      // "': Led the design." is what a missing guard produces.
+      expect(buildRoleParagraph(role({ name: {} }), ['en']).en).toBe('Led the design.\n\nSummary.')
+    })
+
+    it('treats a whitespace-only name as no name', () => {
+      expect(buildRoleParagraph(role({ name: { en: '  ' } }), ['en']).en)
+        .toBe('Led the design.\n\nSummary.')
+    })
+
+    it('drops a blank body rather than joining around it', () => {
+      expect(buildRoleParagraph(role({ summary: { en: '   ' } }), ['en']).en)
+        .toBe('Architect: Led the design.')
+    })
+
+    it('emits nothing for a locale with no body at all', () => {
+      expect(buildRoleParagraph(role({ long_description: {}, summary: {} }), ['en'])).toEqual({})
+    })
+  })
+
+  describe('foldRoleDescriptions keeps only roles with text', () => {
+    const proj = (roles: unknown[]) => ({
+      ...makeProject({ id: 'p1', long_description: {} }),
+      roles,
+    }) as never
+
+    it('folds a role that has a body', () => {
+      const out = foldRoleDescriptions({
+        ...emptyStore(),
+        projects: [proj([{ id: 'r1', role_id: 'x', name: { en: 'Architect' }, sort_order: 0, long_description: { en: 'Led it.' } }])],
+      })
+      expect(out.projects[0].long_description.en).toContain('Led it.')
+    })
+
+    it('ignores a role whose only text is whitespace', () => {
+      const out = foldRoleDescriptions({
+        ...emptyStore(),
+        projects: [proj([{ id: 'r1', role_id: 'x', name: { en: 'Architect' }, sort_order: 0, long_description: { en: '   ' } }])],
+      })
+      expect(out.projects[0].long_description).toEqual({})
+    })
+  })
+
+  describe('extractKeyPointsToCompetencies', () => {
+    it('carries a key point’s disabled flag onto the competency', () => {
+      // A point the user hid must not reappear as a visible competency.
+      const store = {
+        ...emptyStore(),
+        key_qualifications: [makeKQ({
+          id: 'kq1',
+          key_points: [
+            { id: 'a', name: { en: 'Kept' }, long_description: { en: 'x' }, sort_order: 0, disabled: false },
+            { id: 'b', name: { en: 'Hidden' }, long_description: { en: 'y' }, sort_order: 1, disabled: true },
+          ] as never,
+        })],
+      }
+      const out = extractKeyPointsToCompetencies(store as never)
+      const byTitle = Object.fromEntries(out.key_competencies.map((c) => [c.title.en, c]))
+      expect(byTitle['Kept'].disabled).toBe(false)
+      expect(byTitle['Hidden'].disabled).toBe(true)
+    })
+
+    it('defaults a missing disabled flag to false', () => {
+      const store = {
+        ...emptyStore(),
+        key_qualifications: [makeKQ({
+          id: 'kq1',
+          key_points: [{ id: 'a', name: { en: 'Kept' }, long_description: { en: 'x' }, sort_order: 0 }] as never,
+        })],
+      }
+      expect(extractKeyPointsToCompetencies(store as never).key_competencies[0].disabled).toBe(false)
+    })
+
+    it('skips a point whose text is only whitespace', () => {
+      const store = {
+        ...emptyStore(),
+        key_qualifications: [makeKQ({
+          id: 'kq1',
+          key_points: [{ id: 'a', name: { en: '  ' }, long_description: { en: '  ' }, sort_order: 0, disabled: false }] as never,
+        })],
+      }
+      expect(extractKeyPointsToCompetencies(store as never).key_competencies).toEqual([])
+    })
+  })
+
+  describe('migrateEmploymentShape', () => {
+    const work = (over: Record<string, unknown>) =>
+      ({ ...makeWork({ id: 'w1' }), ...over }) as never
+
+    it('promotes a legacy role_id into the role_ids array', () => {
+      const w = { ...makeWork({ id: 'w1' }), role_id: 'r1' } as never
+      delete (w as Record<string, unknown>).role_ids
+      const out = migrateEmploymentShape({ ...emptyStore(), work_experiences: [w] })
+      expect(out.work_experiences[0].role_ids).toEqual(['r1'])
+    })
+
+    it('produces an EMPTY array when there is no legacy role', () => {
+      const w = { ...makeWork({ id: 'w1' }) } as never
+      delete (w as Record<string, unknown>).role_ids
+      const out = migrateEmploymentShape({ ...emptyStore(), work_experiences: [w] })
+      expect(out.work_experiences[0].role_ids).toEqual([])
+    })
+
+    it('copies a legacy company_size across, but not a blank one', () => {
+      const withSize = migrateEmploymentShape({
+        ...emptyStore(),
+        work_experiences: [work({ company_size: '50-100', company_size_national: undefined })],
+      })
+      expect(withSize.work_experiences[0].company_size_national).toBe('50-100')
+
+      const blank = migrateEmploymentShape({
+        ...emptyStore(),
+        work_experiences: [work({ company_size: '   ', company_size_national: undefined })],
+      })
+      expect(blank.work_experiences[0].company_size_national).toBeUndefined()
+    })
+
+    it('leaves an already-migrated employment untouched, by reference', () => {
+      const store = { ...emptyStore(), work_experiences: [makeWork({ id: 'w1' })] }
+      expect(migrateEmploymentShape(store)).toBe(store)
+    })
+  })
+
+  describe('internSkillCategories', () => {
+    it('seeds the list from the categories skills already use', () => {
+      const out = internSkillCategories({
+        ...emptyStore(),
+        skills: [{ ...makeSkill({ id: 's1' }), category: 'Backend' } as never],
+        skill_categories: [] as never,
+      })
+      expect(out.skill_categories).toContain('Backend')
+    })
+
+    it('does not promote a whitespace-only category off a skill', () => {
+      const out = internSkillCategories({
+        ...emptyStore(),
+        skills: [{ ...makeSkill({ id: 's1' }), category: '   ' } as never],
+        skill_categories: [] as never,
+      })
+      expect(out.skill_categories).toEqual([])
+    })
+
+    it('returns the SAME store when it finds nothing new to add', () => {
+      // Idempotence, not tidiness: rewriting an unchanged store dirties it and
+      // that write goes back to the server. A pre-existing blank entry
+      // therefore survives until an explicit edit, which is the right trade.
+      const store = {
+        ...emptyStore(),
+        skills: [{ ...makeSkill({ id: 's1' }), category: '   ' } as never],
+        skill_categories: ['  '] as never,
+      }
+      expect(internSkillCategories(store)).toBe(store)
+    })
+
+    it('unions with the existing list rather than replacing it', () => {
+      const out = internSkillCategories({
+        ...emptyStore(),
+        skills: [{ ...makeSkill({ id: 's1' }), category: 'Backend' } as never],
+        skill_categories: ['Frontend'] as never,
+      })
+      expect([...out.skill_categories].sort()).toEqual(['Backend', 'Frontend'])
+    })
+  })
+
+  describe('localizedKey', () => {
+    it('keys on the first non-empty value, lower-cased', () => {
+      // The key is how two spellings of one name are recognised as the same, so
+      // case must not matter and a blank slot must be skipped.
+      const store = (name: Record<string, string>) => ({
+        ...emptyStore(),
+        industries: [{ id: 'i1', resume_id: 'r', name, sort_order: 0, disabled: false }],
+        projects: [{ ...makeProject({ id: 'p1' }), industry: { en: 'BANKING' }, industries: undefined } as never],
+      })
+      // 'Banking' and 'BANKING' must intern to ONE entry.
+      const out = internProjectIndustries(store({ en: 'Banking' }) as never)
+      expect(out.industries).toHaveLength(1)
+
+      const skipsBlank = internProjectIndustries(store({ en: '', no: 'Banking' }) as never)
+      expect(skipsBlank.industries).toHaveLength(1)
+    })
+  })
+})
