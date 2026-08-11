@@ -147,10 +147,10 @@ units:
 
   - id: skill-software-testing
     path: .claude/skills/software-testing.md
-    intent: "How to write tests that find bugs here — the typecheck/test/build gate, regression discipline, and live verification."
+    intent: "How to write tests that find bugs here — the lint/typecheck/test/build gate, regression discipline, and live verification."
     scope: project
     audience: [agent]
-    validated: "2026-07-17"
+    validated: "2026-08-11"
     depends_on: [claude-instructions]
     triggers: [testing, vitest, rtl, regression, qa, verification]
     hints:
@@ -179,10 +179,10 @@ units:
 
   - id: skill-ci-and-release
     path: .claude/skills/ci-and-release.md
-    intent: "How do this repo's CI (ci.yml: typecheck/test/build/e2e/depcheck) and tag-driven release pipeline (release.yml) work, and how do you triage a red check or a failed release build?"
+    intent: "How do this repo's CI (ci.yml: verify/coverage/e2e/depcheck) and tag-driven release pipeline (release.yml) work, and how do you triage a red check or a failed release build?"
     scope: project
     audience: [agent, developer]
-    validated: "2026-08-04"
+    validated: "2026-08-11"
     depends_on: [ci-policy, release-policy, skill-software-testing]
     triggers: [ci-failure, red-check, release-build, triage, workflow, version-drift, updater-asset, sha256-sidecar]
     hints:
