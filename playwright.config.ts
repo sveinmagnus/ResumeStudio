@@ -28,14 +28,19 @@ export default defineConfig({
    * only Chromium tests the one engine least likely to surprise us — and the
    * desktop build opens the user's default browser, which on macOS is Safari.
    *
-   * The same six specs run on each: they are thin happy paths, so triple is
-   * still under a minute.
+   * The same seven specs run on each: they are thin happy paths, so triple is
+   * still under a minute and a half.
    *
-   * KNOWN LOCAL CAVEAT: on this Windows machine Firefox fails to LAUNCH
-   * (`browserType.launch: spawn UNKNOWN`) — the binary downloads fine and
-   * Chromium/WebKit both run, so it is an OS-level spawn block (Defender or
-   * similar), not a test or app failure. CI (ubuntu) runs all three. If you hit
-   * it locally, `npx playwright test --project=chromium --project=webkit`.
+   * WINDOWS CAVEAT: Firefox is the only one of the three whose launcher
+   * resolves a private side-by-side assembly (`mozglue`), and SxS probing does
+   * not follow MSIX file-system redirection. A run started from inside a
+   * packaged app — where %LOCALAPPDATA% maps into the package's LocalCache —
+   * therefore dies at `browserType.launch: spawn UNKNOWN`, logging "Dependent
+   * Assembly mozglue could not be found"; the same binary launches from its
+   * un-redirected path. Point PLAYWRIGHT_BROWSERS_PATH outside AppData and
+   * reinstall. Do not read this as a Firefox or app fault, and do not "fix" it
+   * by dropping the project: Chromium and WebKit declare no private
+   * assemblies, so they pass while genuinely broken paths go unnoticed.
    */
   projects: [
     { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
