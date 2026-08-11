@@ -624,3 +624,169 @@ describe('importFromCVPartner — project duration', () => {
     expect(Number.isNaN(skill.total_duration_in_years)).toBe(false)
   })
 })
+
+/**
+ * The subsidiary sections nothing imported.
+ *
+ * Certifications, positions, presentations and awards were entirely unreached —
+ * so a CVpartner export could bring them in against the wrong fields and no
+ * test would move. Each one maps a CVpartner name onto a different Resume Studio
+ * name (`description` becomes an ORGANISATION on a position and a TITLE on a
+ * presentation), which is exactly the sort of mapping that rots silently.
+ */
+describe('importFromCVPartner — the subsidiary sections', () => {
+  const of = (raw: Record<string, unknown>) => importFromCVPartner(raw as never)
+
+  describe('certifications', () => {
+    const cert = (over: Record<string, unknown> = {}) => of({
+      certifications: [{
+        name: { en: 'AWS SA' }, organiser: { en: 'Amazon' },
+        long_description: { en: 'Professional level.' },
+        year: '2022', month: '3', order: 2, ...over,
+      }],
+    }).certifications[0]
+
+    it('maps name, organiser and long_description', () => {
+      expect(cert()).toMatchObject({
+        name: { en: 'AWS SA' },
+        organiser: { en: 'Amazon' },
+        description: { en: 'Professional level.' },
+      })
+    })
+
+    it('reads the issue date from year + month', () => {
+      expect(cert().issued).toEqual({ year: 2022, month: 3 })
+    })
+
+    it('reads an expiry only when the export has one', () => {
+      expect(cert({ year_expire: '2025', month_expire: '3' }).expires).toEqual({ year: 2025, month: 3 })
+      expect(cert().expires).toBeNull()
+    })
+
+    it('carries the export’s order, and defaults it to 0', () => {
+      expect(cert().sort_order).toBe(2)
+      expect(cert({ order: undefined }).sort_order).toBe(0)
+    })
+
+    it('defaults starred and disabled to false rather than undefined', () => {
+      expect(cert()).toMatchObject({ starred: false, disabled: false })
+      expect(cert({ starred: true, disabled: true })).toMatchObject({ starred: true, disabled: true })
+    })
+  })
+
+  describe('positions', () => {
+    const pos = (over: Record<string, unknown> = {}) => of({
+      positions: [{
+        name: { en: 'Board member' }, description: { en: 'Cartavio AS' },
+        year_from: '2020', year_to: '2022', order: 1, ...over,
+      }],
+    }).positions[0]
+
+    it('maps CVpartner’s `description` onto the ORGANISATION', () => {
+      // The name is the role; the organisation arrives in `description`. Getting
+      // this pair the wrong way round labels every position with its company.
+      expect(pos()).toMatchObject({
+        name: { en: 'Board member' },
+        organisation: { en: 'Cartavio AS' },
+      })
+    })
+
+    it('leaves its own description empty — the export has no field for it', () => {
+      expect(pos().description).toEqual({})
+    })
+
+    it('reads the range, treating an EMPTY year_to as ongoing', () => {
+      expect(pos().start).toEqual({ year: 2020, month: null })
+      expect(pos().end).toEqual({ year: 2022, month: null })
+      expect(pos({ year_to: '' }).end).toBeNull()
+      expect(pos({ year_to: undefined }).end).toBeNull()
+    })
+  })
+
+  describe('presentations', () => {
+    const pres = (over: Record<string, unknown> = {}) => of({
+      presentations: [{
+        description: { en: 'Scaling Postgres' },
+        long_description: { en: 'A talk about scale.' },
+        year: '2024', month: '9', order: 3, ...over,
+      }],
+    }).presentations[0]
+
+    it('maps CVpartner’s `description` onto the TITLE', () => {
+      // The opposite of positions, from the same source field name.
+      expect(pres()).toMatchObject({
+        title: { en: 'Scaling Postgres' },
+        description: { en: 'A talk about scale.' },
+      })
+    })
+
+    it('lands the date on the range END, matching shape v13', () => {
+      // Presentations became a start/end range; the import has one date, and it
+      // is the end, with the start left blank.
+      expect(pres().end).toEqual({ year: 2024, month: 9 })
+      expect(pres().start).toBeNull()
+    })
+
+    it('has no event or url — the export carries neither', () => {
+      expect(pres().event).toEqual({})
+      expect(pres().url).toBeNull()
+    })
+  })
+
+  describe('honors & awards', () => {
+    const award = (over: Record<string, unknown> = {}) => of({
+      honors_awards: [{
+        name: { en: 'Employee of the Year' }, issuer: { en: 'Cartavio AS' },
+        for_work: { en: 'The migration' }, long_description: { en: 'For the migration.' },
+        year: '2021', month: '12', order: 4, ...over,
+      }],
+    }).honor_awards[0]
+
+    it('maps all four localized fields and the date', () => {
+      expect(award()).toMatchObject({
+        name: { en: 'Employee of the Year' },
+        issuer: { en: 'Cartavio AS' },
+        for_work: { en: 'The migration' },
+        description: { en: 'For the migration.' },
+        date: { year: 2021, month: 12 },
+      })
+    })
+
+    it('carries order and disabled', () => {
+      expect(award()).toMatchObject({ sort_order: 4, disabled: false })
+      expect(award({ disabled: true }).disabled).toBe(true)
+    })
+  })
+
+  it('imports nothing for a section the export omits entirely', () => {
+    const store = of({})
+    expect(store.certifications).toEqual([])
+    expect(store.positions).toEqual([])
+    expect(store.presentations).toEqual([])
+    expect(store.honor_awards).toEqual([])
+  })
+})
+
+describe('importFromCVPartner — date of birth', () => {
+  const dob = (raw: Record<string, unknown>) =>
+    importFromCVPartner(raw as never).resume!.date_of_birth
+
+  it('assembles an ISO date from the three parts', () => {
+    expect(dob({ born_year: '1980', born_month: '6', born_day: '15' })).toBe('1980-06-15')
+  })
+
+  it('zero-pads a single-digit month and day', () => {
+    // '1980-6-1' is not an ISO date and does not parse the same everywhere.
+    expect(dob({ born_year: '1980', born_month: '6', born_day: '1' })).toBe('1980-06-01')
+  })
+
+  it('defaults a missing month and day to January the 1st', () => {
+    // The year is the part people actually record; defaulting to 0 would make
+    // an invalid date, and dropping the whole field loses the year too.
+    expect(dob({ born_year: '1980' })).toBe('1980-01-01')
+  })
+
+  it('is null when the export has no birth year', () => {
+    expect(dob({ born_month: '6', born_day: '15' })).toBeNull()
+  })
+})

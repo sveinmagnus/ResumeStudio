@@ -506,3 +506,107 @@ describe('cleanPastedHtml — containers and inline-style edges', () => {
     expect(cleanPastedHtml('<span style="font-style:italic">x</span>')).toBe('<em>x</em>')
   })
 })
+
+/**
+ * richToPlain's list rendering — 24 survivors in nodeText alone.
+ *
+ * This is the ATS/plain-text view of a description and the text an AI assist
+ * reads, so structure has to survive without markup: lists keep visible markers
+ * and nested items keep visible indentation, because whitespace alone would
+ * lose the shape entirely.
+ */
+describe('richToPlain — list structure in plain text', () => {
+  it('prefixes unordered items with a bullet', () => {
+    expect(richToPlain('<ul><li>First</li><li>Second</li></ul>'))
+      .toBe('• First\n• Second')
+  })
+
+  it('numbers ordered items by their position among the LI siblings', () => {
+    expect(richToPlain('<ol><li>First</li><li>Second</li><li>Third</li></ol>'))
+      .toBe('1. First\n2. Second\n3. Third')
+  })
+
+  it('numbers from 1, not from 0', () => {
+    expect(richToPlain('<ol><li>Only</li></ol>')).toBe('1. Only')
+  })
+
+  it('indents a nested list one level deeper', () => {
+    // Two spaces per level of enclosing list — the only thing carrying the
+    // hierarchy once the tags are gone.
+    expect(richToPlain('<ul><li>Top<ul><li>Nested</li></ul></li></ul>'))
+      .toBe('• Top\n  • Nested')
+  })
+
+  it('indents a doubly-nested list two levels', () => {
+    expect(richToPlain('<ul><li>A<ul><li>B<ul><li>C</li></ul></li></ul></li></ul>'))
+      .toBe('• A\n  • B\n    • C')
+  })
+
+  it('keeps a nested ORDERED list numbered independently', () => {
+    expect(richToPlain('<ul><li>Top<ol><li>One</li><li>Two</li></ol></li></ul>'))
+      .toBe('• Top\n  1. One\n  2. Two')
+  })
+
+  it('separates an item’s own text from its sub-list', () => {
+    // Without the split the sub-items would be glued onto the parent's line.
+    const out = richToPlain('<ul><li>Parent<ul><li>Child</li></ul></li></ul>')
+    expect(out.split('\n')[0]).toBe('• Parent')
+  })
+
+  it('numbers by LI position even when a sub-list is a direct child', () => {
+    // ul > ul sibling nesting puts a non-LI element among the children; counting
+    // it would shift every number after it.
+    expect(richToPlain('<ol><li>a</li><ul><li>x</li></ul><li>b</li></ol>').split('\n'))
+      .toEqual(['1. a', '  • x', '2. b'])
+  })
+
+  it('does not add a blank line between a list and the paragraph after it', () => {
+    // A paragraph ends with a newline; a list must not, or every list is
+    // followed by a gap the user never asked for.
+    expect(richToPlain('<ul><li>a</li></ul><p>b</p>').split('\n')).toEqual(['• a', 'b'])
+  })
+
+  it('turns a <br> into a real newline', () => {
+    expect(richToPlain('<p>One<br>Two</p>')).toBe('One\nTwo')
+  })
+
+  it('collapses a whitespace run — including a source newline — to one space', () => {
+    // Source formatting is not content; HTML renders it as a single space.
+    expect(richToPlain('<p>One\n   Two</p>')).toBe('One Two')
+    expect(richToPlain('<p>One\t\tTwo</p>')).toBe('One Two')
+  })
+
+  it('keeps the leading indentation of a nested item, collapsing only inner runs', () => {
+    // The collapse is anchored on a preceding non-space so line-leading padding
+    // survives; a blanket collapse would flatten the hierarchy.
+    const out = richToPlain('<ul><li>Top<ul><li>Nested   text</li></ul></li></ul>')
+    expect(out).toBe('• Top\n  • Nested text')
+  })
+
+  it('ends a paragraph with a newline but a list without a trailing blank', () => {
+    expect(richToPlain('<p>One.</p><p>Two.</p>')).toBe('One.\nTwo.')
+  })
+
+  it('collapses three or more newlines to a blank line at most', () => {
+    expect(richToPlain('<p>One.</p><p></p><p></p><p>Two.</p>')).not.toMatch(/\n\n\n/)
+  })
+
+  it('trims the result', () => {
+    expect(richToPlain('<p>  Spaced  </p>')).toBe('Spaced')
+  })
+
+  it('takes the fast path for plain text, returning it unchanged', () => {
+    // Including whitespace a DOM round-trip would collapse — the value is not
+    // markup, so it is not reformatted.
+    expect(richToPlain('two   spaces')).toBe('two   spaces')
+  })
+
+  it('is empty for empty input', () => {
+    expect(richToPlain('')).toBe('')
+  })
+
+  it('reads inline formatting as its text, dropping the tags', () => {
+    expect(richToPlain('<p>Ran <strong>fast</strong> and <em>quietly</em>.</p>'))
+      .toBe('Ran fast and quietly.')
+  })
+})
