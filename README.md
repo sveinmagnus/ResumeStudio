@@ -1,15 +1,16 @@
 # Cartavio Resume Studio
 
 A multi-language consultant resume manager. Maintain one master CV across
-languages, then export targeted variants — PDF, Microsoft Word, or ATS
-text — for different audiences.
+languages, then export multiple formats — PDF, Microsoft Word, or ATS text — 
+as targeted variants for different audiences.
 
-Built for a single consultant or small team; runs as a small self-hosted web app (React +
-Express + SQLite) with offline-tolerant persistence.
+Built for a single consultant or small teams; runs as a small self-hosted web app (React +
+Express + SQLite) with offline-tolerant persistence and self-contained data storage without
+any external dependencies or cloud services required.
 
 ---
 
-## Download
+## Download and run as a self-updating package
 
 The easiest way to run Resume Studio is the **portable desktop app** — no
 install and no Node required. Get the newest build for your OS:
@@ -30,9 +31,10 @@ itself up to date automatically (tray → **Check for updates**). Full details i
 
 ---
 
-## Quick start
+## Manual deployment - Quick start
 
 ```bash
+git clone https://github.com/sveinmagnus/resumestudio/
 npm install
 npm run dev
 ```
@@ -63,21 +65,20 @@ The full feature tour lives on the
 - **Dual-language side-by-side editing.** Every translatable field renders as
   two inputs at once — pick any two locales, swap with one click, hide the
   secondary column when you want focus.
-- **Translation assist.** Per-field **Copy from primary** (no network) and an
-  optional **Draft translation** button proxied through your own server.
-  Providers: self-hosted [LibreTranslate](https://libretranslate.com/)
-  (Docker-managed or remote, with a pick-your-languages install), DeepL,
-  Google Cloud Translation, Azure Translator — or the same local/remote LLM
-  you configured for AI assist, with zero extra setup.
-- **AI assist, bring-your-own model.** Point the app at a local Ollama
-  (Docker-managed for you), OpenAI, or any OpenAI-compatible endpoint, and
-  one model powers the whole assist suite: one-line summaries (per field or
+- **AI assist, bring-your-own model.** Automatic Docker-managed Ollama setup or 
+  point the app at another local Ollama, Mistral, Antrhopic, OpenAI, or any OpenAI-compatible endpoint.
+  The configured model powers the whole assist suite: one-line summaries (per field or
   "Bulk summarize" for a whole section), skill suggestions from project prose, drafted
   project highlights, an anonymization leak check, and over-length page-fit
   advice. Every button says honestly whether content stays on this machine
-  or leaves it; every result is a review-before-apply draft; and with no
-  model configured the buttons simply hide — the copy-the-prompt-into-any-AI
-  manual path always works.
+  or leaves it based on your configuration; every result is a review-before-apply draft; and with no
+  model configured the buttons simply hide.
+  - **Translation assist.** Per-field optional **Draft translation** 
+  proxied through your own server.
+  Providers: Self-hosted [LibreTranslate](https://libretranslate.com/)
+  (Docker-managed or remote, with a pick-your-languages install), DeepL,
+  Google Cloud Translation, Azure Translator — or the same local/remote LLM
+  you configured for AI assist, with zero extra setup.
 - **Resume Views — targeted exports.** Curated subsets of the master CV:
   per-section detail levels (off / summary / tabulated / full), item
   exclusions and bulk selection, starred-only, custom intro, per-view styling
@@ -108,8 +109,8 @@ The full feature tour lives on the
 - **Rich content.** Limited rich text (bold/italic/underline/lists) in
   descriptions, uploaded profile photo with cropper, company logo, key
   competencies, recommendations.
-- **Import.** CVpartner JSON, **LinkedIn data exports** (.zip), **Europass**
-  (XML/JSON), portable JSON backups, an **AI-assisted import** from any
+- **Import.** portable JSON backups, **LinkedIn data exports** (.zip), **Europass**
+  (XML/JSON), FlowCase/CVpartner JSON, an **AI-assisted import** from any
   PDF/Word CV, and a per-section **bulk add** that turns pasted source
   material into many items at once — both AI flows run with your configured
   model or as a bring-your-own-LLM copy/paste, no external service required.
@@ -145,8 +146,7 @@ The full feature tour lives on the
   conflict dialog. Server-side **version history** (last 50 snapshots per
   resume) restorable from the header.
 - **Editing comfort.** Undo/redo, drag-and-drop reordering everywhere (with
-  keyboard fallback), skill/role registries with merge ("Løsningarkitekt" vs
-  "Løsningsarkitekt" — pick one, the other is rewritten everywhere), usage
+  keyboard fallback), skill/role registries with merge, usage
   breakdowns, and autocomplete linking.
 - **Desktop build.** A portable folder with bundled Node — unzip,
   double-click, edit. System-tray icon, automatic updates from GitHub
@@ -237,11 +237,11 @@ one row per resume in `resumes`, plus per-resume snapshot history in
 `resume_snapshots` (last 50 saves each, duplicates skipped). WAL mode is on.
 The desktop build keeps the same schema in `RESUME_DATA_DIR` instead.
 
-### Enabling draft translations (optional)
+### Enabling AI assist and translation support (optional)
 
-The "Draft translation" button needs a configured provider. The zero-key
-option is a self-hosted [LibreTranslate](https://libretranslate.com/)
-instance — a `docker-compose.yml` is bundled to run it alongside the app:
+The "AI assist" and "Draft translation" buttons needs configured providers. The zero-key
+option is a self-hosted [LibreTranslate](https://libretranslate.com/) and/or [Ollama](https://ollama.com/)
+instance — a `docker-compose.yml` is bundled to run both alongside the app:
 
 ```bash
 npm run dev:translate     # docker compose up -d libretranslate (first boot pulls models)
@@ -251,17 +251,17 @@ npm run dev               # restart so the server reads the URL
 npm run translate:down    # stop the service when you're done
 ```
 
-By default it loads the `en, nb, sv, da` models (English +
-Norwegian/Swedish/Danish) to stay light — each language is a few hundred MB —
-and caches them in a named Docker volume; set `LT_LOAD_ONLY` to install a
-different set. Key-based providers (DeepL, Google, Azure) are configured via
+By default the translation loads the current resume configured languages to stay light 
+— each language is a few hundred MB — and caches them in a named Docker volume; 
+set `LT_LOAD_ONLY` to install a different set. 
+Key-based providers (DeepL, Google, Azure) are configured via
 `TRANSLATE_PROVIDER` + the matching key instead, and `TRANSLATE_PROVIDER=llm`
-translates with the AI-assist model — see `.env.example`. On the desktop
-build, all of this lives in Settings, which can also start/stop the Docker
-services and pick the installed languages for you.
+translates with the AI-assist model using `LLM_PROVIDER` — see `.env.example`. 
+On the desktop build, all of this lives in Settings, which can also start/stop 
+the Docker services and pick the installed languages for you.
 
-Translation is entirely optional — without it, "Copy from primary" still works
-and the Draft button stays hidden. CV text only travels browser → app server →
+LLM assist and translation is entirely optional — without it, "Copy from primary" still works
+and the other buttons stays hidden. CV text only travels browser → app server →
 the provider you configured; there is no third-party middleman.
 
 ---

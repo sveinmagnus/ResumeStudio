@@ -631,3 +631,238 @@ describe('the simple sections', () => {
     })
   })
 })
+
+/**
+ * The EDITOR-facing labels — title() and subtitle().
+ *
+ * 115 unreached mutants in this file, and this is most of them. These are what
+ * the View editor's item list and the global search show, and unlike the render
+ * paths they deliberately show RAW data (no anonymization), so nothing else
+ * exercises them. A fallback that resolves wrongly gives the consultant a list
+ * of rows all reading "Untitled".
+ */
+describe('SECTION_CATALOG — editor titles and subtitles', () => {
+  const TITLES: Array<[string, Record<string, unknown>, string]> = [
+    ['projects', { customer: { en: 'Acme' }, description: { en: 'Payments' } }, 'Acme'],
+    ['projects', { customer: {}, description: { en: 'Payments' } }, 'Payments'],
+    ['projects', { customer: {}, description: {} }, 'Untitled project'],
+    ['key_qualifications', { tag_line: { en: 'Architect' } }, 'Architect'],
+    ['key_qualifications', { tag_line: {} }, 'Untitled profile'],
+    ['key_competencies', { title: { en: 'Cloud' } }, 'Cloud'],
+    ['key_competencies', { title: {} }, 'Untitled competency'],
+    ['work_experiences', { employer: { en: 'Acme' } }, 'Acme'],
+    ['work_experiences', { employer: {} }, 'Untitled employer'],
+    ['educations', { school: { en: 'NTNU' } }, 'NTNU'],
+    ['educations', { school: {} }, 'Untitled school'],
+    ['courses', { name: { en: 'K8s 101' } }, 'K8s 101'],
+    ['courses', { name: {} }, 'Untitled'],
+    ['certifications', { name: { en: 'AWS SA' } }, 'AWS SA'],
+    ['positions', { organisation: { en: 'Cartavio' }, name: { en: 'Board member' } }, 'Cartavio'],
+    ['positions', { organisation: {}, name: { en: 'Board member' } }, 'Board member'],
+    ['positions', { organisation: {}, name: {} }, 'Untitled'],
+    ['spoken_languages', { name: { en: 'Norwegian' } }, 'Norwegian'],
+    ['technology_categories', { name: { en: 'Languages' } }, 'Languages'],
+    ['presentations', { title: { en: 'Scaling' } }, 'Scaling'],
+    ['honor_awards', { name: { en: 'Award' } }, 'Award'],
+    ['publications', { title: { en: 'On Sharding' } }, 'On Sharding'],
+    ['references', { name: 'Jane Boss' }, 'Jane Boss'],
+    ['references', { name: '' }, 'Unnamed'],
+    ['skills', { name: { en: 'Go' } }, 'Go'],
+    ['skills', { name: {} }, 'Unnamed skill'],
+    ['roles', { name: { en: 'Architect' } }, 'Architect'],
+    ['roles', { name: {} }, 'Unnamed role'],
+    ['industries', { name: { en: 'Banking' } }, 'Banking'],
+    ['industries', { name: {} }, 'Unnamed industry'],
+  ]
+
+  it.each(TITLES)('%s titles %j as %j', (key, itm, expected) => {
+    expect(SECTION_CATALOG[key].title(item(itm), 'en')).toBe(expected)
+  })
+
+  it('resolves an editor title in the requested locale', () => {
+    expect(SECTION_CATALOG.projects.title(item({ customer: { en: 'Acme', no: 'Akme' } }), 'no'))
+      .toBe('Akme')
+  })
+
+  describe('subtitles', () => {
+    const dated = { start: { year: 2020, month: 1 }, end: { year: 2021, month: 6 } }
+
+    it('shows a project’s RAW range, unaffected by hideDates', () => {
+      // The editor list always shows dates — hiding them is a per-view export
+      // setting, and the consultant needs to tell two rows apart regardless.
+      expect(SECTION_CATALOG.projects.subtitle!(item(dated), 'en')).toMatch(/2020/)
+    })
+
+    it('joins an employment’s role and range with a middot', () => {
+      expect(SECTION_CATALOG.work_experiences.subtitle!(item({ role_title: { en: 'Architect' }, ...dated }), 'en'))
+        .toMatch(/^Architect · /)
+    })
+
+    it('omits the middot when an employment has no range', () => {
+      expect(SECTION_CATALOG.work_experiences.subtitle!(item({ role_title: { en: 'Architect' } }), 'en'))
+        .toBe('Architect')
+    })
+
+    it('joins an education’s degree and range', () => {
+      expect(SECTION_CATALOG.educations.subtitle!(item({ degree: { en: 'MSc' }, ...dated }), 'en'))
+        .toMatch(/^MSc · /)
+      expect(SECTION_CATALOG.educations.subtitle!(item({ degree: { en: 'MSc' } }), 'en')).toBe('MSc')
+    })
+
+    it('joins a position’s name, TYPE and range', () => {
+      const s = SECTION_CATALOG.positions.subtitle!(
+        item({ name: { en: 'Board member' }, position_type: 'board_member', ...dated }), 'en')
+      expect(s).toContain('Board member')
+      expect(s).toMatch(/·.*·/)
+    })
+
+    it('drops the type from a position subtitle when it has none', () => {
+      expect(SECTION_CATALOG.positions.subtitle!(item({ name: { en: 'Advisor' } }), 'en')).toBe('Advisor')
+    })
+
+    it('shows a certification’s organiser and a presentation’s event', () => {
+      expect(SECTION_CATALOG.certifications.subtitle!(item({ organiser: { en: 'Amazon' } }), 'en')).toBe('Amazon')
+      expect(SECTION_CATALOG.presentations.subtitle!(item({ event: { en: 'JavaZone' } }), 'en')).toBe('JavaZone')
+    })
+
+    it('shows a recommendation’s title and company', () => {
+      const s = SECTION_CATALOG.recommendations.subtitle!(
+        item({ recommender_title: { en: 'CTO' }, recommender_company: 'BigCo' }), 'en')
+      expect(s).toContain('CTO')
+      expect(s).toContain('BigCo')
+    })
+
+    it('leaves out the absent half of a recommendation subtitle', () => {
+      expect(SECTION_CATALOG.recommendations.subtitle!(
+        item({ recommender_title: { en: 'CTO' }, recommender_company: '' }), 'en')).toBe('CTO')
+    })
+  })
+})
+
+/**
+ * The extra fields — each is one line in an exported document, and each was
+ * unreached. They are the details a reader looks for: a grade, a credential
+ * link, an allocation, a contact route for a reference.
+ */
+describe('SECTION_CATALOG — the extra render details', () => {
+  const text: CatalogCtx = { locale: 'en', hideDates: false, target: 'text' }
+
+  it('emits an education grade as an extra line, away from HTML', () => {
+    const withGrade = item({ school: { en: 'NTNU' }, degree: { en: 'MSc' }, grade: 'A' })
+    expect(SECTION_CATALOG.educations.full!(withGrade, docx)!.extraLines)
+      .toEqual([expect.stringContaining('A')])
+    expect(SECTION_CATALOG.educations.full!(withGrade, html)!.extraLines ?? []).toEqual([])
+  })
+
+  it('omits the grade line when there is no grade', () => {
+    expect(SECTION_CATALOG.educations.full!(item({ school: { en: 'NTNU' } }), docx)!.extraLines ?? [])
+      .toEqual([])
+  })
+
+  it('shows an employment’s type as meta, humanised', () => {
+    // Stored as a snake_case enum; printed with a space.
+    const v = SECTION_CATALOG.work_experiences.full!(
+      item({ employer: { en: 'Acme' }, employment_type: 'full_time' }), docx)!
+    expect(v.meta).toContain('full time')
+  })
+
+  it('omits the employment-type meta when unset', () => {
+    expect(SECTION_CATALOG.work_experiences.full!(item({ employer: { en: 'Acme' } }), docx)!.meta)
+      .toEqual([])
+  })
+
+  it('combines employer and role into the employment title, with a fallback', () => {
+    expect(SECTION_CATALOG.work_experiences.full!(
+      item({ employer: { en: 'Acme' }, role_title: { en: 'Architect' } }), docx)!.title)
+      .toBe('Acme — Architect')
+    expect(SECTION_CATALOG.work_experiences.full!(item({ employer: {}, role_title: {} }), docx)!.title)
+      .toBe('Employer')
+  })
+
+  it('shows a project’s allocation when set', () => {
+    const v = SECTION_CATALOG.projects.full!(
+      item({ customer: { en: 'Acme' }, percent_allocated: 60 }), docx)!
+    expect(v.meta.join(' ')).toContain('60')
+    const none = SECTION_CATALOG.projects.full!(item({ customer: { en: 'Acme' } }), docx)!
+    expect(none.meta.join(' ')).not.toContain('60')
+  })
+
+  it('carries a project’s highlights as points, dropping the empty ones', () => {
+    const v = SECTION_CATALOG.projects.full!(item({
+      customer: { en: 'Acme' },
+      highlights: [{ en: 'Cut build time' }, {}, { en: 'Shipped it' }],
+    }), docx)!
+    expect(v.points.map((p) => p.body)).toEqual(['Cut build time', 'Shipped it'])
+  })
+
+  it('lists a project’s roles, industries and skills as tags', () => {
+    const v = SECTION_CATALOG.projects.full!(item({
+      customer: { en: 'Acme' },
+      roles: [{ name: { en: 'Architect' } }, { name: { en: 'Gone' }, disabled: true }],
+      industries: [{ name: { en: 'Banking' } }],
+      skills: [{ name: { en: 'Go' } }],
+    }), docx)!
+    const all = [...v.tags, ...v.meta].join(' | ')
+    expect(all).toContain('Architect')
+    expect(all).toContain('Go')
+    // A disabled role is out of every export.
+    expect(all).not.toContain('Gone')
+  })
+
+  it('carries a profile’s key points, skipping the disabled ones', () => {
+    const v = SECTION_CATALOG.key_qualifications.full!(item({
+      summary: { en: 'Long summary.' },
+      key_points: [
+        { name: { en: 'Cloud' }, long_description: { en: 'Ran it.' } },
+        { name: { en: 'Gone' }, long_description: { en: 'x' }, disabled: true },
+      ],
+    }), docx)!
+    expect(v.points.map((p) => p.label)).toEqual(['Cloud'])
+  })
+
+  it('renders a competency’s title and description, and nothing for an empty one', () => {
+    expect(SECTION_CATALOG.key_competencies.full!(
+      item({ title: { en: 'Cloud' }, description: { en: 'Ran it.' } }), docx))
+      .toMatchObject({ title: 'Cloud', body: 'Ran it.' })
+    expect(SECTION_CATALOG.key_competencies.full!(item({ title: {}, description: {} }), docx)).toBeNull()
+  })
+
+  describe('references', () => {
+    const ref = (over: Record<string, unknown> = {}) => item({
+      name: 'Jane Boss', title: 'CTO', company: 'BigCo',
+      relationship: { en: 'Worked together' }, email: 'jane@x.io', phone: '+47 900',
+      include_in_exports: true, ...over,
+    })
+
+    it('is omitted entirely unless include_in_exports is set', () => {
+      // A reference is a named third party who consented to be listed; exporting
+      // one that has not opted in is the mistake this flag exists to prevent.
+      expect(SECTION_CATALOG.references.full!(ref({ include_in_exports: false }), docx)).toBeNull()
+      expect(SECTION_CATALOG.references.summary!(ref({ include_in_exports: false }), docx)).toBeNull()
+      expect(SECTION_CATALOG.references.full!(ref(), docx)).not.toBeNull()
+    })
+
+    it('lists title and company as meta, and contact details as extra lines', () => {
+      const v = SECTION_CATALOG.references.full!(ref(), text)!
+      expect(v.meta).toEqual(['CTO', 'BigCo'])
+      expect(v.extraLines).toEqual(['Worked together', 'jane@x.io', '+47 900'])
+    })
+
+    it('withholds the contact details from the HTML preview', () => {
+      const v = SECTION_CATALOG.references.full!(ref(), html)!
+      expect(v.meta).toEqual(['CTO', 'BigCo'])
+      expect(v.extraLines ?? []).toEqual([])
+    })
+
+    it('drops an absent contact route rather than leaving a blank line', () => {
+      const v = SECTION_CATALOG.references.full!(ref({ email: '', phone: '' }), text)!
+      expect(v.extraLines).toEqual(['Worked together'])
+    })
+  })
+
+  it('lists a publication’s co-authors, ignoring a non-array', () => {
+    expect(SECTION_CATALOG.publications.full!(
+      item({ title: { en: 'P' }, co_authors: 'Ada' }), docx)!.meta.join(' '))
+      .not.toContain('With')
+  })
+})

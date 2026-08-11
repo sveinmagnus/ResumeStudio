@@ -16,7 +16,8 @@ import { withHeaderDefaults } from '../src/lib/viewHeader'
 import { DEFAULT_VIEW_STYLE, deriveTokens } from '../src/lib/viewStyle'
 import {
   emptyStore, makeResume, makeProject, makeView, makeCoverLetter,
-  makeSkill, makeSkillCategory, makeKQ,
+  makeSkill, makeSkillCategory, makeKQ, makeWork, makeSpokenLanguage, makeRecommendation,
+  makeCertification,
 } from './fixtures'
 import type { ResumeStore } from '../src/types'
 
@@ -467,5 +468,367 @@ describe('buildIdentity (PDF)', () => {
     const t = collectText(dd.content)
     expect(t.filter((x) => x === ' | ')).toHaveLength(1)
     expect(t.indexOf(' | ')).toBeGreaterThan(t.indexOf('+47 900 00 000'))
+  })
+})
+
+/**
+ * The PDF item renderer — the mirror of viewFilter's renderItem and
+ * exporter's renderItemDocx, and the one with 54 unreached mutants.
+ *
+ * Every branch here decides how an item READS: which layout it takes, whether
+ * the date sits beside the title, whether a key point gets a label, whether the
+ * bullet column appears. They all produce nodes, so a wrong branch is invisible
+ * to any assertion that content came out.
+ */
+describe('renderItemPdf — the item layouts', () => {
+  const store = (over: Partial<Parameters<typeof makeWork>[0]> = {}): ResumeStore => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'Kari Nordmann' })
+    s.work_experiences = [makeWork({
+      id: 'w1', employer: { en: 'Acme' }, role_title: { en: 'Architect' },
+      start: { year: 2020, month: 1 }, end: { year: 2021, month: 6 },
+      long_description: { en: 'Did the work.' }, ...over,
+    })]
+    return s
+  }
+  const dd = async (style: Record<string, unknown> = {}, s = store()) =>
+    buildPdfDocDefinition(s, makeView({
+      sections: [{ key: 'work_experiences', detail: 'full', sort_order: 0, style } as never],
+    }), 'en')
+
+  /** Every text run in the tree, flattened, with its own properties kept. */
+  const runs = (node: unknown, out: Array<Record<string, unknown>> = []): Array<Record<string, unknown>> => {
+    if (Array.isArray(node)) { node.forEach((n) => runs(n, out)); return out }
+    if (!node || typeof node !== 'object') return out
+    const rec = node as Record<string, unknown>
+    if (typeof rec.text === 'string') out.push(rec)
+    for (const v of Object.values(rec)) if (v && typeof v === 'object') runs(v, out)
+    return out
+  }
+  const texts = (d: { content: unknown }) => runs(d.content).map((r) => String(r.text))
+
+  it('puts the date beside the title, in a smaller faint run', async () => {
+    // The DOCX and HTML adapters put the date in the meta line; the PDF sets it
+    // on the title row, which is why it needs its own assertion.
+    // The PDF's title run combines employer and role ("Acme — Architect"),
+    // where the HTML and DOCX adapters split them across title and meta.
+    const t = runs((await dd()).content)
+    const title = t.find((r) => String(r.text).startsWith('Acme'))!
+    expect(title.bold).toBe(true)
+    const date = t.find((r) => String(r.text).includes('2020'))!
+    expect(date.color).toBeDefined()
+    expect(Number(date.fontSize)).toBeLessThan(Number(title.fontSize))
+  })
+
+  it('omits the date run entirely when dates are hidden', async () => {
+    const t = texts(await dd({ hide_dates: true }))
+    expect(t.some((x) => x.includes('2020'))).toBe(false)
+    expect(t.some((x) => x.startsWith('Acme'))).toBe(true)
+  })
+
+  it('renders the meta line italic and subtle, and omits it when empty', async () => {
+    // Certifications put the organiser on its own meta line — Employment folds
+    // its role into the title instead.
+    const certs = (organiser: Record<string, string>) => {
+      const s = emptyStore()
+      s.resume = makeResume({ full_name: 'X' })
+      s.certifications = [makeCertification({ id: 'c1', name: { en: 'AWS SA' }, organiser })]
+      return buildPdfDocDefinition(s, makeView({
+        sections: [{ key: 'certifications', detail: 'full', sort_order: 0 } as never],
+      }), 'en')
+    }
+    const meta = runs((await certs({ en: 'Amazon' })).content).find((r) => r.text === 'Amazon')!
+    expect(meta.italics).toBe(true)
+    expect(meta.color).toBeDefined()
+
+    // No organiser → NO meta node at all, not an empty italic one. A text
+    // search cannot see an empty node, so this counts the italic runs.
+    const bare = await certs({})
+    expect(texts(bare)).not.toContain('Amazon')
+    expect(runs(bare.content).filter((r) => r.italics && r.text === '')).toEqual([])
+  })
+
+  it('gives a large-title section a bigger heading than the body', async () => {
+    // titleStyle is a per-descriptor choice; collapsing it makes every heading
+    // body-sized.
+    // A body RUN inherits its size from the paragraph that wraps it, so the
+    // comparison is against the body-size token rather than a sibling run.
+    const t = runs((await dd()).content)
+    const title = t.find((r) => String(r.text).startsWith('Acme'))!
+    expect(Number(title.fontSize))
+      .toBeGreaterThan(deriveTokens(DEFAULT_VIEW_STYLE).bodyFontSizePt)
+  })
+
+  describe('key points', () => {
+    const withPoints = (points: Array<{ label?: Record<string, string>; body: Record<string, string> }>) => {
+      const s = emptyStore()
+      s.resume = makeResume({ full_name: 'X' })
+      s.key_qualifications = [makeKQ({
+        id: 'kq1', summary: { en: 'Summary.' },
+        key_points: points.map((p, i) => ({
+          id: `kp${i}`, name: p.label ?? {}, long_description: p.body, sort_order: i, disabled: false,
+        })) as never,
+      })]
+      return buildPdfDocDefinition(s, makeView({
+        sections: [{ key: 'key_qualifications', detail: 'full', sort_order: 0 } as never],
+      }), 'en')
+    }
+
+    it('prefixes a labelled point with its label and a dash', async () => {
+      const t = texts(await withPoints([{ label: { en: 'Cloud' }, body: { en: 'Ran it.' } }]))
+      expect(t).toContain('• Cloud')
+      expect(t).toContain(' — ')
+      expect(t).toContain('Ran it.')
+    })
+
+    it('prefixes an unlabelled point with a bare bullet, and no dash', async () => {
+      const t = texts(await withPoints([{ body: { en: 'Ran it.' } }]))
+      expect(t).toContain('• ')
+      expect(t).not.toContain(' — ')
+    })
+
+    it('flattens a multi-paragraph point onto one bullet line', async () => {
+      // A point is ONE bullet; letting its paragraphs split would invent
+      // bullets the user never wrote.
+      const t = texts(await withPoints([{ body: { en: 'First.\n\nSecond.' } }]))
+      expect(t).toContain('First.')
+      expect(t).toContain('Second.')
+      expect(t.filter((x) => x.startsWith('•'))).toHaveLength(1)
+      // A separator run stands between them — without it the two paragraphs
+      // run together as "First.Second.".
+      expect(t.slice(t.indexOf('First.'), t.indexOf('Second.'))).toContain(' ')
+    })
+  })
+
+  it('wraps the item in a two-column bullet row only when bullets are on', async () => {
+    const on = await dd({ item_bullets: true })
+    const cols = JSON.stringify(on.content).includes('"columns"')
+    expect(cols).toBe(true)
+    const off = await dd({})
+    expect(JSON.stringify(off.content).includes('"columnGap":4')).toBe(false)
+  })
+
+  it('renders a language inline, with its level after an em-dash', async () => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    s.spoken_languages = [makeSpokenLanguage({ id: 'l1', name: { en: 'Norwegian' }, level: { en: 'Native' } })]
+    const t = texts(await buildPdfDocDefinition(s, makeView({
+      sections: [{ key: 'spoken_languages', detail: 'full', sort_order: 0 } as never],
+    }), 'en'))
+    expect(t).toContain('Norwegian')
+    expect(t.some((x) => x.startsWith(' — ') && x.includes('Native'))).toBe(true)
+  })
+
+  it('omits the inline meta run when a language has no level', async () => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    s.spoken_languages = [makeSpokenLanguage({ id: 'l1', name: { en: 'Norwegian' }, level: {} })]
+    const t = texts(await buildPdfDocDefinition(s, makeView({
+      sections: [{ key: 'spoken_languages', detail: 'full', sort_order: 0 } as never],
+    }), 'en'))
+    expect(t).toContain('Norwegian')
+    expect(t.some((x) => x.startsWith(' — '))).toBe(false)
+  })
+
+  it('renders a recommendation as an italic quote with a subtle attribution', async () => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    s.recommendations = [makeRecommendation({
+      id: 'r1', recommender_name: 'Jane Boss', recommender_title: { en: 'CTO' },
+      text: { en: 'Excellent to work with.' },
+    })]
+    const d = await buildPdfDocDefinition(s, makeView({
+      sections: [{ key: 'recommendations', detail: 'full', sort_order: 0 } as never],
+    }), 'en')
+    const quote = runs(d.content).find((r) => String(r.text).includes('Excellent'))!
+    expect(quote.italics).toBe(true)
+    expect(texts(d).some((x) => x.startsWith('— ') && x.includes('Jane Boss'))).toBe(true)
+  })
+
+  it('falls back to the company when the recommender has no name', async () => {
+    // Losing the attribution entirely would leave an anonymous quote; the
+    // company is the next-best identification.
+    const s0 = emptyStore()
+    s0.resume = makeResume({ full_name: 'X' })
+    s0.recommendations = [makeRecommendation({
+      id: 'r1', recommender_name: '', recommender_title: {}, relationship: {},
+      recommender_company: 'BigCo', text: { en: 'Great.' },
+    })]
+    expect(texts(await buildPdfDocDefinition(s0, makeView({
+      sections: [{ key: 'recommendations', detail: 'full', sort_order: 0 } as never],
+    }), 'en')).some((x) => x === '— BigCo')).toBe(true)
+  })
+
+  it('omits the attribution line when there is nothing at all to attribute', async () => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    s.recommendations = [makeRecommendation({
+      id: 'r1', recommender_name: '', recommender_title: {}, relationship: {},
+      recommender_company: '', text: { en: 'Great.' },
+    })]
+    const t = texts(await buildPdfDocDefinition(s, makeView({
+      sections: [{ key: 'recommendations', detail: 'full', sort_order: 0 } as never],
+    }), 'en'))
+    expect(t.some((x) => x.startsWith('— '))).toBe(false)
+  })
+})
+
+/** scaleImage — 17 unreached mutants; it decides how big a photo prints. */
+describe('scaleImage via the header images', () => {
+  const png = (w: number, h: number) => {
+    // A minimal but real PNG header carrying the given dimensions.
+    const bytes = [
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+      0, 0, 0, 0x0d, 0x49, 0x48, 0x44, 0x52,
+      (w >> 24) & 255, (w >> 16) & 255, (w >> 8) & 255, w & 255,
+      (h >> 24) & 255, (h >> 16) & 255, (h >> 8) & 255, h & 255,
+      0, 0, 0, 0, 0, 0,
+    ]
+    return `data:image/png;base64,${Buffer.from(Uint8Array.from(bytes)).toString('base64')}`
+  }
+  const photoNode = async (src: string) => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X', profile_photo: src })
+    const d = await buildPdfDocDefinition(s, makeView({
+      sections: buildViewSections(),
+      header: withHeaderDefaults({ photo_placement: 'left' }),
+    }), 'en')
+    const found: Array<Record<string, unknown>> = []
+    const walk = (n: unknown): void => {
+      if (Array.isArray(n)) { n.forEach(walk); return }
+      if (!n || typeof n !== 'object') return
+      const rec = n as Record<string, unknown>
+      if (typeof rec.image === 'string') found.push(rec)
+      for (const v of Object.values(rec)) if (v && typeof v === 'object') walk(v)
+    }
+    walk(d.content)
+    return found[0]
+  }
+
+  it('scales a large image down inside the box, keeping its aspect ratio', async () => {
+    // 400x200 into a 100x120 box → limited by WIDTH, so 100x50.
+    const n = await photoNode(png(400, 200))
+    expect(n).toMatchObject({ width: 100, height: 50 })
+  })
+
+  it('is limited by HEIGHT for a tall image', async () => {
+    // 200x480 into 100x120 → height wins: 120 tall, 50 wide.
+    const n = await photoNode(png(200, 480))
+    expect(n).toMatchObject({ width: 50, height: 120 })
+  })
+
+  it('never enlarges an image that already fits', async () => {
+    const n = await photoNode(png(40, 30))
+    expect(n).toMatchObject({ width: 40, height: 30 })
+  })
+
+  it('never reports a zero dimension', async () => {
+    // A very wide sliver would round its height to 0 and print nothing.
+    const n = await photoNode(png(4000, 3))
+    expect(Number(n.width)).toBeGreaterThan(0)
+    expect(Number(n.height)).toBeGreaterThan(0)
+  })
+})
+
+/**
+ * Tags, extra lines, the section-heading rule, and the empty-body guard —
+ * the parts of the PDF adapter still unreached after the item layouts.
+ */
+describe('pdfExporter — tags, extra lines and the heading rule', () => {
+  const runs = (node: unknown, out: Array<Record<string, unknown>> = []): Array<Record<string, unknown>> => {
+    if (Array.isArray(node)) { node.forEach((n) => runs(n, out)); return out }
+    if (!node || typeof node !== 'object') return out
+    const rec = node as Record<string, unknown>
+    if (typeof rec.text === 'string') out.push(rec)
+    for (const v of Object.values(rec)) if (v && typeof v === 'object') runs(v, out)
+    return out
+  }
+  const texts = (d: { content: unknown }) => runs(d.content).map((r) => String(r.text))
+
+  const projectStore = (over: Record<string, unknown> = {}): ResumeStore => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    s.skills = [makeSkill({ id: 'go', name: { en: 'Go' } }), makeSkill({ id: 'k8s', name: { en: 'Kubernetes' } })]
+    s.projects = [makeProject({
+      id: 'p1', customer: { en: 'Acme' },
+      skills: [
+        { id: 'ps1', skill_id: 'go', name: { en: 'Go' }, duration_in_years: 0, offset_in_years: 0, total_duration_in_years: 0, sort_order: 0 },
+        { id: 'ps2', skill_id: 'k8s', name: { en: 'Kubernetes' }, duration_in_years: 0, offset_in_years: 0, total_duration_in_years: 0, sort_order: 1 },
+      ],
+      ...over,
+    } as never)]
+    return s
+  }
+  const dd = (s: ResumeStore, style: Record<string, unknown> = {}) =>
+    buildPdfDocDefinition(s, makeView({
+      sections: [{ key: 'projects', detail: 'full', sort_order: 0, style } as never],
+    }), 'en')
+
+  it('lists an item’s tags, comma-joined, behind an italic label', async () => {
+    const doc = await dd(projectStore())
+    expect(texts(doc).some((x) => x.includes('Go, Kubernetes'))).toBe(true)
+    const label = runs(doc.content).find((r) => /skills/i.test(String(r.text)))
+    expect(label?.italics).toBe(true)
+  })
+
+  it('emits no tag node at all when an item has none', async () => {
+    // Not just "no skill names" — no LABEL either. An empty tags node renders
+    // as a stray "Skills:" with nothing after it.
+    const t = texts(await dd(projectStore({ skills: [] })))
+    expect(t.some((x) => x.includes('Go'))).toBe(false)
+    expect(t.some((x) => /skills/i.test(x))).toBe(false)
+  })
+
+  it('pushes no empty run when a section tags WITHOUT a label', async () => {
+    // The Skills Showcase emits tags with an empty tagsLabel — the one section
+    // where the label guard is reachable. Pushing it unconditionally leaves an
+    // empty run in front of the skill list.
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    s.skill_categories = [makeSkillCategory({ id: 'c1', name: { en: 'Languages' } })]
+    s.skills = [makeSkill({ id: 'go', name: { en: 'Go' }, category_id: 'c1', is_highlighted: true })]
+    const doc = await buildPdfDocDefinition(s, makeView({
+      sections: [{ key: 'technology_categories', detail: 'full', sort_order: 0 } as never],
+    }), 'en')
+    expect(texts(doc)).toContain('Go')
+    expect(runs(doc.content).filter((r) => r.text === '')).toEqual([])
+  })
+
+  it('renders each extra line as its own subtle paragraph', async () => {
+    // Certifications put the credential URL there.
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    s.certifications = [makeCertification({
+      id: 'c1', name: { en: 'AWS SA' }, credential_url: 'https://verify.example/abc',
+    })]
+    const d = await buildPdfDocDefinition(s, makeView({
+      sections: [{ key: 'certifications', detail: 'full', sort_order: 0 } as never],
+    }), 'en')
+    // The SUBTLE grey specifically — para() always sets some colour, so
+    // "has a colour" would pass with the styling dropped.
+    const line = runs(d.content).find((r) => String(r.text).includes('verify.example'))
+    expect(line).toBeDefined()
+    expect(line!.color).toBe('#666666')
+  })
+
+  it('draws a rule under the section heading and nowhere else', async () => {
+    // The heading is a one-row table whose only border is the bottom one; a rule
+    // above it would read as a divider from the previous section. hLineWidth is
+    // a CALLBACK, so it has to be invoked — a stringified layout cannot show it.
+    const d = await dd(projectStore())
+    expect(JSON.stringify(d.content)).toContain('"border":[false,false,false,true]')
+    const heading = (d.content as Array<Record<string, unknown>>)
+      .find((n) => n.table && (n.layout as Record<string, unknown>)?.hLineWidth)!
+    const hLineWidth = (heading.layout as { hLineWidth: (i: number) => number }).hLineWidth
+    expect(hLineWidth(0)).toBe(0)
+    expect(hLineWidth(1)).toBeGreaterThan(0)
+  })
+
+  it('renders nothing for an empty rich-text body', async () => {
+    const s = projectStore({ long_description: { en: '' }, description: {} })
+    // An empty body must produce NO paragraph, not a blank one — a blank
+    // paragraph is visible in the PDF as an unexplained gap.
+    const t = texts(await dd(s))
+    expect(t.filter((x) => x.trim() === '')).toEqual([])
   })
 })
