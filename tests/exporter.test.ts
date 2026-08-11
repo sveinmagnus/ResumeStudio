@@ -738,3 +738,168 @@ describe('exportCoverLetterDocx()', () => {
     expect(await isZip(lastBlob!)).toBe(true)
   })
 })
+
+/**
+ * The DOCX item layouts — the fourth adapter of the same item.
+ *
+ * 72 survivors and 17 uncovered. The bullet layout is the part with a
+ * mechanism of its own: DOCX has no flex row, so the glyph rides the title line
+ * via a leading run plus a tab, and every content paragraph is indented to line
+ * up under the heading. A hanging indent that stops hanging, or an indent
+ * applied without a glyph, both still produce a document.
+ */
+describe('exportDocx — item layouts', () => {
+  /** Local copies: the originals are scoped to another describe block. */
+  const paragraphWith = (xml: string, text: string): string => {
+    const para = xml.split('</w:p>').find((p) => p.includes(text))
+    if (para === undefined) throw new Error(`no paragraph containing ${text}`)
+    return para.slice(para.lastIndexOf('<w:p'))
+  }
+  const attr = (fragment: string, name: string): number | null => {
+    const m = new RegExp(`${name}="(\\d+)"`).exec(fragment)
+    return m ? Number(m[1]) : null
+  }
+  /**
+   * A header with its own languages line switched off.
+   *
+   * The header lists spoken languages too ("Norwegian (Native)") and comes
+   * first in the document, so without this a search for the language name
+   * finds the HEADER and the assertion is not about the item at all.
+   */
+  const noLanguagesHeader = () => withHeaderDefaults({
+    fields: withHeaderDefaults({}).fields.map((f) =>
+      f.key === 'languages' ? { ...f, show: false } : f),
+  })
+  const store = (over: Record<string, unknown> = {}): ResumeStore => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'Kari Nordmann' })
+    s.work_experiences = [makeWork({
+      id: 'w1', employer: { en: 'Acme' }, role_title: { en: 'Architect' },
+      start: { year: 2020, month: 1 }, end: { year: 2021, month: 6 },
+      long_description: { en: '<p>Did the work.</p>' }, ...over,
+    } as never)]
+    return s
+  }
+  const xmlFor = async (style: Record<string, unknown> = {}, s = store()) => {
+    await exportDocx(s, makeView({
+      sections: [{ key: 'work_experiences', detail: 'full', sort_order: 0, style } as never],
+    }), 'en')
+    return documentXml(lastBlob!)
+  }
+
+  it('puts the date on the title line, smaller and fainter', async () => {
+    const xml = await xmlFor()
+    const titlePara = paragraphWith(xml, 'Acme')
+    expect(titlePara).toMatch(/Jan 2020/)
+    // Two runs: the title at body size and the date at the small size.
+    const sizes = [...titlePara.matchAll(/w:sz w:val="(\d+)"/g)].map((m) => Number(m[1]))
+    expect(sizes.length).toBeGreaterThan(1)
+    expect(Math.min(...sizes)).toBeLessThan(Math.max(...sizes))
+  })
+
+  it('gives a large-title section a heading bigger than the body', async () => {
+    // titleStyle is a per-descriptor choice; collapsing it makes every heading
+    // body-sized, which the date-size comparison above cannot see.
+    // Run sizes are `<w:sz w:val="24"/>`, so `attr` (which reads name="…")
+    // cannot fetch them.
+    const firstSize = (fragment: string) =>
+      Number(/w:sz w:val="(\d+)"/.exec(fragment)?.[1] ?? NaN)
+    const xml = await xmlFor()
+    expect(firstSize(paragraphWith(xml, 'Acme')))
+      .toBeGreaterThan(firstSize(paragraphWith(xml, 'Did the work.')))
+  })
+
+  it('omits the date run when dates are hidden', async () => {
+    expect(await xmlFor({ hide_dates: true })).not.toMatch(/Jan 2020/)
+  })
+
+  describe('the bullet layout', () => {
+    it('rides the glyph on the title line with a tab, and hangs the indent', async () => {
+      const xml = await xmlFor({ item_bullets: true })
+      const titlePara = paragraphWith(xml, 'Acme')
+      // The glyph rides the title line as its own run ending in a LITERAL tab
+      // (docx writes it inside <w:t>, not as a <w:tab/> element), which is why
+      // the run needs xml:space="preserve" to survive.
+      expect(titlePara).toMatch(/<w:t xml:space="preserve">•\t<\/w:t>/)
+      // Hanging indent: the first line pulls back out of the body indent, so
+      // the glyph sits in the margin and the title starts at the text column.
+      expect(attr(titlePara, 'w:hanging')).toBe(attr(titlePara, 'w:left'))
+      expect(attr(titlePara, 'w:left')).toBeGreaterThan(0)
+    })
+
+    it('indents the body paragraphs to line up under the heading', async () => {
+      const xml = await xmlFor({ item_bullets: true })
+      expect(attr(paragraphWith(xml, 'Did the work.'), 'w:left')).toBeGreaterThan(0)
+    })
+
+    it('leaves both the tab and the indent out when bullets are off', async () => {
+      const xml = await xmlFor({})
+      const titlePara = paragraphWith(xml, 'Acme')
+      expect(titlePara).not.toContain('\t')
+      expect(titlePara).not.toMatch(/w:hanging=/)
+      expect(attr(paragraphWith(xml, 'Did the work.'), 'w:left')).toBeNull()
+    })
+  })
+
+  it('renders a language as one inline paragraph, level after an em-dash', async () => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    s.spoken_languages = [makeSpokenLanguage({ id: 'l1', name: { en: 'Norwegian' }, level: { en: 'Native' } })]
+    // The HEADER lists languages too ("Norwegian (Native)"), and it comes
+    // first — so it has to be off for the assertion to be about the item.
+    await exportDocx(s, makeView({
+      sections: [{ key: 'spoken_languages', detail: 'full', sort_order: 0 } as never],
+      header: noLanguagesHeader(),
+    }), 'en')
+    const para = paragraphWith(await documentXml(lastBlob!), 'Norwegian')
+    expect(para).toContain('Native')
+    expect(para).toContain('—')
+  })
+
+  it('omits the inline meta run when a language has no level', async () => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    s.spoken_languages = [makeSpokenLanguage({ id: 'l1', name: { en: 'Norwegian' }, level: {} })]
+    await exportDocx(s, makeView({
+      sections: [{ key: 'spoken_languages', detail: 'full', sort_order: 0 } as never],
+      header: noLanguagesHeader(),
+    }), 'en')
+    const para = paragraphWith(await documentXml(lastBlob!), 'Norwegian')
+    expect(para).not.toContain('—')
+  })
+
+  describe('the quote layout', () => {
+    const recStore = (over: Record<string, unknown> = {}) => {
+      const s = emptyStore()
+      s.resume = makeResume({ full_name: 'X' })
+      s.recommendations = [makeRecommendation({
+        id: 'r1', recommender_name: 'Jane Boss', recommender_title: { en: 'CTO' },
+        text: { en: '<p>Excellent to work with.</p>' }, ...over,
+      } as never)]
+      return s
+    }
+    const recXml = async (over: Record<string, unknown> = {}) => {
+      await exportDocx(recStore(over), makeView({
+        sections: [{ key: 'recommendations', detail: 'full', sort_order: 0 } as never],
+      }), 'en')
+      return documentXml(lastBlob!)
+    }
+
+    it('italicises the quote and adds a subtle attribution line', async () => {
+      const xml = await recXml()
+      expect(paragraphWith(xml, 'Excellent to work with.')).toContain('<w:i/>')
+      expect(xml).toMatch(/— Jane Boss/)
+      expect(xml).toContain('CTO')
+    })
+
+    it('falls back to the company when there is no recommender name', async () => {
+      const xml = await recXml({ recommender_name: '', recommender_title: {}, relationship: {}, recommender_company: 'BigCo' })
+      expect(xml).toMatch(/— BigCo/)
+    })
+
+    it('omits the attribution paragraph when there is nothing to attribute', async () => {
+      const xml = await recXml({ recommender_name: '', recommender_title: {}, relationship: {}, recommender_company: '' })
+      expect(xml).not.toContain('—')
+    })
+  })
+})
