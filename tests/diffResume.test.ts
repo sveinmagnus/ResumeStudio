@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { diffStores, sectionLabel } from '../src/lib/diffResume'
+import { diffStores, sectionLabel, labelOf } from '../src/lib/diffResume'
 import { emptyStore, makeResume, makeProject, makeSkill, makeSkillCategory } from './fixtures'
 
 describe('diffStores', () => {
@@ -109,5 +109,103 @@ describe('diffStores', () => {
     expect(sectionLabel('resume')).toBe('Personal details')
     // A section added since this map was written still names itself.
     expect(sectionLabel('brand_new_section')).toBe('brand_new_section')
+  })
+})
+
+describe('the profile fields the conflict panel surfaces', () => {
+  /**
+   * Each field is a separate row in the modal that asks "keep mine or take
+   * theirs". A field missing from the list makes a real divergence invisible,
+   * and the user discards an edit they never saw.
+   */
+  const FIELDS: Array<[string, string, unknown, unknown]> = [
+    ['full_name', 'Full name', 'Ada', 'Grace'],
+    ['email', 'Email', 'a@b.no', 'c@d.no'],
+    ['phone', 'Phone', '+47 1', '+47 2'],
+    ['title', 'Title', { en: 'Consultant' }, { en: 'Architect' }],
+    ['nationality', 'Nationality', { en: 'Norwegian' }, { en: 'British' }],
+    ['place_of_residence', 'Place of residence', { en: 'Oslo' }, { en: 'Bergen' }],
+    ['linkedin_url', 'LinkedIn', 'https://li/a', 'https://li/b'],
+    ['website_url', 'Website', 'https://a.no', 'https://b.no'],
+  ]
+
+  for (const [key, label, mineValue, theirsValue] of FIELDS) {
+    it(`surfaces a divergent ${label}`, () => {
+      const mine = emptyStore()
+      const theirs = emptyStore()
+      mine.resume = makeResume({ [key]: mineValue } as never)
+      theirs.resume = makeResume({ [key]: theirsValue } as never)
+      const out = diffStores(mine, theirs)
+      expect(out.identical).toBe(false)
+      expect(out.profileFields.map((f) => f.field)).toEqual([label])
+      expect(out.profileFields[0].mine).toBe(typeof mineValue === 'string' ? mineValue : Object.values(mineValue as object)[0])
+      expect(out.profileFields[0].theirs).toBe(typeof theirsValue === 'string' ? theirsValue : Object.values(theirsValue as object)[0])
+    })
+  }
+
+  it('says identical when only the profile agrees AND no section differs', () => {
+    const mine = emptyStore()
+    const theirs = emptyStore()
+    mine.resume = makeResume({ full_name: 'Ada' })
+    theirs.resume = makeResume({ full_name: 'Ada' })
+    expect(diffStores(mine, theirs).identical).toBe(true)
+  })
+
+  it('is not identical when the profile differs but every section agrees', () => {
+    const mine = emptyStore()
+    const theirs = emptyStore()
+    mine.resume = makeResume({ full_name: 'Ada' })
+    theirs.resume = makeResume({ full_name: 'Grace' })
+    const out = diffStores(mine, theirs)
+    expect(out.sections).toEqual([])
+    expect(out.identical).toBe(false)
+  })
+
+  it('compares a missing profile against a present one without throwing', () => {
+    const mine = emptyStore()
+    const theirs = emptyStore()
+    mine.resume = null as never
+    theirs.resume = makeResume({ full_name: 'Ada' })
+    const fields = diffStores(mine, theirs).profileFields
+    expect(fields).toContainEqual({ field: 'Full name', mine: '', theirs: 'Ada' })
+    // Every row reads as "nothing here" on the missing side, not undefined.
+    for (const f of fields) expect(f.mine).toBe('')
+  })
+
+  it('treats a blank locale slot as no value, so a whitespace edit is not a divergence', () => {
+    const mine = emptyStore()
+    const theirs = emptyStore()
+    mine.resume = makeResume({ title: { en: '   ' } })
+    theirs.resume = makeResume({ title: {} })
+    expect(diffStores(mine, theirs).profileFields).toEqual([])
+  })
+})
+
+describe('labelOf — the shared item label', () => {
+  it('takes the first title field the item actually has', () => {
+    expect(labelOf({ customer: { en: 'Acme' } })).toBe('Acme')
+    expect(labelOf({ employer: { en: 'Cartavio' } })).toBe('Cartavio')
+    expect(labelOf({ name: 'Client A' })).toBe('Client A')
+  })
+
+  it('falls through a title field that is present but empty', () => {
+    expect(labelOf({ name: {}, customer: { en: 'Acme' } })).toBe('Acme')
+    expect(labelOf({ name: { en: '  ' }, customer: { en: 'Acme' } })).toBe('Acme')
+  })
+
+  it('prefers the EARLIER title field when several are filled', () => {
+    expect(labelOf({ customer: { en: 'Acme' }, title: { en: 'Something else' } })).toBe('Acme')
+  })
+
+  it('says (untitled) for anything it cannot name', () => {
+    expect(labelOf({})).toBe('(untitled)')
+    expect(labelOf(null)).toBe('(untitled)')
+    expect(labelOf('a string')).toBe('(untitled)')
+    expect(labelOf(42)).toBe('(untitled)')
+    expect(labelOf({ description: { en: 'not a title field' } })).toBe('(untitled)')
+  })
+
+  it('ignores a title field holding non-string values', () => {
+    expect(labelOf({ name: { year: 2020 } })).toBe('(untitled)')
   })
 })
