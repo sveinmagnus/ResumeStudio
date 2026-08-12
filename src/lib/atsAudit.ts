@@ -166,7 +166,13 @@ export function extractPostingTerms(posting: string, store: ResumeStore, locale:
   )
   const runRe = /\p{Lu}[\p{L}\p{N}+#.-]*(?:\s\p{Lu}[\p{L}\p{N}+#.-]*){0,2}/gu
   for (let m = runRe.exec(text); m; m = runRe.exec(text)) {
-    const run = m[0]
+    // A full stop is a word character to the pattern above ("Node.js"), so a run
+    // can span a sentence boundary and read as one term ("Kubernetes. Also
+    // Terraform"). Keep the part before the boundary and resume scanning just
+    // after it, so the next sentence's words are still offered.
+    const boundary = /(?<=[.!?])\s+/.exec(m[0])
+    if (boundary) runRe.lastIndex = m.index + boundary.index + boundary[0].length
+    const run = boundary ? m[0].slice(0, boundary.index) : m[0]
     const single = !run.includes(' ')
     // A capitalised word that also appears lowercase is almost always just the
     // start of a sentence.

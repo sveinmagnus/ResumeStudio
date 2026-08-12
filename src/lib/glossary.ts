@@ -107,9 +107,10 @@ function addPair(
   // in `keep` if anywhere, and as a term pair it would just waste prompt space.
   if (from.toLowerCase() === to.toLowerCase()) return
   const key = from.toLowerCase()
-  const existing = into.get(key)
-  // A registry pair beats a field pair for the same term: the user curated it.
-  if (existing && !(existing.origin === 'field' && origin === 'registry')) return
+  // First writer wins, and the registries are walked first — so a curated
+  // registry pair always beats a field pair for the same term, and two field
+  // pairs that disagree keep the earlier one rather than flapping per item.
+  if (into.has(key)) return
   into.set(key, { from, to, origin })
 }
 

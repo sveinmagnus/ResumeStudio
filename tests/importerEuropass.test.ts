@@ -523,3 +523,88 @@ describe('importerEuropass — education dates and value coercion', () => {
     expect(store.resume!.full_name).toBe('Kari Nordmann')
   })
 })
+
+/**
+ * An imported store is a WHOLE store: every section the app knows about has to
+ * exist and be empty, because the editor, the migrations and the view builder all
+ * read them straight away. A section left undefined — or filled with something —
+ * fails at the first render, not at the import.
+ */
+describe('importFromEuropass — the store it hands back is complete and otherwise empty', () => {
+  const XML = `<?xml version="1.0"?><SkillsPassport>
+    <LearnerInfo>
+      <Identification><PersonName><FirstName>Ada</FirstName><Surname>Lovelace</Surname></PersonName></Identification>
+      <WorkExperienceList><WorkExperience>
+        <Period><From year="2020" month="--01"/><Current>true</Current></Period>
+        <Employer><Name>Acme</Name></Employer>
+        <Position><Label>Architect</Label></Position>
+      </WorkExperience></WorkExperienceList>
+    </LearnerInfo></SkillsPassport>`
+
+  const EMPTY_SECTIONS = [
+    'skills', 'roles', 'industries', 'key_qualifications', 'key_competencies',
+    'recommendations', 'projects', 'courses', 'certifications', 'skill_categories',
+    'cover_letters', 'positions', 'presentations', 'honor_awards', 'publications',
+    'references', 'views',
+  ] as const
+
+  it('leaves every section it does not import EMPTY, from the XML path', () => {
+    const store = importFromEuropassXml(XML)
+    for (const key of EMPTY_SECTIONS) {
+      expect(store[key], key).toEqual([])
+    }
+    // And the one it does import is filled.
+    expect(store.work_experiences).toHaveLength(1)
+  })
+
+  it('leaves every section it does not import EMPTY, from the JSON path', () => {
+    const store = importFromEuropassJson({
+      profile: {
+        preference: { profileLanguage: 'en' },
+        personalInformation: { firstName: 'Ada', lastName: 'Lovelace' },
+        workExperiences: [{ employer: 'Acme', position: 'Architect', startDate: '2020-01', ongoing: true }],
+      },
+    })
+    for (const key of EMPTY_SECTIONS) {
+      expect(store[key], key).toEqual([])
+    }
+    expect(store.work_experiences).toHaveLength(1)
+  })
+})
+
+describe('importFromEuropassXml — an entry needs a name of some kind', () => {
+  const xmlWith = (inner: string) => `<?xml version="1.0"?><SkillsPassport><LearnerInfo>
+    ${inner}
+  </LearnerInfo></SkillsPassport>`
+
+  const work = (employer: string, position: string) => xmlWith(`<WorkExperienceList><WorkExperience>
+    ${employer ? `<Employer><Name>${employer}</Name></Employer>` : ''}
+    ${position ? `<Position><Label>${position}</Label></Position>` : ''}
+    <Activities>Did the work</Activities>
+  </WorkExperience></WorkExperienceList>`)
+
+  const education = (school: string, title: string) => xmlWith(`<EducationList><Education>
+    ${school ? `<Organisation><Name>${school}</Name></Organisation>` : ''}
+    ${title ? `<Title>${title}</Title>` : ''}
+  </Education></EducationList>`)
+
+  it('keeps an employment with only an employer, and one with only a position', () => {
+    // Either half identifies the row; requiring both would drop real entries
+    // from an export that only filled one of them.
+    expect(importFromEuropassXml(work('Acme', '')).work_experiences).toHaveLength(1)
+    expect(importFromEuropassXml(work('', 'Architect')).work_experiences).toHaveLength(1)
+  })
+
+  it('skips an employment with neither', () => {
+    expect(importFromEuropassXml(work('', '')).work_experiences).toEqual([])
+  })
+
+  it('keeps an education with only a school, and one with only a title', () => {
+    expect(importFromEuropassXml(education('NTNU', '')).educations).toHaveLength(1)
+    expect(importFromEuropassXml(education('', 'MSc')).educations).toHaveLength(1)
+  })
+
+  it('skips an education with neither', () => {
+    expect(importFromEuropassXml(education('', '')).educations).toEqual([])
+  })
+})

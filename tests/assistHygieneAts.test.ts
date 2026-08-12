@@ -1213,3 +1213,253 @@ describe('applyHygiene and hygieneImpact', () => {
     })
   })
 })
+
+/**
+ * Pulling terms out of a pasted posting.
+ *
+ * B4's free first pass has no model behind it: it finds the words worth checking
+ * by looking for registry names and for capitalised runs. Both halves of that
+ * heuristic are load-bearing — too eager and the report is a wall of sentence
+ * openers, too shy and it misses the technology the posting is actually about.
+ */
+describe('extractPostingTerms — which words a posting offers', () => {
+  const terms = (posting: string, store = emptyStore()) => extractPostingTerms(posting, store, 'en')
+
+  it('takes a capitalised name, including a two- or three-word one', () => {
+    expect(terms('We use Kubernetes and Azure DevOps here.')).toContain('Kubernetes')
+    expect(terms('We use Kubernetes and Azure DevOps here.')).toContain('Azure DevOps')
+    expect(terms('Experience with Amazon Web Services required.')).toContain('Amazon Web Services')
+  })
+
+  it('drops a capitalised word that also appears in lower case', () => {
+    // "Tooling" at the start of a sentence and "tooling" mid-sentence are the
+    // same ordinary word, not a requirement.
+    expect(terms('Tooling matters. We value tooling here.')).not.toContain('Tooling')
+  })
+
+  it('normalises a registry name before offering it', () => {
+    // Registry names reach the list directly, so their own padding and trailing
+    // punctuation is what has to be cleaned up.
+    const store = emptyStore()
+    store.skills = [
+      makeSkill({ id: 's1', name: { en: ' Go .' } }),
+      makeSkill({ id: 's2', name: { en: 'Node.js..' } }),
+    ]
+    // The posting has to mention each name as the registry spells it, or the
+    // entry is never offered at all.
+    const out = extractPostingTerms('We use  Go . and Node.js.. daily.', store, 'en')
+    expect(out).toContain('Go')
+    expect(out).toContain('Node.js')
+    expect(out.some((t) => t !== t.trim())).toBe(false)
+    expect(out).not.toContain('Node.js.')
+  })
+
+  it('keeps a term of exactly the length limit', () => {
+    const store = emptyStore()
+    const sixty = `Go${'x'.repeat(58)}`
+    store.skills = [makeSkill({ id: 's1', name: { en: sixty } })]
+    expect(extractPostingTerms(`We use ${sixty} here.`, store, 'en')).toContain(sixty)
+  })
+
+  it('drops a registry entry that is only a number', () => {
+    // A year is not a requirement, however it got into the registry.
+    const store = emptyStore()
+    store.skills = [makeSkill({ id: 's1', name: { en: '2020' } }), makeSkill({ id: 's2', name: { en: '2020x' } })]
+    const out = extractPostingTerms('Since 2020 and 2020x we shipped.', store, 'en')
+    expect(out).not.toContain('2020')
+    expect(out).toContain('2020x')
+  })
+
+  it('drops a single capitalised word that merely starts a sentence', () => {
+    // "Knowledge of COBOL is a plus" gets its capital from position.
+    const out = terms('We need people. Knowledge of COBOL is a plus.')
+    expect(out).not.toContain('Knowledge')
+    expect(out).toContain('COBOL')
+  })
+
+  it('KEEPS a capitalised word at the start of a bullet line', () => {
+    // A newline is deliberately not a sentence boundary: bullet lists are where
+    // requirements actually live, so treating line starts as sentence starts
+    // would throw all of them away.
+    const posting = 'Requirements:\nKubernetes in production\nTerraform for infrastructure'
+    expect(terms(posting)).toContain('Kubernetes')
+    expect(terms(posting)).toContain('Terraform')
+  })
+
+  it('keeps a registry term whatever its position or case in the posting', () => {
+    const store = emptyStore()
+    store.skills = [makeSkill({ id: 's1', name: { en: 'Go' } })]
+    // "Go" would be dropped as a sentence opener on the capitalisation rule
+    // alone; being in the registry is what saves it.
+    expect(terms('Go is used throughout. we also write go daily.', store)).toContain('Go')
+  })
+
+  it('reads a registry name in the requested locale', () => {
+    const store = emptyStore()
+    store.skills = [makeSkill({ id: 's1', name: { en: 'Spreadsheets', no: 'Regneark' } })]
+    expect(extractPostingTerms('Vi bruker regneark mye.', store, 'no')).toContain('Regneark')
+  })
+
+  it('lists each term once, however often the posting repeats it', () => {
+    const out = terms('Kubernetes, Kubernetes and more Kubernetes.')
+    expect(out.filter((t) => t === 'Kubernetes')).toHaveLength(1)
+  })
+
+  it('strips the punctuation a sentence leaves on the END of a term', () => {
+    expect(terms('Experience with Docker?!')).toContain('Docker')
+    expect(terms('We use Kubernetes, daily.')).toContain('Kubernetes')
+    expect(terms('Tooling: (Terraform)')).toContain('Terraform')
+  })
+
+  it('does not let one term span a sentence boundary', () => {
+    // A full stop is a word character to the run pattern ("Node.js"), so without
+    // a cut "Kubernetes. Also Terraform" reads as a single requirement.
+    const out = terms('We use Kubernetes. Also Terraform, daily.')
+    expect(out).toContain('Kubernetes')
+    expect(out.some((t) => /[.!?]\s/.test(t))).toBe(false)
+  })
+
+  it('drops a term of one character and one absurdly long run', () => {
+    // A single letter matches half the CV; a 60-plus-character "term" is a
+    // sentence that happened to be capitalised.
+    expect(terms('X marks the spot.')).not.toContain('X')
+    const long = `Kubernetes ${'Verylongword'.repeat(6)}`
+    expect(terms(long).some((t) => t.length > 60)).toBe(false)
+  })
+
+  it('drops a bare number but keeps a term that merely contains one', () => {
+    // "2020" is a date, not a requirement; "3D" and "S3" are technologies.
+    const out = terms('Since 2020 we have used S3 and 3D rendering.')
+    expect(out).not.toContain('2020')
+    expect(out).toContain('S3')
+  })
+
+  it('drops only SINGLE words on the also-lowercase rule', () => {
+    // "azure" appearing in prose must not disqualify the multi-word product name.
+    const out = terms('We run azure things. Azure DevOps is our pipeline.')
+    expect(out).toContain('Azure DevOps')
+    expect(out).not.toContain('Azure')
+  })
+
+  it('keeps a capitalised term that OPENS the posting', () => {
+    // There is no sentence before it, so the look-behind must not treat the
+    // start of the text as a full stop.
+    expect(terms('Kubernetes experience is required.')).toContain('Kubernetes')
+  })
+
+  it('needs whitespace after the full stop to call it a sentence start', () => {
+    // "3.5" and "node.js" carry a dot with no space; the word after it is not a
+    // sentence opener.
+    expect(terms('We need Node.js and Kubernetes.')).toContain('Node.js')
+  })
+
+  it('caps the list rather than handing over a whole posting', () => {
+    const many = Array.from({ length: 200 }, (_, i) => `Term${i}`).join(' ')
+    expect(terms(many).length).toBeLessThanOrEqual(60)
+  })
+})
+
+/**
+ * The glossary is derived per call from data the user already curated, and it
+ * rides the ordinary Draft path (CLAUDE.md §15, C3). What it must never do is
+ * spend prompt space on pairs that say nothing, or let a guessed pair overwrite a
+ * curated one.
+ */
+describe('buildGlossary — which pairs are worth sending', () => {
+  const store = (over: Partial<ResumeStore> = {}) => ({ ...emptyStore(), ...over }) as ResumeStore
+
+  it('takes a registry pair written in both languages', () => {
+    const out = buildGlossary(store({
+      skills: [makeSkill({ id: 's1', name: { en: 'Spreadsheets', no: 'Regneark' } })],
+    }), 'en', 'no')
+    expect(out.terms).toContainEqual(expect.objectContaining({ from: 'Spreadsheets', to: 'Regneark' }))
+  })
+
+  it('skips a pair that is IDENTICAL in both languages — it teaches nothing', () => {
+    const out = buildGlossary(store({
+      skills: [makeSkill({ id: 's1', name: { en: 'Kubernetes', no: 'Kubernetes' } })],
+    }), 'en', 'no')
+    expect(out.terms.map((t) => t.from)).not.toContain('Kubernetes')
+    // The same word on an item's identity field DOES become a do-not-translate
+    // instruction — that is where `keep` is harvested from.
+    const withItem = buildGlossary(store({
+      projects: [makeProject({ id: 'p1', customer: { en: 'Kubernetes', no: 'Kubernetes' } })],
+    }), 'en', 'no')
+    expect(withItem.keep).toContain('Kubernetes')
+  })
+
+  it('ignores case when deciding a pair is identical', () => {
+    const out = buildGlossary(store({
+      skills: [makeSkill({ id: 's1', name: { en: 'Kubernetes', no: 'kubernetes' } })],
+    }), 'en', 'no')
+    expect(out.terms.map((t) => t.from)).not.toContain('Kubernetes')
+  })
+
+  it('skips a pair with a missing half', () => {
+    const out = buildGlossary(store({
+      skills: [
+        makeSkill({ id: 's1', name: { en: 'Only English' } }),
+        makeSkill({ id: 's2', name: { no: 'Bare norsk' } }),
+      ],
+    }), 'en', 'no')
+    expect(out.terms).toEqual([])
+  })
+
+  it('lets a REGISTRY pair win over a field pair for the same term', () => {
+    // The registry names are curated; a field pair is whatever the two columns
+    // happen to say, so it must not overwrite one.
+    const out = buildGlossary(store({
+      skills: [makeSkill({ id: 's1', name: { en: 'Customer', no: 'Kunde' } })],
+      projects: [makeProject({ id: 'p1', customer: { en: 'Customer', no: 'Oppdragsgiver' } })],
+    }), 'en', 'no')
+    const pair = out.terms.find((t) => t.from.toLowerCase() === 'customer')!
+    expect(pair.to).toBe('Kunde')
+  })
+
+  it('does not let a second field pair overwrite the first', () => {
+    const out = buildGlossary(store({
+      projects: [
+        makeProject({ id: 'p1', customer: { en: 'Bank', no: 'Banken' } }),
+        makeProject({ id: 'p2', customer: { en: 'Bank', no: 'Sparebanken' } }),
+      ],
+    }), 'en', 'no')
+    expect(out.terms.filter((t) => t.from.toLowerCase() === 'bank')).toHaveLength(1)
+    expect(out.terms.find((t) => t.from.toLowerCase() === 'bank')!.to).toBe('Banken')
+  })
+
+  it('collects a name written identically in both columns as do-not-translate', () => {
+    const out = buildGlossary(store({
+      projects: [makeProject({ id: 'p1', customer: { en: 'Statens vegvesen', no: 'Statens vegvesen' } })],
+    }), 'en', 'no')
+    expect(out.keep).toContain('Statens vegvesen')
+  })
+
+  it('does NOT collect a name the user actually translated', () => {
+    // "Bank"/"Banken" is a term pair, not a do-not-translate instruction; keeping
+    // it would tell the model to leave the Norwegian column in English.
+    const out = buildGlossary(store({
+      projects: [makeProject({ id: 'p1', customer: { en: 'Bank', no: 'Banken' } })],
+    }), 'en', 'no')
+    expect(out.keep).not.toContain('Bank')
+    expect(out.terms).toContainEqual(expect.objectContaining({ from: 'Bank', to: 'Banken' }))
+  })
+
+  it('collects a name that only the SOURCE column has as do-not-translate', () => {
+    // A name filled in one column and left empty in the other is a name the user
+    // has not translated — which is itself the instruction.
+    const out = buildGlossary(store({
+      projects: [makeProject({ id: 'p1', customer: { en: 'NAV', no: '' } })],
+    }), 'en', 'no')
+    expect(out.keep).toContain('NAV')
+  })
+
+  it('lists a kept name once, however many items carry it', () => {
+    const out = buildGlossary(store({
+      projects: [
+        makeProject({ id: 'p1', customer: { en: 'NAV', no: 'NAV' } }),
+        makeProject({ id: 'p2', customer: { en: 'NAV', no: 'NAV' } }),
+      ],
+    }), 'en', 'no')
+    expect(out.keep.filter((k) => k === 'NAV')).toHaveLength(1)
+  })
+})
