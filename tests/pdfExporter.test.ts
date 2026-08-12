@@ -832,3 +832,301 @@ describe('pdfExporter — tags, extra lines and the heading rule', () => {
     expect(t.filter((x) => x.trim() === '')).toEqual([])
   })
 })
+
+/**
+ * The header's geometry: which side the photo lands on, how big it is, and what
+ * the logo does. pdfmake takes a tree, so these are structural assertions —
+ * "the identity column comes second" rather than "the PDF looks right".
+ */
+describe('buildPdfDocDefinition — header placement and image boxes', () => {
+  /** A PNG whose IHDR declares `w`×`h`; only the header is read. */
+  const pngOf = (w: number, h: number): string => {
+    const bytes = new Uint8Array(40)
+    bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 0)
+    bytes.set([0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52], 8)
+    const be = (o: number, v: number) => {
+      bytes[o] = (v >>> 24) & 0xff; bytes[o + 1] = (v >>> 16) & 0xff
+      bytes[o + 2] = (v >>> 8) & 0xff; bytes[o + 3] = v & 0xff
+    }
+    be(16, w); be(20, h)
+    let binary = ''
+    for (const b of bytes) binary += String.fromCharCode(b)
+    return `data:image/png;base64,${btoa(binary)}`
+  }
+
+  const content = (dd: unknown) => (dd as { content: Record<string, unknown>[] }).content
+  /** Every node in the tree that carries an `image`. */
+  const images = (node: unknown, out: Record<string, unknown>[] = []): Record<string, unknown>[] => {
+    if (Array.isArray(node)) { for (const n of node) images(n, out); return out }
+    if (node && typeof node === 'object') {
+      const rec = node as Record<string, unknown>
+      if ('image' in rec) out.push(rec)
+      for (const key of ['stack', 'columns', 'content', 'table']) if (key in rec) images(rec[key], out)
+      if ('table' in rec) images((rec.table as Record<string, unknown>).body, out)
+    }
+    return out
+  }
+
+  const build = async (over: Record<string, unknown>, header: Record<string, unknown> = {}) => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'Jane Doe', ...over })
+    s.projects = [makeProject({ id: 'p1', customer: { en: 'AcmeCorp' } })]
+    return buildPdfDocDefinition(s, makeView({
+      sections: [{ key: 'projects', detail: 'full', sort_order: 0 }],
+      header: withHeaderDefaults(header),
+    }), 'en')
+  }
+
+  it('fits the photo into its box, preserving the aspect ratio', async () => {
+    const dd = await build({ profile_photo: pngOf(200, 240) }, { photo_placement: 'right' })
+    // The photo box is 100×120.
+    expect(images(content(dd))).toContainEqual(expect.objectContaining({ width: 100, height: 120 }))
+  })
+
+  it('never enlarges a photo smaller than the box', async () => {
+    const dd = await build({ profile_photo: pngOf(50, 60) }, { photo_placement: 'right' })
+    expect(images(content(dd))).toContainEqual(expect.objectContaining({ width: 50, height: 60 }))
+  })
+
+  it('fits the logo into its own wider box', async () => {
+    const dd = await build({ company_logo: pngOf(320, 48) }, { logo_placement: 'left' })
+    // The logo box is 160×48.
+    expect(images(content(dd))).toContainEqual(expect.objectContaining({ width: 160, height: 24 }))
+  })
+
+  it('puts the photo BEFORE the identity for a left placement and after for a right one', async () => {
+    const colsOf = (dd: unknown) => {
+      const node = content(dd).find((n) => 'columns' in n)!
+      return (node.columns as Array<Record<string, unknown>>).map((c) => ('stack' in c && images(c).length ? 'photo' : 'identity'))
+    }
+    expect(colsOf(await build({ profile_photo: pngOf(100, 120) }, { photo_placement: 'left' })))
+      .toEqual(['photo', 'identity'])
+    expect(colsOf(await build({ profile_photo: pngOf(100, 120) }, { photo_placement: 'right' })))
+      .toEqual(['identity', 'photo'])
+  })
+
+  it('stacks the photo above the identity for an "above" placement', async () => {
+    const dd = await build({ profile_photo: pngOf(100, 120) }, { photo_placement: 'above' })
+    const nodes = content(dd)
+    const photoAt = nodes.findIndex((n) => 'image' in n)
+    const nameAt = nodes.findIndex((n) => JSON.stringify(n.text ?? '').includes('Jane Doe'))
+    expect(photoAt).toBeGreaterThanOrEqual(0)
+    expect(photoAt).toBeLessThan(nameAt)
+    expect(nodes[photoAt].columns).toBeUndefined()
+  })
+
+  it('embeds no image at all when the placement is none', async () => {
+    const dd = await build(
+      { profile_photo: pngOf(100, 120), company_logo: pngOf(160, 48) },
+      { photo_placement: 'none', logo_placement: 'none' },
+    )
+    expect(images(content(dd))).toEqual([])
+  })
+
+  it('embeds no image when the resume carries none, whatever the placement says', async () => {
+    const dd = await build({ profile_photo: null, company_logo: null }, { photo_placement: 'right', logo_placement: 'left' })
+    expect(images(content(dd))).toEqual([])
+  })
+
+  it('aligns the logo where the placement says', async () => {
+    for (const logo_placement of ['left', 'center', 'right'] as const) {
+      const dd = await build({ company_logo: pngOf(160, 48) }, { logo_placement })
+      expect(images(content(dd))[0].alignment, logo_placement).toBe(logo_placement)
+    }
+  })
+})
+
+describe('buildPdfDocDefinition — the skill-matrix table layout', () => {
+  const tableNodes = (node: unknown, out: Record<string, unknown>[] = []): Record<string, unknown>[] => {
+    if (Array.isArray(node)) { for (const n of node) tableNodes(n, out); return out }
+    if (node && typeof node === 'object') {
+      const rec = node as Record<string, unknown>
+      if ('table' in rec) out.push(rec)
+      for (const key of ['stack', 'columns', 'content']) if (key in rec) tableNodes(rec[key], out)
+    }
+    return out
+  }
+
+  const build = async () => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'Jane Doe' })
+    s.skill_categories = [makeSkillCategory({ id: 'c1', name: { en: 'Languages' } })]
+    s.skills = [
+      makeSkill({ id: 's1', name: { en: 'Go' }, category_id: 'c1', total_duration_in_years: 8, proficiency: 4 }),
+      makeSkill({ id: 's2', name: { en: 'Rust' }, category_id: 'c1', total_duration_in_years: 3, proficiency: 2 }),
+    ]
+    const view = makeView({
+      sections: buildViewSections().map((sec) =>
+        sec.key === 'skill_matrix' ? { ...sec, detail: 'full' as const } : sec),
+    })
+    return buildPdfDocDefinition(s, view, 'en')
+  }
+
+  /** The matrix table is the one whose header row starts with "Skill". */
+  const matrixTable = (dd: unknown) =>
+    tableNodes((dd as Record<string, unknown>).content).find((t) => {
+      const body = (t.table as Record<string, unknown>).body as Array<Array<Record<string, unknown>>>
+      return body[0]?.some((c) => c.text === 'Skill')
+    })!
+
+  it('repeats the header row on every page and gives each column an equal share', async () => {
+    const table = matrixTable(await build())
+    const t = table.table as Record<string, unknown>
+    expect(t.headerRows).toBe(1)
+    const widths = t.widths as string[]
+    expect(widths.length).toBeGreaterThan(1)
+    expect(new Set(widths)).toEqual(new Set(['*']))
+    expect((t.body as unknown[][]).length).toBeGreaterThan(1)
+  })
+
+  it('rules only the top, the header underline and the bottom — never between rows', async () => {
+    const table = matrixTable(await build())
+    const layout = table.layout as Record<string, (i: number, node?: unknown) => number>
+    const node = { table: { body: (table.table as Record<string, unknown>).body } }
+    const rows = (node.table.body as unknown[]).length
+    expect(layout.hLineWidth(0, node)).toBeGreaterThan(0)
+    expect(layout.hLineWidth(1, node)).toBeGreaterThan(0)
+    expect(layout.hLineWidth(rows, node)).toBeGreaterThan(0)
+    // A rule between body rows would turn a light table into a grid.
+    expect(layout.hLineWidth(2, node)).toBe(0)
+    expect(layout.vLineWidth(0)).toBe(0)
+  })
+
+  it('pads every column on the right except the last one', async () => {
+    const table = matrixTable(await build())
+    const layout = table.layout as Record<string, (i: number) => number>
+    const cols = ((table.table as Record<string, unknown>).widths as unknown[]).length
+    expect(layout.paddingLeft(0)).toBe(0)
+    expect(layout.paddingRight(0)).toBeGreaterThan(0)
+    // The last column's padding would push the table past the text column.
+    expect(layout.paddingRight(cols - 1)).toBe(0)
+    expect(layout.paddingTop(0)).toBeGreaterThan(0)
+    expect(layout.paddingBottom(0)).toBeGreaterThan(0)
+  })
+
+  it('writes the header row bold in the accent colour and the body rows neither', async () => {
+    const table = matrixTable(await build())
+    const body = (table.table as Record<string, unknown>).body as Array<Array<Record<string, unknown>>>
+    const tokens = deriveTokens(DEFAULT_VIEW_STYLE)
+    for (const cell of body[0]) {
+      expect(cell.bold).toBe(true)
+      expect(cell.color).toBe(`#${tokens.accentHex}`)
+      expect(cell.fontSize).toBe(tokens.smallFontSizePt)
+    }
+    for (const cell of body[1]) {
+      expect(cell.bold).toBeUndefined()
+      expect(cell.color).not.toBe(`#${tokens.accentHex}`)
+    }
+  })
+})
+
+/**
+ * PDF geometry, in points, derived from the same tokens the DOCX path uses.
+ * pdfmake margins are `[left, top, right, bottom]`; getting an edge wrong moves
+ * text sideways rather than down, which reads as a broken layout.
+ */
+describe('buildPdfDocDefinition — margins and rules from the tokens', () => {
+  const nodes = (node: unknown, out: Record<string, unknown>[] = []): Record<string, unknown>[] => {
+    if (Array.isArray(node)) { for (const n of node) nodes(n, out); return out }
+    if (node && typeof node === 'object') {
+      const rec = node as Record<string, unknown>
+      out.push(rec)
+      for (const key of ['text', 'stack', 'columns', 'content']) if (key in rec) nodes(rec[key], out)
+      if ('table' in rec) nodes((rec.table as Record<string, unknown>).body, out)
+    }
+    return out
+  }
+  const nodeWith = (dd: unknown, text: string) =>
+    nodes((dd as Record<string, unknown>).content)
+      .find((n) => JSON.stringify(n.text ?? '').includes(text))!
+  const marginOf = (node: Record<string, unknown>) => node.margin as number[]
+
+  const build = async (html: string, style: Record<string, unknown> = {}) => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'Jane Doe' })
+    s.projects = [makeProject({ id: 'p1', customer: { en: 'AcmeCorp' }, long_description: { en: html } })]
+    return buildPdfDocDefinition(s, makeView({
+      sections: [{ key: 'projects', detail: 'full', sort_order: 0 }],
+      style: { ...DEFAULT_VIEW_STYLE, ...style },
+    }), 'en')
+  }
+  const tokensFor = (style: Record<string, unknown> = {}) =>
+    deriveTokens({ ...DEFAULT_VIEW_STYLE, ...style } as never)
+
+  it('spaces body paragraphs by the shared gap, in POINTS, per density', async () => {
+    for (const density of ['compact', 'normal', 'spacious'] as const) {
+      const dd = await build('<p>First one.</p><p>Second one.</p><p>Third one.</p>', { density })
+      const t = tokensFor({ density })
+      expect(marginOf(nodeWith(dd, 'First one.'))[3], density).toBeCloseTo(t.paraGapPt, 3)
+      expect(marginOf(nodeWith(dd, 'Second one.'))[3], density).toBeCloseTo(t.paraGapPt, 3)
+    }
+  })
+
+  it('gives the last paragraph the caller\u2019s bottom gap, not the paragraph gap', async () => {
+    const dd = await build('<p>First one.</p><p>Second one.</p>')
+    const t = tokensFor()
+    expect(marginOf(nodeWith(dd, 'Second one.'))[3]).not.toBeCloseTo(t.paraGapPt, 3)
+  })
+
+  it('indents a list item on the LEFT edge, one step per level', async () => {
+    const dd = await build('<ul><li>Top item</li><ul><li>Nested item</li></ul></ul>')
+    const top = marginOf(nodeWith(dd, 'Top item'))
+    const nested = marginOf(nodeWith(dd, 'Nested item'))
+    expect(top[0]).toBeGreaterThan(0)
+    expect(nested[0]).toBeGreaterThan(top[0])
+    // Only the left and bottom edges move — a list item is not pushed down.
+    expect(top[1]).toBe(0)
+    expect(top[2]).toBe(0)
+    expect(top[3]).toBeGreaterThan(0)
+  })
+
+  it('rules a section heading UNDER the text and nowhere else', async () => {
+    const dd = await build('<p>Body.</p>')
+    const heading = nodes((dd as Record<string, unknown>).content)
+      .find((n) => 'table' in n && JSON.stringify(n).includes('PROJECTS'))!
+    const layout = heading.layout as Record<string, (i: number) => number | string>
+    expect(layout.hLineWidth(0)).toBe(0)
+    expect(layout.hLineWidth(1)).toBeGreaterThan(0)
+    expect(layout.vLineWidth(0)).toBe(0)
+    expect(layout.hLineColor(1)).toBe(`#${tokensFor().accentHex}`)
+    // No side padding: the rule has to line up with the body text.
+    expect(layout.paddingLeft(0)).toBe(0)
+    expect(layout.paddingRight(0)).toBe(0)
+    expect(layout.paddingTop(0)).toBe(0)
+    expect(layout.paddingBottom(0)).toBeGreaterThan(0)
+  })
+
+  it('spaces the section heading from the tokens, above and below', async () => {
+    for (const density of ['compact', 'spacious'] as const) {
+      const dd = await build('<p>Body.</p>', { density })
+      const t = tokensFor({ density })
+      const heading = nodes((dd as Record<string, unknown>).content)
+        .find((n) => 'table' in n && JSON.stringify(n).includes('PROJECTS'))!
+      const m = marginOf(heading)
+      // twips → points is a divide by 20; a heading two points out is visible.
+      expect(m[1], density).toBeCloseTo(t.itemGapTwips / 20, 3)
+      expect(m[3], density).toBeCloseTo(t.sectionHeadingAfterTwips / 20 + 2, 3)
+    }
+  })
+
+  it('carries the section\u2019s top gap on the first node when the heading is hidden', async () => {
+    // With no heading there is nothing to hold the gap, so the first content
+    // node has to take it — otherwise the section crowds the one above.
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'Jane Doe' })
+    s.projects = [makeProject({ id: 'p1', customer: { en: 'AcmeCorp' }, long_description: { en: '<p>Body.</p>' } })]
+    const hidden = await buildPdfDocDefinition(s, makeView({
+      sections: [{ key: 'projects', detail: 'full', sort_order: 0, style: { hide_heading: true } } as never],
+    }), 'en')
+    const shown = await buildPdfDocDefinition(s, makeView({
+      sections: [{ key: 'projects', detail: 'full', sort_order: 0 }],
+    }), 'en')
+    expect(JSON.stringify(hidden)).not.toContain('PROJECTS')
+    const t = tokensFor()
+    const firstHidden = (hidden as { content: Record<string, unknown>[] }).content
+      .find((n) => JSON.stringify(n).includes('AcmeCorp'))!
+    const firstShown = (shown as { content: Record<string, unknown>[] }).content
+      .find((n) => JSON.stringify(n).includes('AcmeCorp'))!
+    expect(marginOf(firstHidden)[1]).toBeCloseTo(marginOf(firstShown)[1] + t.itemGapTwips / 20, 3)
+  })
+})

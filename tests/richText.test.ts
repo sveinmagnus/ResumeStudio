@@ -610,3 +610,199 @@ describe('richToPlain — list structure in plain text', () => {
       .toBe('Ran fast and quietly.')
   })
 })
+
+/**
+ * Loose content pasted INSIDE a list.
+ *
+ * `sanitizeRich` wraps bare inline content at the root in a `<p>` (that is the
+ * canonical shape, CLAUDE.md §4), but content sitting directly inside a `<ul>` —
+ * which is what a paste from a web page produces — has no such wrapper and is
+ * walked as part of the list. It is the one route into `parseRichBlocks`'
+ * loose-content handling, and it must not lose or reorder the author's words.
+ */
+describe('parseRichBlocks — loose content inside a list', () => {
+  it('keeps loose text ABOVE the items it was written above', () => {
+    expect(parseRichBlocks('<ul>Tools used<li>Go</li><li>Rust</li></ul>')).toEqual([
+      { kind: 'paragraph', runs: [{ text: 'Tools used' }] },
+      { kind: 'list-item', ordered: false, level: 0, index: 1, runs: [{ text: 'Go' }] },
+      { kind: 'list-item', ordered: false, level: 0, index: 2, runs: [{ text: 'Rust' }] },
+    ])
+  })
+
+  it('keeps the formatting of loose inline content', () => {
+    expect(parseRichBlocks('<ul><strong>Tools</strong> used<li>Go</li></ul>')).toEqual([
+      { kind: 'paragraph', runs: [{ text: 'Tools', bold: true }, { text: ' used' }] },
+      { kind: 'list-item', ordered: false, level: 0, index: 1, runs: [{ text: 'Go' }] },
+    ])
+  })
+
+  it('honours every inline tag in loose content, not just <strong>', () => {
+    // The editor writes <strong>/<em>, a paste can carry <b>/<i>/<u>, and each
+    // tag is tested separately in the walker.
+    const flagsFor = (html: string) => {
+      const first = parseRichBlocks(`<ul>${html}<li>Go</li></ul>`)[0]
+      return first.runs[0]
+    }
+    expect(flagsFor('<b>x</b>')).toEqual({ text: 'x', bold: true })
+    expect(flagsFor('<strong>x</strong>')).toEqual({ text: 'x', bold: true })
+    expect(flagsFor('<em>x</em>')).toEqual({ text: 'x', italic: true })
+    expect(flagsFor('<i>x</i>')).toEqual({ text: 'x', italic: true })
+    expect(flagsFor('<u>x</u>')).toEqual({ text: 'x', underline: true })
+    // Plain loose text carries no flags at all.
+    expect(flagsFor('x')).toEqual({ text: 'x' })
+  })
+
+  it('keeps a nested inline’s flags alongside the outer one', () => {
+    const first = parseRichBlocks('<ul><strong>bold <em>and italic</em></strong><li>Go</li></ul>')[0]
+    expect(first.runs).toEqual([
+      { text: 'bold ', bold: true },
+      { text: 'and italic', bold: true, italic: true },
+    ])
+  })
+
+  it('turns a break in loose content into a break, not a lost line', () => {
+    expect(parseRichBlocks('<ul>one<br>two<li>Go</li></ul>')).toEqual([
+      { kind: 'paragraph', runs: [{ text: 'one' }, { text: '\n' }, { text: 'two' }] },
+      { kind: 'list-item', ordered: false, level: 0, index: 1, runs: [{ text: 'Go' }] },
+    ])
+  })
+
+  it('collapses runs of whitespace in loose text, keeping a blank line as a break', () => {
+    // A blank line inside a list becomes a <br> (splitting there would invent a
+    // bullet nobody wrote) and the spaces around the words collapse to one.
+    expect(parseRichBlocks('<ul>Tools   used\n\nhere<li>Go</li></ul>')[0])
+      .toEqual({ kind: 'paragraph', runs: [{ text: 'Tools used' }, { text: '\n' }, { text: 'here' }] })
+  })
+
+  it('ignores the whitespace BETWEEN items rather than inventing a paragraph', () => {
+    expect(parseRichBlocks('<ul> <li>Go</li> <li>Rust</li> </ul>').map((b) => b.kind))
+      .toEqual(['list-item', 'list-item'])
+  })
+
+  it('numbers an ordered list from one, loose text or not', () => {
+    const blocks = parseRichBlocks('<ol>Ranking<li>First</li><li>Second</li></ol>')
+    expect(blocks.map((b) => ('index' in b ? b.index : 'p'))).toEqual(['p', 1, 2])
+    expect(blocks.filter((b) => b.kind === 'list-item').every((b) => 'ordered' in b && b.ordered)).toBe(true)
+  })
+
+  it('drops a stray <li> that has no list around it — the sanitiser makes it a paragraph', () => {
+    // Reached through the sanitiser, an orphan item is already a paragraph, so
+    // the guard is what stops a bare one being emitted with a bullet.
+    expect(parseRichBlocks('<li>Orphan</li>')).toEqual([
+      { kind: 'paragraph', runs: [{ text: 'Orphan' }] },
+    ])
+  })
+})
+
+/**
+ * Word's fake lists.
+ *
+ * Word pastes each list item as a `<p class="MsoListParagraph" style="mso-list:…">`
+ * with the bullet glyph in an `mso-list:Ignore` span. Recognising that is a
+ * heuristic, and the heuristic is the feature: miss it and a pasted CV section
+ * arrives as a run of paragraphs each starting with a stray "·".
+ */
+describe('cleanPastedHtml — Word list detection', () => {
+  const wordItem = (text: string, marker = '·', attrs = 'class="MsoListParagraph" style="mso-list:l0 level1 lfo1"') =>
+    `<p ${attrs}><span style="mso-list:Ignore">${marker}<span>&nbsp;</span></span>${text}</p>`
+
+  it('recognises an item by its CLASS alone', () => {
+    const out = cleanPastedHtml(`${wordItem('First', '·', 'class="MsoListParagraph"')}`)
+    expect(out).toContain('<li>')
+    expect(out).toContain('First')
+  })
+
+  it('recognises an item by its mso-list STYLE alone', () => {
+    const out = cleanPastedHtml(`${wordItem('First', '·', 'style="mso-list:l0 level1 lfo1"')}`)
+    expect(out).toContain('<li>')
+  })
+
+  it('tolerates whitespace around the mso-list colon', () => {
+    const out = cleanPastedHtml(`${wordItem('First', '·', 'style="mso-list : l0 level1 lfo1"')}`)
+    expect(out).toContain('<li>')
+  })
+
+  it('leaves an ordinary Word paragraph as a paragraph', () => {
+    const out = cleanPastedHtml('<p class="MsoNormal">Just prose</p>')
+    expect(out).not.toContain('<li>')
+    expect(out).toContain('Just prose')
+  })
+
+  it('strips the marker glyph rather than printing it in the item', () => {
+    const out = cleanPastedHtml(wordItem('First'))
+    expect(out).not.toContain('\u00b7')
+    expect(out).toMatch(/<li>\s*First/)
+  })
+
+  it('makes an ORDERED list when the first marker reads like a number', () => {
+    const out = cleanPastedHtml(`${wordItem('First', '1.')}${wordItem('Second', '2.')}`)
+    expect(out).toContain('<ol>')
+    expect(out).not.toContain('<ul>')
+  })
+
+  it('accepts either "1." or "1)" as a number, and only at the START of the marker', () => {
+    expect(cleanPastedHtml(wordItem('First', '1)'))).toContain('<ol>')
+    // A bullet that merely mentions a digit is not a numbered list: only
+    // whitespace may precede the number, so a glyph in front rules it out.
+    expect(cleanPastedHtml(wordItem('First', '\u00b7 2.'))).toContain('<ul>')
+    expect(cleanPastedHtml(wordItem('First', '\u00b72.'))).toContain('<ul>')
+    expect(cleanPastedHtml(wordItem('First', '  3. '))).toContain('<ol>')
+  })
+
+  it('reads the list KIND from the first marker, not a later one', () => {
+    // Word writes the same marker on every item; a mixed group is a paste
+    // artefact, and the first item is the one that decides.
+    const out = cleanPastedHtml(`${wordItem('First', '\u00b7')}${wordItem('Second', '2.')}`)
+    expect(out).toContain('<ul>')
+    expect(out).not.toContain('<ol>')
+  })
+
+  it('handles a multi-digit number', () => {
+    expect(cleanPastedHtml(wordItem('Tenth', '10.'))).toContain('<ol>')
+  })
+
+  it('groups consecutive items into ONE list and starts a new one after prose', () => {
+    const out = cleanPastedHtml(
+      `${wordItem('First')}${wordItem('Second')}<p class="MsoNormal">Prose</p>${wordItem('Third')}`,
+    )
+    expect((out.match(/<ul>/g) ?? []).length).toBe(2)
+    expect((out.match(/<li>/g) ?? []).length).toBe(3)
+    // The prose stays between the two lists rather than being swallowed.
+    expect(out.indexOf('Prose')).toBeGreaterThan(out.indexOf('Second'))
+    expect(out.indexOf('Prose')).toBeLessThan(out.indexOf('Third'))
+  })
+
+  it('keeps the item text in document order', () => {
+    const out = cleanPastedHtml(`${wordItem('First')}${wordItem('Second')}`)
+    expect(out.indexOf('First')).toBeLessThan(out.indexOf('Second'))
+  })
+
+  it('handles a Word list item that carries no marker span at all', () => {
+    // Word omits the glyph span for some list styles; reaching for it blindly
+    // would throw in the middle of a paste.
+    const out = cleanPastedHtml('<p class="MsoListParagraph" style="mso-list:l0 level1 lfo1">First</p>')
+    expect(out).toContain('<li>')
+    expect(out).toContain('First')
+  })
+
+  it('does not pull a non-paragraph sibling into the list', () => {
+    // The grouping walks siblings; only paragraphs are Word list items, and a
+    // container that happens to carry the class is not one.
+    const out = cleanPastedHtml(
+      `${wordItem('First')}<div class="MsoListParagraph">Not an item</div>`,
+    )
+    expect((out.match(/<li>/g) ?? []).length).toBe(1)
+    expect(out).toContain('Not an item')
+  })
+
+  it('collapses the whitespace a paste carries, including non-breaking spaces', () => {
+    const out = cleanPastedHtml('<p>Two\u00a0\u00a0words   here</p>')
+    expect(out).toContain('Two words here')
+  })
+
+  it('collapses whitespace inside NESTED elements too', () => {
+    const out = cleanPastedHtml('<p><strong>Two   words</strong>   after</p>')
+    expect(out).toContain('Two words')
+    expect(out).not.toContain('   ')
+  })
+})

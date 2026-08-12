@@ -1130,3 +1130,281 @@ describe('exportDocx — the shared paragraph builders', () => {
     }
   })
 })
+
+/**
+ * The DOCX geometry, in the units Word actually reads.
+ *
+ * Every number here is derived from `deriveTokens`, so the assertions say "the
+ * exporter wrote the token" rather than "the exporter wrote 170". A halved or
+ * doubled conversion (twips are 1/20pt, run sizes are half-points) renders a
+ * document that still opens and still says the right words, just wrong — which
+ * is exactly the class of defect a reader notices and a test usually does not.
+ */
+describe('exportDocx — spacing and sizes come from the tokens', () => {
+  const paraWith = (xml: string, text: string): string => {
+    const chunk = xml.split('</w:p>').find((p) => p.includes(text))
+    if (chunk === undefined) throw new Error(`no paragraph containing ${text}`)
+    return chunk.slice(chunk.lastIndexOf('<w:p'))
+  }
+  const num = (fragment: string, name: string): number | null => {
+    const m = new RegExp(`${name}="([\\d.]+)"`).exec(fragment)
+    return m ? Number(m[1]) : null
+  }
+  const runSizes = (fragment: string): number[] =>
+    [...fragment.matchAll(/w:sz w:val="([\d.]+)"/g)].map((m) => Number(m[1]))
+
+  const store = (html: string): ResumeStore => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'Test Person' })
+    s.projects = [makeProject({ customer: { en: 'AcmeCo' }, long_description: { en: html } })]
+    return s
+  }
+
+  const xmlFor = async (html: string, style: Record<string, unknown> = {}) => {
+    await exportDocx(store(html), makeView({
+      sections: buildViewSections(), style: { ...DEFAULT_VIEW_STYLE, ...style },
+    }), 'en')
+    return documentXml(lastBlob!)
+  }
+  const tokensFor = (style: Record<string, unknown> = {}) =>
+    deriveTokens({ ...DEFAULT_VIEW_STYLE, ...style } as never)
+
+  it('writes body runs at the token size in HALF-points', async () => {
+    for (const body_size of ['small', 'normal', 'large'] as const) {
+      const xml = await xmlFor('<p>Body text.</p>', { body_size })
+      const t = tokensFor({ body_size })
+      expect(runSizes(paraWith(xml, 'Body text.')), body_size).toEqual([t.bodyFontSizePt * 2])
+    }
+  })
+
+  it('writes a section heading at the h2 token size, over an accent rule', async () => {
+    for (const body_size of ['small', 'large'] as const) {
+      const xml = await xmlFor('<p>Body text.</p>', { body_size })
+      const t = tokensFor({ body_size })
+      const heading = paraWith(xml, 'PROJECTS')
+      expect(runSizes(heading), body_size).toEqual([t.h2Pt * 2])
+      expect(num(heading, 'w:color')).toBeNull() // colour is a hex attr, not numeric
+      expect(heading).toContain(`w:color="${t.accentHex}"`)
+      expect(num(heading, 'w:sz')).toBe(8) // the rule's thickness, in eighths of a point
+    }
+  })
+
+  it('spaces a section heading by the item gap above and the section gap below', async () => {
+    for (const density of ['compact', 'spacious'] as const) {
+      const xml = await xmlFor('<p>Body text.</p>', { density })
+      const t = tokensFor({ density })
+      const heading = paraWith(xml, 'PROJECTS')
+      // Twice the item gap: a heading needs more air above it than two items do
+      // between them.
+      expect(num(heading, 'w:before'), density).toBe(t.itemGapTwips * 2)
+      expect(num(heading, 'w:after'), density).toBe(t.sectionHeadingAfterTwips)
+    }
+  })
+
+  it('separates the paragraphs of one body by the shared paragraph gap', async () => {
+    for (const density of ['compact', 'normal', 'spacious'] as const) {
+      const xml = await xmlFor('<p>First one.</p><p>Second one.</p><p>Third one.</p>', { density })
+      const t = tokensFor({ density })
+      // Every paragraph but the last: the 1.5-line gap, per density.
+      expect(num(paraWith(xml, 'First one.'), 'w:after'), density).toBe(t.paraGapTwips)
+      expect(num(paraWith(xml, 'Second one.'), 'w:after'), density).toBe(t.paraGapTwips)
+    }
+  })
+
+  it('gives the LAST paragraph the caller’s gap to whatever follows, not the paragraph gap', async () => {
+    // The DOCX twin of `p:last-child { margin-bottom: 0 }` plus the container's
+    // own margin: using the paragraph gap here would double the space between
+    // one item's body and the next item's heading.
+    const xml = await xmlFor('<p>First one.</p><p>Second one.</p>')
+    const t = tokensFor()
+    const last = num(paraWith(xml, 'Second one.'), 'w:after')
+    expect(last).not.toBe(t.paraGapTwips)
+    expect(last).toBeGreaterThan(0)
+    // With a list after it, that same paragraph is no longer last and gets the
+    // shared gap again.
+    const withList = await xmlFor('<p>First one.</p><p>Second one.</p><ul><li>Item</li></ul>')
+    expect(num(paraWith(withList, 'Second one.'), 'w:after')).toBe(t.paraGapTwips)
+  })
+
+  it('puts the caller\u2019s top gap on the FIRST paragraph only', async () => {
+    // The gap belongs to the block, not to each paragraph in it; repeating it
+    // would push every paragraph apart by the item gap as well.
+    const xml = await xmlFor('<p>First one.</p><p>Second one.</p>')
+    const first = num(paraWith(xml, 'First one.'), 'w:before')
+    const second = num(paraWith(xml, 'Second one.'), 'w:before')
+    expect(second).toBeNull()
+    expect(first === null || first === 0).toBe(true)
+  })
+
+  it('gives a list item a tight gap and one indent step per level', async () => {
+    const xml = await xmlFor('<ul><li>Top item</li><ul><li>Nested item</li></ul></ul>')
+    expect(num(paraWith(xml, 'Top item'), 'w:after')).toBe(30)
+    // 360 twips is a quarter inch — Word's own default indent step.
+    expect(num(paraWith(xml, 'Top item'), 'w:left')).toBe(360)
+    expect(num(paraWith(xml, 'Nested item'), 'w:left')).toBe(720)
+  })
+
+  it('scales the date run down from the body size, in the same units', async () => {
+    for (const body_size of ['small', 'large'] as const) {
+      const xml = await xmlFor('<p>Body text.</p>', { body_size })
+      const t = tokensFor({ body_size })
+      const title = paraWith(xml, 'AcmeCo')
+      // A large item title is one point over h3; the date rides the same line
+      // at the small size.
+      expect(runSizes(title), body_size).toEqual([(t.h3Pt + 1) * 2, t.smallFontSizePt * 2])
+    }
+  })
+})
+
+/**
+ * Header images: the box a photo or logo has to fit into.
+ *
+ * A PNG is synthesised per case because only its IHDR is read — the exporter
+ * takes the dimensions from the header and hands the bytes to Word untouched, so
+ * a header with the size we want is enough to drive the scaler.
+ */
+describe('exportDocx — header image scaling', () => {
+  /** A PNG whose IHDR declares `w`×`h`. Bytes beyond the header are zeroes. */
+  const pngOf = (w: number, h: number): string => {
+    const bytes = new Uint8Array(40)
+    bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 0)
+    bytes.set([0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52], 8)
+    const be = (offset: number, value: number) => {
+      bytes[offset] = (value >>> 24) & 0xff
+      bytes[offset + 1] = (value >>> 16) & 0xff
+      bytes[offset + 2] = (value >>> 8) & 0xff
+      bytes[offset + 3] = value & 0xff
+    }
+    be(16, w)
+    be(20, h)
+    let binary = ''
+    for (const b of bytes) binary += String.fromCharCode(b)
+    return `data:image/png;base64,${btoa(binary)}`
+  }
+
+  const EMU_PER_PX = 9525
+  /** Every embedded image's rendered size, in pixels, in document order. */
+  const extents = (xml: string): Array<{ w: number; h: number }> =>
+    [...xml.matchAll(/<wp:extent cx="(\d+)" cy="(\d+)"/g)]
+      .map((m) => ({ w: Number(m[1]) / EMU_PER_PX, h: Number(m[2]) / EMU_PER_PX }))
+
+  const exportWith = async (over: Record<string, unknown>) => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'Test Person', ...over })
+    s.projects = [makeProject({ customer: { en: 'AcmeCo' } })]
+    await exportDocx(s, makeView({
+      sections: buildViewSections(),
+      header: withHeaderDefaults({ photo_placement: 'right', logo_placement: 'left' }),
+    }), 'en')
+    return documentXml(lastBlob!)
+  }
+
+  it('shrinks an oversized photo to the box, keeping its aspect ratio', async () => {
+    // The box is 132×156; twice that must come back as exactly the box.
+    const xml = await exportWith({ profile_photo: pngOf(264, 312) })
+    expect(extents(xml)).toContainEqual({ w: 132, h: 156 })
+  })
+
+  it('does NOT enlarge a photo that is already smaller than the box', async () => {
+    // Upscaling a small photo is how a header ends up with a blurred face.
+    const xml = await exportWith({ profile_photo: pngOf(66, 78) })
+    expect(extents(xml)).toContainEqual({ w: 66, h: 78 })
+  })
+
+  it('scales on whichever axis binds, not the other one', async () => {
+    // Wide and short: the width limit binds at 0.5, the height limit would not
+    // bind at all, so mixing the two axes up doubles the image.
+    const xml = await exportWith({ profile_photo: pngOf(264, 78) })
+    expect(extents(xml)).toContainEqual({ w: 132, h: 39 })
+  })
+
+  it('fits a logo into its own, wider box', async () => {
+    // The logo box is 240×64 — a different shape from the photo's.
+    const xml = await exportWith({ company_logo: pngOf(480, 64), profile_photo: null })
+    expect(extents(xml)).toContainEqual({ w: 240, h: 32 })
+  })
+
+  it('falls back to the box for an image whose header declares no size', async () => {
+    // A 0×0 header would otherwise divide by zero and render nothing at all.
+    const xml = await exportWith({ profile_photo: pngOf(0, 0) })
+    expect(extents(xml)).toContainEqual({ w: 132, h: 156 })
+  })
+
+  it('never renders an image away to nothing', async () => {
+    // Rounding a 1px-tall strip down would drop it entirely.
+    const xml = await exportWith({ profile_photo: pngOf(2000, 1) })
+    const [first] = extents(xml)
+    expect(first.w).toBeGreaterThan(0)
+    expect(first.h).toBeGreaterThanOrEqual(1)
+  })
+})
+
+describe('exportDocx — the summary layout', () => {
+  const paraWith = (xml: string, text: string): string => {
+    const chunk = xml.split('</w:p>').find((p) => p.includes(text))
+    if (chunk === undefined) throw new Error(`no paragraph containing ${text}`)
+    return chunk.slice(chunk.lastIndexOf('<w:p'))
+  }
+  const num = (fragment: string, name: string): number | null => {
+    const m = new RegExp(`${name}="([\\d.]+)"`).exec(fragment)
+    return m ? Number(m[1]) : null
+  }
+  const runSizes = (fragment: string): number[] =>
+    [...fragment.matchAll(/w:sz w:val="([\d.]+)"/g)].map((m) => Number(m[1]))
+
+  const xmlFor = async (style: Record<string, unknown> = {}) => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'Test Person' })
+    s.presentations = [{
+      id: 'pr1', resume_id: 'r1', title: { en: 'A talk about testing' }, event: { en: 'Testfest' },
+      description: {}, short_description: {}, start: null, end: { year: 2024, month: 3 },
+      presentation_type: null, url: null, disabled: false, starred: false, sort_order: 0,
+      created_at: '', updated_at: '',
+    }] as never
+    await exportDocx(s, makeView({
+      sections: [{ key: 'presentations', detail: 'summary', sort_order: 0 } as never],
+      style: { ...DEFAULT_VIEW_STYLE, ...style },
+    }), 'en')
+    return documentXml(lastBlob!)
+  }
+
+  it('writes the title and its meta tail as separate runs, both at the small size', async () => {
+    const xml = await xmlFor()
+    const t = deriveTokens(DEFAULT_VIEW_STYLE)
+    const line = paraWith(xml, 'A talk about testing')
+    expect(line).toContain('Testfest')
+    expect(runSizes(line)).toEqual([t.smallFontSizePt * 2, t.smallFontSizePt * 2])
+    // The tail is subdued, the title is not.
+    expect(line).toMatch(/<w:b\/>/)
+    expect(line).toContain('w:color w:val="666666"')
+  })
+
+  it('omits the tail run entirely when there is no meta to show', async () => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'Test Person' })
+    s.presentations = [{
+      id: 'pr1', resume_id: 'r1', title: { en: 'A talk about testing' }, event: {},
+      description: {}, short_description: {}, start: null, end: null,
+      presentation_type: null, url: null, disabled: false, starred: false, sort_order: 0,
+      created_at: '', updated_at: '',
+    }] as never
+    await exportDocx(s, makeView({
+      sections: [{ key: 'presentations', detail: 'summary', sort_order: 0 } as never],
+    }), 'en')
+    const line = paraWith(await documentXml(lastBlob!), 'A talk about testing')
+    expect(line).not.toContain('w:color w:val="666666"')
+    expect(line).not.toContain(' — ')
+  })
+
+  it('spaces summary lines at a third of the item gap, with a floor', async () => {
+    // Summary rows sit closer together than full items; the floor keeps them
+    // from touching at the tightest density.
+    const compact = await xmlFor({ density: 'compact' })
+    expect(num(paraWith(compact, 'A talk about testing'), 'w:after')).toBe(30)
+
+    const spacious = await xmlFor({ density: 'spacious' })
+    const t = deriveTokens({ ...DEFAULT_VIEW_STYLE, density: 'spacious' } as never)
+    expect(num(paraWith(spacious, 'A talk about testing'), 'w:after'))
+      .toBeCloseTo(t.itemGapTwips / 3, 3)
+  })
+})

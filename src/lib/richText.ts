@@ -855,8 +855,12 @@ function walkBlocks(node: Element, out: RichBlock[], inline: InlineState, list: 
       continue
     }
     if (tag === 'LI') {
-    // A stray <li> with no enclosing list.
-    if (!list.listKind) continue
+      // A stray <li> with no enclosing list.
+      if (!list.listKind) continue
+      // Loose text pasted straight into a <ul> (before its first <li>) is
+      // sitting in `currentRuns`; without this it would be flushed at the END
+      // of the list and read after the items the author wrote it above.
+      flushParagraph()
       list.counter += 1
       const runs = collectInlineRuns(el, inline)
       if (runs.length) {
