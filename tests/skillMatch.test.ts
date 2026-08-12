@@ -284,3 +284,114 @@ describe('skillMatch — tier thresholds', () => {
     })
   })
 })
+
+/**
+ * The bounded edit distance and the two tiers built on it.
+ *
+ * These decide whether "Kubernets" finds Kubernetes and whether "management
+ * system" matches half the library. Both failure modes are quiet: a missed
+ * near-match just leaves a skill uncategorised, and an over-eager one files it
+ * under something unrelated.
+ */
+describe('editDistance — the bound and the arithmetic', () => {
+  it('measures a real distance when it is within the budget', () => {
+    expect(editDistance('kubernetes', 'kubernetes', 3)).toBe(0)
+    expect(editDistance('kubernetes', 'kubernets', 3)).toBe(1)
+    expect(editDistance('kitten', 'sitting', 3)).toBe(3)
+  })
+
+  it('gives up as soon as the LENGTHS alone exceed the budget', () => {
+    // The cheap pre-check: comparing "go" with a 20-character name cannot come
+    // in under two edits, so the matrix is never built.
+    expect(editDistance('go', 'kubernetes', 2)).toBe(3)
+    // A difference of exactly the budget is still worth measuring.
+    expect(editDistance('abc', 'abcde', 2)).toBe(2)
+  })
+
+  it('reports over-budget as one past the budget, not as the true distance', () => {
+    expect(editDistance('kitten', 'sitting', 1)).toBe(2)
+    expect(editDistance('abcdef', 'uvwxyz', 2)).toBe(3)
+  })
+
+  it('handles an empty string on either side', () => {
+    expect(editDistance('', '', 2)).toBe(0)
+    expect(editDistance('abc', '', 5)).toBe(3)
+    expect(editDistance('', 'abc', 5)).toBe(3)
+  })
+
+  it('is symmetric', () => {
+    expect(editDistance('kubernetes', 'kubernets', 3)).toBe(editDistance('kubernets', 'kubernetes', 3))
+    expect(editDistance('typescript', 'javascript', 5)).toBe(editDistance('javascript', 'typescript', 5))
+  })
+})
+
+describe('the fuzzy tier — a typo, not a different skill', () => {
+  const index = buildDomainIndex(DOMAINS)
+  const domainOf = (name: string) => matchSkillDomain(name, index, { fuzzy: true })?.domain ?? null
+
+  it('finds a one-character typo in a long name', () => {
+    expect(domainOf('Kubernets')).toBe('Cloud & Infrastructure')
+  })
+
+  it('does not fuzzy-match a name shorter than five characters', () => {
+    // With three letters, everything is within two edits of everything.
+    expect(domainOf('Reac')).toBeNull()
+    expect(domainOf('Go')).toBeNull()
+  })
+
+  it('scales the budget with the length: two edits pass, three do not', () => {
+    // "kubernetes" is ten characters, so the budget is two.
+    expect(domainOf('Kubernts')).toBe('Cloud & Infrastructure')
+    expect(domainOf('Kubrnts')).toBeNull()
+  })
+
+  it('fuzzy-matches a name of exactly five characters', () => {
+    // Five is the floor, not the first refusal: "Reacc" is one edit from React.
+    expect(domainOf('Reacc')).toBe('Software Development')
+    expect(domainOf('Reac')).toBeNull()
+  })
+
+  it('allows a third edit on a long name, and only two on a mid-length one', () => {
+    // The budget grows with the length: 1 up to six characters, 2 up to twelve,
+    // 3 beyond that. A long name survives three typos; a ten-character one does
+    // not survive three.
+    const long = buildDomainIndex({ Observability: 'Operations' })
+    const match = (name: string) => matchSkillDomain(name, long, { fuzzy: true })?.domain ?? null
+    expect(match('observabilityxyz')).toBe('Operations')   // 16 chars, 3 edits
+    expect(match('observabilitywxyz')).toBeNull()          // 17 chars, 4 edits
+    expect(domainOf('Kubrnts')).toBeNull()                 // 10-char key, 3 edits
+  })
+
+  it('never answers with an EXACT match through the fuzzy tier', () => {
+    // An exact hit is the exact tier's job; the fuzzy pass skips the identical
+    // key so it cannot report distance zero as a near-miss.
+    const exact = matchSkillDomain('Kubernetes', index, { fuzzy: true })
+    expect(exact?.tier).toBe('exact')
+  })
+})
+
+describe('the token tier — two library words, not one generic one', () => {
+  const index = buildDomainIndex({
+    ...DOMAINS,
+    'Management System': 'Management',
+    'Content Management System': 'Management',
+  })
+  const match = (name: string) => matchSkillDomain(name, index)
+
+  it('matches a multi-word library name contained in the query', () => {
+    expect(match('Legacy Content Management System work')?.domain).toBe('Management')
+  })
+
+  it('prefers the MOST specific containing name', () => {
+    // Both library names are contained; the longer one is the better answer, and
+    // it must win regardless of which came first in the library.
+    expect(match('Our Content Management System')?.tier).toBe('token')
+    expect(match('Our Content Management System')?.domain).toBe('Management')
+  })
+
+  it('needs at least two library words to match', () => {
+    // A single generic word would otherwise match almost any sentence.
+    const single = buildDomainIndex({ Management: 'Management' })
+    expect(matchSkillDomain('Some management of things', single)).toBeNull()
+  })
+})
