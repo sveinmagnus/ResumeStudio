@@ -47,14 +47,40 @@ async function violationsOn(page: Page, opts: { excludeIframes?: boolean } = {})
   // Let pending work settle first: a half-rendered card measures as a
   // half-rendered card, and reports colours the finished page never shows.
   await page.waitForLoadState('networkidle')
-  // Then wait for the fade-ins to actually FINISH, rather than trusting the
-  // reduced-motion emulation to have collapsed them. It does on Chromium; on
-  // WebKit the cards were still fading when axe sampled them, and axe measures
-  // composited colour — so `--ink-faint` (#666D79) was read as #979ca4, #b0b3ba
-  // and #828283 on the same page, three points in one animation. Every one of
-  // those is a failure about a colour the app never finishes painting.
-  // Infinite animations (the async spinners) are excluded: they never finish,
-  // and waiting on one would hang instead of measuring.
+
+  /**
+   * Then FREEZE motion, rather than trying to sample between animations.
+   *
+   * axe measures composited colour, so any element caught mid-fade reports a
+   * blend rather than its real pair — the "Saved" pill measured 4.12:1 while
+   * fading where its tokens are 4.65:1 at rest. Waiting for the right moment
+   * cannot fix this: an auto-save lands whenever the round-trip returns, which
+   * can be during the scan. Two attempts at timing it both produced failures
+   * that depended on machine speed — green locally, red on CI, then red on a
+   * different engine when the timing shifted again.
+   *
+   * Killing animation and transition outright makes every element show its
+   * settled colour, which is the thing being audited. Safe here because no
+   * element depends on an animation to become visible: the fades all start
+   * from a base style that is already the final state.
+   */
+  // Injected by hand rather than with `addStyleTag`: that helper rejects if the
+  // page has raised ANY error, and on Firefox the live-preview srcdoc iframe
+  // logs a CSP font-src warning — so a stylesheet with nothing to do with fonts
+  // failed to apply because of an unrelated message from a different document.
+  await page.evaluate(() => {
+    const style = document.createElement('style')
+    style.textContent = `*, *::before, *::after {
+      animation: none !important;
+      transition: none !important;
+      caret-color: transparent !important;
+    }`
+    document.head.appendChild(style)
+  })
+  // Belt and braces: the stylesheet above stops CSS animations, this catches
+  // anything driven through the Web Animations API, which no stylesheet can
+  // cancel. Infinite animations (the async spinners) are excluded — they never
+  // finish, and waiting on one would hang instead of measuring.
   await page.waitForFunction(() => {
     return document.getAnimations()
       .filter((a) => a.effect?.getTiming().iterations !== Infinity)
