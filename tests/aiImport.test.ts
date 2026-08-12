@@ -575,3 +575,132 @@ describe('importFromAIDraft — the imported defaults', () => {
     expect(store.skills.find((s) => s.name.en === 'Go')!.is_highlighted).toBe(false)
   })
 })
+
+/**
+ * The sections an AI draft can carry beyond the big three.
+ *
+ * Each one is its own mapping — a section that maps to nothing is silently
+ * missing from the import, and a flag defaulted the wrong way ships a
+ * soft-deleted or starred row the user never asked for.
+ */
+describe('importFromAIDraft — courses, certifications and languages', () => {
+  const draft = (over: Record<string, unknown>) =>
+    importFromAIDraft({ $schema: AI_IMPORT_SCHEMA, ...over } as never)
+
+  it('imports a course with its programme and completion date', () => {
+    const store = draft({ courses: [{ name: 'Kubernetes', program: 'CNCF', completed: { year: 2024, month: 3 } }] })
+    expect(store.courses).toHaveLength(1)
+    expect(store.courses[0]).toMatchObject({
+      name: { en: 'Kubernetes' }, program: { en: 'CNCF' },
+      start: null, end: { year: 2024, month: 3 },
+    })
+    // A fresh row is live and unstarred, and carries no skill links yet.
+    expect(store.courses[0]).toMatchObject({ starred: false, disabled: false })
+    expect(store.courses[0].skill_ids).toEqual([])
+  })
+
+  it('imports a certification with both of its dates', () => {
+    const store = draft({ certifications: [{
+      name: 'AWS SA', organiser: 'AWS',
+      issued: { year: 2024, month: 1 }, expires: { year: 2027, month: 1 },
+    }] })
+    expect(store.certifications[0]).toMatchObject({
+      name: { en: 'AWS SA' }, organiser: { en: 'AWS' },
+      issued: { year: 2024, month: 1 }, expires: { year: 2027, month: 1 },
+      starred: false, disabled: false,
+    })
+    expect(store.certifications[0].skill_ids).toEqual([])
+    expect(store.certifications[0].credential_url).toBeNull()
+  })
+
+  it('imports a spoken language with its level, live', () => {
+    const store = draft({ spoken_languages: [{ name: 'Norwegian', level: 'Native' }] })
+    expect(store.spoken_languages[0]).toMatchObject({
+      name: { en: 'Norwegian' }, level: { en: 'Native' }, disabled: false,
+    })
+  })
+
+  it('numbers each section in the order the draft listed it', () => {
+    const store = draft({
+      courses: [{ name: 'First' }, { name: 'Second' }],
+      certifications: [{ name: 'C1' }, { name: 'C2' }],
+      spoken_languages: [{ name: 'Norwegian' }, { name: 'English' }],
+    })
+    expect(store.courses.map((c) => c.sort_order)).toEqual([0, 1])
+    expect(store.certifications.map((c) => c.sort_order)).toEqual([0, 1])
+    expect(store.spoken_languages.map((l) => l.sort_order)).toEqual([0, 1])
+  })
+
+  it('leaves each of those sections empty when the draft omits it', () => {
+    const store = draft({ projects: [{ customer: 'Acme' }] })
+    expect(store.courses).toEqual([])
+    expect(store.certifications).toEqual([])
+    expect(store.spoken_languages).toEqual([])
+  })
+
+  it('imports a skills-showcase group, highlighting its skills once', () => {
+    const store = draft({
+      technology_categories: [{ name: 'Languages', skills: ['Go', 'Go', '   '] }],
+    })
+    expect(store.skill_categories).toHaveLength(1)
+    const go = store.skills.filter((sk) => Object.values(sk.name)[0] === 'Go')
+    expect(go).toHaveLength(1)
+    expect(go[0].is_highlighted).toBe(true)
+    expect(go[0].category_id).toBe(store.skill_categories![0].id)
+    // The group itself carries a name and its position, nothing else.
+    expect(store.skill_categories![0]).toEqual({
+      id: store.skill_categories![0].id,
+      resume_id: store.skill_categories![0].resume_id,
+      name: { en: 'Languages' },
+      sort_order: 0,
+    })
+  })
+
+  it('numbers several showcase groups in the order given, without a stray member', () => {
+    const store = draft({
+      technology_categories: [
+        { name: 'Languages', skills: ['Go'] },
+        // No skills key at all — a group can be named before it is filled.
+        { name: 'Platforms' },
+      ],
+    })
+    expect(store.skill_categories!.map((c) => [Object.values(c.name)[0], c.sort_order]))
+      .toEqual([['Languages', 0], ['Platforms', 1]])
+    // The empty group interns nothing, so the registry holds only the one skill.
+    expect(store.skills.map((sk) => Object.values(sk.name)[0])).toEqual(['Go'])
+  })
+})
+
+describe('validateAIImport — the guards in front of the mapping', () => {
+  const draft = (over: Record<string, unknown>) => ({ $schema: AI_IMPORT_SCHEMA, ...over })
+
+  it('refuses a root that is not an object, and a schema that is not a string', () => {
+    for (const bad of [null, 'text', 42, true, ['a']]) {
+      expect(() => validateAIImport(bad)).toThrow()
+    }
+    expect(() => validateAIImport({ $schema: 42 })).toThrow()
+  })
+
+  it('checks the date fields the section actually has, and no others', () => {
+    // A course has `completed`, a certification has `issued`/`expires`, and the
+    // three big sections have `start`/`end`. Checking the wrong field lets a
+    // malformed date through into the store.
+    const paths = (d: Record<string, unknown>) => {
+      try { validateAIImport(draft(d)); return [] } catch (e) {
+        return (e as { issues: { path: string }[] }).issues.map((i) => i.path)
+      }
+    }
+    expect(paths({ courses: [{ name: 'C', completed: 'yesterday' }] })).toEqual(['courses[0].completed'])
+    expect(paths({ certifications: [{ name: 'C', issued: 'soon' }] })).toEqual(['certifications[0].issued'])
+    expect(paths({ projects: [{ customer: 'A', start: 'then' }] })).toEqual(['projects[0].start'])
+    expect(paths({ work_experiences: [{ employer: 'A', end: 'then' }] })).toEqual(['work_experiences[0].end'])
+    expect(paths({ educations: [{ school: 'A', start: 'then' }] })).toEqual(['educations[0].start'])
+    // A course's `start`/`end` are not part of the draft format, so a stray one
+    // is not validated as a date.
+    expect(paths({ courses: [{ name: 'C', start: 'nonsense' }] })).toEqual([])
+    // And each section's check belongs to THAT section: a certification has no
+    // `completed`, a course has no `issued`.
+    expect(paths({ certifications: [{ name: 'C', completed: 'yesterday' }] })).toEqual([])
+    expect(paths({ courses: [{ name: 'C', issued: 'soon', expires: 'later' }] })).toEqual([])
+  })
+})

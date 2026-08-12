@@ -676,3 +676,422 @@ describe('exportBackupZip', () => {
     await expect(api.exportBackupZip()).rejects.toBeInstanceOf(ServerError)
   })
 })
+
+/**
+ * Every endpoint that can fail has to fail LOUDLY or QUIETLY on purpose: a save
+ * that swallows a 500 loses the user's work silently, and a status probe that
+ * throws breaks the page around it. These pin which of the two each one is, and
+ * what the request looked like.
+ */
+describe('api — the ones that must throw on a bad response', () => {
+  const okJson = (body: unknown = {}) => mockRes({ status: 200, body })
+
+  const cases: Array<[string, () => Promise<unknown>]> = [
+    ['login', () => api.login('secret')],
+    ['patchResume', () => api.patchResume('r1', { name: 'New name' })],
+    ['deleteResume', () => api.deleteResume('r1')],
+    ['getSnapshot', () => api.getSnapshot('r1', 1)],
+    ['translate', () => api.translate('hei', 'no', 'en')],
+    ['importBackupFile', () => api.importBackupFile(new File(['{}'], 'b.json'))],
+    ['restoreBackup', () => api.restoreBackup('merge')],
+    ['backupNow', () => api.backupNow()],
+    ['saveSettings', () => api.saveSettings({} as never)],
+    ['getSettings', () => api.getSettings()],
+    ['browseFolders', () => api.browseFolders('/')],
+  ]
+
+  for (const [name, call] of cases) {
+    it(`${name} throws a ServerError on a 500`, async () => {
+      fetchMock.mockResolvedValue(mockRes({ status: 500 }))
+      await expect(call()).rejects.toThrow(ServerError)
+    })
+  }
+
+  it('carries the server\u2019s own message when it sends one', async () => {
+    fetchMock.mockResolvedValue(mockRes({ status: 400, body: { error: 'Model not configured' } }))
+    await expect(api.translate('hei', 'no', 'en')).rejects.toThrow(/Model not configured/)
+  })
+
+  it('falls back to its own wording, with the status, when the body says nothing', async () => {
+    fetchMock.mockResolvedValue(mockRes({ status: 503, body: {} }))
+    await expect(api.translate('hei', 'no', 'en')).rejects.toThrow(/503/)
+  })
+
+  it('still throws when the error body is not JSON at all', async () => {
+    fetchMock.mockResolvedValue({
+      ok: false, status: 502, statusText: 'HTTP 502',
+      json: async () => { throw new Error('not json') },
+    } as unknown as Response)
+    await expect(api.translate('hei', 'no', 'en')).rejects.toThrow(ServerError)
+  })
+
+  it('maps a 401 to UnauthorizedError before anything else looks at the body', async () => {
+    fetchMock.mockResolvedValue(mockRes({ status: 401 }))
+    await expect(api.patchResume('r1', { name: 'x' })).rejects.toThrow(UnauthorizedError)
+  })
+
+  it('maps a 404 to NotFoundError on the endpoints that address one resume', async () => {
+    fetchMock.mockResolvedValue(mockRes({ status: 404 }))
+    await expect(api.patchResume('r1', { name: 'x' })).rejects.toThrow(NotFoundError)
+    await expect(api.deleteResume('r1')).rejects.toThrow(NotFoundError)
+  })
+
+  it('returns the parsed body when the response is fine', async () => {
+    fetchMock.mockResolvedValue(okJson({ data: emptyStore() }))
+    await expect(api.getSnapshot('r1', 1)).resolves.toBeTruthy()
+  })
+})
+
+describe('api — the ones that must never throw', () => {
+  const probes: Array<[string, () => Promise<unknown>, unknown]> = [
+    ['storageStats', () => api.storageStats(), null],
+    ['logout', () => api.logout(), undefined],
+  ]
+
+  for (const [name, call, fallback] of probes) {
+    it(`${name} answers with its fallback on a 500`, async () => {
+      fetchMock.mockResolvedValue(mockRes({ status: 500 }))
+      await expect(call()).resolves.toBe(fallback)
+    })
+
+    it(`${name} answers with its fallback when the network is down`, async () => {
+      fetchMock.mockRejectedValue(new TypeError('Failed to fetch'))
+      await expect(call()).resolves.toBe(fallback)
+    })
+  }
+
+  it('storageStats returns the stats when the server has them', async () => {
+    fetchMock.mockResolvedValue(mockRes({ status: 200, body: { resumes: [], db_bytes: 10 } }))
+    await expect(api.storageStats()).resolves.toMatchObject({ db_bytes: 10 })
+  })
+
+  it('logout posts to the logout endpoint even though it ignores the answer', async () => {
+    fetchMock.mockResolvedValue(mockRes({ status: 200 }))
+    await api.logout()
+    expect(fetchMock).toHaveBeenCalledWith('/api/auth/logout', expect.objectContaining({ method: 'POST' }))
+  })
+})
+
+describe('api — what saveResume puts in the body', () => {
+  const saved = () => mockRes({ status: 200, body: { saved_at: '2026-01-01T00:00:00Z', version: 3 } })
+  const bodyOf = () => JSON.parse((fetchMock.mock.calls[0][1] as { body: string }).body) as Record<string, unknown>
+
+  it('sends the base version when it has one — that is what makes a 409 possible', async () => {
+    fetchMock.mockResolvedValue(saved())
+    await api.saveResume('r1', emptyStore(), undefined, 7)
+    expect(bodyOf().base_version).toBe(7)
+  })
+
+  it('omits the base version entirely when there is none', async () => {
+    // A first save has no version to compare against; sending `undefined` would
+    // read as "version 0" on the server.
+    fetchMock.mockResolvedValue(saved())
+    await api.saveResume('r1', emptyStore())
+    expect('base_version' in bodyOf()).toBe(false)
+  })
+
+  it('sends version ZERO as a real value', async () => {
+    fetchMock.mockResolvedValue(saved())
+    await api.saveResume('r1', emptyStore(), undefined, 0)
+    expect(bodyOf().base_version).toBe(0)
+  })
+
+  it('sends the editing locales only when given', async () => {
+    fetchMock.mockResolvedValue(saved())
+    await api.saveResume('r1', emptyStore(), { primary_locale: 'no', secondary_locale: 'en' })
+    expect(bodyOf()).toMatchObject({ primary_locale: 'no', secondary_locale: 'en' })
+
+    fetchMock.mockClear()
+    fetchMock.mockResolvedValue(saved())
+    await api.saveResume('r1', emptyStore())
+    expect('primary_locale' in bodyOf()).toBe(false)
+  })
+
+  it('returns the saved_at and version the server reports', async () => {
+    fetchMock.mockResolvedValue(saved())
+    await expect(api.saveResume('r1', emptyStore()))
+      .resolves.toEqual({ saved_at: '2026-01-01T00:00:00Z', version: 3 })
+  })
+})
+
+/**
+ * The happy path of each endpoint, and what the request looked like.
+ *
+ * Asserting only the failures leaves "always fail" indistinguishable from the
+ * real code — and a settings screen that reports an error on a perfectly good
+ * response is the same bug seen from the other side.
+ */
+describe('api — the successful answers', () => {
+  const ok = (body: unknown) => mockRes({ status: 200, body })
+
+  it('translate returns the translated text and sends the whole payload', async () => {
+    fetchMock.mockResolvedValue(ok({ translation: 'hello' }))
+    await expect(api.translate('hei', 'no', 'en', { terms: [], keep: ['NAV'] } as never))
+      .resolves.toBe('hello')
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as { body: string }).body) as Record<string, unknown>
+    expect(body).toMatchObject({ text: 'hei', source: 'no', target: 'en' })
+    expect(body.glossary).toBeTruthy()
+  })
+
+  it('getSettings, saveSettings and browseFolders return their bodies', async () => {
+    fetchMock.mockResolvedValue(ok({ managed: true }))
+    await expect(api.getSettings()).resolves.toMatchObject({ managed: true })
+
+    fetchMock.mockResolvedValue(ok({ managed: true }))
+    await expect(api.saveSettings({} as never)).resolves.toMatchObject({ managed: true })
+
+    fetchMock.mockResolvedValue(ok({ path: '/', entries: [] }))
+    await expect(api.browseFolders('/')).resolves.toMatchObject({ path: '/' })
+  })
+
+  it('the backup endpoints return their bodies', async () => {
+    fetchMock.mockResolvedValue(ok({ configured: true }))
+    await expect(api.backupStatus()).resolves.toMatchObject({ configured: true })
+
+    fetchMock.mockResolvedValue(ok({ bytes: 10, resumeCount: 2, removed: 0 }))
+    await expect(api.backupNow()).resolves.toMatchObject({ resumeCount: 2 })
+
+    fetchMock.mockResolvedValue(ok({ imported: 1, skipped: 0 }))
+    await expect(api.restoreBackup('merge')).resolves.toMatchObject({ imported: 1 })
+
+    fetchMock.mockResolvedValue(ok({ imported: 1, skipped: 0 }))
+    await expect(api.importBackupFile(new File(['{}'], 'b.json'))).resolves.toMatchObject({ imported: 1 })
+  })
+
+  it('the test-connection endpoints return their verdicts', async () => {
+    fetchMock.mockResolvedValue(ok({ ok: true }))
+    await expect(api.testTranslate()).resolves.toMatchObject({ ok: true })
+
+    fetchMock.mockResolvedValue(ok({ ok: false, error: 'no key' }))
+    await expect(api.testLlm()).resolves.toMatchObject({ ok: false })
+  })
+
+  it('testTranslate sends an empty body rather than nothing when given no input', async () => {
+    // The server reads the pending form values from the body; `undefined` would
+    // arrive as no body at all and be parsed as a missing field.
+    fetchMock.mockResolvedValue(ok({ ok: true }))
+    await api.testTranslate()
+    expect((fetchMock.mock.calls[0][1] as { body?: string }).body).toBe('{}')
+  })
+
+  it('browseFolders maps a 401 to UnauthorizedError and other failures to ServerError', async () => {
+    fetchMock.mockResolvedValue(mockRes({ status: 401 }))
+    await expect(api.browseFolders('/')).rejects.toThrow(UnauthorizedError)
+
+    fetchMock.mockResolvedValue(mockRes({ status: 500 }))
+    await expect(api.browseFolders('/')).rejects.toThrow(ServerError)
+  })
+})
+
+describe('api — importing a backup file', () => {
+  const ok = () => mockRes({ status: 200, body: { imported: 1, skipped: 0 } })
+  const headerOf = () =>
+    ((fetchMock.mock.calls[0][1] as { headers: Record<string, string> }).headers)['Content-Type']
+
+  it('posts a .zip as an archive', async () => {
+    fetchMock.mockResolvedValue(ok())
+    await api.importBackupFile(new File(['PK'], 'backup.zip'))
+    expect((fetchMock.mock.calls[0][1] as { method: string }).method).toBe('POST')
+    expect(headerOf()).toBe('application/zip')
+  })
+
+  it('posts anything else as JSON', async () => {
+    fetchMock.mockResolvedValue(ok())
+    await api.importBackupFile(new File(['{}'], 'backup.json'))
+    expect(headerOf()).toBe('application/json')
+  })
+
+  it('reads the EXTENSION, not merely a mention of zip in the name', async () => {
+    // "backup.zip.json" is a JSON file someone renamed; sending it as an archive
+    // makes the server unzip a text file.
+    fetchMock.mockResolvedValue(ok())
+    await api.importBackupFile(new File(['{}'], 'backup.zip.json'))
+    expect(headerOf()).toBe('application/json')
+  })
+
+  it('matches the extension whatever its case', async () => {
+    fetchMock.mockResolvedValue(ok())
+    await api.importBackupFile(new File(['PK'], 'BACKUP.ZIP'))
+    expect(headerOf()).toBe('application/zip')
+  })
+})
+
+describe('api — the Docker controls report rather than throw', () => {
+  it('returns the server’s result when the action succeeded', async () => {
+    fetchMock.mockResolvedValue(mockRes({ status: 200, body: { available: true, message: 'started' } }))
+    await expect(api.translateDocker('start')).resolves.toMatchObject({ available: true, message: 'started' })
+  })
+
+  it('reports a failed action as unavailable with the server’s message', async () => {
+    // The settings screen shows this text; throwing here would blank the panel.
+    fetchMock.mockResolvedValue(mockRes({ status: 500, body: { error: 'docker not installed' } }))
+    await expect(api.translateDocker('start'))
+      .resolves.toMatchObject({ available: false, message: 'docker not installed' })
+  })
+
+  it('reports an unreachable server as unavailable too', async () => {
+    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'))
+    await expect(api.translateDocker('status')).resolves.toMatchObject({ available: false })
+  })
+
+  it('names the action in its own fallback message', async () => {
+    fetchMock.mockResolvedValue(mockRes({ status: 500, body: {} }))
+    const out = await api.translateDocker('stop')
+    expect(out.message).toMatch(/stop/)
+  })
+})
+
+/**
+ * The request builder itself, and the AI endpoints on top of it.
+ */
+describe('api — how a request is built', () => {
+  it('sends a JSON content type and a body only when there IS a body', async () => {
+    fetchMock.mockResolvedValue(mockRes({ status: 200, body: [] }))
+    await api.listResumes()
+    const init = fetchMock.mock.calls[0][1] as { body?: string; headers: Record<string, string> }
+    // A GET with a Content-Type and an empty body confuses proxies and servers.
+    expect(init.body).toBeUndefined()
+    expect(init.headers['Content-Type']).toBeUndefined()
+
+    fetchMock.mockClear()
+    fetchMock.mockResolvedValue(mockRes({ status: 200, body: {} }))
+    await api.patchResume('r1', { name: 'x' })
+    const withBody = fetchMock.mock.calls[0][1] as { body?: string; headers: Record<string, string> }
+    expect(withBody.headers['Content-Type']).toBe('application/json')
+    expect(JSON.parse(withBody.body!)).toEqual({ name: 'x' })
+  })
+
+  it('sends the session cookie on every request', async () => {
+    fetchMock.mockResolvedValue(mockRes({ status: 200, body: [] }))
+    await api.listResumes()
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ credentials: 'same-origin' })
+  })
+
+  it('recognises a real abort and nothing else as one', async () => {
+    expect(isAbortError(new DOMException('aborted', 'AbortError'))).toBe(true)
+    // A DOMException of another kind is a failure, not a cancellation…
+    expect(isAbortError(new DOMException('boom', 'NotFoundError'))).toBe(false)
+    // …and so is a plain object that merely calls itself one.
+    expect(isAbortError({ name: 'AbortError' })).toBe(false)
+    expect(isAbortError(new Error('AbortError'))).toBe(false)
+    expect(isAbortError(null)).toBe(false)
+  })
+})
+
+describe('api — the AI endpoints', () => {
+  it('llmComplete returns the reply and sends the prompt', async () => {
+    fetchMock.mockResolvedValue(mockRes({ status: 200, body: { text: 'drafted' } }))
+    await expect(api.llmComplete('write something', 500, true)).resolves.toBe('drafted')
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as { body: string }).body) as Record<string, unknown>
+    expect(body).toMatchObject({ prompt: 'write something', advanced: true })
+  })
+
+  it('llmComplete rejects a reply with no usable text, saying so', async () => {
+    // A malformed reply must not be applied as an empty draft over the user's
+    // field, and the message is what the panel shows.
+    for (const body of [{}, { text: 42 }, { text: '   ' }]) {
+      fetchMock.mockResolvedValue(mockRes({ status: 200, body }))
+      await expect(api.llmComplete('hi'), JSON.stringify(body))
+        .rejects.toThrow(/returned no text/)
+    }
+  })
+
+  it('createResume returns the new metadata and throws on a failure', async () => {
+    fetchMock.mockResolvedValue(mockRes({ status: 200, body: { resume: { id: 'r9', name: 'New' } } }))
+    await expect(api.createResume({ name: 'New' } as never)).resolves.toMatchObject({ id: 'r9' })
+
+    fetchMock.mockResolvedValue(mockRes({ status: 500 }))
+    await expect(api.createResume({ name: 'New' } as never)).rejects.toThrow(ServerError)
+  })
+
+  it('llmComplete maps a 401 to UnauthorizedError and a 500 to a plain error', async () => {
+    fetchMock.mockResolvedValue(mockRes({ status: 401 }))
+    await expect(api.llmComplete('hi')).rejects.toThrow(UnauthorizedError)
+
+    fetchMock.mockResolvedValue(mockRes({ status: 500, body: { error: 'no model' } }))
+    await expect(api.llmComplete('hi')).rejects.toThrow(/no model/)
+  })
+
+  it('summarize returns the line and sends the heading context with it', async () => {
+    // The item's heading is what stops the model restating the customer name.
+    fetchMock.mockResolvedValue(mockRes({ status: 200, body: { summary: 'One line.' } }))
+    await expect(api.summarize('long text', 'no', ['Customer: Statoil'])).resolves.toBe('One line.')
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as { body: string }).body) as Record<string, unknown>
+    expect(body).toMatchObject({ text: 'long text', locale: 'no', context: ['Customer: Statoil'] })
+  })
+
+  it('summarize sends an EMPTY context rather than none when the caller has no heading', async () => {
+    fetchMock.mockResolvedValue(mockRes({ status: 200, body: { summary: 'One line.' } }))
+    await api.summarize('long text', 'en')
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as { body: string }).body) as Record<string, unknown>
+    expect(body.context).toEqual([])
+  })
+
+  it('summarize throws on a failed response', async () => {
+    fetchMock.mockResolvedValue(mockRes({ status: 500, body: { error: 'model gone' } }))
+    await expect(api.summarize('long text', 'en')).rejects.toThrow(/model gone/)
+  })
+
+  it('testLlm sends an empty body when given no pending values', async () => {
+    fetchMock.mockResolvedValue(mockRes({ status: 200, body: { ok: true } }))
+    await api.testLlm()
+    expect((fetchMock.mock.calls[0][1] as { body?: string }).body).toBe('{}')
+  })
+
+  it('llmModels keeps only the models the server actually named', async () => {
+    // A model with no id cannot be selected, so offering it in the picker is a
+    // dead row; and a failure hides the picker rather than breaking Settings.
+    fetchMock.mockResolvedValue(mockRes({
+      status: 200,
+      body: { models: [{ id: 'llama3' }, { id: '' }, { name: 'no id' }, null] },
+    }))
+    await expect(api.llmModels()).resolves.toEqual([{ id: 'llama3' }])
+
+    fetchMock.mockResolvedValue(mockRes({ status: 500 }))
+    await expect(api.llmModels()).resolves.toEqual([])
+  })
+
+  it('llmModels POSTs the pending form values when it has them, GETs otherwise', async () => {
+    // The useful moment is right after pasting a key, before Save.
+    fetchMock.mockResolvedValue(mockRes({ status: 200, body: { models: [] } }))
+    await api.llmModels({ llm_api_key: 'k' } as never)
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/settings/llm/models')
+    expect((fetchMock.mock.calls[0][1] as { method: string }).method).toBe('POST')
+
+    fetchMock.mockClear()
+    fetchMock.mockResolvedValue(mockRes({ status: 200, body: { models: [] } }))
+    await api.llmModels()
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/llm/models')
+    expect((fetchMock.mock.calls[0][1] as { method: string }).method).toBe('GET')
+  })
+
+  it('ollamaDocker reports rather than throws, like the translate one', async () => {
+    fetchMock.mockResolvedValue(mockRes({ status: 200, body: { available: true, message: 'pulled' } }))
+    await expect(api.ollamaDocker('start', 'llama3')).resolves.toMatchObject({ available: true })
+
+    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'))
+    await expect(api.ollamaDocker('status')).resolves.toMatchObject({ available: false })
+  })
+})
+
+describe('api — the updater endpoints', () => {
+  it('updateStatus and checkForUpdate return their bodies and throw on failure', async () => {
+    fetchMock.mockResolvedValue(mockRes({ status: 200, body: { supported: true, current: '1.0.0' } }))
+    await expect(api.updateStatus()).resolves.toMatchObject({ supported: true })
+
+    fetchMock.mockResolvedValue(mockRes({ status: 200, body: { supported: true, latest: '1.1.0' } }))
+    await expect(api.checkForUpdate()).resolves.toMatchObject({ latest: '1.1.0' })
+
+    fetchMock.mockResolvedValue(mockRes({ status: 500 }))
+    await expect(api.checkForUpdate()).rejects.toThrow(ServerError)
+  })
+
+  it('installUpdate resolves on success and throws on refusal', async () => {
+    fetchMock.mockResolvedValue(mockRes({ status: 200, body: {} }))
+    await expect(api.installUpdate()).resolves.toBeUndefined()
+
+    // A VPS reports updates as unsupported and 403s the install.
+    fetchMock.mockResolvedValue(mockRes({ status: 403, body: { error: 'not supported here' } }))
+    await expect(api.installUpdate()).rejects.toThrow(/not supported here/)
+  })
+})

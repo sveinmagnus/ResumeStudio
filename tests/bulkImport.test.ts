@@ -716,3 +716,226 @@ describe('validateBulkImport — the envelope guards', () => {
     expect(msg).toMatch(/permanent/)
   })
 })
+
+/**
+ * The validator in front of a bulk paste.
+ *
+ * Hard errors are reserved for what would silently lose data, so each field kind
+ * has its own check — and a check that stops firing lets a malformed value into
+ * the store, where it renders as a blank line or breaks an export.
+ */
+describe('validateBulkImport — one check per field kind', () => {
+  const file = (items: unknown[], section = 'educations') =>
+    ({ $schema: BULK_IMPORT_SCHEMA, section, items })
+  const issues = (json: unknown, section = 'educations'): string[] => {
+    try {
+      validateBulkImport(json, section as never)
+      return []
+    } catch (e) {
+      return (e as InvalidBulkImportError).issues.map((i) => `${i.path}: ${i.reason}`)
+    }
+  }
+
+  it('refuses a root that is not an object at all', () => {
+    for (const bad of [null, undefined, 'text', 42, true, ['a']]) {
+      expect(issues(bad), String(bad)).toEqual(['(root): expected a JSON object'])
+    }
+  })
+
+  it('refuses a missing, empty or non-string section by NAMING what it wanted', () => {
+    // Distinct from the mismatch message below: there is no section to compare,
+    // so the file is unusable rather than pasted into the wrong list.
+    for (const bad of [undefined, 42, '', null]) {
+      const json: Record<string, unknown> = { $schema: BULK_IMPORT_SCHEMA, items: [] }
+      if (bad !== undefined) json.section = bad
+      // `items` is present and valid, so the section complaint is the only one
+      // about the section itself.
+      expect(issues(json).filter((i) => i.startsWith('section:')), String(bad))
+        .toEqual(['section: expected "educations"'])
+    }
+  })
+
+  it('says which section the file IS for when it names a real but different one', () => {
+    expect(issues({ $schema: BULK_IMPORT_SCHEMA, section: 'projects', items: [] }).join())
+      .toMatch(/this file is for Projects/)
+  })
+
+  it('refuses an item that is not an object, naming its index', () => {
+    expect(issues(file([{ school: 'NTNU' }, 'not an object'])))
+      .toEqual(['items[1]: expected an object'])
+  })
+
+  it('refuses a BOOLEAN field that is not a boolean', () => {
+    // Educations carry `exchange`; the string "true" would be stored as truthy
+    // without ever having been a boolean.
+    expect(issues(file([{ school: 'NTNU', exchange: 'true' }])))
+      .toEqual(['items[0].exchange: expected true or false'])
+    expect(issues(file([{ school: 'NTNU', exchange: true }]))).toEqual([])
+    expect(issues(file([{ school: 'NTNU', exchange: false }]))).toEqual([])
+  })
+
+  it('refuses an entry inside a LIST that is neither string nor number', () => {
+    expect(issues(file([{ customer: 'Acme', skills: ['Go', { name: 'Rust' }] }], 'projects'), 'projects'))
+      .toEqual(['items[0].skills[1]: expected a string'])
+    // A number is fine — a model writing 3 for a version is not data loss.
+    expect(issues(file([{ customer: 'Acme', skills: ['Go', 42, null] }], 'projects'), 'projects')).toEqual([])
+  })
+
+  it('refuses a list that is not an array', () => {
+    expect(issues(file([{ customer: 'Acme', skills: 'Go, Rust' }], 'projects'), 'projects').join())
+      .toMatch(/expected an array of strings/)
+  })
+
+  it('refuses an object where a NON-translated plain string belongs', () => {
+    // `employer` on a project is a plain string: it matches an Employment entry
+    // by name, so a localized object could never match one.
+    expect(issues(file([{ customer: 'Acme', employer: { en: 'Cartavio' } }], 'projects'), 'projects').join())
+      .toMatch(/not translated/)
+    expect(issues(file([{ customer: 'Acme', employer: 'Cartavio' }], 'projects'), 'projects')).toEqual([])
+  })
+
+  it('refuses an out-of-vocabulary ENUM, listing what it accepts', () => {
+    const out = issues(
+      file([{ employer: 'Acme', employment_type: 'freelanceish' }], 'work_experiences'),
+      'work_experiences',
+    )
+    expect(out.join()).toMatch(/expected one of/)
+    expect(issues(file([{ employer: 'Acme', employment_type: 'permanent' }], 'work_experiences'), 'work_experiences'))
+      .toEqual([])
+  })
+
+  it('ignores a field the item simply does not set', () => {
+    expect(issues(file([{ school: 'NTNU' }]))).toEqual([])
+  })
+
+  it('reports EVERY problem in one pass', () => {
+    const out = issues(file([
+      { school: 'NTNU', exchange: 'yes' },
+      'not an object',
+      { school: 'UiO', start: 'yesterday' },
+    ]))
+    expect(out).toHaveLength(3)
+  })
+})
+
+describe('bulkInstructions — the sheet the user hands their model', () => {
+  const specFor = (key: string) => bulkSpec(key as never)!
+
+  it('shows a worked example value for every field kind the section has', () => {
+    // The instructions are generated from the spec, so an example that stops
+    // being emitted leaves the model guessing that field's shape.
+    const educations = bulkInstructions(specFor('educations'), ['en'])
+    expect(educations).toContain('"exchange": false')
+    expect(educations).toContain('{ "year": 2024, "month": 6 }')
+
+    const projects = bulkInstructions(specFor('projects'), ['en'])
+    expect(projects).toMatch(/"skills": \["…", "…"\]/)
+    expect(projects).toMatch(/"employer": "…"/)
+
+    const employments = bulkInstructions(specFor('work_experiences'), ['en'])
+    // An enum's example is one of its own values, not a placeholder.
+    expect(employments).toMatch(/"employment_type": "[a-z_]+"/)
+  })
+
+  it('names each of the resume\u2019s locales in a translated field\u2019s example', () => {
+    const one = bulkInstructions(specFor('educations'), ['en'])
+    expect(one).toMatch(/"school": "…"/)
+    const two = bulkInstructions(specFor('educations'), ['en', 'no'])
+    expect(two).toMatch(/"school": \{ "en": "…", "no": "…" \}/)
+  })
+})
+
+describe('the registry interning a bulk add does', () => {
+  const bulkFile = (items: unknown[], section: string) =>
+    ({ $schema: BULK_IMPORT_SCHEMA, section, items }) as unknown as BulkFileV1
+  const spec = (key: string) => bulkSpec(key as never)!
+
+  it('reuses an existing skill and role whatever locale named it', () => {
+    const store = storeWithResume({
+      skills: [makeSkill({ id: 's1', name: { no: 'Regneark' } })],
+      roles: [makeRole({ id: 'r-1', name: { no: 'Arkitekt' } })],
+    })
+    const mapped = mapBulkItems(
+      bulkFile([{ customer: 'Acme', skills: ['regneark'], roles: ['ARKITEKT'] }], 'projects'),
+      spec('projects'), store, 'en',
+    )
+    const out = appendBulkItems(store, spec('projects'), mapped.items, mapped.additions)
+    expect(out.skills).toHaveLength(1)
+    expect(out.roles).toHaveLength(1)
+    expect(out.projects[0].skills[0].skill_id).toBe('s1')
+    expect(out.projects[0].roles[0].role_id).toBe('r-1')
+  })
+
+  it('interns a name once even when two items use it', () => {
+    const store = storeWithResume()
+    const mapped = mapBulkItems(
+      bulkFile([
+        { customer: 'One', skills: ['Kubernetes'] },
+        { customer: 'Two', skills: ['kubernetes'] },
+      ], 'projects'),
+      spec('projects'), store, 'en',
+    )
+    const out = appendBulkItems(store, spec('projects'), mapped.items, mapped.additions)
+    expect(out.skills).toHaveLength(1)
+    expect(out.projects[0].skills[0].skill_id).toBe(out.projects[1].skills[0].skill_id)
+  })
+
+  it('ignores a blank skill or role name rather than interning an empty entry', () => {
+    const store = storeWithResume()
+    const mapped = mapBulkItems(
+      bulkFile([{ customer: 'Acme', skills: ['', '   '], roles: ['  '] }], 'projects'),
+      spec('projects'), store, 'en',
+    )
+    const out = appendBulkItems(store, spec('projects'), mapped.items, mapped.additions)
+    expect(out.skills).toEqual([])
+    expect(out.roles).toEqual([])
+  })
+})
+
+describe('appendBulkItems — where the new rows land', () => {
+  const spec = (key: string) => bulkSpec(key as never)!
+
+  it('numbers new rows after the highest sort_order already there', () => {
+    const store = storeWithResume({
+      // Deliberately NOT ascending: the highest wins, not the last one seen.
+      courses: [makeCourse({ id: 'c1', sort_order: 9 }), makeCourse({ id: 'c2', sort_order: 4 })],
+    })
+    const out = appendBulkItems(store, spec('courses'), [
+      { id: 'new1', sort_order: 0 } as never,
+      { id: 'new2', sort_order: 0 } as never,
+    ])
+    expect(out.courses.map((c) => c.sort_order)).toEqual([9, 4, 10, 11])
+  })
+
+  it('ignores a non-numeric sort_order when finding the highest', () => {
+    // An imported row can carry a string there; treating it as the max would
+    // push every new row to NaN and collapse the display order.
+    const store = storeWithResume({
+      courses: [{ ...makeCourse({ id: 'c1' }), sort_order: 'first' } as never],
+    })
+    const out = appendBulkItems(store, spec('courses'), [{ id: 'new1', sort_order: 0 } as never])
+    expect(out.courses[1].sort_order).toBe(0)
+  })
+
+  it('starts at zero when the section is empty', () => {
+    const out = appendBulkItems(storeWithResume(), spec('courses'), [
+      { id: 'new1', sort_order: 0 } as never,
+      { id: 'new2', sort_order: 0 } as never,
+    ])
+    expect(out.courses.map((c) => c.sort_order)).toEqual([0, 1])
+  })
+})
+
+describe('the registry lookup ignores an unnamed entry', () => {
+  it('does not match a blank bulk name against a blank registry name', () => {
+    // A registry entry with an empty name is data damage; letting a blank source
+    // name "match" it would link every unnamed row to it.
+    const store = storeWithResume({ skills: [makeSkill({ id: 'blank', name: { en: '' } })] })
+    const mapped = mapBulkItems(
+      { $schema: BULK_IMPORT_SCHEMA, section: 'projects', items: [{ customer: 'Acme', skills: [''] }] } as never,
+      bulkSpec('projects' as never)!, store, 'en',
+    )
+    const out = appendBulkItems(store, bulkSpec('projects' as never)!, mapped.items, mapped.additions)
+    expect(out.projects[0].skills).toEqual([])
+  })
+})
