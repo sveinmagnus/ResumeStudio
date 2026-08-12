@@ -6,13 +6,13 @@ import {
   viewProfileTagLine,
 } from '../src/lib/viewFilter'
 import { SECTIONS } from '../src/lib/sections'
-import { DEFAULT_VIEW_STYLE } from '../src/lib/viewStyle'
+import { DEFAULT_VIEW_STYLE, deriveTokens, withDefaults } from '../src/lib/viewStyle'
 import { withHeaderDefaults, withFooterDefaults } from '../src/lib/viewHeader'
 import {
   emptyStore, makeProject, makeWork, makeEducation, makeKQ,
   makeView, makeReference, makeSpokenLanguage, makeResume,
   makeKeyCompetency, makeRecommendation, makeSkill, makeSkillCategory,
-  makeCourse, makePosition,
+  makeCourse, makePosition, makeIndustry,
 } from './fixtures'
 
 // A 1x1 transparent PNG data URL (valid for the isDataImage guard + img embedding).
@@ -2414,5 +2414,322 @@ describe('buildViewHtml — the inline and quote item layouts', () => {
     }), 'en'))
     expect(html).toContain('— Jane Boss')
     expect(html).not.toContain('<span class="ve-meta-inline">')
+  })
+})
+
+/**
+ * The render geometry, in numbers.
+ *
+ * Every gap below is derived from ONE token (itemGapPx, 14px at the default
+ * "normal" density) by a documented relation: a section heading gets two gaps
+ * above it, a tabulated row gap is half an item gap with a 2px floor, and its
+ * divider padding is half of that with a 1px floor. Asserting only that "some
+ * number came out" lets any of those relations invert unnoticed — and the
+ * result is a document whose spacing no longer reads as a hierarchy.
+ */
+describe('buildViewHtml — the spacing arithmetic', () => {
+  const styleBlock = (style: Record<string, unknown> = {}, sectionStyle: Record<string, unknown> = {}) => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'Kari Nordmann' })
+    s.work_experiences = [makeWork({
+      id: 'w1', employer: { en: 'Acme' }, role_title: { en: 'Architect' },
+      start: { year: 2020, month: 1 }, end: { year: 2021, month: 6 },
+    })]
+    const html = buildViewHtml(s, makeView({
+      style: style as never,
+      sections: [{ key: 'work_experiences', detail: 'summary', sort_order: 0, style: sectionStyle } as never],
+    }), 'en')
+    return /<style[^>]*>([\s\S]*?)<\/style>/.exec(html)?.[1] ?? ''
+  }
+
+  it('gives a section heading TWO item gaps above it', () => {
+    // 14px at the default density: the space above a heading has to read as
+    // bigger than the space between two items under it.
+    expect(styleBlock()).toContain('margin: 28px 0')
+  })
+
+  it('gives a hidden heading the same top margin the h2 would have carried', () => {
+    expect(styleBlock()).toContain('.ve-section-noheading { margin-top: 28px; }')
+  })
+
+  it('makes a tabulated row gap HALF an item gap', () => {
+    // The base rule, not a per-section override: the grid's own default.
+    expect(styleBlock()).toContain('column-gap: 12px; row-gap: 7px;')
+  })
+
+  it('pads a tabulated divider row by half the row gap', () => {
+    const css = styleBlock({}, { item_divider: true, tabulate: true })
+    expect(css).toMatch(/\.ve-sec-work_experiences \.ve-tab-grid \{ row-gap: 7px; \}/)
+    expect(css).toMatch(/\.ve-sec-work_experiences \.ve-tab-row \{[^}]*padding-bottom: 4px/)
+  })
+
+  it('writes an explicit "none" border when dividers are off, never undefined', () => {
+    const css = styleBlock({}, { item_divider: false })
+    expect(css).toMatch(/\.ve-sec-work_experiences \.ve-item \{[^}]*border-bottom: none/)
+    expect(css).not.toContain('undefined')
+  })
+
+  it('emits only CSS into the style block, never stray prose', () => {
+    // The per-section rules are accumulated into a list and inlined verbatim. A
+    // line that is not a declaration or a selector is a parse error, and CSS
+    // recovery discards through the NEXT closing brace — so one stray line
+    // silently takes a whole rule with it.
+    const lines = styleBlock({}, { item_divider: true }).split(String.fromCharCode(10))
+    expect(lines.filter((l) => /^\s*[A-Za-z][A-Za-z ]*$/.test(l))).toEqual([])
+  })
+
+  it('sizes the header title one point above the small text size', () => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'Kari Nordmann', title: { en: 'Architect' } })
+    const html = buildViewHtml(s, makeView({ sections: buildViewSections() }), 'en')
+    const tokens = deriveTokens(withDefaults(undefined))
+    const size = /class="ve-header-title"[^>]*font-size:(\d+(?:\.\d+)?)pt/.exec(html)?.[1]
+      ?? /font-size:(\d+(?:\.\d+)?)pt;"[^>]*class="ve-header-title"/.exec(html)?.[1]
+    expect(Number(size)).toBe(tokens.smallFontSizePt + 1)
+  })
+
+})
+
+/**
+ * The tabulated grid's date columns.
+ *
+ * The separator column exists so range markers line up down the grid, which
+ * means it must appear exactly when a start column is followed by an end column
+ * — and be EMPTY on a row that has only one of the two, or the column claims a
+ * range the row does not have.
+ */
+describe('buildViewHtml — the tabulated date separator', () => {
+  const tabulated = (works: Array<Record<string, unknown>>) => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    s.work_experiences = works.map((over, i) =>
+      makeWork({ id: `w${i}`, employer: { en: `Co${i}` }, role_title: { en: `Role${i}` }, ...over } as never))
+    return buildViewHtml(s, makeView({
+      sections: [{
+        key: 'work_experiences', detail: 'summary', sort_order: 0,
+        // Dates LAST, so an adjacent start/end pair is not the first column
+        // pair — a separator inserted by position rather than by kind shows up.
+        style: { tabulate: true, summary_layout: 'title-org-date' },
+      } as never],
+    }), 'en').replace(/<style[\s\S]*?<\/style>/g, '')
+  }
+
+  it('inserts the separator column between a start and an end column', () => {
+    const html = tabulated([{ start: { year: 2020, month: 1 }, end: { year: 2021, month: 6 } }])
+    expect(html).toContain('<span class="ve-tab-sep">\u00b7</span>')
+  })
+
+  it('omits the separator column when no row has a start date', () => {
+    // Only an end date: there is no range to mark, and a separator column would
+    // add a stray middot to every row.
+    const html = tabulated([{ start: null, end: { year: 2016, month: 6 } }])
+    expect(html).not.toContain('ve-tab-sep')
+  })
+
+  it('leaves the separator EMPTY on a row that has only one of the two dates', () => {
+    const html = tabulated([
+      { start: { year: 2020, month: 1 }, end: { year: 2021, month: 6 } },
+      { start: null, end: { year: 2016, month: 6 } },
+    ])
+    expect(html).toContain('<span class="ve-tab-sep">\u00b7</span>')
+    expect(html).toContain('<span class="ve-tab-sep"></span>')
+  })
+
+  it('tabulates only a SUMMARY section, never a full one', () => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    s.work_experiences = [makeWork({ id: 'w1', employer: { en: 'Acme' } })]
+    const html = buildViewHtml(s, makeView({
+      sections: [{ key: 'work_experiences', detail: 'full', sort_order: 0, style: { tabulate: true } } as never],
+    }), 'en')
+    expect(html).not.toContain('ve-tab-grid"')
+  })
+})
+
+/**
+ * A reference the consultant has NOT cleared for export.
+ *
+ * `include_in_exports` is a promise made to a named third party, so the
+ * descriptor returns null for that item rather than a blank row — and every
+ * layer downstream has to cope with a null where a summary was expected.
+ */
+describe('buildViewHtml — an item the catalog declines to render', () => {
+  const withRefs = (flags: boolean[], style: Record<string, unknown> = {}) => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    s.references = flags.map((include_in_exports, i) => makeReference({
+      id: `r${i}`, name: `Ref ${i}`, company: 'BigCo', include_in_exports,
+    }))
+    return buildViewHtml(s, makeView({
+      sections: [{ key: 'references', detail: 'summary', sort_order: 0, style } as never],
+    }), 'en').replace(/<style[\s\S]*?<\/style>/g, '')
+  }
+
+  it('renders the cleared reference and drops the other', () => {
+    const html = withRefs([false, true])
+    expect(html).toContain('Ref 1')
+    expect(html).not.toContain('Ref 0')
+  })
+
+  it('omits the whole section when no reference is cleared', () => {
+    // An empty <section> still draws its heading and its spacing, so the export
+    // would show a References heading with nothing under it.
+    expect(withRefs([false, false])).not.toContain('ve-sec-references')
+  })
+
+  it('drops it from the tabulated grid too', () => {
+    const html = withRefs([false, true], { tabulate: true })
+    expect(html).toContain('ve-tab-grid')
+    expect(html).toContain('Ref 1')
+    expect(html).not.toContain('Ref 0')
+  })
+})
+
+describe('buildViewHtml — the summary line, in detail', () => {
+  const summaryHtml = (store: ResumeStore, key: string, style: Record<string, unknown> = {}) =>
+    buildViewHtml(store, makeView({
+      sections: [{ key, detail: 'summary', sort_order: 0, style } as never],
+    }), 'en').replace(/<style[\s\S]*?<\/style>/g, '')
+
+  const workStore = (over: Record<string, unknown> = {}): ResumeStore => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    s.work_experiences = [makeWork({
+      id: 'w1', employer: { en: 'Acme' }, role_title: { en: 'Architect' },
+      start: { year: 2020, month: 1 }, end: { year: 2021, month: 6 }, ...over,
+    })]
+    return s
+  }
+
+  it('uses the em-dash ONLY after the leading slot, then middots', () => {
+    // Three slots under a title-first layout: "Architect — Acme · 2020 – 2021".
+    // Reusing the dash between the second and third slot reads as two separate
+    // headings on one line.
+    const line = /<div class="ve-item ve-item-line">([\s\S]*?)<\/div>/
+      .exec(summaryHtml(workStore(), 'work_experiences', { summary_layout: 'title-org-date' }))?.[1] ?? ''
+    expect(line.match(/ \u2014 /g)).toHaveLength(1)
+    expect(line.match(/ \u00b7 /g)).toHaveLength(1)
+  })
+
+  it('uses a COLON after the leading slot where the section asks for one', () => {
+    // The Skills Showcase reads "Cloud: Kubernetes, Terraform" — the category
+    // labels the list rather than standing beside it.
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    s.skill_categories = [makeSkillCategory({ id: 'c1', name: { en: 'Cloud' } })]
+    s.skills = [makeSkill({ id: 'k8s', name: { en: 'Kubernetes' }, category_id: 'c1', is_highlighted: true })]
+    const html = summaryHtml(s, 'technology_categories', { summary_layout: 'title-org-date' })
+    expect(html).toContain('</strong>: ')
+    expect(html).not.toContain('</strong> \u2014 ')
+  })
+
+  it('drops a whitespace-only short description instead of drawing its box', () => {
+    for (const line of ['below', 'inline'] as const) {
+      const html = summaryHtml(
+        workStore({ short_description: { en: '   ' } }), 'work_experiences', { short_desc_line: line })
+      expect(html, line).not.toContain('ve-summary-short')
+    }
+  })
+
+  it('adds no short-description element when the item has none', () => {
+    expect(summaryHtml(workStore({ short_description: {} }), 'work_experiences'))
+      .not.toContain('ve-summary-short')
+  })
+
+  it('trims the short description it does render', () => {
+    const html = summaryHtml(workStore({ short_description: { en: '  Ran the platform.  ' } }), 'work_experiences')
+    expect(html).toContain('>Ran the platform.<')
+  })
+})
+
+describe('applyView — the sections it must not touch', () => {
+  it('never filters the view list itself', () => {
+    // The views array is export CONFIG, not content: filtering it by the very
+    // exclusion list it carries would delete the view being rendered.
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    const a = makeView({ id: 'v1', name: 'Tender' })
+    const b = makeView({ id: 'v2', name: 'Short' })
+    s.views = [a, b]
+    const out = applyView(s, makeView({ id: 'v1', excluded_item_ids: ['v1', 'v2'] }))
+    expect(out.views.map((v) => v.id)).toEqual(['v1', 'v2'])
+  })
+})
+
+describe('getItemSubtitle', () => {
+  it('is empty for a section whose descriptor has no subtitle', () => {
+    // The registries carry a title only; calling a missing subtitle would throw
+    // in the picker that renders every section's items.
+    expect(getItemSubtitle('industries', makeIndustry({ id: 'i1', name: { en: 'Finance' } }), 'en')).toBe('')
+  })
+})
+
+describe('isDataImage', () => {
+  it('accepts the abbreviated jpg spelling as well as jpeg', () => {
+    // Both are written by real encoders; rejecting one silently drops the photo
+    // from every export with no error anywhere.
+    expect(isDataImage('data:image/jpg;base64,AAAA')).toBe(true)
+    expect(isDataImage('data:image/jpeg;base64,AAAA')).toBe(true)
+  })
+})
+
+describe('buildViewHtml — skill tags', () => {
+  const projectHtml = (style: Record<string, unknown>, skills: Array<Record<string, unknown>>) => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    s.skills = [makeSkill({ id: 'go', name: { en: 'Go' } }), makeSkill({ id: 'k8s', name: { en: 'Kubernetes' } })]
+    s.projects = [makeProject({
+      id: 'p1', customer: { en: 'Acme' },
+      skills: skills.map((sk, i) => ({
+        id: `ps${i}`, duration_in_years: 0, offset_in_years: 0,
+        total_duration_in_years: 0, sort_order: i, ...sk,
+      })) as never,
+    })]
+    return buildViewHtml(s, makeView({
+      sections: [{ key: 'projects', detail: 'full', sort_order: 0, style } as never],
+    }), 'en').replace(/<style[\s\S]*?<\/style>/g, '')
+  }
+
+  it('renders no tag container at all for an item with no skills', () => {
+    // An empty <div class="ve-tags"> still carries the block's margin, leaving a
+    // gap under the description that looks like a missing paragraph.
+    expect(projectHtml({}, [])).not.toContain('ve-tags')
+  })
+
+  it('draws chips by default and an italic list when asked', () => {
+    const chips = projectHtml({}, [
+      { skill_id: 'go', name: { en: 'Go' } }, { skill_id: 'k8s', name: { en: 'Kubernetes' } },
+    ])
+    expect(chips).toContain('<span class="ve-tag">Go</span>')
+    expect(chips).not.toContain('ve-tags-inline')
+
+    const inline = projectHtml({ tag_style: 'inline' }, [
+      { skill_id: 'go', name: { en: 'Go' } }, { skill_id: 'k8s', name: { en: 'Kubernetes' } },
+    ])
+    expect(inline).toContain('<div class="ve-tags-inline">Go, Kubernetes</div>')
+    expect(inline).not.toContain('<span class="ve-tag">')
+  })
+})
+
+describe('buildViewHtml — a profile in summary detail shows the SHORT prose', () => {
+  it('renders summary_short in summary detail and the long summary in full', () => {
+    // Profiles always render as prose (alwaysFull), so the detail level chooses
+    // WHICH prose. Losing that distinction puts the whole long profile into a
+    // view the user set to summary.
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    s.key_qualifications = [{
+      id: 'kq1', resume_id: 'r1', label: {}, tag_line: { en: 'Architect' },
+      summary: { en: 'The long profile.' }, summary_short: { en: 'The short line.' },
+      key_points: [], competency_ids: [], sort_order: 0,
+      starred: false, disabled: false, internal_notes: null,
+    } as never]
+    const render = (detail: string) => buildViewHtml(s, makeView({
+      sections: [{ key: 'key_qualifications', detail, sort_order: 0 } as never],
+    }), 'en').replace(/<style[\s\S]*?<\/style>/g, '')
+
+    expect(render('summary')).toContain('The short line.')
+    expect(render('summary')).not.toContain('The long profile.')
+    expect(render('full')).toContain('The long profile.')
   })
 })
