@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { describeSnapshotChanges } from '../src/lib/snapshotDiff'
 import {
   emptyStore, makeProject, makeRole, makeResume, makeSkill, makeSkillCategory, makeWork,
+  makeView,
 } from './fixtures'
 
 describe('describeSnapshotChanges', () => {
@@ -303,5 +304,169 @@ describe('describeSnapshotChanges — the parts a restore hangs on', () => {
     const store = emptyStore()
     store.projects = [makeProject({ id: 'p1', customer: { en: 'Acme' } })]
     expect(describeSnapshotChanges(store, structuredClone(store), 'en')).toEqual([])
+  })
+})
+
+describe('describeSnapshotChanges — per-field detail', () => {
+  /**
+   * The detail line is what tells a user whether restoring a snapshot loses
+   * work, so it has to name the field, the language and the direction of the
+   * change. Each of those is a separate step that can silently stop working.
+   */
+  const details = (before: unknown, after: unknown, key = 'long_description'): string[] => {
+    const prev = emptyStore()
+    const next = emptyStore()
+    prev.projects = [makeProject({ id: 'p1', customer: { en: 'Acme' }, [key]: before } as never)]
+    next.projects = [makeProject({ id: 'p1', customer: { en: 'Acme' }, [key]: after } as never)]
+    const out = describeSnapshotChanges(prev, next, 'en')
+    return out.length ? out[0].details ?? [] : []
+  }
+
+  it('reports growth and shrinkage in characters, and an equal-length edit as "edited"', () => {
+    expect(details({ en: 'abc' }, { en: 'abcdef' })[0]).toContain('+3 chars')
+    expect(details({ en: 'abcdef' }, { en: 'abc' })[0]).toContain('−3 chars')
+    expect(details({ en: 'abc' }, { en: 'xyz' })[0]).toContain('edited')
+  })
+
+  it('counts VISIBLE text, so a markup-only change reports no change at all', () => {
+    // Wrapping a paragraph in <strong> adds characters to the value but none to
+    // what the reader sees.
+    expect(details({ en: '<p>abc</p>' }, { en: '<p><strong>abc</strong></p>' })).toEqual([])
+    expect(details({ en: '<p>abc</p>' }, { en: '<p>abc&nbsp;d</p>' })[0]).toContain('+2 chars')
+  })
+
+  it('names the language of the column that changed', () => {
+    const out = details({ en: 'abc', no: 'abc' }, { en: 'abc', no: 'abcdef' })
+    expect(out).toHaveLength(1)
+    expect(out[0]).toContain('(Norsk)')
+  })
+
+  it('names the field with a human label, falling back to the key humanised', () => {
+    expect(details({ en: 'a' }, { en: 'ab' })[0]).toMatch(/^Description/)
+    // No label entry for this key, so the key itself is title-cased.
+    expect(details('x', 'xy', 'project_url')[0]).toMatch(/^Project url/)
+  })
+
+  it('reports a plain string field, treating an absent side as empty', () => {
+    expect(details(undefined, 'https://x.no', 'project_url')[0]).toContain('+12 chars')
+    expect(details('https://x.no', undefined, 'project_url')[0]).toContain('−12 chars')
+  })
+
+  it('reports a non-text change as simply "changed"', () => {
+    expect(details({ year: 2020, month: 1 }, { year: 2021, month: 1 }, 'start'))
+      .toEqual(['Start date changed'])
+  })
+
+  it('says nothing about the bookkeeping keys', () => {
+    // sort_order moves on every drag, and an image is not a described change.
+    expect(details(1, 2, 'sort_order')).toEqual([])
+    expect(details(false, true, 'starred')).toEqual([])
+    expect(details('2020-01-01', '2021-01-01', 'updated_at')).toEqual([])
+  })
+
+  it('caps the detail list rather than printing every column of a rewritten item', () => {
+    const many = (n: number) => {
+      const ls: Record<string, string> = {}
+      for (const loc of ['en', 'no', 'se', 'dk', 'de', 'fr', 'es', 'it', 'nl', 'pt']) ls[loc] = 'x'.repeat(n)
+      return ls
+    }
+    const out = details(many(3), many(9))
+    expect(out.length).toBe(8)
+  })
+})
+
+describe('describeSnapshotChanges — how an item is titled', () => {
+  const titleOf = (over: Record<string, unknown>): string => {
+    const prev = emptyStore()
+    const next = emptyStore()
+    next.projects = [makeProject({ id: 'p1', ...over } as never)]
+    return describeSnapshotChanges(prev, next, 'en')[0].label
+  }
+
+  it('prefers the requested locale, then any language that has text', () => {
+    expect(titleOf({ customer: { en: 'Acme', no: 'Acme NO' } })).toBe('Acme')
+    expect(titleOf({ customer: { no: 'Bare norsk' } })).toBe('Bare norsk')
+  })
+
+  it('skips a locale slot that is present but blank', () => {
+    expect(titleOf({ customer: { en: '   ', no: 'Norsk' } })).toBe('Norsk')
+  })
+
+  it('falls through to the next title field when the first has no text', () => {
+    const prev = emptyStore()
+    const next = emptyStore()
+    next.work_experiences = [makeWork({ id: 'w1', employer: {}, role_title: { en: 'Architect' } })]
+    expect(describeSnapshotChanges(prev, next, 'en')[0].label).toBe('Architect')
+  })
+
+  it('says (untitled) when nothing identifies the item', () => {
+    expect(titleOf({ customer: {}, description: {} })).toBe('(untitled)')
+  })
+
+  it('does not mistake a non-localized object for a title', () => {
+    // { year: 2020 } has a non-string value, so it is not a localized string.
+    expect(titleOf({ customer: { year: 2020 } as never, description: {} })).toBe('(untitled)')
+  })
+})
+
+describe('describeSnapshotChanges — malformed values never reach a renderer', () => {
+  const two = (before: unknown, after: unknown, key = 'start'): ReturnType<typeof describeSnapshotChanges> => {
+    const prev = emptyStore()
+    const next = emptyStore()
+    prev.projects = [makeProject({ id: 'p1', customer: { en: 'Acme' }, [key]: before } as never)]
+    next.projects = [makeProject({ id: 'p1', customer: { en: 'Acme' }, [key]: after } as never)]
+    return describeSnapshotChanges(prev, next, 'en')
+  }
+
+  it('does not treat an EMPTY object as a set of language columns', () => {
+    // Walking {} as localized would read the other side's non-string values as
+    // text and throw on them.
+    expect(two({}, { year: 2021, month: 1 })[0].details).toEqual(['Start date changed'])
+  })
+
+  it('does not treat a MIXED object as language columns either', () => {
+    // Some values are strings and some are not, so it is structured data.
+    expect(two({ label: 'x', count: 3 }, { label: 'y', count: 3 }, 'meta')[0].details)
+      .toEqual(['Meta changed'])
+  })
+
+  it('describes a localized field that did not exist before as a text change', () => {
+    // Only one side is localized on an added field; treating that as structured
+    // data would report "changed" and lose the size of what was written.
+    const out = two(undefined, { en: 'abc' }, 'long_description')
+    expect(out[0].details).toEqual(['Description (English): +3 chars'])
+  })
+
+  it('skips a section whose value is not an array at all', () => {
+    const prev = emptyStore()
+    const next = emptyStore()
+    ;(next as unknown as Record<string, unknown>).courses = 'not an array'
+    expect(describeSnapshotChanges(prev, next, 'en')).toEqual([])
+  })
+
+  it('reports nothing for two identical stores that DO have content', () => {
+    const store = () => {
+      const s = emptyStore()
+      s.projects = [makeProject({ id: 'p1', customer: { en: 'Acme' }, long_description: { en: 'text' } })]
+      return s
+    }
+    expect(describeSnapshotChanges(store(), store(), 'en')).toEqual([])
+  })
+
+  it('titles a view by its PLAIN-string name', () => {
+    // Most sections title from a LocalizedString; a view's name is a bare string,
+    // and reading only localized values would leave every view "(untitled)".
+    const prev = emptyStore()
+    const next = emptyStore()
+    next.views = [makeView({ id: 'v1', name: 'Client A' })]
+    expect(describeSnapshotChanges(prev, next, 'en')[0])
+      .toEqual({ kind: 'added', section: 'View', label: 'Client A' })
+  })
+
+  it('titles by the requested locale even when another language is stored first', () => {
+    const prev = emptyStore()
+    const next = emptyStore()
+    next.projects = [makeProject({ id: 'p1', customer: { no: 'Norsk navn', en: 'English name' } })]
+    expect(describeSnapshotChanges(next, prev, 'en')[0].label).toBe('English name')
   })
 })
