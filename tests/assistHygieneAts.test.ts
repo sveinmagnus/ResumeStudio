@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { emptyStore, makeProject, makeRole, makeSkill, makeResume, makeView } from './fixtures'
+import { emptyStore, makeProject, makeRole, makeSkill, makeResume, makeView, makeSkillCategory,
+} from './fixtures'
 import type { ResumeStore, ResumeView } from '../src/types'
 import { buildViewSections } from '../src/lib/viewFilter'
 import {
@@ -11,6 +12,7 @@ import {
   validateHygiene, InvalidHygieneError,
 } from '../src/lib/registryHygiene'
 import { countSkillReferences } from '../src/lib/merge'
+import { resolve } from '../src/lib/locales'
 import {
   buildGlossary, scopeGlossary, glossaryFor, mentions, toPayload, MAX_SCOPED_TERMS,
 } from '../src/lib/glossary'
@@ -1101,5 +1103,113 @@ describe('scopeGlossary — the cap', () => {
     const g = buildGlossary(s, 'en', 'no')
     expect(scopeGlossary(g, 'We used Google Cloud.').terms).toEqual([])
     expect(scopeGlossary(g, 'We used Go.').terms.map((t) => t.from)).toEqual(['Go'])
+  })
+})
+
+/**
+ * C4's apply step and its blast-radius summary.
+ *
+ * applyHygiene is the one place this feature mutates anything, and a registry
+ * merge is the most destructive act in the app (§15). The confirm dialog names
+ * totals that come from hygieneImpact, so those numbers have to be the ones the
+ * apply actually produces.
+ */
+describe('applyHygiene and hygieneImpact', () => {
+  const store = (): ResumeStore => {
+    const s = emptyStore()
+    s.resume = makeResume({ id: 'r1', full_name: 'X' })
+    s.skills = [
+      makeSkill({ id: 'keep', name: { en: 'Kubernetes' } }),
+      makeSkill({ id: 'drop', name: { en: 'K8s' } }),
+      makeSkill({ id: 'other', name: { en: 'Go' } }),
+    ]
+    s.projects = [makeProject({
+      id: 'p1', customer: { en: 'Acme' },
+      skills: [
+        { id: 'ps1', skill_id: 'drop', name: { en: 'K8s' }, duration_in_years: 0, offset_in_years: 0, total_duration_in_years: 0, sort_order: 0 },
+        { id: 'ps2', skill_id: 'other', name: { en: 'Go' }, duration_in_years: 0, offset_in_years: 0, total_duration_in_years: 0, sort_order: 1 },
+      ],
+    })]
+    return s
+  }
+  const merge = () => ({
+    key: 'merge:skills:drop', kind: 'skills' as const,
+    keepId: 'keep', keepName: 'Kubernetes', dropId: 'drop', dropName: 'K8s',
+    dropRefs: 1, keepRefs: 0, reason: '',
+  })
+
+  it('applies ONLY what is handed in', () => {
+    // Nothing is pre-ticked in the UI, so an empty selection must be a no-op.
+    const s = store()
+    const out = applyHygiene(s, [], [], 'en').data
+    expect(out.skills.map((x) => x.id).sort()).toEqual(['drop', 'keep', 'other'])
+  })
+
+  it('deletes the dropped entry and rewrites its references', () => {
+    const out = applyHygiene(store(), [merge()], [], 'en').data
+    expect(out.skills.map((x) => x.id).sort()).toEqual(['keep', 'other'])
+    expect(out.projects[0].skills.map((ps) => ps.skill_id).sort()).toEqual(['keep', 'other'])
+  })
+
+  it('updates the denormalised snapshot name on a rewritten link', () => {
+    // The link carries a copy of the name at link time; leaving it stale shows
+    // the deleted spelling in every export.
+    const out = applyHygiene(store(), [merge()], [], 'en').data
+    const link = out.projects[0].skills.find((ps) => ps.skill_id === 'keep')!
+    expect(resolve(link.name, 'en')).toBe('Kubernetes')
+  })
+
+  it('leaves an unrelated reference alone', () => {
+    const out = applyHygiene(store(), [merge()], [], 'en').data
+    expect(out.projects[0].skills.some((ps) => ps.skill_id === 'other')).toBe(true)
+  })
+
+  it('skips a merge whose entry has disappeared since the run', () => {
+    // The panel is non-blocking, so the registry may have changed underneath it.
+    const s = store()
+    s.skills = s.skills.filter((x) => x.id !== 'drop')
+    expect(() => applyHygiene(s, [merge()], [], 'en').data).not.toThrow()
+    expect(applyHygiene(s, [merge()], [], 'en').data.skills.map((x) => x.id).sort())
+      .toEqual(['keep', 'other'])
+  })
+
+  it('assigns a category, creating it when it does not exist yet', () => {
+    const out = applyHygiene(store(), [], [{
+      key: 'cat:other', skillId: 'other', skillName: 'Go',
+      categoryId: null, categoryName: 'Languages',
+    }], 'en').data
+    const cat = out.skill_categories!.find((c) => resolve(c.name, 'en') === 'Languages')!
+    expect(cat).toBeDefined()
+    expect(out.skills.find((x) => x.id === 'other')!.category_id).toBe(cat.id)
+  })
+
+  it('reuses an existing category rather than creating a second', () => {
+    const s = store()
+    s.skill_categories = [makeSkillCategory({ id: 'c1', name: { en: 'Languages' } })]
+    const out = applyHygiene(s, [], [{
+      key: 'cat:other', skillId: 'other', skillName: 'Go',
+      categoryId: 'c1', categoryName: 'Languages',
+    }], 'en').data
+    expect(out.skill_categories).toHaveLength(1)
+    expect(out.skills.find((x) => x.id === 'other')!.category_id).toBe('c1')
+  })
+
+  it('counts exactly what the confirm dialog promises', () => {
+    // The dialog names these totals before anything is applied; they have to
+    // match what the apply then does.
+    const impact = hygieneImpact([merge()], [{
+      key: 'cat:other', skillId: 'other', skillName: 'Go',
+      categoryId: null, categoryName: 'Languages',
+    }])
+    expect(impact).toMatchObject({
+      entriesDeleted: 1, referencesRewritten: 1, skillsCategorised: 1,
+    })
+    expect(impact.newCategories).toBeGreaterThanOrEqual(0)
+  })
+
+  it('counts nothing for an empty selection', () => {
+    expect(hygieneImpact([], [])).toMatchObject({
+      entriesDeleted: 0, referencesRewritten: 0, skillsCategorised: 0, newCategories: 0,
+    })
   })
 })
