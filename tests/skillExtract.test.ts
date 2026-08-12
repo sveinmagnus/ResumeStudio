@@ -259,3 +259,118 @@ describe('resolveSuggestions — the three buckets', () => {
     expect(out.novel).toHaveLength(1)
   })
 })
+
+/**
+ * What the model is shown, and what the validator accepts back.
+ *
+ * The extraction prompt is the narrowest one in the app on purpose — one project,
+ * name what its prose evidences — so every line in it is load-bearing.
+ */
+describe('buildSkillExtractPrompt — the evidence and the vocabulary', () => {
+  it('includes the project HIGHLIGHTS as evidence', () => {
+    // The bullets are where a consultant writes what they actually did; a prompt
+    // built from the descriptions alone asks the model to judge half the entry.
+    const p = buildSkillExtractPrompt(proj({
+      highlights: [{ en: 'Introduced Terraform for the whole estate' }],
+    }), 'en')
+    expect(p).toContain('Introduced Terraform for the whole estate')
+  })
+
+  it('sends no vocabulary block when no registry names are passed', () => {
+    expect(buildSkillExtractPrompt(proj(), 'en')).not.toMatch(/Prefer these exact names/)
+    expect(buildSkillExtractPrompt(proj(), 'en', ['Go'])).toMatch(/Prefer these exact names/)
+  })
+
+  it('caps the vocabulary rather than pasting a whole large registry', () => {
+    const many = Array.from({ length: 200 }, (_, i) => `Skill${i}`)
+    const p = buildSkillExtractPrompt(proj(), 'en', many)
+    expect(p).toContain('Skill119')
+    expect(p).not.toContain('Skill120')
+  })
+
+  it('leaves no blank line where an omitted block used to be', () => {
+    // The prompt is assembled from optional parts; an empty one left in place
+    // reads to a small model as a section it was given nothing for.
+    const p = buildSkillExtractPrompt(proj(), 'en')
+    expect(p).not.toContain(String.fromCharCode(10) + String.fromCharCode(10))
+  })
+})
+
+describe('validateSkillExtract — the two refusals and the default schema', () => {
+  it('names a non-object reply as such, separately from a missing array', () => {
+    for (const bad of [null, undefined, 'text', 42]) {
+      expect(() => validateSkillExtract(bad), String(bad)).toThrow(/not a JSON object/)
+    }
+    expect(() => validateSkillExtract({ nope: 1 })).toThrow(/no "skills" array/)
+  })
+
+  it('stamps our own schema when the reply omits one', () => {
+    // A model that answers with the array but no $schema is still a usable
+    // reply; recording the string "undefined" as its schema is not.
+    expect(validateSkillExtract({ skills: ['Go'] }).$schema).toBe(SKILL_EXTRACT_SCHEMA)
+  })
+})
+
+describe('skillKey — the one alias rule', () => {
+  it('keeps a name that is ONLY the js token', () => {
+    // Dropping a trailing "js" needs something in front of it: "JS" on its own
+    // is the skill, and popping it leaves an empty key that matches nothing.
+    const s = [makeSkill({ id: 's-js', name: { en: 'JS' } })]
+    expect(resolveSuggestions(['js'], proj(), s, 'en').existing[0]?.skillId).toBe('s-js')
+  })
+})
+
+describe('resolveSuggestions — the links it reads off the project', () => {
+  const REGISTRY = [makeSkill({ id: 'go', name: { en: 'Go' } })]
+  const linkedTo = (skill_id: string) => makeProject({
+    id: 'p1',
+    skills: [{
+      id: 'ps0', skill_id, name: {},
+      duration_in_years: 0, offset_in_years: 0, total_duration_in_years: 0, sort_order: 0,
+    }],
+  })
+
+  it('carries the registry id and the flag on an already-linked row', () => {
+    // The panel uses both: the flag to show the row as explanation rather than
+    // an offer, and the id to know it is the same skill.
+    const [row] = resolveSuggestions(['Go'], linkedTo('go'), REGISTRY, 'en').alreadyLinked
+    expect(row.skillId).toBe('go')
+    expect(row.alreadyLinked).toBe(true)
+  })
+
+  it('survives a project link pointing at a deleted registry skill', () => {
+    // A stale skill_id outlives the entry it named; reading its name would
+    // crash the whole panel over one dangling link.
+    const out = resolveSuggestions(['Go'], linkedTo('deleted-id'), REGISTRY, 'en')
+    expect(out.existing.map((s) => s.skillId)).toEqual(['go'])
+    expect(out.alreadyLinked).toEqual([])
+  })
+})
+
+describe('registryVocabulary — what is worth telling the model about', () => {
+  it('trims the name it lists', () => {
+    const out = registryVocabulary([makeSkill({ id: 'a', name: { en: '  Go  ' } })], 'en')
+    expect(out).toEqual(['Go'])
+  })
+
+  it('leaves out an entry with no name, and one with no matchable key', () => {
+    // '123' survives as text but normalises to nothing, so it can never intern
+    // a suggestion — listing it as preferred vocabulary is noise in the prompt.
+    const out = registryVocabulary([
+      makeSkill({ id: 'blank', name: { en: '   ' } }),
+      makeSkill({ id: 'digits', name: { en: '123' } }),
+      makeSkill({ id: 'real', name: { en: 'Go' } }),
+    ], 'en')
+    expect(out).toEqual(['Go'])
+  })
+})
+
+describe('resolveSuggestions — the flag on the offered rows', () => {
+  it('marks an existing and a novel row as NOT already linked', () => {
+    // The flag drives whether the row is an offer or an explanation; a true here
+    // would silently hide both buckets from the tick list.
+    const out = resolveSuggestions(['React', 'Rust'], proj(), reg, 'en')
+    expect(out.existing[0].alreadyLinked).toBe(false)
+    expect(out.novel[0].alreadyLinked).toBe(false)
+  })
+})
