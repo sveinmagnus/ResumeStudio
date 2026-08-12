@@ -192,3 +192,124 @@ describe('linkedNameSnapshot()', () => {
     expect(snap.get('cr')).toEqual({ en: 'SRE' })
   })
 })
+
+describe('the canonical extras a skill carries', () => {
+  const store = (over: Partial<Parameters<typeof makeSkill>[0]> = {}): ResumeStore => {
+    const s = emptyStore()
+    s.skills = [makeSkill({ id: 's1', name: { en: 'Go' }, canonical_id: 'c1', ...over })]
+    return s
+  }
+
+  it('takes the canonical classification when it has one', () => {
+    const out = overlayCanonicalNames(store({ classification: 'local' }), [
+      canon({ id: 'c1', kind: 'skill', key: 'go', name: { en: 'Go' }, extra: { classification: 'language' } }),
+    ])
+    expect(out.skills[0].classification).toBe('language')
+  })
+
+  it('keeps the resume’s classification when the canonical entry has none', () => {
+    const out = overlayCanonicalNames(store({ classification: 'local' }), [
+      canon({ id: 'c1', kind: 'skill', key: 'go', name: { en: 'Go' } }),
+    ])
+    expect(out.skills[0].classification).toBe('local')
+  })
+
+  it('honours a canonical category of NULL — "deliberately uncategorised"', () => {
+    // `undefined` means the canonical entry says nothing; null is a statement.
+    const out = overlayCanonicalNames(store({ category_id: 'local-cat' }), [
+      canon({ id: 'c1', kind: 'skill', key: 'go', name: { en: 'Go' }, extra: { category_id: null } }),
+    ])
+    expect(out.skills[0].category_id).toBeNull()
+  })
+
+  it('takes a canonical category id over the local one', () => {
+    const out = overlayCanonicalNames(store({ category_id: 'local-cat' }), [
+      canon({ id: 'c1', kind: 'skill', key: 'go', name: { en: 'Go' }, extra: { category_id: 'shared-cat' } }),
+    ])
+    expect(out.skills[0].category_id).toBe('shared-cat')
+  })
+})
+
+describe('planPublish carries a skill’s extras onto the create', () => {
+  const withSkill = (over: Partial<Parameters<typeof makeSkill>[0]>): ResumeStore => {
+    const s = emptyStore()
+    s.skills = [makeSkill({ id: 's1', name: { en: 'Go' }, canonical_id: null, ...over })]
+    return s
+  }
+
+  it('includes the classification and category when the skill has them', () => {
+    const plan = planPublish(withSkill({ classification: 'language', category_id: 'cat1' }), [])
+    expect(plan.creates[0].extra).toEqual({ classification: 'language', category_id: 'cat1' })
+  })
+
+  it('omits an extra the skill does not have rather than publishing an empty one', () => {
+    // A shared registry entry claiming classification: undefined would overwrite
+    // a good value on the next machine to read it.
+    expect(planPublish(withSkill({ classification: undefined, category_id: null }), []).creates[0].extra)
+      .toEqual({})
+    expect(planPublish(withSkill({ classification: 'language', category_id: null }), []).creates[0].extra)
+      .toEqual({ classification: 'language' })
+    expect(planPublish(withSkill({ classification: undefined, category_id: 'cat1' }), []).creates[0].extra)
+      .toEqual({ category_id: 'cat1' })
+  })
+
+  it('publishes no extras for a role, even one carrying skill-shaped fields', () => {
+    const s = emptyStore()
+    s.roles = [makeRole({ id: 'r1', name: { en: 'Architect' }, canonical_id: null })]
+    ;(s.roles[0] as unknown as Record<string, unknown>).classification = 'language'
+    expect(planPublish(s, []).creates[0].extra).toEqual({})
+  })
+
+  it('plans nothing for a store whose registry arrays are missing entirely', () => {
+    const s = emptyStore()
+    delete (s as unknown as Record<string, unknown>).skill_categories
+    expect(planPublish(s, []).creates).toEqual([])
+  })
+})
+
+describe('linkedNameSnapshot covers every registry', () => {
+  it('captures a linked entry of each kind, and skips the unlinked', () => {
+    const s = emptyStore()
+    s.skills = [makeSkill({ id: 's1', name: { en: 'Go' }, canonical_id: 'c-skill' }),
+      makeSkill({ id: 's2', name: { en: 'Rust' }, canonical_id: null })]
+    s.roles = [makeRole({ id: 'r1', name: { en: 'Architect' }, canonical_id: 'c-role' })]
+    s.industries = [makeIndustry({ id: 'i1', name: { en: 'Energy' }, canonical_id: 'c-ind' })]
+    s.skill_categories = [makeSkillCategory({ id: 'k1', name: { en: 'Languages' }, canonical_id: 'c-cat' })]
+    const snap = linkedNameSnapshot(s)
+    expect([...snap.keys()].sort()).toEqual(['c-cat', 'c-ind', 'c-role', 'c-skill'])
+    expect(snap.get('c-cat')).toEqual({ en: 'Languages' })
+  })
+
+  it('works on a store with no categories array at all', () => {
+    const s = emptyStore()
+    delete (s as unknown as Record<string, unknown>).skill_categories
+    expect(linkedNameSnapshot(s).size).toBe(0)
+  })
+})
+
+describe('overlayCanonicalNames on partial stores and dangling links', () => {
+  it('leaves a role, industry or category with a dangling link untouched', () => {
+    // The canonical entry was deleted on another machine; the stored name is
+    // all we have and must still render.
+    const s = emptyStore()
+    s.roles = [makeRole({ id: 'r1', name: { en: 'Architect' }, canonical_id: 'gone' })]
+    s.industries = [makeIndustry({ id: 'i1', name: { en: 'Energy' }, canonical_id: 'gone' })]
+    s.skill_categories = [makeSkillCategory({ id: 'k1', name: { en: 'Languages' }, canonical_id: 'gone' })]
+    s.skills = [makeSkill({ id: 's1', name: { en: 'Go' }, canonical_id: 'c1' })]
+    const out = overlayCanonicalNames(s, [canon({ id: 'c1', kind: 'skill', key: 'go', name: { en: 'Golang' } })])
+    expect(out.skills[0].name).toEqual({ en: 'Golang' })
+    expect(out.roles[0].name).toEqual({ en: 'Architect' })
+    expect(out.industries[0].name).toEqual({ en: 'Energy' })
+    expect(out.skill_categories?.[0].name).toEqual({ en: 'Languages' })
+  })
+
+  it('produces an EMPTY categories array for a store that has none', () => {
+    // The overlay rebuilds every registry array, so a store predating skill
+    // categories must come back with an empty one, not something invented.
+    const s = emptyStore()
+    s.skills = [makeSkill({ id: 's1', name: { en: 'Go' }, canonical_id: 'c1' })]
+    delete (s as unknown as Record<string, unknown>).skill_categories
+    const out = overlayCanonicalNames(s, [canon({ id: 'c1', kind: 'skill', key: 'go', name: { en: 'Golang' } })])
+    expect(out.skill_categories).toEqual([])
+  })
+})
