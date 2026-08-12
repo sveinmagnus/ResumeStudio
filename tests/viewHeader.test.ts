@@ -3,10 +3,11 @@ import {
   DEFAULT_VIEW_HEADER, DEFAULT_VIEW_FOOTER,
   withHeaderDefaults, withFooterDefaults, defaultHeaderFields,
   buildLanguageSummary, buildHeaderLines, resolveHeaderFieldValue,
-  buildCopyrightLine, footerLines,
+  buildCopyrightLine, footerLines, headerFieldLabel, defaultFieldLabels,
 } from '../src/lib/viewHeader'
+import { LOCALE_CODES } from '../src/lib/locales'
 import { emptyStore, makeResume, makeSpokenLanguage } from './fixtures'
-import type { ViewHeaderConfig } from '../src/types'
+import type { ViewHeaderConfig, ViewFooterConfig, HeaderField, SpokenLanguage } from '../src/types'
 
 // ─── Defaults ─────────────────────────────────────────────────────────────────
 
@@ -393,5 +394,323 @@ describe('withHeaderDefaults — the text style clamp', () => {
 
   it('normalizes an absent logo override to null rather than undefined', () => {
     expect(withHeaderDefaults({}).logo_override).toBeNull()
+  })
+})
+
+describe('the default field spec', () => {
+  /**
+   * Order and default visibility are what a fresh view prints, so each field is
+   * pinned by key: a flipped `show` silently adds a date of birth to every new
+   * export, and a flipped `same_line` rearranges the block.
+   */
+  const spec = () => defaultHeaderFields().map((f) => [f.key, f.show, f.same_line])
+
+  it('shows phone, email, location and languages, and nothing else, by default', () => {
+    expect(defaultHeaderFields().filter((f) => f.show).map((f) => f.key))
+      .toEqual(['phone', 'email', 'location', 'languages'])
+  })
+
+  it('hides the personal and social fields until asked for', () => {
+    const hidden = defaultHeaderFields().filter((f) => !f.show).map((f) => f.key)
+    for (const key of ['nationality', 'date_of_birth', 'linkedin']) expect(hidden).toContain(key)
+  })
+
+  it('puts email on the phone\u2019s line and starts a new line for the rest', () => {
+    const sameLine = defaultHeaderFields().filter((f) => f.same_line).map((f) => f.key)
+    expect(sameLine).toEqual(['email', 'website', 'twitter'])
+  })
+
+  it('numbers the fields in spec order with no gaps or duplicates', () => {
+    const fields = defaultHeaderFields()
+    expect(fields.map((f) => f.sort_order)).toEqual(fields.map((_, i) => i))
+    expect(new Set(fields.map((f) => f.key)).size).toBe(fields.length)
+  })
+
+  it('gives a fresh spec each call — one view\u2019s edits cannot reach another', () => {
+    const a = defaultHeaderFields()
+    a[0].show = false
+    expect(defaultHeaderFields()[0].show).toBe(true)
+    expect(spec()[0]).toEqual(['phone', true, false])
+  })
+})
+
+describe('headerFieldLabel — a present key is an opinion', () => {
+  const field = (label?: Record<string, string>): HeaderField =>
+    ({ key: 'phone', show: true, same_line: false, sort_order: 0, label })
+
+  it('uses the stored label for the requested locale', () => {
+    expect(headerFieldLabel(field({ en: 'Tel: ' }), 'en')).toBe('Tel: ')
+  })
+
+  it('returns a BLANKED label verbatim rather than falling back', () => {
+    // "Just print the number" is a real choice; falling back here would print
+    // some other language's label instead.
+    expect(headerFieldLabel(field({ en: '' }), 'en')).toBe('')
+    expect(headerFieldLabel(field({ en: '', no: 'Telefon: ' }), 'en')).toBe('')
+  })
+
+  it('falls back to the default label when the locale key is ABSENT', () => {
+    expect(headerFieldLabel(field({ no: 'Tlf: ' }), 'en')).toBe(defaultFieldLabels('phone').en)
+    expect(headerFieldLabel(field(), 'en')).toBe(defaultFieldLabels('phone').en)
+  })
+
+  it('prefers another language\u2019s STORED label over the default, as resolve does', () => {
+    // No 'de' anywhere in the stored labels, so the merged map answers with the
+    // default for de — which exists for every offered locale.
+    expect(headerFieldLabel(field({ no: 'Tlf: ' }), 'de')).toBe(defaultFieldLabels('phone').de)
+  })
+
+  it('names every header field in every offered locale', () => {
+    for (const field of defaultHeaderFields()) {
+      const labels = defaultFieldLabels(field.key)
+      for (const code of LOCALE_CODES) expect(labels[code], `${field.key}/${code}`).toBeTruthy()
+    }
+  })
+
+  it('copies the defaults out, so a caller cannot mutate the table', () => {
+    const labels = defaultFieldLabels('phone')
+    const original = labels.en
+    labels.en = 'tampered'
+    expect(defaultFieldLabels('phone').en).toBe(original)
+  })
+
+  it('returns an empty map for a key with no defaults', () => {
+    expect(defaultFieldLabels('nonsense' as never)).toEqual({})
+  })
+})
+
+describe('withHeaderDefaults — the untrusted-import boundary', () => {
+  it('replaces an EMPTY field list with the default spec', () => {
+    // An empty list would render a header with no contact details at all.
+    expect(withHeaderDefaults({ fields: [] }).fields.map((f) => f.key))
+      .toEqual(defaultHeaderFields().map((f) => f.key))
+  })
+
+  it('keeps a supplied field list', () => {
+    const fields = [{ key: 'email' as const, show: true, same_line: false, sort_order: 0 }]
+    expect(withHeaderDefaults({ fields }).fields).toEqual(fields)
+  })
+
+  it('takes a separator only when it is a string', () => {
+    expect(withHeaderDefaults({ separator: ' | ' }).separator).toBe(' | ')
+    expect(withHeaderDefaults({ separator: 42 as never }).separator)
+      .toBe(withHeaderDefaults({}).separator)
+    expect(withHeaderDefaults({ separator: '' }).separator).toBe('')
+  })
+
+  it('normalises a missing photo or logo override to null, not undefined', () => {
+    const h = withHeaderDefaults({})
+    expect(h.photo_override).toBeNull()
+    expect(h.logo_override).toBeNull()
+    expect(withHeaderDefaults({ photo_override: 'data:image/png;base64,AAA' }).photo_override)
+      .toBe('data:image/png;base64,AAA')
+  })
+
+  it('clamps a text size into the printable range and drops a non-number', () => {
+    const size = (size_pt: unknown) =>
+      withHeaderDefaults({ name_style: { size_pt, font: 'body' } as never }).name_style.size_pt
+    expect(size(18)).toBe(18)
+    expect(size(1)).toBe(4)
+    expect(size(9999)).toBe(200)
+    expect(size('18')).toBeNull()
+    expect(size(Number.NaN)).toBeNull()
+    expect(size(Number.POSITIVE_INFINITY)).toBeNull()
+  })
+
+  it('falls back to the default font for an unknown font id', () => {
+    expect(withHeaderDefaults({ name_style: { size_pt: null, font: 'comic' } as never }).name_style.font)
+      .toBe(withHeaderDefaults({}).name_style.font)
+    expect(withHeaderDefaults({ name_style: { size_pt: null, font: 'serif' } as never }).name_style.font)
+      .toBe('serif')
+  })
+})
+
+describe('buildLanguageSummary', () => {
+  const lang = (over: Partial<SpokenLanguage>): SpokenLanguage =>
+    makeSpokenLanguage({ ...over })
+
+  it('lists name and level in sort order', () => {
+    const s = emptyStore()
+    s.spoken_languages = [
+      lang({ id: 'b', name: { en: 'English' }, level: { en: 'fluent' }, sort_order: 1 }),
+      lang({ id: 'a', name: { en: 'Norwegian' }, level: { en: 'native' }, sort_order: 0 }),
+    ]
+    expect(buildLanguageSummary(s, 'en')).toBe('Norwegian (native), English (fluent)')
+  })
+
+  it('prints a name with no level as the bare name', () => {
+    const s = emptyStore()
+    s.spoken_languages = [lang({ name: { en: 'Norwegian' }, level: {} })]
+    expect(buildLanguageSummary(s, 'en')).toBe('Norwegian')
+  })
+
+  it('drops an entry with no NAME, level or not — a bare "(fluent)" says nothing', () => {
+    const s = emptyStore()
+    s.spoken_languages = [
+      lang({ id: 'a', name: {}, level: { en: 'fluent' }, sort_order: 0 }),
+      lang({ id: 'b', name: { en: 'English' }, level: { en: 'fluent' }, sort_order: 1 }),
+    ]
+    expect(buildLanguageSummary(s, 'en')).toBe('English (fluent)')
+  })
+
+  it('skips a disabled language', () => {
+    const s = emptyStore()
+    s.spoken_languages = [
+      lang({ id: 'a', name: { en: 'Latin' }, level: {}, disabled: true, sort_order: 0 }),
+      lang({ id: 'b', name: { en: 'English' }, level: {}, sort_order: 1 }),
+    ]
+    expect(buildLanguageSummary(s, 'en')).toBe('English')
+  })
+
+  it('resolves in the requested locale', () => {
+    const s = emptyStore()
+    s.spoken_languages = [lang({ name: { en: 'Norwegian', no: 'Norsk' }, level: { en: 'native', no: 'morsmål' } })]
+    expect(buildLanguageSummary(s, 'no')).toBe('Norsk (morsmål)')
+  })
+
+  it('is empty with nothing to say', () => {
+    expect(buildLanguageSummary(emptyStore(), 'en')).toBe('')
+  })
+})
+
+describe('buildHeaderLines — visibility and line grouping', () => {
+  const resume = () => makeResume({
+    full_name: 'A B', phone: '+47 123', email: 'a@b.no', place_of_residence: { en: 'Oslo' },
+  })
+  const fields = (over: Array<Partial<HeaderField>>): HeaderField[] =>
+    over.map((f, i) => ({ key: 'phone', show: true, same_line: false, sort_order: i, ...f } as HeaderField))
+
+  it('skips a hidden field even when it has a value', () => {
+    const header = withHeaderDefaults({ fields: fields([{ key: 'phone', show: false }, { key: 'email' }]) })
+    const lines = buildHeaderLines(header, resume(), emptyStore(), 'en')
+    expect(lines.flat().map((s) => s.value)).toEqual(['a@b.no'])
+  })
+
+  it('skips a shown field with no value', () => {
+    const header = withHeaderDefaults({ fields: fields([{ key: 'phone' }, { key: 'linkedin' }]) })
+    const lines = buildHeaderLines(header, resume(), emptyStore(), 'en')
+    expect(lines.flat().map((s) => s.value)).toEqual(['+47 123'])
+  })
+
+  it('joins a same_line field onto the previous line', () => {
+    const header = withHeaderDefaults({
+      fields: fields([{ key: 'phone' }, { key: 'email', same_line: true }, { key: 'location' }]),
+    })
+    const lines = buildHeaderLines(header, resume(), emptyStore(), 'en')
+    expect(lines.map((l) => l.map((s) => s.value))).toEqual([['+47 123', 'a@b.no'], ['Oslo']])
+  })
+
+  it('starts a line when a same_line field is FIRST — nothing to join onto', () => {
+    const header = withHeaderDefaults({ fields: fields([{ key: 'email', same_line: true }, { key: 'phone' }]) })
+    const lines = buildHeaderLines(header, resume(), emptyStore(), 'en')
+    expect(lines.map((l) => l.map((s) => s.value))).toEqual([['a@b.no'], ['+47 123']])
+  })
+
+  it('renders in sort_order, not array order', () => {
+    const header = withHeaderDefaults({
+      fields: [
+        { key: 'email', show: true, same_line: false, sort_order: 1 },
+        { key: 'phone', show: true, same_line: false, sort_order: 0 },
+      ],
+    })
+    expect(buildHeaderLines(header, resume(), emptyStore(), 'en').flat().map((s) => s.value))
+      .toEqual(['+47 123', 'a@b.no'])
+  })
+
+  it('carries each field\u2019s label beside its value', () => {
+    const header = withHeaderDefaults({ fields: fields([{ key: 'phone', label: { en: 'Tel: ' } }]) })
+    expect(buildHeaderLines(header, resume(), emptyStore(), 'en')).toEqual([[{ label: 'Tel: ', value: '+47 123' }]])
+  })
+})
+
+describe('buildCopyrightLine and footerLines', () => {
+  const footer = (over: Partial<ViewFooterConfig> = {}) => withFooterDefaults(over)
+  const resume = () => makeResume({ full_name: 'Ada Lovelace', company_name: 'Cartavio AS' })
+
+  it('names the person, the company or a custom holder', () => {
+    expect(buildCopyrightLine(footer({ copyright: 'person' }), resume(), 2026, 'en')).toBe('© 2026 Ada Lovelace')
+    expect(buildCopyrightLine(footer({ copyright: 'company' }), resume(), 2026, 'en')).toBe('© 2026 Cartavio AS')
+    expect(buildCopyrightLine(footer({ copyright: 'custom', copyright_custom: { en: 'Someone' } }), resume(), 2026, 'en'))
+      .toBe('© 2026 Someone')
+  })
+
+  it('is empty when disabled, and for an unrecognised holder', () => {
+    expect(buildCopyrightLine(footer({ copyright: 'none' }), resume(), 2026, 'en')).toBe('')
+    expect(buildCopyrightLine(footer({ copyright: 'bogus' as never }), resume(), 2026, 'en')).toBe('')
+  })
+
+  it('is empty when the holder name is blank or whitespace', () => {
+    const blank = makeResume({ full_name: '   ', company_name: '' })
+    expect(buildCopyrightLine(footer({ copyright: 'person' }), blank, 2026, 'en')).toBe('')
+    expect(buildCopyrightLine(footer({ copyright: 'company' }), blank, 2026, 'en')).toBe('')
+  })
+
+  it('trims the holder name it prints', () => {
+    const padded = makeResume({ full_name: '  Ada  ' })
+    expect(buildCopyrightLine(footer({ copyright: 'person' }), padded, 2026, 'en')).toBe('© 2026 Ada')
+  })
+
+  it('places the note around the copyright per the placement', () => {
+    const c = '© 2026 Ada'
+    const n = 'Confidential'
+    expect(footerLines(footer({ note_placement: 'after' }), c, n)).toEqual([`${c}  ·  ${n}`])
+    expect(footerLines(footer({ note_placement: 'before' }), c, n)).toEqual([`${n}  ·  ${c}`])
+    expect(footerLines(footer({ note_placement: 'above' }), c, n)).toEqual([n, c])
+    expect(footerLines(footer({ note_placement: 'below' }), c, n)).toEqual([c, n])
+    expect(footerLines(footer({ note_placement: 'sideways' as never }), c, n)).toEqual([`${c}  ·  ${n}`])
+  })
+
+  it('collapses to whichever part has text, treating whitespace as empty', () => {
+    expect(footerLines(footer(), '© 2026 Ada', '   ')).toEqual(['© 2026 Ada'])
+    expect(footerLines(footer(), '  ', 'Confidential')).toEqual(['Confidential'])
+    expect(footerLines(footer(), '   ', '  ')).toEqual([])
+  })
+})
+
+describe('the header defaults a fresh view inherits', () => {
+  it('sets the name in the brand condensed face and the title in the body face', () => {
+    const h = withHeaderDefaults({})
+    expect(h.name_style).toEqual({ size_pt: null, font: 'condensed' })
+    expect(h.title_style).toEqual({ size_pt: null, font: 'body' })
+  })
+
+  it('starts with no photo, no logo and the pipe separator', () => {
+    const h = withHeaderDefaults({})
+    expect([h.photo_placement, h.logo_placement, h.photo_shape]).toEqual(['none', 'none', 'square'])
+    expect(h.separator).toBe(' | ')
+  })
+})
+
+describe('resolveHeaderFieldValue', () => {
+  const resume = () => makeResume({
+    phone: '+47 1', email: 'a@b.no', place_of_residence: { en: 'Oslo', no: 'Oslo NO' },
+    nationality: { en: 'Norwegian' }, date_of_birth: '1980-01-01',
+    linkedin_url: 'https://li/x', website_url: 'https://x.no', twitter: '@x',
+  })
+
+  it('reads each field off the resume', () => {
+    const at = (key: Parameters<typeof resolveHeaderFieldValue>[0]) =>
+      resolveHeaderFieldValue(key, resume(), emptyStore(), 'en')
+    expect(at('phone')).toBe('+47 1')
+    expect(at('email')).toBe('a@b.no')
+    expect(at('location')).toBe('Oslo')
+    expect(at('nationality')).toBe('Norwegian')
+    expect(at('date_of_birth')).toBe('1980-01-01')
+    expect(at('linkedin')).toBe('https://li/x')
+    expect(at('website')).toBe('https://x.no')
+    expect(at('twitter')).toBe('@x')
+  })
+
+  it('resolves a localized field in the requested locale', () => {
+    expect(resolveHeaderFieldValue('location', resume(), emptyStore(), 'no')).toBe('Oslo NO')
+  })
+
+  it('returns an empty STRING for an unknown key, never undefined', () => {
+    // Callers test the value for emptiness; undefined would print as "undefined".
+    expect(resolveHeaderFieldValue('made_up' as never, resume(), emptyStore(), 'en')).toBe('')
+  })
+
+  it('returns an empty string for a field the resume never filled', () => {
+    expect(resolveHeaderFieldValue('phone', makeResume({ phone: undefined }), emptyStore(), 'en')).toBe('')
   })
 })
