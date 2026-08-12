@@ -866,3 +866,185 @@ describe('SECTION_CATALOG — the extra render details', () => {
       .not.toContain('With')
   })
 })
+
+/**
+ * Where the two render targets genuinely differ.
+ *
+ * Four descriptors carry extra lines or a different heading for the paged
+ * targets (DOCX/PDF) than for the HTML preview, because a page can afford a URL
+ * or a grade on its own line and a scrolling preview would just look noisy.
+ * Three others used to branch on the target and produce the same object either
+ * way; those branches are gone, and these tests are what says the remaining
+ * differences are deliberate.
+ */
+describe('SECTION_CATALOG — html versus the paged targets', () => {
+  const ctxFor = (target: 'html' | 'docx'): CatalogCtx =>
+    ({ locale: 'en', hideDates: false, dateFormat: 'month-year', target })
+
+  const fullFor = (key: string, item: Record<string, unknown>, target: 'html' | 'docx') =>
+    SECTION_CATALOG[key].full!(item as never, ctxFor(target))!
+
+  it('gives an education its grade only on a page', () => {
+    const item = {
+      school: { en: 'NTNU' }, degree: { en: 'MSc' }, description: { en: 'Studied' },
+      grade: 'A', start: { year: 2010, month: 8 }, end: { year: 2013, month: 6 },
+    }
+    expect(fullFor('educations', item, 'docx').extraLines).toEqual(['Grade: A'])
+    expect(fullFor('educations', item, 'html').extraLines ?? []).toEqual([])
+  })
+
+  it('gives a certification its credential link only on a page, and its expiry in the date', () => {
+    const item = {
+      name: { en: 'AWS SA' }, organiser: { en: 'AWS' }, description: {},
+      issued: { year: 2024, month: 1 }, expires: { year: 2027, month: 1 },
+      credential_url: 'https://verify/x',
+    }
+    const paged = fullFor('certifications', item, 'docx')
+    const html = fullFor('certifications', item, 'html')
+    expect(paged.extraLines).toEqual(['https://verify/x'])
+    expect(html.extraLines ?? []).toEqual([])
+    // The HTML preview shows the issue date alone; a page shows the expiry too.
+    expect(paged.date.length).toBeGreaterThan(html.date.length)
+  })
+
+  it('gives a presentation and a publication their URL only on a page', () => {
+    const talk = { title: { en: 'A talk' }, event: { en: 'Testfest' }, description: {}, url: 'https://talk' }
+    expect(fullFor('presentations', talk, 'docx').extraLines).toEqual(['https://talk'])
+    expect(fullFor('presentations', talk, 'html').extraLines ?? []).toEqual([])
+
+    const paper = { title: { en: 'A paper' }, publisher: { en: 'ACM' }, abstract: {}, url: 'https://paper' }
+    expect(fullFor('publications', paper, 'docx').extraLines).toEqual(['https://paper'])
+    expect(fullFor('publications', paper, 'html').extraLines ?? []).toEqual([])
+  })
+
+  it('gives a reference its contact lines only on a page', () => {
+    const item = {
+      name: 'Ada', title: 'CTO', company: 'Acme', include_in_exports: true,
+      relationship: { en: 'Former manager' }, email: 'ada@acme.no', phone: '+47 1',
+    }
+    expect(fullFor('references', item, 'docx').extraLines)
+      .toEqual(['Former manager', 'ada@acme.no', '+47 1'])
+    expect(fullFor('references', item, 'html').extraLines ?? []).toEqual([])
+  })
+
+  it('joins employer and role into one heading on a page, and keeps them apart in HTML', () => {
+    const item = {
+      employer: { en: 'Acme' }, role_title: { en: 'Architect' }, long_description: { en: 'Did work' },
+      employment_type: 'permanent', start: { year: 2020, month: 1 }, end: null,
+    }
+    const paged = fullFor('work_experiences', item, 'docx')
+    const html = fullFor('work_experiences', item, 'html')
+    expect(paged.title).toBe('Acme — Architect')
+    expect(paged.titleStyle).toBe('large')
+    expect(paged.meta).toEqual(['permanent'])
+    expect(html.title).toBe('Acme')
+    expect(html.meta).toEqual(['Architect'])
+  })
+
+  it('renders the same object for a course, a position and an award whatever the target', () => {
+    // These three carry no page-only extras; the descriptors say so once rather
+    // than branching to the same answer twice.
+    const cases: Array<[string, Record<string, unknown>]> = [
+      ['courses', { name: { en: 'Kubernetes' }, program: { en: 'CNCF' }, description: { en: 'Learned' }, end: { year: 2024, month: 2 } }],
+      ['positions', { name: { en: 'Board member' }, organisation: { en: 'Cartavio' }, description: { en: 'Served' }, start: { year: 2020, month: 1 }, end: null }],
+      ['honor_awards', { name: { en: 'Best paper' }, issuer: { en: 'ACM' }, description: { en: 'Won' }, date: { year: 2022, month: 5 } }],
+    ]
+    for (const [key, item] of cases) {
+      expect(fullFor(key, item, 'html'), key).toEqual(fullFor(key, item, 'docx'))
+    }
+  })
+})
+
+describe('SECTION_CATALOG — the title a nameless item falls back to', () => {
+  const ctx: CatalogCtx = { locale: 'en', hideDates: false, dateFormat: 'month-year', target: 'html' }
+
+  it('names an untitled item per section rather than showing an empty heading', () => {
+    const cases: Array<[string, string]> = [
+      ['key_competencies', 'Untitled competency'],
+      ['courses', 'Untitled'],
+      ['certifications', 'Untitled'],
+      ['publications', 'Untitled'],
+      ['technology_categories', 'Untitled'],
+      ['recommendations', 'Recommendation'],
+      ['references', 'Unnamed'],
+    ]
+    for (const [key, expected] of cases) {
+      expect(SECTION_CATALOG[key].title({} as never, 'en'), key).toBe(expected)
+    }
+  })
+
+  it('names an untitled item in the SUMMARY line too, with its own wording', () => {
+    const summaryTitle = (key: string, item: Record<string, unknown> = {}) =>
+      summaryTitleMeta(SECTION_CATALOG[key].summary!(item as never, ctx)!).title
+    expect(summaryTitle('key_competencies')).toBe('Competency')
+    expect(summaryTitle('courses')).toBe('Course')
+    expect(summaryTitle('technology_categories')).toBe('Category')
+    expect(summaryTitle('honor_awards')).toBe('Award')
+    expect(summaryTitle('references', { include_in_exports: true })).toBe('Reference')
+  })
+
+  it('prefers the item\u2019s own name over the fallback', () => {
+    expect(SECTION_CATALOG.references.title({ name: 'Ada' } as never, 'en')).toBe('Ada')
+    expect(SECTION_CATALOG.key_competencies.title({ title: { en: 'Cloud' } } as never, 'en')).toBe('Cloud')
+    expect(summaryTitleMeta(
+      SECTION_CATALOG.references.summary!({ name: 'Ada', include_in_exports: true } as never, ctx)!,
+    ).title).toBe('Ada')
+  })
+})
+
+describe('SECTION_CATALOG — the HTML view carries its own facts', () => {
+  const html: CatalogCtx = { locale: 'en', hideDates: false, dateFormat: 'month-year', target: 'html' }
+  const full = (key: string, item: Record<string, unknown>) =>
+    SECTION_CATALOG[key].full!(item as never, html)!
+
+  it('gives an education its degree, dates and body — and no empty meta entry', () => {
+    const withDegree = full('educations', {
+      school: { en: 'NTNU' }, degree: { en: 'MSc' }, description: { en: 'Studied' },
+      start: { year: 2010, month: 8 }, end: { year: 2013, month: 6 },
+    })
+    expect(withDegree.title).toBe('NTNU')
+    expect(withDegree.meta).toEqual(['MSc'])
+    expect(withDegree.body).toBe('Studied')
+    expect(withDegree.date).toContain('2010')
+
+    // A missing degree leaves NO meta line rather than a blank one.
+    expect(full('educations', { school: { en: 'NTNU' }, degree: {}, description: {} }).meta).toEqual([])
+  })
+
+  it('gives a certification its issuer and issue date, and no empty meta entry', () => {
+    const cert = full('certifications', {
+      name: { en: 'AWS SA' }, organiser: { en: 'AWS' }, description: {},
+      issued: { year: 2024, month: 1 },
+    })
+    expect(cert.title).toBe('AWS SA')
+    expect(cert.meta).toEqual(['AWS'])
+    expect(cert.date).toContain('2024')
+    expect(full('certifications', { name: { en: 'AWS SA' }, organiser: {}, description: {} }).meta).toEqual([])
+  })
+
+  it('gives an employment its role as meta, and no empty meta entry', () => {
+    expect(full('work_experiences', {
+      employer: { en: 'Acme' }, role_title: { en: 'Architect' }, long_description: {},
+    }).meta).toEqual(['Architect'])
+    expect(full('work_experiences', {
+      employer: { en: 'Acme' }, role_title: {}, long_description: {},
+    }).meta).toEqual([])
+  })
+
+  it('heads a position with its ORGANISATION, falling back to the position name', () => {
+    // The organisation is the heading everywhere else too (projects, employment,
+    // education); the role name goes on the line below.
+    const both = full('positions', {
+      name: { en: 'Board member' }, organisation: { en: 'Cartavio' }, description: {},
+    })
+    expect(both.title).toBe('Cartavio')
+    expect(both.meta).toEqual(['Board member'])
+
+    const noOrg = full('positions', {
+      name: { en: 'Board member' }, organisation: {}, description: {},
+    })
+    expect(noOrg.title).toBe('Board member')
+    // The name is the heading now, so it is not repeated below it.
+    expect(noOrg.meta).toEqual([])
+  })
+})
