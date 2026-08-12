@@ -260,3 +260,32 @@ describe('relatedSkillSuggestions — weighting and case', () => {
     expect(relatedSkillSuggestions(['COBOL'], rel)).toEqual([])
   })
 })
+
+/**
+ * The test seams are load-bearing, not decoration: the loaders memoize a large
+ * generated chunk, and a dynamic import of the same module hands back the same
+ * namespace object every time — so comparing two real loads by identity passes
+ * even with the memo removed. Setting a FAKE through the seam is the only way to
+ * observe that the cache is consulted at all.
+ */
+describe('the lazy loaders read their cache, and the seam fills it', () => {
+  it('returns the injected relations graph rather than the generated one', async () => {
+    setSkillRelationsForTest({ Widget: ['Gadget'] })
+    expect(await loadSkillRelations()).toEqual({ Widget: ['Gadget'] })
+  })
+
+  it('returns the injected classifications', async () => {
+    setSkillClassificationsForTest({ Widget: 'Fictional' })
+    expect(await loadSkillClassifications()).toEqual({ Widget: 'Fictional' })
+  })
+
+  it('returns the injected domains', async () => {
+    setSkillDomainsForTest({ Widget: ['Imaginary'] } as never)
+    expect(await loadSkillDomains()).toEqual({ Widget: ['Imaginary'] })
+  })
+
+  it('returns the injected domain model', async () => {
+    setSkillDomainModelForTest({ domains: [] } as never)
+    expect(await loadSkillDomainModel()).toEqual({ domains: [] })
+  })
+})
