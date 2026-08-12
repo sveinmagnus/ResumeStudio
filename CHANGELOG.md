@@ -6,7 +6,7 @@ The version a build reports is the git tag it was built from; anything else
 reports `Dev-<commit>`. Desktop builds update themselves — see
 [DESKTOP.md](./DESKTOP.md).
 
-## [Unreleased] — 1.0.0
+## 1.0.0 — 2026-08-12
 
 The 1.0.0 release is a **quality and assurance milestone, not a feature
 release**. Everything the app does was already there in 0.10.2; this cycle went
