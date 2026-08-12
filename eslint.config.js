@@ -49,10 +49,20 @@ const noRawControlChars = {
 
 export default tseslint.config(
   {
-    // Build output, deps, and the coverage report are not ours to lint.
+    /**
+     * Build output, deps, and the coverage report are not ours to lint.
+     *
+     * `**\/`-prefixed so a NESTED copy is covered too: an ignore anchored at the
+     * config root does not match the same directory inside a sibling git
+     * worktree, so `eslint .` walked every worktree's `dist/` and
+     * `src/generated/` (the taxonomy JSON) and died of heap exhaustion after
+     * six minutes. The worktree root itself is ignored outright — a worktree is
+     * its own checkout and lints from inside itself.
+     */
     ignores: [
-      'dist/**', 'release/**', 'coverage/**', 'node_modules/**',
-      'src/generated/**', 'reports/**', '.stryker-tmp/**',
+      '**/dist/**', '**/release/**', '**/coverage/**', '**/node_modules/**',
+      '**/src/generated/**', '**/reports/**', '**/.stryker-tmp/**',
+      '.claude/worktrees/**',
     ],
   },
 
