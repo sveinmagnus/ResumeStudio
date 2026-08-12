@@ -2,7 +2,7 @@
  * Periodic sync-folder writer for the desktop build.
  *
  * Polls the DB on an interval; when the store's signature has moved since the
- * last write, it publishes one file per resume plus `registry.json` (see
+ * last write, it publishes one file per resume plus `resume-studio-registry.json` (see
  * `backupFiles.ts` for the layout and why it is split per person). Signature-
  * gating means an idle app never rewrites anything (no pointless Drive churn),
  * while an actively-edited app keeps the synced copy current within one tick.
@@ -28,7 +28,7 @@ export interface BackupSchedulerOptions {
 }
 
 /**
- * The write gate: resumes AND the registry. `registry.json` is its own file, so
+ * The write gate: resumes AND the registry. `resume-studio-registry.json` is its own file, so
  * a canonical rename can land without any resume's `saved_at` moving — gating on
  * resume timestamps alone would leave the registry stale.
  */

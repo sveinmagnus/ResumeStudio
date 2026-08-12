@@ -3,7 +3,7 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 import {
-  REGISTRY_FILENAME, TOMBSTONE_FILENAME,
+  REGISTRY_FILENAME, LEGACY_REGISTRY_FILENAME, TOMBSTONE_FILENAME,
   slugForResume, resumeFileName, resumeIdFromFileName,
   referencedCanonicalIds, collectReferencedRegistry,
   buildResumeFile, reconcileSources, scanBackupDir, folderFingerprint, folderLastWrite,
@@ -196,7 +196,46 @@ describe('reconcileSources', () => {
 // ─── Folder I/O ─────────────────────────────────────────────────────────────
 
 describe('writeResumeFiles / scanBackupDir', () => {
-  it('writes one file per resume plus registry.json, and reads them back', () => {
+  /**
+   * The registry file was renamed from `registry.json` to
+   * `resume-studio-registry.json`. Two things must hold for that to be safe in
+   * a folder that already exists, and neither follows from the rename itself:
+   * the old file must still be READ (matching is by `$schema`, not by name),
+   * and it must not survive alongside its replacement — two registry files in
+   * one folder is the confusion the rename set out to remove.
+   */
+  it('retires the legacy registry.json, keeping its entries readable first', () => {
+    const dir = tmp()
+    try {
+      // A folder written by an older build: legacy name, one entry inside.
+      fs.writeFileSync(
+        path.join(dir, LEGACY_REGISTRY_FILENAME),
+        JSON.stringify({
+          $schema: 'resumestudio-registry/v1',
+          format_version: 1,
+          exported_at: '2026-08-01T00:00:00.000Z',
+          generator: 'resume-studio',
+          registry: [reg({ id: 'legacy-1' })],
+        }),
+      )
+      // Readable BEFORE anything is rewritten — an un-upgraded folder keeps
+      // working, which is what makes the rename safe to ship.
+      expect(scanBackupDir(dir).registry.map((e) => e.id)).toEqual(['legacy-1'])
+
+      const result = writeResumeFiles(dir, [entry()], [reg()])
+
+      const names = fs.readdirSync(dir)
+      expect(names).toContain(REGISTRY_FILENAME)
+      expect(names).not.toContain(LEGACY_REGISTRY_FILENAME)
+      expect(result.removed).toContain(LEGACY_REGISTRY_FILENAME)
+      // The folder still resolves to a registry afterwards.
+      expect(scanBackupDir(dir).registry.length).toBeGreaterThan(0)
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('writes one file per resume plus the registry file, and reads them back', () => {
     const dir = tmp()
     try {
       const result = writeResumeFiles(dir, [entry(), entry({ id: 'r2', name: 'Grace Hopper — CV' })], [reg()])

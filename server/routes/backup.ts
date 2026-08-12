@@ -2,7 +2,7 @@
  * Backup / sync API (auth-gated, mounted at /api/backup).
  *
  * Two halves that share one file format (`server/backupFiles.ts` — one file per
- * resume, plus `registry.json`):
+ * resume, plus `resume-studio-registry.json`):
  *
  *   FOLDER SYNC (desktop) — the folder is configured server-side
  *   (RESUME_BACKUP_DIR) because a browser can't pick an arbitrary filesystem
@@ -79,7 +79,7 @@ router.post('/now', (_req: Request, res: Response): void => {
   try {
     const entries = dumpResumes()
     const { written, bytes, removed } = writeResumeFiles(dir, entries, listRegistry())
-    // fileCount is one more than the resume count: registry.json.
+    // fileCount is one more than the resume count: resume-studio-registry.json.
     res.json({
       ok: true, bytes, removed: removed.length,
       resumeCount: written, fileCount: written + 1,
@@ -184,7 +184,7 @@ const rawZip = express.raw({
  * POST /api/backup/import — merge an uploaded backup into this DB.
  *
  * Accepts either a zip (`application/zip`, as produced by /export) or a single
- * JSON file (`application/json`): a per-resume sync file, `registry.json`, or a
+ * JSON file (`application/json`): a per-resume sync file, `resume-studio-registry.json`, or a
  * legacy combined store backup. Everything routes through the same reconcile +
  * merge, so identity is preserved regardless of which one the user grabbed.
  *

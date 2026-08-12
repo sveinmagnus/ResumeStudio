@@ -597,7 +597,7 @@ export const api = {
   // ── Manual backup (every build) — the same per-resume files, in one zip ───
 
   /**
-   * Download every resume as one zip: one file per person plus `registry.json`,
+   * Download every resume as one zip: one file per person plus `resume-studio-registry.json`,
    * byte-identical in layout to the sync folder. Streams straight to the
    * browser's downloads; throws ServerError on failure.
    */

@@ -6,8 +6,8 @@
  * holds:
  *
  *   <slug>__<resume-id>.json   one file per resume  (`resumestudio-resume/v1`)
- *   registry.json              the instance registry (`resumestudio-registry/v1`)
- *   deleted-resumes.json       erasure tombstones   (`resumestudio-tombstones/v1`)
+ *   resume-studio-registry.json  the instance registry (`resumestudio-registry/v1`)
+ *   deleted-resumes.json         erasure tombstones   (`resumestudio-tombstones/v1`)
  *
  * WHY one file per person. Every resume is one identified person's personal
  * data, and GDPR Art. 17 erasure has to be actionable at that granularity — on
@@ -39,11 +39,11 @@
  *
  * ── Registries ─────────────────────────────────────────────────────────────
  *
- * The full instance registry syncs as its own `registry.json`, AND each resume
- * file embeds the canonical entries that resume actually references (id + kind
- * + full localized name + extra). So a single resume file lifted out of the
- * folder and imported into a fresh instance can recreate the registry entries
- * it depends on, with no access to `registry.json`.
+ * The full instance registry syncs as its own `resume-studio-registry.json`,
+ * AND each resume file embeds the canonical entries that resume actually
+ * references (id + kind + full localized name + extra). So a single resume file
+ * lifted out of the folder and imported into a fresh instance can recreate the
+ * registry entries it depends on, with no access to the registry file.
  *
  * Pure + filesystem helpers only — no Express, no DB handle.
  */
@@ -73,7 +73,19 @@ export const REGISTRY_FILE_SCHEMA = 'resumestudio-registry/v1'
 export const TOMBSTONE_FILE_SCHEMA = 'resumestudio-tombstones/v1'
 
 /** Fixed names for the two non-per-resume files. */
-export const REGISTRY_FILENAME = 'registry.json'
+export const REGISTRY_FILENAME = 'resume-studio-registry.json'
+/**
+ * What this file was called before. The sync folder is usually a shared cloud
+ * folder that may hold other applications' files, and a bare `registry.json`
+ * says nothing about whose registry it is.
+ *
+ * Renaming is safe because reading is driven by `$schema`, not by filename
+ * (see `reconcileSources`): a folder still holding the old name keeps merging
+ * exactly as before. The old file is deleted once the new one is written, so
+ * the folder does not end up with two registries — the same retirement the
+ * pre-split monolith gets.
+ */
+export const LEGACY_REGISTRY_FILENAME = 'registry.json'
 export const TOMBSTONE_FILENAME = 'deleted-resumes.json'
 
 /** One resume, standalone and portable. The unit of extraction AND of erasure. */
@@ -341,7 +353,7 @@ const MAX_FILE_BYTES = 64 * 1024 * 1024
 export interface ScannedFolder {
   /** One entry per resume id, newest `saved_at` where several sources hold it. */
   resumes: ResumeBackupEntry[]
-  /** Union of `registry.json` and every resume file's embedded subset. */
+  /** Union of `resume-studio-registry.json` and every resume file's embedded subset. */
   registry: RegistryEntry[]
   tombstones: Tombstone[]
   /** Every file we read a resume out of, by id — several when a rename left a stale name. */
@@ -361,7 +373,7 @@ export interface ParsedSource {
 /**
  * Reconcile a set of parsed files into one view of the data they carry.
  *
- * Accepts four shapes: the per-resume files, `registry.json`, the tombstone
+ * Accepts four shapes: the per-resume files, `resume-studio-registry.json`, the tombstone
  * file, and the LEGACY `resume-studio-backup.json` monolith (so upgrading a
  * folder in place loses nothing — its resumes merge in exactly like any other
  * source, newest `saved_at` wins). Anything else is ignored, so the sync folder
@@ -520,7 +532,7 @@ export interface WritePassResult {
 }
 
 /**
- * Publish every resume as its own file, refresh `registry.json`, and clean up
+ * Publish every resume as its own file, refresh `resume-studio-registry.json`, and clean up
  * after itself.
  *
  * Deliberately does NOT delete files for ids that aren't in `entries`: another
@@ -559,6 +571,19 @@ export function writeResumeFiles(
 
   const reg = writeJsonAtomic(dir, REGISTRY_FILENAME, buildRegistryFile(registry))
   result.bytes += reg.bytes
+
+  // Retire the old `resume-studio-registry.json` now its replacement is on disk. Both parse
+  // (matching is by `$schema`), so leaving it would be harmless but would put
+  // two registry files side by side — which is exactly the confusion the rename
+  // set out to remove. Written first, deleted second: a crash between the two
+  // leaves the folder with a registry either way, never with none.
+  const legacyRegistry = path.join(dir, LEGACY_REGISTRY_FILENAME)
+  if (fs.existsSync(legacyRegistry)) {
+    try {
+      fs.unlinkSync(legacyRegistry)
+      result.removed.push(LEGACY_REGISTRY_FILENAME)
+    } catch { /* already gone */ }
+  }
 
   // Retire the legacy monolith once every resume it held has its own file.
   // Leaving it would defeat the whole point: a single file with every person's

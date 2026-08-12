@@ -29,7 +29,7 @@ export function zipFileName(now = new Date()): string {
 }
 
 /**
- * Bundle every resume (one file each) plus `registry.json` into a zip. Flat —
+ * Bundle every resume (one file each) plus `resume-studio-registry.json` into a zip. Flat —
  * no top-level directory — so extracting it straight into a sync folder yields
  * exactly the layout the folder expects.
  */

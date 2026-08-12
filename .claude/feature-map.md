@@ -479,7 +479,7 @@ prescriptive.
   server + built client) with a double-clickable launcher that boots the app on
   a free loopback port and opens the browser. Data lives in a stable per-user OS
   folder; an optional cloud-synced folder (Google Drive/Dropbox/OneDrive) holding
-  **one JSON file per resume** (`<slug>__<id>.json`) plus `registry.json` syncs
+  **one JSON file per resume** (`<slug>__<id>.json`) plus `resume-studio-registry.json` syncs
   CVs across computers via a newest-wins-by-id merge — kept current in BOTH
   directions **continuously while the app runs** (`backupScheduler` writes out;
   `backupWatcher` = fs.watch + a folder-fingerprint poll backstop merges other
@@ -649,7 +649,7 @@ navigation** (Ctrl-click / "Open in new tab" work on every section and view).
 
 **Per-person backup files (August 2026).** The sync folder went from one
 `resume-studio-backup.json` holding everybody to **one file per resume**
-(`server/backupFiles.ts`: `<slug>__<resume-id>.json` + `registry.json` +
+(`server/backupFiles.ts`: `<slug>__<resume-id>.json` + `resume-studio-registry.json` +
 `deleted-resumes.json`), because a resume is one identified person's data and
 GDPR erasure has to be actionable at that granularity on disk, not only in the
 DB. Identity is the id INSIDE the file, so a rename moves the file rather than

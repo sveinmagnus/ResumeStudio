@@ -58,11 +58,19 @@ export default tseslint.config(
      * `src/generated/` (the taxonomy JSON) and died of heap exhaustion after
      * six minutes. The worktree root itself is ignored outright — a worktree is
      * its own checkout and lints from inside itself.
+     *
+     * The `vitest.mutation.*` / `stryker.mutation.*` entries are the per-file
+     * configs `scripts/mutation-run.mjs` generates and deletes as it goes (they
+     * are gitignored for the same reason). Linting them is pointless, and it is
+     * worse than pointless: a mutation run in another checkout can delete one
+     * mid-walk, and ESLint aborts the whole run with ENOENT — so an unrelated
+     * background task turns the lint gate red.
      */
     ignores: [
       '**/dist/**', '**/release/**', '**/coverage/**', '**/node_modules/**',
       '**/src/generated/**', '**/reports/**', '**/.stryker-tmp/**',
       '.claude/worktrees/**',
+      '**/vitest.mutation.*.config.ts', '**/stryker.mutation.*.json',
     ],
   },
 

@@ -175,7 +175,7 @@ file per resume** in that folder, named after the resume and its permanent id:
 …/Google Drive/ResumeStudio/
   bjorn-odegard-cv__3f2a1b2c-….json     ← one person, standalone and portable
   ada-lovelace-cv__7c9e0d41-….json
-  registry.json                         ← the shared skill/role registry
+  resume-studio-registry.json           ← the shared skill/role registry
   deleted-resumes.json                  ← erasure markers (ids + times only)
 ```
 
@@ -272,7 +272,8 @@ Independent of the sync folder, **Settings → Backup & export** offers two
 different things:
 
 - **Export all resumes (.zip)** — the backup. One archive holding exactly the
-  same files the sync folder does: one JSON per resume, plus `registry.json`.
+  same files the sync folder does: one JSON per resume, plus
+`resume-studio-registry.json`.
   Each person is still their own file inside it, so a single CV can be pulled
   out or left out. Drop the zip on the resume picker to restore: resumes are
   matched by their permanent id and **updated in place, never duplicated**, so

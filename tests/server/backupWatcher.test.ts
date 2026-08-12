@@ -5,8 +5,8 @@ import path from 'path'
 import { BackupWatcher, applyTombstoneRules } from '../../server/backupWatcher'
 import { BackupScheduler } from '../../server/backupScheduler'
 import {
-  TOMBSTONE_FILENAME, buildResumeFile, buildTombstoneFile, resumeFileName,
-  writeJsonAtomic, type Tombstone,
+  REGISTRY_FILENAME, TOMBSTONE_FILENAME, buildResumeFile, buildTombstoneFile,
+  resumeFileName, writeJsonAtomic, type Tombstone,
 } from '../../server/backupFiles'
 import { BACKUP_FILENAME, buildStoreBackup, writeBackupAtomic } from '../../server/backup'
 import { createResumeDb, type ResumeBackupEntry, type ResumeDb } from '../../server/db'
@@ -310,7 +310,8 @@ describe('BackupScheduler', () => {
       const s = new BackupScheduler({ db, dir, intervalMs: INTERVAL, log: (m) => logs.push(m) })
       // Runs one tick immediately
       s.start()
-      expect(fs.readdirSync(dir).sort()).toEqual(['cv__r1.json', 'registry.json', 'second__r2.json'])
+      expect(fs.readdirSync(dir).sort())
+        .toEqual(['cv__r1.json', REGISTRY_FILENAME, 'second__r2.json'].sort())
       expect(logs).toHaveLength(1)
 
       // Idle ticks must not touch the folder — an app left open for days should
@@ -318,12 +319,12 @@ describe('BackupScheduler', () => {
       vi.advanceTimersByTime(INTERVAL * 3)
       expect(logs).toHaveLength(1)
 
-      // A registry-only change still triggers a write: registry.json is its own
+      // A registry-only change still triggers a write: the registry is its own
       // file now, so gating on resume saved_at alone would leave it stale.
       db.upsertRegistryEntry({ kind: 'skill', name: { en: 'Rust' } })
       vi.advanceTimersByTime(INTERVAL + 1)
       expect(logs).toHaveLength(2)
-      const registry = JSON.parse(fs.readFileSync(path.join(dir, 'registry.json'), 'utf8'))
+      const registry = JSON.parse(fs.readFileSync(path.join(dir, REGISTRY_FILENAME), 'utf8'))
       expect(registry.registry).toHaveLength(1)
 
       s.stop()

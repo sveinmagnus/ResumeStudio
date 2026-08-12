@@ -405,7 +405,7 @@ export function importFromBackup(backup: AnyBackup): ResumeStore {
 //
 // The desktop build keeps a cloud-synced folder holding ONE FILE PER RESUME
 // (`server/backupFiles.ts`, `resumestudio-resume/v1`) plus a shared
-// `registry.json` (`resumestudio-registry/v1`); older installs still have the
+// `resume-studio-registry.json` (`resumestudio-registry/v1`); older installs still have the
 // pre-split combined file (`resumestudio-store/v1`). The manual "export all"
 // zip carries exactly the same files.
 //
