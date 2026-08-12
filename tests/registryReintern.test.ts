@@ -213,3 +213,37 @@ describe('what a re-intern actually sends and touches', () => {
     expect(out.skills[0].canonical_id).toBe('new')
   })
 })
+
+describe('reinternBackupLinks — a backup that carries no snapshots', () => {
+  function fakeApi(seed: RegistryEntry[]): ReinternApi & { created: RegistryEntry[] } {
+    const created: RegistryEntry[] = []
+    return {
+      created,
+      async listRegistry() { return seed },
+      async createRegistryEntry({ kind, name }) {
+        const e = entry({ id: `srv-${created.length + 1}`, kind, name, key: `k${created.length + 1}` })
+        created.push(e)
+        return e
+      },
+    }
+  }
+
+  it('creates nothing and clears the links when `embedded` is omitted', async () => {
+    // An older backup has links but no embedded canonical entries. There is
+    // nothing to match them against, so the links are cleared — inventing a
+    // registry entry from a bare id would put a nameless row in the instance
+    // registry of every machine that imported it.
+    const store = { ...emptyStore(), skills: [makeSkill({ id: 's1', canonical_id: 'backup-only' })] }
+    const api = fakeApi([])
+    const out = await reinternBackupLinks(store, undefined, api)
+    expect(api.created).toEqual([])
+    expect(out.skills[0].canonical_id).toBeNull()
+  })
+
+  it('remaps skill categories on a store that predates them', async () => {
+    const store = { ...emptyStore(), skills: [makeSkill({ id: 's1', canonical_id: 'backup-only' })] }
+    delete (store as { skill_categories?: unknown }).skill_categories
+    const out = await reinternBackupLinks(store, [], fakeApi([]))
+    expect(out.skill_categories).toEqual([])
+  })
+})

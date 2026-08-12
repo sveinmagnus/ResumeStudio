@@ -321,3 +321,44 @@ describe('sectionItems', () => {
     expect(sectionItems(store, view(), store, bare as never, 'en')).toEqual([])
   })
 })
+
+/**
+ * The two places SECTIONS is walked have to filter to the EXPORTABLE ones.
+ * Without that, the view editor offers the registries and the overview as
+ * sections to include, and the render adapters are then asked for markup for a
+ * section that has no descriptor at all.
+ */
+describe('only exportable sections reach a view', () => {
+  const nonExportable = ['overview', 'header', 'skills', 'roles', 'views', 'cover_letters']
+
+  it('normalizeViewSections appends none of the non-content sections', () => {
+    const keys = normalizeViewSections([]).map((s) => s.key)
+    for (const key of nonExportable) expect(keys, key).not.toContain(key)
+    expect(keys).toContain('projects')
+  })
+
+  it('planViewSections plans none of them either', () => {
+    const keys = planViewSections(makeView({ sections: [] })).map((s) => s.key)
+    for (const key of nonExportable) expect(keys, key).not.toContain(key)
+    expect(keys).toContain('projects')
+  })
+
+  it('plans a view that carries no style block at all', () => {
+    // A view stored before per-view style existed still has to render; reading
+    // `.sort` off the missing block would throw at the first section.
+    const view = { ...makeView({ sections: [] }) } as Record<string, unknown>
+    delete view.style
+    const planned = planViewSections(view as never)
+    expect(planned.length).toBeGreaterThan(0)
+    expect(planned.every((s) => s.sort === 'custom')).toBe(true)
+  })
+
+  it('reorderViewSections leaves a list alone when the key is not in it', () => {
+    const sections = [
+      { key: 'projects', detail: 'full', sort_order: 0 },
+      { key: 'educations', detail: 'full', sort_order: 1 },
+    ] as never
+    expect(reorderViewSections(sections, 'nope', 'up')).toBe(sections)
+    expect(reorderViewSections(sections, 'nope', 'down')).toBe(sections)
+  })
+})
