@@ -168,3 +168,96 @@ describe('error swallowing', () => {
     spy.mockRestore()
   })
 })
+
+describe('the pending record survives whatever localStorage holds', () => {
+  it('returns null for a key that is not there', () => {
+    expect(loadPending('never-saved')).toBeNull()
+  })
+
+  it('returns null for an EMPTY string value rather than parsing it', () => {
+    localStorage.setItem(KEY, '')
+    expect(loadPending(ID)).toBeNull()
+  })
+
+  it('returns null for a value that is valid JSON but not an object', () => {
+    for (const raw of ['null', '42', '"a string"', 'true']) {
+      localStorage.setItem(KEY, raw)
+      expect(loadPending(ID), raw).toBeNull()
+    }
+  })
+
+  it('returns null for an object with no data', () => {
+    localStorage.setItem(KEY, JSON.stringify({ saved_at: '2026-01-01T00:00:00Z' }))
+    expect(loadPending(ID)).toBeNull()
+  })
+
+  it('returns null for unparseable JSON', () => {
+    localStorage.setItem(KEY, '{oh no')
+    expect(loadPending(ID)).toBeNull()
+  })
+
+  it('does not throw when the write fails — the fallback is best-effort', () => {
+    const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('QuotaExceededError')
+    })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    expect(() => savePending(ID, input())).not.toThrow()
+    expect(warn).toHaveBeenCalled()
+    setItem.mockRestore()
+    warn.mockRestore()
+  })
+})
+
+describe('enumeration across the whole of localStorage', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  it('reads every cached resume, not all but the last', () => {
+    // An off-by-one in the scan loses whichever record happens to be last.
+    savePending('a', input({ dirty: true }))
+    savePending('b', input({ dirty: true }))
+    savePending('c', input({ dirty: true }))
+    expect(listDirty().map((d) => d.id).sort()).toEqual(['a', 'b', 'c'])
+  })
+
+  it('ignores keys belonging to anything else in localStorage', () => {
+    localStorage.setItem('unrelated', 'x')
+    localStorage.setItem('resumestudio:other', 'x')
+    savePending('a', input({ dirty: true }))
+    expect(listDirty().map((d) => d.id)).toEqual(['a'])
+  })
+
+  it('lists only the DIRTY records', () => {
+    savePending('clean', input({ dirty: false }))
+    savePending('dirty', input({ dirty: true }))
+    expect(listDirty().map((d) => d.id)).toEqual(['dirty'])
+  })
+
+  it('skips a cache key whose record no longer parses, and keeps scanning past it', () => {
+    // The broken key is written FIRST: a scan that throws on it would return
+    // an empty list and the unsynced-changes guard would wave the user off.
+    localStorage.setItem('resumestudio:store-cache:v1:broken', '{oh no')
+    savePending('good', input({ dirty: true }))
+    expect(listDirty().map((d) => d.id)).toEqual(['good'])
+  })
+
+  it('does not read a foreign key as a cache key and count a resume twice', () => {
+    // Same length as the prefix plus "a", so slicing it blindly yields the id
+    // of a resume that is already in the list.
+    savePending('a', input({ dirty: true }))
+    localStorage.setItem('other:namespace:cache:xxxxxxa', 'x')
+    const ids = listDirty().map((d) => d.id)
+    expect(ids).toEqual(['a'])
+  })
+
+  it('clears every cached resume and nothing else', () => {
+    savePending('a', input())
+    savePending('b', input())
+    localStorage.setItem('unrelated', 'keep me')
+    clearAllCaches()
+    expect(loadPending('a')).toBeNull()
+    expect(loadPending('b')).toBeNull()
+    expect(localStorage.getItem('unrelated')).toBe('keep me')
+  })
+})
