@@ -150,8 +150,17 @@ describe('reinternBackupLinks() orchestrator', () => {
   it('is a no-op (same ref, no api calls) when the store has no links', async () => {
     const store = { ...emptyStore(), skills: [makeSkill({ id: 's1' })] }
     const api = fakeApi([])
-    const out = await reinternBackupLinks(store, undefined, api)
+    let listed = 0
+    const counted: ReinternApi = {
+      listRegistry: () => { listed++; return api.listRegistry() },
+      createRegistryEntry: (input) => api.createRegistryEntry(input),
+    }
+    const out = await reinternBackupLinks(store, undefined, counted)
     expect(out).toBe(store)
+    // Not merely the same result: an import with no links must not talk to the
+    // server at all.
+    expect(listed).toBe(0)
+    expect(api.created).toHaveLength(0)
   })
 
   it('links same-key siblings in the backup to the ONE created entry', async () => {
@@ -165,5 +174,42 @@ describe('reinternBackupLinks() orchestrator', () => {
     expect(api.created).toHaveLength(1)
     const id = api.created[0].id
     expect(out.skills.map((s) => s.canonical_id)).toEqual([id, id])
+  })
+})
+
+describe('what a re-intern actually sends and touches', () => {
+  it('creates the entry with the snapshot’s KIND and NAME, not an empty request', () => {
+    // The created entry is what every other resume on this instance will link
+    // to; an unnamed one is unusable and cannot be repaired from here.
+    const requests: Array<{ kind: string; name: unknown }> = []
+    const api: ReinternApi = {
+      async listRegistry() { return [] },
+      async createRegistryEntry(input) {
+        requests.push({ kind: input.kind, name: input.name })
+        return entry({ id: 'srv-1', kind: input.kind, name: input.name, key: 'k' })
+      },
+    }
+    const store = { ...emptyStore(), roles: [makeRole({ id: 'r1', canonical_id: 'backup-arch' })] }
+    return reinternBackupLinks(store, [snap('backup-arch', 'role', 'architect', { en: 'Architect' })], api)
+      .then(() => {
+        expect(requests).toEqual([{ kind: 'role', name: { en: 'Architect' } }])
+      })
+  })
+
+  it('returns an UNLINKED entry untouched rather than stamping a null onto it', () => {
+    // Adding canonical_id: null where the field never existed rewrites the row
+    // on the next save for no reason.
+    const store = {
+      ...emptyStore(),
+      skills: [
+        makeSkill({ id: 's1', canonical_id: 'old' }),
+        makeSkill({ id: 's2', canonical_id: null }),
+        makeSkill({ id: 's3' }),
+      ],
+    }
+    const out = remapCanonicalIds(store, { old: 'new' })
+    expect(out.skills[1]).toBe(store.skills[1])
+    expect(out.skills[2]).toBe(store.skills[2])
+    expect(out.skills[0].canonical_id).toBe('new')
   })
 })

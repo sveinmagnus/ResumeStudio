@@ -126,3 +126,63 @@ describe('reattachImages', () => {
     expect(JSON.stringify(current)).toBe(currentJson)
   })
 })
+
+describe('reattachImages — the logo half, and "absent" versus "null"', () => {
+  const LIVE_LOGO_OVR = 'data:image/png;base64,LIVELOGO'
+
+  const withLogoOverride = (): ResumeStore => {
+    const store = currentStore()
+    store.views[0].header.logo_override = LIVE_LOGO_OVR
+    return store
+  }
+
+  it('fills a stripped LOGO override, not only the photo one', () => {
+    const current = withLogoOverride()
+    const out = reattachImages(stripped(current), current)
+    expect(out.views[0].header.logo_override).toBe(LIVE_LOGO_OVR)
+  })
+
+  it('respects an explicit null LOGO override — the snapshot said "none"', () => {
+    const current = withLogoOverride()
+    const snap = JSON.parse(JSON.stringify(current)) as ResumeStore
+    snap.views[0].header.logo_override = null
+    expect(reattachImages(snap, current).views[0].header.logo_override).toBeNull()
+  })
+
+  it('respects an explicit null company logo on the profile', () => {
+    const current = currentStore()
+    const snap = JSON.parse(JSON.stringify(current)) as ResumeStore
+    snap.resume!.company_logo = null
+    expect(reattachImages(snap, current).resume?.company_logo).toBeNull()
+  })
+
+  it('keeps a stripped field ABSENT when the current store has nothing to offer', () => {
+    // Writing the key as undefined would turn "the server stripped this" into
+    // "the user cleared this" on the next save.
+    const current = currentStore()
+    current.resume = makeResume({ profile_photo: null, company_logo: null })
+    current.views[0].header.photo_override = null
+    current.views[0].header.logo_override = null
+    const out = reattachImages(stripped(current), current)
+    expect('profile_photo' in (out.resume as object)).toBe(false)
+    expect('company_logo' in (out.resume as object)).toBe(false)
+    expect('photo_override' in (out.views[0].header as object)).toBe(false)
+    expect('logo_override' in (out.views[0].header as object)).toBe(false)
+  })
+
+  it('fills the photo override without inventing a logo override', () => {
+    const current = currentStore()
+    current.views[0].header.logo_override = null
+    const out = reattachImages(stripped(current), current)
+    expect(out.views[0].header.photo_override).toBe(OVR)
+    expect('logo_override' in (out.views[0].header as object)).toBe(false)
+  })
+
+  it('fills the company logo without inventing a profile photo', () => {
+    const current = currentStore()
+    current.resume = makeResume({ profile_photo: null, company_logo: LOGO })
+    const out = reattachImages(stripped(current), current)
+    expect(out.resume?.company_logo).toBe(LOGO)
+    expect('profile_photo' in (out.resume as object)).toBe(false)
+  })
+})
