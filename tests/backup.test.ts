@@ -475,3 +475,109 @@ describe('looksLikeResumeStore()', () => {
     expect(looksLikeResumeStore([1, 2, 3])).toBe(false)
   })
 })
+
+describe('the format guards refuse a non-object outright', () => {
+  /**
+   * These three guards route a dropped file: to a new resume, to a merge, or to
+   * an error. Each has to reject a primitive before reading a property off it.
+   */
+  const NON_OBJECTS = [null, undefined, 'a string', 42, true]
+
+  it('isBackupFormat says no to every primitive', () => {
+    for (const v of NON_OBJECTS) expect(isBackupFormat(v), String(v)).toBe(false)
+  })
+
+  it('isMergeableBackupFormat says no to every primitive, and to a schema that is not a string', () => {
+    for (const v of NON_OBJECTS) expect(isMergeableBackupFormat(v), String(v)).toBe(false)
+    expect(isMergeableBackupFormat({ $schema: 42 })).toBe(false)
+    expect(isMergeableBackupFormat({})).toBe(false)
+  })
+
+  it('isMergeableBackupFormat accepts the identity-bearing schemas only', () => {
+    expect(isMergeableBackupFormat({ $schema: 'resumestudio-resume/v1' })).toBe(true)
+    expect(isMergeableBackupFormat({ $schema: 'resumestudio-registry/v1' })).toBe(true)
+    expect(isMergeableBackupFormat({ $schema: 'resumestudio-store/v1' })).toBe(true)
+    // The per-resume download carries no identity and must create a new resume.
+    expect(isMergeableBackupFormat({ $schema: 'resumestudio/v1' })).toBe(false)
+  })
+
+  it('validateBackup rejects a primitive with a root issue rather than a property read', () => {
+    for (const v of NON_OBJECTS) {
+      expect(() => validateBackup(v), String(v)).toThrow(InvalidBackupError)
+    }
+    try {
+      validateBackup('a string')
+    } catch (e) {
+      expect((e as InvalidBackupError).issues).toEqual([{ path: '(root)', reason: 'expected a JSON object' }])
+    }
+  })
+
+  it('validateBackup names a non-string schema in the issue it reports', () => {
+    try {
+      validateBackup({ $schema: 42, format_version: 1, profile: null, sections: {} })
+    } catch (e) {
+      const issues = (e as InvalidBackupError).issues
+      expect(issues.some((i) => i.path === '$schema')).toBe(true)
+    }
+  })
+})
+
+describe('importFromBackup tolerates every earlier backup vintage', () => {
+  const bare = (over: Record<string, unknown> = {}) => {
+    const full = exportToBackup(emptyStore()) as unknown as Record<string, unknown>
+    return { ...full, ...over } as unknown as AnyBackup
+  }
+
+  it('defaults the arrays the earliest backups omit to empty, not undefined', () => {
+    const sections = { ...(bare().sections as Record<string, unknown>) }
+    delete sections.key_competencies
+    delete sections.recommendations
+    const store = importFromBackup(bare({ sections, cover_letters: undefined }))
+    expect(store.key_competencies).toEqual([])
+    expect(store.recommendations).toEqual([])
+    expect(store.cover_letters).toEqual([])
+  })
+
+  it('keeps the arrays a current backup does carry', () => {
+    const s = emptyStore()
+    s.key_competencies = [{ id: 'kc1', title: { en: 'Cloud' }, description: {}, sort_order: 0 } as never]
+    const store = importFromBackup(exportToBackup(s))
+    expect(store.key_competencies.map((k) => k.id)).toEqual(['kc1'])
+  })
+
+  it('defaults a pre-v3 industries and a pre-v6 skill_categories to empty', () => {
+    const registries = { ...(bare().registries as Record<string, unknown>) }
+    delete registries.industries
+    delete registries.skill_categories
+    const store = importFromBackup(bare({ registries }))
+    expect(store.industries).toEqual([])
+    expect(store.skill_categories).toEqual([])
+  })
+
+  it('carries a pre-v6 legacy showcase structure through for the shape migration', () => {
+    // The field is not declared on ResumeStore; it is attached so migrateStore
+    // can convert it, and dropping it silently loses the user's categories.
+    const sections = { ...(bare().sections as Record<string, unknown>), technology_categories: [{ name: 'Cloud' }] }
+    const store = importFromBackup(bare({ sections })) as unknown as Record<string, unknown>
+    expect(store.technology_categories).toEqual([{ name: 'Cloud' }])
+  })
+
+  it('does not attach the legacy structure when the backup has none', () => {
+    const store = importFromBackup(exportToBackup(emptyStore())) as unknown as Record<string, unknown>
+    expect('technology_categories' in store).toBe(false)
+  })
+})
+
+describe('exportToBackup fills the registries a store may not have', () => {
+  it('writes an empty skill_categories array rather than omitting it', () => {
+    const s = emptyStore()
+    delete (s as unknown as Record<string, unknown>).skill_categories
+    expect(exportToBackup(s).registries.skill_categories).toEqual([])
+  })
+
+  it('writes the categories a store does have', () => {
+    const s = emptyStore()
+    s.skill_categories = [makeSkillCategory({ id: 'c1', name: { en: 'Languages' } })]
+    expect(exportToBackup(s).registries.skill_categories?.map((c) => c.id)).toEqual(['c1'])
+  })
+})
