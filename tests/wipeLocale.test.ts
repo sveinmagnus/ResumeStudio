@@ -220,3 +220,128 @@ describe('wipeLocale — leaves nothing behind', () => {
     expect(survivingPaths(out, 'en').length).toBeGreaterThan(20)
   })
 })
+
+/**
+ * The wipe removes a language and NOTHING else.
+ *
+ * Searching for the wiped locale proves it left, but not that everything else
+ * stayed: `wipeLocale` rebuilds every row by hand, so a mapper that returns the
+ * wrong object drops the row's dates, ids and links while passing a search for
+ * the removed language — it removed rather too much.
+ *
+ * So this compares the whole store against an INDEPENDENT strip: a generic
+ * recursive walk that deletes the locale key wherever it appears and copies
+ * everything else. The two must agree exactly.
+ */
+describe('wipeLocale — removes the language and keeps the rest', () => {
+  /** Recursively copy, dropping `locale` from every map of strings. */
+  function stripLocale<T>(node: T, locale: string): T {
+    if (Array.isArray(node)) return node.map((n) => stripLocale(n, locale)) as unknown as T
+    if (!node || typeof node !== 'object') return node
+    const rec = node as Record<string, unknown>
+    const values = Object.values(rec)
+    const looksLocalized = values.length > 0 && values.every((v) => typeof v === 'string')
+    const out: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(rec)) {
+      if (looksLocalized && k === locale) continue
+      out[k] = stripLocale(v, locale)
+    }
+    return out as T
+  }
+
+  /**
+   * An absent localized field and an empty one mean the same thing here: the
+   * wipe normalises `undefined` to `{}` as it rebuilds each row, and that is not
+   * what these assertions are about.
+   */
+  function dropEmptyMaps<T>(node: T): T {
+    if (Array.isArray(node)) return node.map(dropEmptyMaps) as unknown as T
+    if (!node || typeof node !== 'object') return node
+    const out: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
+      if (v && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === 0) continue
+      out[k] = dropEmptyMaps(v)
+    }
+    return out as T
+  }
+
+  /**
+   * Ignore the two things the wipe legitimately rewrites (the timestamp and the
+   * supported-locale list, both asserted separately above) and the header field
+   * LABELS, which are app-seeded chrome rather than the user's text.
+   */
+  const comparable = (s: ResumeStore) => dropEmptyMaps({
+    ...s,
+    resume: { ...s.resume!, updated_at: '', supported_locales: [] },
+    views: s.views.map((v) => ({ ...v, header: null })),
+  })
+
+  const withLetters = (): ResumeStore => {
+    const L = { en: 'x', no: 'y' }
+    const base = {
+      ...emptyStore(),
+      resume: makeResume({ full_name: 'Kari', title: L, place_of_residence: L, nationality: L }),
+      skills: [makeSkill({ id: 's1', name: L })],
+      skill_categories: [makeSkillCategory({ id: 'sc1', name: L })],
+      key_competencies: [makeKeyCompetency({ id: 'kc1', title: L, description: L, short_description: L })],
+      recommendations: [makeRecommendation({ id: 'rec1', recommender_title: L, relationship: L, text: L })],
+      courses: [makeCourse({ id: 'c1', name: L, program: L, description: L })],
+      certifications: [makeCertification({ id: 'cert1', name: L, organiser: L, description: L })],
+      projects: [makeProject({
+        id: 'p1', customer: L, description: L, long_description: L,
+        highlights: [L, L],
+        industries: [{ id: 'pi1', industry_id: 'i1', name: L, sort_order: 0 }],
+        roles: [{ id: 'pr1', role_id: 'r1', name: L, sort_order: 0 }],
+        skills: [{
+          id: 'ps1', skill_id: 's1', name: L,
+          duration_in_years: 2, offset_in_years: 0, total_duration_in_years: 2, sort_order: 0,
+        }],
+      })],
+      views: [makeView({ id: 'v1', introduction: L })],
+    } as ResumeStore
+    base.cover_letters = [{
+      id: 'cl1', resume_id: base.resume!.id, name: 'Application', view_id: 'v1',
+      company: L, recipient: L, role_applied: L, greeting: L, body: L, closing: L,
+      posting: '', sender_name: '', dateline: null, sort_order: 0, starred: false, disabled: false,
+    } as never]
+    return base
+  }
+
+  it('matches an independent strip of the same store, field for field', () => {
+    const store = withLetters()
+    expect(comparable(wipeLocale(store, 'no'))).toEqual(comparable(stripLocale(store, 'no')))
+  })
+
+  it('keeps every row it rewrote — same ids, same numbers, same links', () => {
+    // The failure this catches: a section mapper that returns an empty object.
+    // The language is gone from it, and so is the row.
+    const out = wipeLocale(withLetters(), 'no')
+    expect(out.key_competencies[0].id).toBe('kc1')
+    expect(out.recommendations[0].id).toBe('rec1')
+    expect(out.courses[0].id).toBe('c1')
+    expect(out.certifications[0].id).toBe('cert1')
+    expect(out.skill_categories![0].id).toBe('sc1')
+    expect(out.cover_letters![0]).toMatchObject({ id: 'cl1', view_id: 'v1' })
+    expect(out.projects[0].industries[0]).toMatchObject({ id: 'pi1', industry_id: 'i1' })
+    expect(out.projects[0].skills[0]).toMatchObject({ skill_id: 's1', duration_in_years: 2 })
+  })
+
+  it('wipes a store that predates skill categories and cover letters', () => {
+    // Both arrays are optional on older data; the wipe must not invent rows for
+    // them either.
+    const store = { ...emptyStore() } as ResumeStore
+    delete (store as { skill_categories?: unknown }).skill_categories
+    delete (store as { cover_letters?: unknown }).cover_letters
+    const out = wipeLocale(store, 'no')
+    expect(out.skill_categories).toEqual([])
+    expect(out.cover_letters).toEqual([])
+  })
+
+  it('strips the locale from a cover letter\u2019s every written field', () => {
+    const out = wipeLocale(withLetters(), 'no')
+    const letter = out.cover_letters![0]
+    for (const field of ['company', 'recipient', 'role_applied', 'greeting', 'body', 'closing'] as const) {
+      expect(letter[field], field).toEqual({ en: 'x' })
+    }
+  })
+})

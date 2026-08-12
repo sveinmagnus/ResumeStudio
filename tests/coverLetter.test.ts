@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   bodyParagraphs, resolveLetterParts, buildCoverLetterText, buildCoverLetterPrompt,
+  defaultDateline,
 } from '../src/lib/coverLetter'
 import { emptyStore, makeResume, makeCoverLetter, makeView, makeProject, makeSkill } from './fixtures'
 import type { ResumeStore } from '../src/types'
@@ -312,5 +313,83 @@ describe('buildCoverLetterText — the closing block', () => {
     s.resume = makeResume({ full_name: 'Kari', email: '', phone: '', website_url: '' })
     const out = buildCoverLetterText(s, makeCoverLetter({ place_dated: 'Oslo' } as never), 'en')
     expect(out).toContain('Oslo')
+  })
+})
+
+describe('defaultDateline — the date a letter is dated', () => {
+  it('writes the month in words, not a numeric date', () => {
+    // A letter is a formal document; "13/08/2026" reads as a form field, and the
+    // numeric order is ambiguous across the locales this app supports.
+    const out = defaultDateline('en', new Date(Date.UTC(2026, 7, 13)))
+    expect(out).toMatch(/August/)
+    expect(out).toContain('2026')
+  })
+
+  it('falls back to a plain ISO date when the locale tag is unusable', () => {
+    // Intl throws on a malformed tag; a letter with no date at all would be the
+    // alternative.
+    const out = defaultDateline('not a locale', new Date(Date.UTC(2026, 7, 13)))
+    expect(out).toBe('2026-08-13')
+  })
+})
+
+describe('buildCoverLetterText — the sign-off, exactly', () => {
+  it('leaves no trailing blank line when there is no sender name', () => {
+    // The closing and the name are ONE block; with no name the block must not
+    // keep the newline that separated them, or the letter ends on an empty line.
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: '', email: '', phone: '', website_url: '' })
+    const out = buildCoverLetterText(s, makeCoverLetter({
+      closing: { en: 'Yours sincerely,' }, place_dated: 'Oslo',
+    } as never), 'en')
+    expect(out.endsWith('Yours sincerely,' + String.fromCharCode(10))).toBe(true)
+  })
+})
+
+describe('buildCoverLetterPrompt — the evidence block', () => {
+  const store = (over: Record<string, unknown> = {}): ResumeStore => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'Kari Nordmann', title: { en: 'Architect' }, ...over })
+    return s
+  }
+
+  it('lists the CV items it wants the letter to draw on, under their section label', () => {
+    // The letter is only as concrete as the evidence it was given; an empty
+    // evidence block leaves the model inventing achievements.
+    const s = store()
+    s.projects = [makeProject({ id: 'p1', customer: { en: 'NorBAN' }, description: { en: 'Payments platform' } })]
+    const p = buildCoverLetterPrompt(s, makeCoverLetter(), 'en')
+    expect(p).toMatch(/Projects: [^\n]*NorBAN/)
+  })
+
+  it('states the role applied for, trimmed', () => {
+    const p = buildCoverLetterPrompt(
+      store(), makeCoverLetter({ role_applied: { en: '  Lead Architect  ' } } as never), 'en')
+    expect(p).toContain('Lead Architect')
+    expect(p).not.toContain('  Lead Architect')
+  })
+
+  it('draws on the WHOLE CV when the letter’s view id no longer resolves', () => {
+    // A deleted view leaves its id behind. Falling back to "whatever view is
+    // first" would pitch the letter from a story the user did not choose.
+    const s = store()
+    s.projects = [makeProject({ id: 'p1', customer: { en: 'NorBAN' } })]
+    s.views = [makeView({ id: 'v1', excluded_item_ids: ['p1'], sections: [] })]
+    const p = buildCoverLetterPrompt(s, makeCoverLetter({ view_id: 'gone' } as never), 'en')
+    expect(p).toContain('NorBAN')
+  })
+
+  it('states the applicant title, trimmed', () => {
+    expect(buildCoverLetterPrompt(store(), makeCoverLetter(), 'en')).toContain('Architect')
+    expect(buildCoverLetterPrompt(store({ title: { en: '  Architect  ' } }), makeCoverLetter(), 'en'))
+      .not.toContain('  Architect')
+  })
+
+  it('caps the skill list rather than pasting a whole registry', () => {
+    const s = store()
+    s.skills = Array.from({ length: 45 }, (_, i) => makeSkill({ id: `s${i}`, name: { en: `Skill${i}` } }))
+    const p = buildCoverLetterPrompt(s, makeCoverLetter(), 'en')
+    expect(p).toContain('Skill39')
+    expect(p).not.toContain('Skill40')
   })
 })

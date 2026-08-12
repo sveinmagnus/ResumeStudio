@@ -396,3 +396,20 @@ describe('sizeHint fires just PAST the budget, not at it', () => {
     expect(sizeHint(overBudget, status)).toMatch(/long/)
   })
 })
+
+describe('paramsOf — the sub-billion tag', () => {
+  it('reads a spaced m tag, like the spaced b tag beside it', () => {
+    expect(paramsOf('smollm2:360 m')).toBeCloseTo(0.36, 5)
+    expect(paramsOf('smollm2:360m')).toBeCloseTo(0.36, 5)
+  })
+})
+
+describe('extractJson — a one-character preamble', () => {
+  it('finds the payload when the prose before it is a single character', () => {
+    // Sounds contrived until a model answers with ":{\"a\":1}" or "-{...}".
+    // The opening brace at index 1 is the case a "not found" sentinel of 1 would
+    // read as "no JSON here".
+    expect(extractJson('x{"a":1}')).toBe('{"a":1}')
+    expect(extractJson(':[1,2]')).toBe('[1,2]')
+  })
+})
