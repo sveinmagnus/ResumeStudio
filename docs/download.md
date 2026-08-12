@@ -16,7 +16,8 @@ from the system tray or Settings) and offers a one-click in-place update.
 | Platform | File | How to launch |
 |---|---|---|
 | **Windows** (10 / 11, x64) | [ResumeStudio-windows-x64.zip]({{ site.repo_url }}/releases/latest/download/ResumeStudio-windows-x64.zip) | Unzip, then double-click **Resume Studio.cmd** (a small log window stays open). Use **Resume Studio (no window).vbs** for a silent launch. |
-| **macOS** (Intel / Apple Silicon) | [ResumeStudio-macos.zip]({{ site.repo_url }}/releases/latest/download/ResumeStudio-macos.zip) | Unzip, then double-click **Resume Studio.command** in Finder. On first launch, right-click → Open to bypass Gatekeeper for unsigned apps. |
+| **macOS** (Apple Silicon — M1 and later) | [ResumeStudio-macos.zip]({{ site.repo_url }}/releases/latest/download/ResumeStudio-macos.zip) | Unzip, then double-click **Resume Studio.command** in Finder. On first launch, right-click → Open to bypass Gatekeeper for unsigned apps. |
+| **macOS** (Intel) | [ResumeStudio-macos-x64.zip]({{ site.repo_url }}/releases/latest/download/ResumeStudio-macos-x64.zip) | Same as above. Choose this one if **&#63;** → About This Mac says *Intel*; the Apple Silicon build will not run on an Intel Mac. |
 | **Linux** (x64) | [ResumeStudio-linux-x64.tar.gz]({{ site.repo_url }}/releases/latest/download/ResumeStudio-linux-x64.tar.gz) | Extract, then run **`./resume-studio.sh`** from a terminal. Optional: add a `.desktop` entry pointing at the absolute path of the script. |
 
 Every download is a self-contained folder containing the bundled Node runtime,

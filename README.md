@@ -22,7 +22,8 @@ Direct downloads (these URLs always point at the most recent release):
 | OS | Download |
 |----|----------|
 | Windows | [ResumeStudio-windows-x64.zip](https://github.com/sveinmagnus/resumestudio/releases/latest/download/ResumeStudio-windows-x64.zip) |
-| macOS | [ResumeStudio-macos.zip](https://github.com/sveinmagnus/resumestudio/releases/latest/download/ResumeStudio-macos.zip) |
+| macOS (Apple Silicon) | [ResumeStudio-macos.zip](https://github.com/sveinmagnus/resumestudio/releases/latest/download/ResumeStudio-macos.zip) |
+| macOS (Intel) | [ResumeStudio-macos-x64.zip](https://github.com/sveinmagnus/resumestudio/releases/latest/download/ResumeStudio-macos-x64.zip) |
 | Linux | [ResumeStudio-linux-x64.tar.gz](https://github.com/sveinmagnus/resumestudio/releases/latest/download/ResumeStudio-linux-x64.tar.gz) |
 
 Unzip, double-click the launcher, and the app opens in your browser. It keeps

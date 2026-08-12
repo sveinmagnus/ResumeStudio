@@ -2,9 +2,21 @@
 # version tag is pushed (e.g. `git tag v0.1.0 && git push origin v0.1.0`),
 # then attach the artifacts to the matching GitHub Release.
 #
+# macOS is built TWICE, on purpose: `macos-latest` is Apple Silicon, and
+# `build-desktop.mjs` bundles the runner's own Node binary (`process.execPath`),
+# so an arm64 runner can only ever produce an arm64 build. An Intel Mac asks the
+# updater for `resume-studio-macos-x64.tar.gz`; before this job existed that
+# asset was never published, so every Intel install fell back to "download it
+# yourself". `macos-15-intel` is GitHub's replacement for the retired `macos-13`
+# and is the LAST x86_64 macOS image — it disappears in Fall 2027, after which
+# this job must go and Intel Macs return to manual downloads.
+#
 # Asset families uploaded per release:
 #   1. ResumeStudio-<os>.(zip|tar.gz)        — human download (docs/download.md
 #      links to these; filenames MUST stay stable or those URLs 404).
+#      `ResumeStudio-macos.zip` is Apple Silicon — it keeps the bare name it has
+#      always had so existing links keep working; Intel is the explicit
+#      `ResumeStudio-macos-x64.zip`.
 #   2. resume-studio-<os>-<arch>.tar.gz      — the AUTO-UPDATER asset, emitted by
 #      `npm run build:desktop` into release-dist/. Names MUST match
 #      server/desktop/updater.ts `assetNameFor`, and the format MUST be .tar.gz
@@ -80,8 +92,14 @@ jobs:
           - os: windows-latest
             asset: ResumeStudio-windows-x64.zip
             archive: zip
+          # Apple Silicon. Keeps the unsuffixed name the docs have always linked.
           - os: macos-latest
             asset: ResumeStudio-macos.zip
+            archive: zip
+          # Intel. A separate runner rather than a cross-build, because the
+          # bundled Node binary is the runner's own and cannot be cross-emitted.
+          - os: macos-15-intel
+            asset: ResumeStudio-macos-x64.zip
             archive: zip
           - os: ubuntu-latest
             asset: ResumeStudio-linux-x64.tar.gz

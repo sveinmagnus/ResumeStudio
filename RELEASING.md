@@ -113,10 +113,13 @@ relaunch that once opened a text editor instead of the app.
 
 ## After the release
 
-- Check all three platform archives are attached, plus the updater `.tar.gz`
-  assets **and their `.sha256` sidecars**. The updater **fails closed** without
-  a checksum: drop those and every desktop build in the field silently stops
-  updating.
+- Check all **four** human archives are attached — Windows, macOS Apple
+  Silicon, macOS Intel, Linux — plus the four updater `.tar.gz` assets **and
+  their `.sha256` sidecars**. The updater **fails closed** without a checksum:
+  drop those and every desktop build in the field silently stops updating.
+  A missing `resume-studio-macos-x64.tar.gz` is the quiet one — it doesn't
+  break anything visibly, it just leaves every Intel Mac unable to update
+  itself.
 - Download one archive and launch it.
 - Confirm the build reports `v<version>`, not `Dev-<commit>`. If it says
   `Dev-…`, the workflow did not declare the release channel and the artifact is
