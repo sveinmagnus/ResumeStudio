@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   emptyStore, makeCertification, makeCourse, makeEducation, makeKQ, makeProject, makeView,
-  makeWork, makeKeyCompetency,
+  makeWork, makeKeyCompetency, makeResume,
 } from './fixtures'
 import type { KeyCompetency, ResumeStore } from '../src/types'
 import { buildCvDigest, buildBilingualDigest, itemLabel, itemFacts } from '../src/lib/cvDigest'
@@ -1174,3 +1174,140 @@ describe('cvDigest — itemFacts', () => {
   })
 })
 
+
+/**
+ * The digest's shape and the profile generator's apply step.
+ *
+ * buildCvDigest is the ONE rendering every advisor's prompt shares (§15), so an
+ * item id it emits must resolve in any other advisor's validator. That contract
+ * is what lets a finding from one run be acted on by another panel.
+ */
+describe('buildCvDigest — the shared rendering', () => {
+  const store = (): ResumeStore => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'Kari' })
+    s.projects = [
+      makeProject({ id: 'p1', customer: { en: 'Acme' }, long_description: { en: 'Ran it.' } }),
+      makeProject({ id: 'p2', customer: { en: 'Gone' }, disabled: true }),
+    ]
+    return s
+  }
+
+  it('names the section by its STORE KEY, which a reply must quote back', () => {
+    expect(buildCvDigest(store(), { locale: 'en' })).toContain('projects')
+  })
+
+  it('carries each item’s real id', () => {
+    expect(buildCvDigest(store(), { locale: 'en' })).toContain('p1')
+  })
+
+  it('leaves a disabled item out entirely', () => {
+    // It is out of every export, so an advisor must not suggest editing it.
+    const out = buildCvDigest(store(), { locale: 'en' })
+    expect(out).not.toContain('Gone')
+    expect(out).not.toContain('p2')
+  })
+
+  it('caps a long field rather than sending the whole CV', () => {
+    const s = store()
+    s.projects[0].long_description = { en: 'x'.repeat(5000) }
+    const short = buildCvDigest(s, { locale: 'en', maxFieldChars: 100 })
+    const long = buildCvDigest(s, { locale: 'en', maxFieldChars: 500 })
+    expect(short.length).toBeLessThan(long.length)
+  })
+
+  it('omits the short-description fields when asked to', () => {
+    const s = store()
+    s.projects[0].short_description = { en: 'A short line.' }
+    expect(buildCvDigest(s, { locale: 'en', includeShort: true })).toContain('A short line.')
+    expect(buildCvDigest(s, { locale: 'en', includeShort: false })).not.toContain('A short line.')
+  })
+
+  it('renders in the requested locale', () => {
+    const s = store()
+    s.projects[0].customer = { en: 'Acme', no: 'Akme' }
+    expect(buildCvDigest(s, { locale: 'no' })).toContain('Akme')
+  })
+
+  it('emits nothing for a section with no items', () => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'Kari' })
+    expect(buildCvDigest(s, { locale: 'en' })).not.toContain('projects')
+  })
+})
+
+describe('applyProfileDraft', () => {
+  const base = (): ResumeStore => {
+    const s = emptyStore()
+    s.resume = makeResume({ id: 'r1', full_name: 'Kari' })
+    s.key_qualifications = [makeKQ({ id: 'existing', tag_line: { en: 'Existing profile' } })]
+    s.key_competencies = [makeKeyCompetency({ id: 'c1', title: { en: 'Architecture' } })]
+    return s
+  }
+  const draft = (over: Record<string, unknown> = {}) => ({
+    key: 'profile:0', tagLine: 'Board Adviser', summary: 'Long summary.',
+    summaryShort: 'Short.', rationale: '', evidence: [],
+    bundle: [{ id: 'c1', title: 'Architecture', description: 'x', isNew: false }],
+    ...over,
+  })
+
+  it('ADDS the profile without touching the existing ones', () => {
+    const out = applyProfileDraft(base(), draft() as never, 'en')
+    expect(out.key_qualifications.map((k) => k.id)).toContain('existing')
+    expect(out.key_qualifications).toHaveLength(2)
+  })
+
+  it('puts the new profile LAST, so no view silently changes', () => {
+    // A view presents the first non-disabled profile (§4); inserting at the top
+    // would change what every existing view shows.
+    const out = applyProfileDraft(base(), draft() as never, 'en')
+    expect(out.key_qualifications[0].id).toBe('existing')
+    expect(out.key_qualifications[1].tag_line.en).toBe('Board Adviser')
+  })
+
+  it('lands enabled but NOT starred', () => {
+    const out = applyProfileDraft(base(), draft() as never, 'en')
+    const added = out.key_qualifications[1]
+    expect(added).toMatchObject({ disabled: false, starred: false })
+  })
+
+  it('links an existing competency by id rather than duplicating it', () => {
+    const out = applyProfileDraft(base(), draft() as never, 'en')
+    expect(out.key_competencies).toHaveLength(1)
+    expect(out.key_qualifications[1].competency_ids).toEqual(['c1'])
+  })
+
+  it('creates a NEW competency and links it in bundle order', () => {
+    const out = applyProfileDraft(base(), draft({
+      bundle: [
+        { id: null, title: 'Platform engineering', description: 'Builds platforms.', isNew: true },
+        { id: 'c1', title: 'Architecture', description: 'x', isNew: false },
+      ],
+    }) as never, 'en')
+    expect(out.key_competencies).toHaveLength(2)
+    const ids = out.key_qualifications[1].competency_ids
+    expect(ids).toHaveLength(2)
+    expect(ids[1]).toBe('c1')
+  })
+
+  it('falls back to the title when a new competency has no description', () => {
+    const out = applyProfileDraft(base(), draft({
+      bundle: [{ id: null, title: 'Platform engineering', description: '', isNew: true }],
+    }) as never, 'en')
+    const added = out.key_competencies.find((c) => c.title.en === 'Platform engineering')!
+    expect(added.description.en).toBe('Platform engineering')
+  })
+
+  it('stamps everything with the resume id, even with no resume', () => {
+    const out = applyProfileDraft(base(), draft() as never, 'en')
+    expect(out.key_qualifications[1].resume_id).toBe('r1')
+    const noResume = { ...base(), resume: null }
+    expect(() => applyProfileDraft(noResume, draft() as never, 'en')).not.toThrow()
+  })
+
+  it('writes the drafted text into the requested locale', () => {
+    const out = applyProfileDraft(base(), draft() as never, 'no')
+    expect(out.key_qualifications[1].tag_line.no).toBe('Board Adviser')
+    expect(out.key_qualifications[1].tag_line.en).toBeUndefined()
+  })
+})
