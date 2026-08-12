@@ -186,3 +186,101 @@ describe('matchSkill — the fuzzy budget', () => {
   })
 })
 
+
+/**
+ * The tiers' thresholds and the semantic margin.
+ *
+ * Each threshold decides whether a guess is confident enough to act on. Too
+ * loose and skills get filed at random; too tight and the feature does nothing.
+ * They all return SOMETHING either way, so only the boundaries pin them.
+ */
+describe('skillMatch — tier thresholds', () => {
+  const index = (...pairs: Array<[string, string]>) => buildDomainIndex(Object.fromEntries(pairs))
+
+  describe('tokenize', () => {
+    it('drops one-character tokens, keeping longer ones', () => {
+      // A single letter matches almost anything; keeping them makes the token
+      // tier fire on noise.
+      expect(tokenize('a bc def')).toEqual(['bc', 'def'])
+    })
+  })
+
+  describe('the token tier', () => {
+    it('prefers the candidate with the MOST tokens in common', () => {
+      // A two-token overlap is stronger evidence than a one-token one.
+      const idx = index(['Cloud', 'Generic'], ['Cloud native platform', 'Specific'])
+      expect(matchSkillDomain('cloud native platform engineering', idx)?.domain).toBe('Specific')
+    })
+  })
+
+  describe('editDistance bounds', () => {
+    it('gives up early when the lengths differ by more than the budget', () => {
+      // The early-out is what keeps a 1,200-entry library cheap; it must not
+      // change the ANSWER, only the work.
+      expect(editDistance('abc', 'abcdefghij', 2)).toBeGreaterThan(2)
+      expect(editDistance('abc', 'abcd', 2)).toBe(1)
+    })
+
+    it('reports 0 for identical keys and the exact count for small edits', () => {
+      expect(editDistance('kubernetes', 'kubernetes', 3)).toBe(0)
+      expect(editDistance('kubernetes', 'kubernetez', 3)).toBe(1)
+      expect(editDistance('kubernetes', 'kubernetzz', 3)).toBe(2)
+    })
+
+    it('stops at the budget rather than computing the true distance', () => {
+      expect(editDistance('aaaa', 'bbbb', 2)).toBeGreaterThan(2)
+    })
+  })
+
+  describe('the semantic tier', () => {
+    // The model is a flat token -> domain -> weight map, and matchSemantic
+    // returns the winning DOMAIN NAME rather than a match object.
+    const model = (weights: Record<string, Record<string, number>>) => weights
+
+    it('needs the top score to clear the minimum', () => {
+      const m = model({ go: { Languages: 3 } })
+      expect(matchSemantic(['go'], m, 2.5)).toBe('Languages')
+      expect(matchSemantic(['go'], m, 3.5)).toBeNull()
+    })
+
+    it('accepts a score exactly AT the minimum', () => {
+      expect(matchSemantic(['go'], model({ go: { Languages: 2.5 } }), 2.5)).toBe('Languages')
+    })
+
+    it('refuses when the runner-up is too close', () => {
+      // An ambiguous vote is worse than no answer: it files the skill under one
+      // of two equally-likely domains with no way for the user to see why.
+      const close = model({ go: { Languages: 3, Platforms: 2.9 } })
+      expect(matchSemantic(['go'], close, 2.5)).toBeNull()
+    })
+
+    it('accepts when the top clears the runner-up by the margin', () => {
+      const clear = model({ go: { Languages: 10, Platforms: 1 } })
+      expect(matchSemantic(['go'], clear, 2.5)).toBe('Languages')
+    })
+
+    it('accepts a single-domain vote, where there is no runner-up', () => {
+      expect(matchSemantic(['go'], model({ go: { Languages: 3 } }), 2.5)).toBe('Languages')
+    })
+
+    it('sums the weights across tokens', () => {
+      const m = model({ go: { Languages: 1.5 }, lang: { Languages: 1.5 } })
+      expect(matchSemantic(['go', 'lang'], m, 2.5)).toBe('Languages')
+      expect(matchSemantic(['go'], m, 2.5)).toBeNull()
+    })
+
+    it('ignores a token the model does not know', () => {
+      expect(matchSemantic(['nonesuch'], model({ go: { Languages: 9 } }), 2.5)).toBeNull()
+    })
+  })
+
+  describe('opting out of the semantic tier', () => {
+    it('runs it only when a model is supplied AND it is not disabled', () => {
+      const idx = index(['Python', 'Languages'])
+      const model = { nonesuch: { Guessed: 9 } }
+      expect(matchSkillDomain('nonesuch', idx, { model })?.domain).toBe('Guessed')
+      expect(matchSkillDomain('nonesuch', idx, { model, semantic: false })).toBeNull()
+      expect(matchSkillDomain('nonesuch', idx, {})).toBeNull()
+    })
+  })
+})

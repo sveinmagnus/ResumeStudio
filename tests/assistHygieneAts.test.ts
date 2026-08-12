@@ -12,7 +12,7 @@ import {
 } from '../src/lib/registryHygiene'
 import { countSkillReferences } from '../src/lib/merge'
 import {
-  buildGlossary, scopeGlossary, glossaryFor, mentions, toPayload,
+  buildGlossary, scopeGlossary, glossaryFor, mentions, toPayload, MAX_SCOPED_TERMS,
 } from '../src/lib/glossary'
 
 // ── B4: ATS audit ────────────────────────────────────────────────────────────
@@ -995,3 +995,111 @@ describe('glossary — derivation and scoping', () => {
   })
 })
 
+
+/**
+ * The ATS validator's downgrade rules, and the glossary's scoping cap.
+ */
+describe('validateAtsResponse — the downgrade rules', () => {
+  const asked = ['Kubernetes', 'Fortran']
+  const reply = (equivalences: unknown[]) => ({ $schema: 'resumestudio-ats/v1', equivalences })
+
+  it('drops a verdict about a term nobody asked about', () => {
+    // The model invented it, so it is not in the posting — reporting it would
+    // put a requirement on screen that the employer never stated.
+    const out = validateAtsResponse(reply([
+      { term: 'Kubernetes', verdict: 'covered', quote: 'Ran Kubernetes.' },
+      { term: 'Nonesuch', verdict: 'covered', quote: 'x' },
+    ]), asked)
+    expect(out.equivalences.map((e) => e.term)).toEqual(['Kubernetes'])
+  })
+
+  it('matches the asked term case-insensitively', () => {
+    const out = validateAtsResponse(reply([
+      { term: 'kubernetes', verdict: 'covered', quote: 'Ran Kubernetes.' },
+    ]), asked)
+    expect(out.equivalences).toHaveLength(1)
+  })
+
+  it('downgrades a COVERED verdict with no quote', () => {
+    // The quote IS the evidence; an unquoted claim of coverage is the false
+    // reassurance that lets someone send a CV believing it says something it
+    // does not.
+    const out = validateAtsResponse(reply([
+      { term: 'Kubernetes', verdict: 'covered', quote: '' },
+    ]), asked)
+    expect(out.equivalences[0].verdict).not.toBe('covered')
+  })
+
+  it('keeps a covered verdict that carries a quote', () => {
+    const out = validateAtsResponse(reply([
+      { term: 'Kubernetes', verdict: 'covered', quote: 'Ran Kubernetes in production.' },
+    ]), asked)
+    expect(out.equivalences[0].verdict).toBe('covered')
+  })
+
+  it('does not require a quote for the other verdicts', () => {
+    const out = validateAtsResponse(reply([
+      { term: 'Kubernetes', verdict: 'missing' },
+      { term: 'Fortran', verdict: 'phrasing', suggestion: 'Name it in the Acme project.' },
+    ]), asked)
+    expect(out.equivalences.map((e) => e.verdict)).toEqual(['missing', 'phrasing'])
+  })
+
+  it('treats an unknown verdict as missing rather than guessing upward', () => {
+    const out = validateAtsResponse(reply([
+      { term: 'Kubernetes', verdict: 'probably', quote: 'x' },
+    ]), asked)
+    expect(out.equivalences[0].verdict).toBe('missing')
+  })
+
+  it('rejects a reply that is not an object or has no equivalences array', () => {
+    expect(() => validateAtsResponse(null, asked)).toThrow(InvalidAtsResponseError)
+    expect(() => validateAtsResponse({ $schema: 'resumestudio-ats/v1' }, asked))
+      .toThrow(InvalidAtsResponseError)
+  })
+
+  it('skips an entry that is not an object', () => {
+    const out = validateAtsResponse(reply(['nonsense', null, { term: 'Kubernetes', verdict: 'missing' }]), asked)
+    expect(out.equivalences).toHaveLength(1)
+  })
+})
+
+describe('scopeGlossary — the cap', () => {
+  const store = (n: number): ResumeStore => {
+    const s = emptyStore()
+    s.skills = Array.from({ length: n }, (_, i) =>
+      makeSkill({ id: `s${i}`, name: { en: `Term${i}`, no: `Uttrykk${i}` } }))
+    return s
+  }
+
+  it('caps how many terms reach the prompt', () => {
+    // A 300-entry glossary is not something a 3B model can obey; the cap is what
+    // makes the mechanism usable at all.
+    const g = buildGlossary(store(60), 'en', 'no')
+    expect(g.terms.length).toBeGreaterThan(MAX_SCOPED_TERMS)
+    const text = Array.from({ length: 60 }, (_, i) => `Term${i}`).join(' ')
+    expect(scopeGlossary(g, text).terms.length).toBe(MAX_SCOPED_TERMS)
+  })
+
+  it('keeps the longest matches when it caps', () => {
+    const s = emptyStore()
+    s.skills = [
+      makeSkill({ id: 'a', name: { en: 'Cloud', no: 'Sky' } }),
+      makeSkill({ id: 'b', name: { en: 'Cloud architecture', no: 'Skyarkitektur' } }),
+    ]
+    const scoped = scopeGlossary(buildGlossary(s, 'en', 'no'), 'Our Cloud architecture works.')
+    expect(scoped.terms[0].from).toBe('Cloud architecture')
+  })
+
+  it('matches a term only on a word boundary', () => {
+    // 'Go' must not match inside 'Google', or every CV mentioning Google gets a
+    // do-not-translate instruction for the wrong term.
+    const s = emptyStore()
+    // A DIFFERENT translation, so the pair lands in `terms` rather than in the
+    // do-not-translate list (identical names go there instead).
+    s.skills = [makeSkill({ id: 'go', name: { en: 'Go', no: 'Golang' } })]
+    const g = buildGlossary(s, 'en', 'no')
+    expect(scopeGlossary(g, 'We used Google Cloud.').terms).toEqual([])
+    expect(scopeGlossary(g, 'We used Go.').terms.map((t) => t.from)).toEqual(['Go'])
+  })
+})
