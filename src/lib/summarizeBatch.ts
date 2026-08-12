@@ -150,6 +150,9 @@ export function emptySummaryTargets(
   const wanted = [...new Set(locales.filter(Boolean))]
   const out: SummaryTarget[] = []
   for (const item of items) {
+    // An imported or older-build store can hold something that isn't an item;
+    // the section bar must show a count, not crash.
+    if (!item || typeof item !== 'object') continue
     if (item['disabled'] === true) continue
     const id = typeof item['id'] === 'string' ? item['id'] : ''
     if (!id) continue

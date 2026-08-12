@@ -9,6 +9,7 @@ import {
 } from '../src/lib/summarizeBatch'
 import {
   emptyStore, makeResume, makeProject, makeWork, makeCourse, makeAward, makePublication,
+  makeSkill,
 } from './fixtures'
 import type { ResumeStore } from '../src/types'
 
@@ -332,5 +333,115 @@ describe('applySummaries()', () => {
       id: t.id, locale: t.locale, text: `summary of ${t.source}`,
     })))
     expect(emptySummaryTargets(out, 'honor_awards', ['no', 'en'])).toEqual([])
+  })
+})
+
+describe('the batch tolerates a malformed store', () => {
+  /**
+   * A store reaching these functions can come from an import or an older build,
+   * so a shape that isn’t what the types promise must produce no work rather
+   * than a crash in the section bar.
+   */
+  const malformed = (value: unknown): ResumeStore => {
+    const s = emptyStore()
+    ;(s as unknown as Record<string, unknown>).courses = value
+    return s
+  }
+
+  it('finds no targets when a section is not an array at all', () => {
+    expect(emptySummaryTargets(malformed('nonsense'), 'courses', ['en'])).toEqual([])
+    expect(emptySummaryTargets(malformed(null), 'courses', ['en'])).toEqual([])
+  })
+
+  it('applies nothing when a section is not an array at all', () => {
+    const store = malformed('nonsense')
+    expect(applySummaries(store, 'courses', [{ id: 'c1', locale: 'en', text: 'x' }])).toBe(store)
+  })
+
+  it('skips an item that is not an object, and one with no string id', () => {
+    const s = emptyStore()
+    ;(s as unknown as Record<string, unknown>).courses = [
+      null,
+      'a string',
+      { id: 42, description: { en: 'Long enough to summarize' } },
+      { description: { en: 'No id at all' } },
+      makeCourse({ id: 'ok', description: { en: 'A real course description' } }),
+    ]
+    expect(emptySummaryTargets(s, 'courses', ['en']).map((t) => t.id)).toEqual(['ok'])
+  })
+
+  it('ignores a result whose id is not a string', () => {
+    const s = emptyStore()
+    s.courses = [makeCourse({ id: 'c1', description: { en: 'text' } })]
+    const out = applySummaries(s, 'courses', [{ id: 42 as never, locale: 'en', text: 'x' }])
+    expect(out.courses[0]).toEqual(s.courses[0])
+  })
+
+  it('drops an empty or blank locale from the requested columns', () => {
+    // A hidden secondary column arrives as '' — queueing a job for it would
+    // write a summary into a locale slot with no name.
+    const s = emptyStore()
+    s.courses = [makeCourse({ id: 'c1', description: { en: 'A real course description' } })]
+    expect(emptySummaryTargets(s, 'courses', ['en', '']).map((t) => t.locale)).toEqual(['en'])
+  })
+
+  it('treats a source or target field holding a non-localized value as empty', () => {
+    const s = emptyStore()
+    ;(s as unknown as Record<string, unknown>).courses = [
+      { id: 'array', description: ['not', 'localized'], short_description: {} },
+      { id: 'string', description: 'a bare string', short_description: {} },
+      { id: 'ok', description: { en: 'A real course description' }, short_description: 'bare' },
+    ]
+    // The first two have no readable source; the third has no readable target,
+    // so its empty slot is still a job.
+    expect(emptySummaryTargets(s, 'courses', ['en']).map((t) => t.id)).toEqual(['ok'])
+  })
+})
+
+describe('summarizableSource and summaryContext trim what they read', () => {
+  it('reports a whitespace-only source as having nothing to summarize', () => {
+    expect(summarizableSource('   ')).toBe('')
+    expect(summarizableSource('<p>  </p>')).toBe('')
+  })
+
+  it('returns the source trimmed, so a prompt does not start with blank lines', () => {
+    expect(summarizableSource('  <p>Real text</p>  ')).toBe('Real text')
+  })
+
+  it('drops a heading field that holds only whitespace', () => {
+    const item = { customer: { en: '   ' }, description: { en: 'Project name' } }
+    expect(summaryContext('projects', item, 'en')).toEqual(['Project name: Project name'])
+  })
+
+  it('trims a heading value rather than padding the prompt line', () => {
+    const item = { customer: { en: '  Statoil  ' } }
+    expect(summaryContext('projects', item, 'en')).toEqual(['Customer: Statoil'])
+  })
+})
+
+describe('a section outside the summarize map is left entirely alone', () => {
+  it('finds no targets in a POPULATED section that has no summary field', () => {
+    // The registries have items but no long/short field pair; reaching for one
+    // would read an undefined field name off every entry.
+    const s = emptyStore()
+    s.skills = [makeSkill({ id: 's1', name: { en: 'Go' } })]
+    expect(emptySummaryTargets(s, 'skills', ['en'])).toEqual([])
+  })
+
+  it('applies nothing to a populated section that has no summary field', () => {
+    const s = emptyStore()
+    s.skills = [makeSkill({ id: 's1', name: { en: 'Go' } })]
+    expect(applySummaries(s, 'skills', [{ id: 's1', locale: 'en', text: 'x' }])).toBe(s)
+  })
+
+  it('never writes to an item whose id is not a string, even on an exact match', () => {
+    // The id is the only thing tying a result to an item; a loose match would
+    // let 42 and '42' address each other.
+    const s = emptyStore()
+    ;(s as unknown as Record<string, unknown>).courses = [
+      { id: 42, description: { en: 'A real course description' }, short_description: {} },
+    ]
+    const out = applySummaries(s, 'courses', [{ id: 42 as never, locale: 'en', text: 'summary' }])
+    expect((out.courses[0] as unknown as Record<string, unknown>).short_description).toEqual({})
   })
 })
