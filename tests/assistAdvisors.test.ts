@@ -1311,3 +1311,159 @@ describe('applyProfileDraft', () => {
     expect(out.key_qualifications[1].tag_line.en).toBeUndefined()
   })
 })
+
+describe('CV_FIELDS is the advisors\u2019 contract, field by field', () => {
+  /**
+   * This table decides three things at once: what a digest SHOWS, what a model
+   * may name in a reply, and what applyProposals is allowed to overwrite. A
+   * `prose` flag flipped the wrong way either hides a writable field from the
+   * assists or lets one rewrite an employer\u2019s name, so the whole table is
+   * pinned rather than spot-checked.
+   */
+  const EXPECTED: Record<string, Array<[string, string, boolean, boolean?]>> = {
+    key_qualifications: [
+      ['tag_line', 'Tag line', false],
+      ['summary', 'Full profile', true],
+      ['summary_short', 'Short summary', true],
+    ],
+    key_competencies: [
+      ['title', 'Title', false],
+      ['description', 'Description', true],
+      ['short_description', 'Short description', true],
+    ],
+    projects: [
+      ['customer', 'Customer', false],
+      ['description', 'Project name', false],
+      ['long_description', 'Description', true],
+      ['short_description', 'Short description', true],
+      ['highlights', 'Highlights', true, true],
+    ],
+    work_experiences: [
+      ['employer', 'Employer', false],
+      ['role_title', 'Role', false],
+      ['long_description', 'Description', true],
+      ['short_description', 'Short description', true],
+    ],
+    positions: [
+      ['name', 'Position', false],
+      ['organisation', 'Organisation', false],
+      ['description', 'Description', true],
+      ['short_description', 'Short description', true],
+    ],
+    educations: [
+      ['school', 'School', false],
+      ['degree', 'Degree', false],
+      ['description', 'Description', true],
+      ['short_description', 'Short description', true],
+    ],
+    courses: [
+      ['name', 'Course', false],
+      ['program', 'Programme', false],
+      ['description', 'Description', true],
+      ['short_description', 'Short description', true],
+    ],
+    certifications: [
+      ['name', 'Certification', false],
+      ['organiser', 'Issuer', false],
+      ['description', 'Description', true],
+      ['short_description', 'Short description', true],
+    ],
+    presentations: [
+      ['title', 'Title', false],
+      ['event', 'Event', false],
+      ['description', 'Description', true],
+      ['short_description', 'Short description', true],
+    ],
+    publications: [
+      ['title', 'Title', false],
+      ['publisher', 'Publisher', false],
+      ['abstract', 'Abstract', true],
+      ['short_description', 'Short description', true],
+    ],
+    honor_awards: [
+      ['name', 'Award', false],
+      ['issuer', 'Issuer', false],
+      ['for_work', 'For', false],
+      ['description', 'Description', true],
+      ['short_description', 'Short description', true],
+    ],
+    recommendations: [
+      ['recommender_title', 'Recommender', false],
+      ['relationship', 'Relationship', false],
+      ['text', 'Recommendation', true],
+      ['short_description', 'Short description', true],
+    ],
+  }
+
+  it('covers exactly these sections, in this order', () => {
+    expect(CV_SECTIONS).toEqual(Object.keys(EXPECTED))
+  })
+
+  for (const [section, fields] of Object.entries(EXPECTED)) {
+    it(`describes ${section} field for field`, () => {
+      expect(fieldsOf(section).map((f) => [f.key, f.label, f.prose, f.list].filter((v) => v !== undefined)))
+        .toEqual(fields.map((row) => row.filter((v) => v !== undefined)))
+    })
+  }
+
+  it('marks the LIST fields, and only those', () => {
+    const lists = CV_SECTIONS.flatMap((s) => fieldsOf(s).filter((f) => f.list).map((f) => `${s}.${f.key}`))
+    expect(lists).toEqual(['projects.highlights'])
+  })
+
+  it('gives every section at least one prose field to work on', () => {
+    for (const s of CV_SECTIONS) expect(fieldsOf(s).some((f) => f.prose), s).toBe(true)
+  })
+
+  it('names each section\u2019s identity field first — the digest leads with what an item IS', () => {
+    for (const s of CV_SECTIONS) expect(fieldsOf(s)[0].prose, s).toBe(false)
+  })
+
+  it('offers a short_description everywhere the summarize assist can write one', () => {
+    // Every section but the profile itself uses that key; the profile\u2019s
+    // equivalent is summary_short.
+    for (const s of CV_SECTIONS) {
+      const keys = fieldsOf(s).map((f) => f.key)
+      expect(keys.includes('short_description') || keys.includes('summary_short'), s).toBe(true)
+    }
+  })
+
+  it('knows nothing about the registries or Languages', () => {
+    // Names, not prose; and CEFR levels are not writing.
+    for (const s of ['skills', 'roles', 'industries', 'spoken_languages', 'views']) {
+      expect(fieldsOf(s), s).toEqual([])
+      expect(fieldOf(s, 'name'), s).toBeNull()
+    }
+  })
+
+  it('resolves one field by section and key, and null for an unknown key', () => {
+    expect(fieldOf('projects', 'long_description')).toEqual({ key: 'long_description', label: 'Description', prose: true })
+    expect(fieldOf('projects', 'nope')).toBeNull()
+    expect(fieldOf('nope', 'long_description')).toBeNull()
+  })
+})
+
+describe('itemsOf / isAdvisorSection guard a model-supplied section name', () => {
+  it('refuses a section the advisors do not cover, and one that is not an array', () => {
+    const data = emptyStore()
+    expect(isAdvisorSection('projects', data)).toBe(true)
+    expect(isAdvisorSection('skills', data)).toBe(false)
+    expect(isAdvisorSection('resume', data)).toBe(false)
+    expect(isAdvisorSection('__proto__', data)).toBe(false)
+  })
+
+  it('returns an empty array — never throws — for a bad section name', () => {
+    expect(itemsOf(emptyStore(), 'made_up')).toEqual([])
+    expect(itemsOf(emptyStore(), 'resume')).toEqual([])
+  })
+
+  it('drops disabled items, and only those', () => {
+    const data = emptyStore()
+    data.projects = [
+      makeProject({ id: 'live' }),
+      makeProject({ id: 'hidden', disabled: true }),
+      makeProject({ id: 'explicit', disabled: false }),
+    ]
+    expect(itemsOf(data, 'projects').map((it) => it.id)).toEqual(['live', 'explicit'])
+  })
+})
