@@ -341,9 +341,17 @@ describe('modelFindings() — pass 2 residual', () => {
     expect(modelFindings(['Initech'], s, v, 'en', [])).toEqual([])
   })
 
-  it('drops a model name too short to match safely', () => {
-    // Same floor as pass 1: a two-letter "name" matches half the CV.
-    expect(modelFindings(['AB'], s, v, 'en', [])).toEqual([])
+  it('drops a model name too short to match safely, even when it IS in the text', () => {
+    // Same floor as pass 1: a two-letter "name" matches half the CV. The text
+    // must contain it, or the not-in-the-text rule would be doing the work.
+    const withShort = store({
+      projects: [makeProject({
+        customer: { en: 'Acme Corporation' },
+        customer_anonymized: { en: 'Retailer' },
+        long_description: { en: '<p>Ran the AB integration for them.</p>' },
+      })],
+    })
+    expect(modelFindings(['AB'], withShort, v, 'en', [])).toEqual([])
   })
 
   it('keeps a name of exactly the minimum length, padding and all', () => {
@@ -375,5 +383,47 @@ describe('modelFindings() — pass 2 residual', () => {
 
   it('dedupes repeated names from one reply', () => {
     expect(modelFindings(['Globex', 'globex'], s, v, 'en', [])).toHaveLength(1)
+  })
+})
+
+describe('the leak report stays readable and complete', () => {
+  it('quotes a WINDOW around the leak, not the whole exported CV', () => {
+    const filler = 'Delivered platform work across many teams and quarters. '.repeat(20)
+    const s = store({
+      projects: [makeProject({
+        customer: { en: 'Acme Corporation' },
+        customer_anonymized: { en: 'Retailer' },
+        long_description: { en: `<p>${filler}Then the Acme Corporation rollout. ${filler}</p>` },
+      })],
+    })
+    const context = findKnownLeaks(s, anonView(), 'en')[0].context
+    expect(context).toContain('Acme Corporation')
+    expect(context.length).toBeLessThan(150)
+  })
+
+  it('still reports a shorter name that sits BEFORE a longer claimed one', () => {
+    // The overlap check has to compare both ends: a claimed span later in the
+    // text must not swallow an earlier, unrelated hit.
+    const s = store({
+      projects: [
+        makeProject({
+          id: 'p1', customer: { en: 'Beta' }, customer_anonymized: { en: 'Client A' },
+          long_description: { en: '<p>Beta came first in the document.</p>' },
+        }),
+        makeProject({
+          id: 'p2', customer: { en: 'Acme Corporation' }, customer_anonymized: { en: 'Client B' },
+          long_description: { en: '<p>Acme Corporation came later in the document.</p>' },
+        }),
+      ],
+    })
+    expect(findKnownLeaks(s, anonView(), 'en').map((f) => f.text).sort())
+      .toEqual(['Acme Corporation', 'Beta'])
+  })
+
+  it('names what was wrong with a pass-2 reply: not an object versus no names array', () => {
+    expect(() => validateAnonCheck('a string')).toThrow(/not a JSON object/)
+    expect(() => validateAnonCheck(null)).toThrow(/not a JSON object/)
+    expect(() => validateAnonCheck({ result: [] })).toThrow(/no "names" array/)
+    expect(() => validateAnonCheck('a string')).toThrow(InvalidAnonCheckError)
   })
 })

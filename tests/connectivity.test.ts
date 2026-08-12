@@ -157,3 +157,87 @@ describe('connectivity machine', () => {
     expect(isOnline()).toBe(true)
   })
 })
+
+describe('polling only runs while we think we are offline', () => {
+  beforeEach(() => {
+    __resetConnectivityForTests()
+    vi.useFakeTimers()
+    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true)
+  })
+  afterEach(() => {
+    vi.runOnlyPendingTimers()
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+    __resetConnectivityForTests()
+  })
+
+  it('does not poll at all while online — the offline event will tell us', () => {
+    const health = vi.spyOn(api, 'health').mockResolvedValue(true)
+    subscribeOnline(() => {})
+    vi.advanceTimersByTime(120_000)
+    expect(health).not.toHaveBeenCalled()
+  })
+
+  it('polls for recovery once offline, and keeps polling while it stays down', async () => {
+    const health = vi.spyOn(api, 'health').mockResolvedValue(false)
+    subscribeOnline(() => {})
+    window.dispatchEvent(new Event('offline'))
+
+    await vi.advanceTimersByTimeAsync(15_000)
+    expect(health).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(15_000)
+    expect(health).toHaveBeenCalledTimes(2)
+    expect(isOnline()).toBe(false)
+  })
+
+  it('stops polling once a probe finds the server again', async () => {
+    const health = vi.spyOn(api, 'health').mockResolvedValue(true)
+    subscribeOnline(() => {})
+    window.dispatchEvent(new Event('offline'))
+
+    await vi.advanceTimersByTimeAsync(15_000)
+    expect(isOnline()).toBe(true)
+    const after = health.mock.calls.length
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(health).toHaveBeenCalledTimes(after)
+  })
+
+  it('starts only ONE poll timer however many offline events arrive', async () => {
+    const health = vi.spyOn(api, 'health').mockResolvedValue(false)
+    subscribeOnline(() => {})
+    window.dispatchEvent(new Event('offline'))
+    window.dispatchEvent(new Event('offline'))
+    window.dispatchEvent(new Event('offline'))
+
+    await vi.advanceTimersByTimeAsync(15_000)
+    expect(health).toHaveBeenCalledTimes(1)
+  })
+
+  it('starts offline when the NIC says so, and polls from the start', async () => {
+    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
+    const health = vi.spyOn(api, 'health').mockResolvedValue(false)
+    const seen: string[] = []
+    subscribeOnline((s) => seen.push(s))
+    expect(seen).toEqual(['offline'])
+    await vi.advanceTimersByTimeAsync(15_000)
+    expect(health).toHaveBeenCalled()
+  })
+
+  it('an unsubscribed listener hears nothing further', () => {
+    const seen: string[] = []
+    const unsub = subscribeOnline((s) => seen.push(s))
+    unsub()
+    window.dispatchEvent(new Event('offline'))
+    expect(seen).toEqual(['online'])
+  })
+
+  it('notifies every subscriber, not just the first', () => {
+    const a: string[] = []
+    const b: string[] = []
+    subscribeOnline((s) => a.push(s))
+    subscribeOnline((s) => b.push(s))
+    window.dispatchEvent(new Event('offline'))
+    expect(a).toEqual(['online', 'offline'])
+    expect(b).toEqual(['online', 'offline'])
+  })
+})

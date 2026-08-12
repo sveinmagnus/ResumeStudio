@@ -80,3 +80,37 @@ describe('uuidv4', () => {
     }
   })
 })
+
+describe('uuidv4 without a platform randomUUID', () => {
+  const withCrypto = (c: unknown, run: () => void) => {
+    const original = Object.getOwnPropertyDescriptor(globalThis, 'crypto')
+    Object.defineProperty(globalThis, 'crypto', { value: c, configurable: true })
+    try { run() } finally {
+      if (original) Object.defineProperty(globalThis, 'crypto', original)
+      else delete (globalThis as unknown as Record<string, unknown>).crypto
+    }
+  }
+  const V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+
+  it('assembles a valid v4 from getRandomValues', () => {
+    withCrypto({ getRandomValues: (a: Uint8Array) => { a.fill(0xff); return a } }, () => {
+      const id = uuidv4()
+      expect(id).toMatch(V4)
+      // Every byte is filled: a short buffer would leave zeroes at the end.
+      expect(id.replace(/-/g, '')).toHaveLength(32)
+      expect(id.endsWith('ffffffffffff')).toBe(true)
+    })
+  })
+
+  it('falls back to Math.random rather than refusing to create an item', () => {
+    // These are collision-avoidance ids for rows in one person's CV, not
+    // security tokens; refusing here would block adding a project.
+    withCrypto({}, () => {
+      expect(uuidv4()).toMatch(V4)
+      expect(uuidv4()).not.toBe(uuidv4())
+    })
+    withCrypto(undefined, () => {
+      expect(uuidv4()).toMatch(V4)
+    })
+  })
+})

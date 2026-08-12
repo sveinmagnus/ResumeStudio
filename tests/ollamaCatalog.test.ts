@@ -79,3 +79,30 @@ describe('modelOptions()', () => {
     expect(opts.some((o) => !o.name.trim())).toBe(false)
   })
 })
+
+describe('the model list a user picks from', () => {
+  it('labels an installed model with its size, and without a stray separator when it has none', () => {
+    const list = modelOptions([{ name: 'llama3', size: 4_000_000_000 }, { name: 'sizeless' }])
+    const installed = Object.fromEntries(list.filter((m) => m.installed).map((m) => [m.name, m.label]))
+    expect(installed.llama3).toMatch(/^Installed · /)
+    expect(installed.sizeless).toBe('Installed')
+  })
+
+  it('labels a catalog model with its parameter count and download size', () => {
+    const c = OLLAMA_CATALOG[0]
+    const row = modelOptions([]).find((m) => m.name === c.name)!
+    expect(row.installed).toBe(false)
+    expect(row.label).toContain(c.params)
+    expect(row.label).toContain('GB download')
+  })
+
+  it('appends a catalog note only for the models that have one', () => {
+    const list = modelOptions([])
+    for (const c of OLLAMA_CATALOG) {
+      const row = list.find((m) => m.name === c.name)!
+      if (c.note) expect(row.label, c.name).toContain(c.note)
+      // No note must not leave a trailing separator.
+      else expect(row.label.endsWith(' · '), c.name).toBe(false)
+    }
+  })
+})

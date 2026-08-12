@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { SECTIONS, GROUP_ORDER, canonicalSectionKey, localizedSectionHeading, SECTION_HEADINGS } from '../src/lib/sections'
+import {
+  SECTIONS, GROUP_ORDER, canonicalSectionKey, localizedSectionHeading, SECTION_HEADINGS, sectionLabel,
+  GROUP_LABELS,
+} from '../src/lib/sections'
 import { isExportableSection } from '../src/lib/viewFilter'
 
 describe('sections', () => {
@@ -105,5 +108,73 @@ describe('sections', () => {
         expect(SECTION_HEADINGS[s.key].no, s.key).toBeTruthy()
       }
     })
+  })
+})
+
+describe('sectionLabel and canonicalSectionKey', () => {
+  it('labels a real section from the one catalog every surface reads', () => {
+    for (const def of SECTIONS) expect(sectionLabel(def.key), def.key).toBe(def.label)
+  })
+
+  it('falls back to the key itself for something that is not a section', () => {
+    expect(sectionLabel('made_up')).toBe('made_up')
+    expect(sectionLabel('')).toBe('')
+  })
+
+  it('lands the two legacy keys on the pages that own them now', () => {
+    // Deep links and snapshots still carry both.
+    expect(canonicalSectionKey('profile_competencies')).toBe('key_qualifications')
+    expect(canonicalSectionKey('technology_categories')).toBe('skills')
+  })
+
+  it('leaves every real section key alone', () => {
+    // 'technology_categories' is a SECTIONS entry but a projection of the Skill
+    // Registry page, so it is the one key that is deliberately rewritten.
+    for (const def of SECTIONS) {
+      if (def.key === 'technology_categories') continue
+      expect(canonicalSectionKey(def.key), def.key).toBe(def.key)
+    }
+    expect(canonicalSectionKey('anything else')).toBe('anything else')
+  })
+})
+
+describe('localizedSectionHeading falls back rather than printing nothing', () => {
+  it('uses the locale heading when there is one', () => {
+    expect(localizedSectionHeading('projects', 'no')).toBe(SECTION_HEADINGS.projects.no)
+  })
+
+  it('falls back to English for a locale the table does not name', () => {
+    expect(localizedSectionHeading('projects', 'xx')).toBe(SECTION_HEADINGS.projects.en)
+  })
+
+  it('treats a BLANK localized heading as missing', () => {
+    // An empty string in the table would otherwise print an empty export
+    // heading, which reads as a rendering bug.
+    const table = SECTION_HEADINGS.projects as Record<string, string>
+    const original = table.no
+    table.no = '   '
+    try {
+      expect(localizedSectionHeading('projects', 'no')).toBe(table.en)
+    } finally {
+      table.no = original
+    }
+  })
+
+  it('falls back to the section label for a section with no heading table', () => {
+    expect(localizedSectionHeading('views', 'no')).toBe(sectionLabel('views'))
+    expect(localizedSectionHeading('made_up', 'no')).toBe('made_up')
+  })
+})
+
+describe('GROUP_LABELS names every sidebar group', () => {
+  it('gives each group in GROUP_ORDER a heading', () => {
+    // The sidebar renders these directly; a missing one is a blank heading
+    // above a list of sections.
+    for (const group of GROUP_ORDER) expect(GROUP_LABELS[group], group).toBeTruthy()
+  })
+
+  it('names no group twice', () => {
+    const labels = GROUP_ORDER.map((g) => GROUP_LABELS[g])
+    expect(new Set(labels).size).toBe(labels.length)
   })
 })

@@ -119,3 +119,39 @@ describe('applyTemplate', () => {
     expect(patch.starred_only).toBeUndefined()
   })
 })
+
+describe('every template carries a complete look', () => {
+  /**
+   * A template is applied as one patch, so a missing half leaves the view
+   * carrying the previous template's photo or footer — which reads as the
+   * template not working rather than as a gap in the data.
+   */
+  it('gives each template a header and a footer intent', () => {
+    for (const t of VIEW_TEMPLATES) {
+      expect(t.header, t.id).toBeTruthy()
+      expect(Object.keys(t.header ?? {}).length, t.id).toBeGreaterThan(0)
+      expect(t.footer, t.id).toBeTruthy()
+      expect(Object.keys(t.footer ?? {}).length, t.id).toBeGreaterThan(0)
+    }
+  })
+
+  it('states a photo placement in every template, so applying one settles it', () => {
+    for (const t of VIEW_TEMPLATES) {
+      expect(t.header?.photo_placement, t.id).toBeTruthy()
+    }
+  })
+
+  it('states a footer separator in every template', () => {
+    for (const t of VIEW_TEMPLATES) {
+      expect(t.footer?.separator, t.id).toBeTruthy()
+    }
+  })
+
+  it('resolves a template by id, and nothing for an unknown or absent one', () => {
+    expect(getTemplate(VIEW_TEMPLATES[0].id)?.id).toBe(VIEW_TEMPLATES[0].id)
+    expect(getTemplate('no-such-template')).toBeNull()
+    expect(getTemplate(null)).toBeNull()
+    expect(getTemplate(undefined)).toBeNull()
+    expect(getTemplate('')).toBeNull()
+  })
+})

@@ -122,3 +122,99 @@ describe('coerce', () => {
     })
   })
 })
+
+describe('toYearMonth — every shape an import can send', () => {
+  it('reads a bare year, as a number or a string', () => {
+    expect(toYearMonth(2019)).toEqual({ year: 2019, month: null })
+    expect(toYearMonth('2019')).toEqual({ year: 2019, month: null })
+  })
+
+  it('truncates a fractional year rather than storing it', () => {
+    expect(toYearMonth(2019.9)).toEqual({ year: 2019, month: null })
+    expect(toYearMonth({ year: 2019.9, month: 3 })).toEqual({ year: 2019, month: 3 })
+  })
+
+  it('is null for nothing at all, and for anything unreadable', () => {
+    expect(toYearMonth(null)).toBeNull()
+    expect(toYearMonth(undefined)).toBeNull()
+    expect(toYearMonth('not a year')).toBeNull()
+    expect(toYearMonth([2019])).toBeNull()
+    expect(toYearMonth(true)).toBeNull()
+    expect(toYearMonth({ month: 3 })).toBeNull()
+    expect(toYearMonth({ year: 'nope' })).toBeNull()
+  })
+
+  it('reads a { year, month } pair, as numbers or strings', () => {
+    expect(toYearMonth({ year: 2019, month: 3 })).toEqual({ year: 2019, month: 3 })
+    expect(toYearMonth({ year: '2019', month: '3' })).toEqual({ year: 2019, month: 3 })
+  })
+
+  it('keeps a month of null as year-only precision', () => {
+    expect(toYearMonth({ year: 2019, month: null })).toEqual({ year: 2019, month: null })
+    expect(toYearMonth({ year: 2019 })).toEqual({ year: 2019, month: null })
+  })
+
+  it('drops an out-of-range or non-integer month instead of storing a bad date', () => {
+    for (const month of [0, 13, -1, 3.5, 'March', {}]) {
+      expect(toYearMonth({ year: 2019, month }), String(month)).toEqual({ year: 2019, month: null })
+    }
+  })
+
+  it('keeps both ends of the legal month range', () => {
+    expect(toYearMonth({ year: 2019, month: 1 })?.month).toBe(1)
+    expect(toYearMonth({ year: 2019, month: 12 })?.month).toBe(12)
+  })
+})
+
+describe('checkDate — what it complains about', () => {
+  const issues = (val: unknown): ImportIssue[] => {
+    const out: ImportIssue[] = []
+    checkDate(val, 'start', out)
+    return out
+  }
+
+  it('says nothing about an absent date — a date is optional', () => {
+    expect(issues(null)).toEqual([])
+    expect(issues(undefined)).toEqual([])
+  })
+
+  it('accepts a plausible year on its own', () => {
+    expect(issues(2019)).toEqual([])
+    expect(issues('2019')).toEqual([])
+  })
+
+  it('rejects a year outside the four-digit range, at both ends', () => {
+    expect(issues(999)).toHaveLength(1)
+    expect(issues(3001)).toHaveLength(1)
+    expect(issues(1000)).toEqual([])
+    expect(issues(3000)).toEqual([])
+  })
+
+  it('names the offending value in the message', () => {
+    expect(issues('yesterday')[0]).toEqual({
+      path: 'start', reason: 'expected a 4-digit year, got "yesterday"',
+    })
+  })
+
+  it('checks the year of an object under a .year path', () => {
+    expect(issues({ year: 12 })[0].path).toBe('start.year')
+  })
+
+  it('accepts a legal month and rejects an illegal one, under a .month path', () => {
+    expect(issues({ year: 2019, month: 1 })).toEqual([])
+    expect(issues({ year: 2019, month: 12 })).toEqual([])
+    expect(issues({ year: 2019, month: null })).toEqual([])
+    for (const month of [0, 13, 3.5, 'March']) {
+      const out = issues({ year: 2019, month })
+      expect(out, String(month)).toHaveLength(1)
+      expect(out[0].path).toBe('start.month')
+    }
+  })
+
+  it('rejects a shape that is neither a year nor a year/month object', () => {
+    expect(issues([2019])[0]).toEqual({
+      path: 'start', reason: 'expected a year number or a { year, month } object',
+    })
+    expect(issues(true)).toHaveLength(1)
+  })
+})

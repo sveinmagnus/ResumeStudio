@@ -70,3 +70,32 @@ describe('showcaseGroups()', () => {
     expect(showcaseGroups(store, makeView(), 'en')).toEqual([])
   })
 })
+
+describe('showcaseGroups — the empty cases', () => {
+  it('is empty when every category is excluded from the view', () => {
+    const s = emptyStore()
+    s.skill_categories = [makeSkillCategory({ id: 'c1', name: { en: 'Languages' } })]
+    s.skills = [makeSkill({ id: 's1', name: { en: 'Go' }, category_id: 'c1', is_highlighted: true })]
+    const v = makeView({ excluded_item_ids: ['c1'] })
+    expect(showcaseGroups(s, v, 'en')).toEqual([])
+  })
+
+  it('is empty when there are no categories at all', () => {
+    const s = emptyStore()
+    s.skills = [makeSkill({ id: 's1', name: { en: 'Go' }, is_highlighted: true })]
+    expect(showcaseGroups(s, makeView(), 'en')).toEqual([])
+  })
+
+  it('omits a category whose skills are none of them highlighted', () => {
+    const s = emptyStore()
+    s.skill_categories = [
+      makeSkillCategory({ id: 'c1', name: { en: 'Languages' } }),
+      makeSkillCategory({ id: 'c2', name: { en: 'Platforms' } }),
+    ]
+    s.skills = [
+      makeSkill({ id: 's1', name: { en: 'Go' }, category_id: 'c1', is_highlighted: true }),
+      makeSkill({ id: 's2', name: { en: 'Kubernetes' }, category_id: 'c2', is_highlighted: false }),
+    ]
+    expect(showcaseGroups(s, makeView(), 'en').map((g) => g.id)).toEqual(['c1'])
+  })
+})

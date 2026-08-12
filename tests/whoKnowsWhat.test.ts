@@ -116,3 +116,58 @@ describe('buildWhoKnowsWhat()', () => {
     expect(buildWhoKnowsWhat([])).toEqual({ people: [], rows: [] })
   })
 })
+
+describe('buildWhoKnowsWhat — spelling, proficiency and bad data', () => {
+  it('keeps the FIRST spelling when two are equally common, not the last', () => {
+    // A tie must resolve deterministically, or the matrix header changes between
+    // loads for no reason the user can see.
+    const wkw = buildWhoKnowsWhat([
+      person('a', 'Ada', [makeSkill({ id: 's1', name: { en: 'Kubernetes' } })]),
+      person('b', 'Bob', [makeSkill({ id: 's2', name: { en: 'kubernetes' } })]),
+    ], 'en')
+    expect(wkw.rows[0].name).toBe('Kubernetes')
+  })
+
+  it('treats a missing proficiency as zero rather than dropping the holder', () => {
+    const noProf = makeSkill({ id: 's1', name: { en: 'Go' } })
+    delete (noProf as unknown as Record<string, unknown>).proficiency
+    const wkw = buildWhoKnowsWhat([
+      person('a', 'Ada', [noProf]),
+      person('b', 'Bob', [makeSkill({ id: 's2', name: { en: 'Go' }, proficiency: 4 })]),
+    ], 'en')
+    expect(wkw.rows[0].holders.map((h) => h.personName)).toEqual(['Bob', 'Ada'])
+    expect(wkw.rows[0].holders[1].proficiency).toBe(0)
+  })
+
+  it('ignores a non-numeric proficiency from an import', () => {
+    const bad = makeSkill({ id: 's1', name: { en: 'Go' } })
+    ;(bad as unknown as Record<string, unknown>).proficiency = 'expert'
+    const wkw = buildWhoKnowsWhat([person('a', 'Ada', [bad])], 'en')
+    expect(wkw.rows[0].holders[0].proficiency).toBe(0)
+  })
+
+  it('names a row from the requested locale, falling back to any spelling it has', () => {
+    const wkw = buildWhoKnowsWhat([
+      person('a', 'Ada', [makeSkill({ id: 's1', name: { en: 'Go', no: 'Go-spr\u00e5ket' } })]),
+    ], 'no')
+    expect(wkw.rows[0].name).toBe('Go-spr\u00e5ket')
+  })
+
+  it('groups on a real spelling even when an EARLIER locale slot is blank', () => {
+    // The blank slot must be discarded before the key is chosen, or a skill
+    // named in only one of two columns drops out of the matrix.
+    const wkw = buildWhoKnowsWhat([
+      person('a', 'Ada', [makeSkill({ id: 's1', name: { en: '   ', no: 'Kubernetes' } })]),
+      person('b', 'Bob', [makeSkill({ id: 's2', name: { en: 'Kubernetes' } })]),
+    ], 'en')
+    expect(wkw.rows).toHaveLength(1)
+    expect(wkw.rows[0].holders.map((h) => h.personName).sort()).toEqual(['Ada', 'Bob'])
+  })
+
+  it('skips a skill whose every name is blank rather than grouping them together', () => {
+    const wkw = buildWhoKnowsWhat([
+      person('a', 'Ada', [makeSkill({ id: 's1', name: { en: '   ' } }), makeSkill({ id: 's2', name: {} })]),
+    ], 'en')
+    expect(wkw.rows).toEqual([])
+  })
+})

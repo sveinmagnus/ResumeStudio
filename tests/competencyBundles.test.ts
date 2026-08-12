@@ -3,6 +3,7 @@ import {
   UNASSIGNED_GROUP, chipDragId, parseChipDragId, reassignCompetency,
 } from '../src/lib/competencyBundles'
 import { makeKQ } from './fixtures'
+import type { KeyQualification } from '../src/types'
 
 describe('chipDragId / parseChipDragId', () => {
   it('round-trips a group + competency id (ids contain hyphens, not the pipe)', () => {
@@ -106,5 +107,71 @@ describe('reassignCompetency', () => {
     const legacy = [makeKQ({ id: 'p1', competency_ids: undefined as unknown as string[] })]
     expect(reassignCompetency(legacy, UNASSIGNED_GROUP, 'p1', 'c1'))
       .toEqual([{ profileId: 'p1', competency_ids: ['c1'] }])
+  })
+})
+
+describe('reassignCompetency — the drops that must change nothing', () => {
+  const quals = (): KeyQualification[] => [
+    makeKQ({ id: 'a', competency_ids: ['c1', 'c2'] }),
+    makeKQ({ id: 'b', competency_ids: ['c3'] }),
+  ]
+
+  it('is a no-op when source and target are the same profile', () => {
+    expect(reassignCompetency(quals(), 'a', 'a', 'c1')).toEqual([])
+  })
+
+  it('is a no-op when the target profile already holds the competency', () => {
+    // Dropping onto a profile that already has it must NOT strip it from the
+    // source — the user would lose a membership by re-confirming one.
+    const q = quals()
+    q[1].competency_ids = ['c1']
+    expect(reassignCompetency(q, 'a', 'b', 'c1')).toEqual([])
+  })
+
+  it('is a no-op with no competency id', () => {
+    expect(reassignCompetency(quals(), 'a', 'b', '')).toEqual([])
+  })
+
+  it('detaches from the source and attaches to the target, touching nobody else', () => {
+    const patches = reassignCompetency(quals(), 'a', 'b', 'c1')
+    expect(patches).toEqual([
+      { profileId: 'a', competency_ids: ['c2'] },
+      { profileId: 'b', competency_ids: ['c3', 'c1'] },
+    ])
+  })
+
+  it('appends to the END of the target bundle — the order is curated', () => {
+    const patches = reassignCompetency(quals(), 'a', 'b', 'c2')
+    expect(patches[1].competency_ids).toEqual(['c3', 'c2'])
+  })
+
+  it('only ATTACHES when dragged out of the unassigned pool', () => {
+    expect(reassignCompetency(quals(), UNASSIGNED_GROUP, 'b', 'c9'))
+      .toEqual([{ profileId: 'b', competency_ids: ['c3', 'c9'] }])
+  })
+
+  it('only DETACHES when dragged into the unassigned pool', () => {
+    expect(reassignCompetency(quals(), 'a', UNASSIGNED_GROUP, 'c1'))
+      .toEqual([{ profileId: 'a', competency_ids: ['c2'] }])
+  })
+
+  it('does nothing when the source profile does not actually hold it', () => {
+    expect(reassignCompetency(quals(), 'a', UNASSIGNED_GROUP, 'c3')).toEqual([])
+  })
+
+  it('handles a profile whose bundle field is missing entirely', () => {
+    const q = [makeKQ({ id: 'a', competency_ids: ['c1'] }), makeKQ({ id: 'b' })]
+    delete (q[1] as unknown as Record<string, unknown>).competency_ids
+    expect(reassignCompetency(q, 'a', 'b', 'c1')).toEqual([
+      { profileId: 'a', competency_ids: [] },
+      { profileId: 'b', competency_ids: ['c1'] },
+    ])
+  })
+
+  it('ignores a source or target id that no profile has', () => {
+    expect(reassignCompetency(quals(), 'gone', 'b', 'c9'))
+      .toEqual([{ profileId: 'b', competency_ids: ['c3', 'c9'] }])
+    expect(reassignCompetency(quals(), 'a', 'gone', 'c1'))
+      .toEqual([{ profileId: 'a', competency_ids: ['c2'] }])
   })
 })

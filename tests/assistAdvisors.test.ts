@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  emptyStore, makeCertification, makeCourse, makeEducation, makeKQ, makeProject, makeView,
+  emptyStore, makeCertification, makeCourse, makeEducation, makeKQ, makeProject, makeView, makeSkill,
   makeWork, makeKeyCompetency, makeResume,
 } from './fixtures'
 import type { KeyCompetency, ResumeStore } from '../src/types'
@@ -9,6 +9,7 @@ import { CV_SECTIONS, fieldOf, fieldsOf, isAdvisorSection, itemsOf } from '../sr
 import { validateFindings, InvalidFindingsError, FINDINGS_SCHEMA } from '../src/lib/assistFindings'
 import {
   validateProposals, applyProposals, InvalidProposalsError,
+  proposalsResponseSpec, PROPOSALS_SCHEMA,
 } from '../src/lib/assistProposals'
 import {
   validateMining, applyAchievements, buildMiningPrompt, InvalidMiningError,
@@ -1465,5 +1466,240 @@ describe('itemsOf / isAdvisorSection guard a model-supplied section name', () =>
       makeProject({ id: 'explicit', disabled: false }),
     ]
     expect(itemsOf(data, 'projects').map((it) => it.id)).toEqual(['live', 'explicit'])
+  })
+})
+
+describe('validateFindings — the keys, the numbering and the fallbacks', () => {
+  const ok = (findings: unknown[]) => ({ findings })
+
+  it('keys a section-level finding as "section", not as a null id', () => {
+    // The key is the react list key AND the resolution key; "projects:null:0"
+    // would read as an item called null.
+    const s = storeWithProject()
+    const { findings } = validateFindings(ok([
+      { section: 'projects', item_id: null, title: 'Whole section', detail: 'x' },
+    ]), s, 'en')
+    expect(findings[0].key).toBe('projects:section:0')
+    expect(findings[0].itemId).toBeNull()
+    expect(findings[0].itemLabel).toBe('')
+  })
+
+  it('keys an item finding by its item id', () => {
+    const s = storeWithProject()
+    const { findings } = validateFindings(ok([
+      { section: 'projects', item_id: pid(s), title: 'This one', detail: 'x' },
+    ]), s, 'en')
+    expect(findings[0].key).toBe(`projects:${pid(s)}:0`)
+    expect(findings[0].itemLabel).toBeTruthy()
+  })
+
+  it('resolves an item id the model padded with whitespace', () => {
+    const s = storeWithProject()
+    const { findings, dropped } = validateFindings(ok([
+      { section: 'projects', item_id: `  ${pid(s)}  `, title: 'Padded', detail: 'x' },
+    ]), s, 'en')
+    expect(dropped).toHaveLength(0)
+    expect(findings[0].itemId).toBe(pid(s))
+  })
+
+  it('treats a whitespace-only item id as "about the section"', () => {
+    // Trimming before the emptiness test is what separates "no item" from "an
+    // item id I cannot resolve" — the second drops the finding entirely.
+    const s = storeWithProject()
+    const { findings, dropped } = validateFindings(ok([
+      { section: 'projects', item_id: '   ', title: 'Section-wide', detail: 'x' },
+    ]), s, 'en')
+    expect(dropped).toHaveLength(0)
+    expect(findings[0].itemId).toBeNull()
+    expect(findings[0].key).toBe('projects:section:0')
+  })
+
+  it('reads a padded literal "null" item id as "about the section"', () => {
+    // Small models write the word rather than the JSON value, sometimes with
+    // whitespace around it; both have to mean the same thing.
+    const s = storeWithProject()
+    for (const item_id of ['null', ' null ', 'NULL']) {
+      const { findings, dropped } = validateFindings(ok([
+        { section: 'projects', item_id, title: 'Section-wide', detail: 'x' },
+      ]), s, 'en')
+      expect(dropped, item_id).toHaveLength(0)
+      expect(findings[0].itemId, item_id).toBeNull()
+    }
+  })
+
+  it('counts findings from ONE when reporting what it dropped', () => {
+    // "Finding 0" reads as a bug; the number is what the user matches against
+    // the model's own reply.
+    const s = storeWithProject()
+    const { dropped } = validateFindings(ok([
+      { section: 'projects', item_id: 'no-such-item', title: 'Bad', detail: 'x' },
+    ]), s, 'en')
+    expect(dropped[0]).toMatch(/^Finding 1 /)
+  })
+
+  it('falls back to a TRUNCATED detail when a finding has no title', () => {
+    const s = storeWithProject()
+    const long = 'x'.repeat(200)
+    const { findings } = validateFindings(ok([
+      { section: 'projects', item_id: null, detail: long },
+    ]), s, 'en')
+    expect(findings[0].title).toHaveLength(80)
+    expect(findings[0].detail).toBe(long)
+  })
+})
+
+describe('applyProposals — which item gets written', () => {
+  const twoProjects = (): ResumeStore => {
+    const s = emptyStore()
+    s.projects = [
+      makeProject({ id: 'p1', customer: { en: 'Acme' }, long_description: { en: 'First description.' } }),
+      makeProject({ id: 'p2', customer: { en: 'Beta' }, long_description: { en: 'Second description.' } }),
+    ]
+    return s
+  }
+
+  it('writes the proposal to the item it names, not the first one', () => {
+    const s = twoProjects()
+    const { proposals } = validateProposals({ edits: [{
+      section: 'projects', item_id: 'p2', field: 'long_description', proposed: 'Rewritten.',
+    }] }, s, 'en')
+    const { data, applied } = applyProposals(s, proposals)
+    expect(applied).toBe(1)
+    expect(data.projects[1].long_description.en).toBe('Rewritten.')
+    expect(data.projects[0].long_description.en).toBe('First description.')
+  })
+
+  it('skips a proposal whose item has been deleted since the run', () => {
+    const s = twoProjects()
+    const { proposals } = validateProposals({ edits: [{
+      section: 'projects', item_id: 'p2', field: 'long_description', proposed: 'Rewritten.',
+    }] }, s, 'en')
+    const without = { ...s, projects: [s.projects[0]] }
+    const { applied, skipped } = applyProposals(without, proposals)
+    expect(applied).toBe(0)
+    expect(skipped).toHaveLength(1)
+  })
+
+  it('skips a proposal whose field was edited after the run', () => {
+    // The panel is non-blocking, so the text can move under it; overwriting the
+    // newer edit would lose work the user just did.
+    const s = twoProjects()
+    const { proposals } = validateProposals({ edits: [{
+      section: 'projects', item_id: 'p1', field: 'long_description', proposed: 'Rewritten.',
+    }] }, s, 'en')
+    const moved = {
+      ...s,
+      projects: [{ ...s.projects[0], long_description: { en: 'Changed by hand.' } }, s.projects[1]],
+    }
+    const { applied, skipped } = applyProposals(moved, proposals)
+    expect(applied).toBe(0)
+    expect(skipped).toHaveLength(1)
+  })
+
+  it('applies to an item whose target field does not exist yet', () => {
+    // An empty short description is an absent key, not an empty object, and
+    // reading through it must not throw.
+    const s = emptyStore()
+    s.projects = [makeProject({ id: 'p1', customer: { en: 'Acme' }, long_description: { en: 'Text.' } })]
+    delete (s.projects[0] as unknown as Record<string, unknown>).short_description
+    const proposal = {
+      key: 'k', section: 'projects', itemId: 'p1', field: 'short_description',
+      fieldLabel: 'Short description', itemLabel: 'Acme', locale: 'en',
+      current: '', proposed: 'One line.', why: 'Filled it.',
+    }
+    const { data, applied } = applyProposals(s, [proposal])
+    expect(applied).toBe(1)
+    expect((data.projects[0] as unknown as Record<string, Record<string, string>>).short_description.en)
+      .toBe('One line.')
+  })
+
+  it('skips a whole section that is not an array in the store', () => {
+    const s = emptyStore()
+    s.projects = [makeProject({ id: 'p1', long_description: { en: 'Text.' } })]
+    const { proposals } = validateProposals({ edits: [{
+      section: 'projects', item_id: 'p1', field: 'long_description', proposed: 'Rewritten.',
+    }] }, s, 'en')
+    const broken = { ...s, projects: 'not an array' } as unknown as ResumeStore
+    const { applied, skipped } = applyProposals(broken, proposals)
+    expect(applied).toBe(0)
+    expect(skipped).toHaveLength(1)
+  })
+})
+
+describe('the two response contracts are spelled out for the model', () => {
+  it('proposalsResponseSpec names the schema and the JSON-only rule', () => {
+    const spec = proposalsResponseSpec()
+    expect(spec).toContain(PROPOSALS_SCHEMA)
+    expect(spec).toMatch(/ONLY this JSON|no prose/i)
+    expect(spec.split('\n').length).toBeGreaterThan(2)
+  })
+})
+
+describe('the two whole-CV prompts describe their own scope', () => {
+  it('voicePass spells out the prose fields a rewrite may touch, per section', () => {
+    // "Guess which fields you may edit" is how an identity field gets rewritten.
+    const prompt = buildVoicePassPrompt(emptyStore(), 'en')
+    expect(prompt).toContain('projects: long_description')
+    // Identity and list fields are not offered.
+    expect(prompt).not.toMatch(/projects:[^\n]*customer/)
+    expect(prompt).not.toMatch(/projects:[^\n]*highlights/)
+  })
+
+  it('voicePass can be narrowed to one section', () => {
+    const prompt = buildVoicePassPrompt(emptyStore(), 'en', { sections: ['educations'] })
+    expect(prompt).toContain('educations: ')
+    expect(prompt).not.toContain('projects: ')
+  })
+
+  it('cvReview lists the registry skills so the model can spot prose naming others', () => {
+    const s = emptyStore()
+    s.skills = [makeSkill({ id: 's1', name: { en: 'Kubernetes' } }), makeSkill({ id: 's2', name: {} })]
+    const line = buildCvReviewPrompt(s, 'en')
+      .split(/\r?\n/).find((l) => l.startsWith('Skills currently in the registry:'))!
+    // A nameless registry entry must not become an empty item in the list.
+    expect(line).toBe('Skills currently in the registry: Kubernetes')
+  })
+
+  it('cvReview reads the CV in the requested locale and leaves the short lines out', () => {
+    // A4/A2 work on the long text; the one-line summaries are derived from it,
+    // so reviewing them is reviewing the same words twice.
+    const s = emptyStore()
+    s.projects = [makeProject({
+      customer: { en: 'Acme' },
+      long_description: { en: 'English body text.', no: 'Norsk brødtekst.' },
+      short_description: { en: 'Short English line.', no: 'Kort norsk linje.' },
+    })]
+    const no = buildCvReviewPrompt(s, 'no')
+    expect(no).toContain('Norsk brødtekst.')
+    expect(no).not.toContain('English body text.')
+    expect(no).not.toContain('Kort norsk linje.')
+  })
+
+  it('voicePass reads the CV in the locale it was given', () => {
+    // A rewrite pass that reads the English column and proposes edits to the
+    // Norwegian one would replace text with a translation.
+    const s = emptyStore()
+    s.projects = [makeProject({
+      customer: { en: 'Acme' },
+      long_description: { en: 'English body text.', no: 'Norsk brødtekst.' },
+    })]
+    const prompt = buildVoicePassPrompt(s, 'no')
+    expect(prompt).toContain('Norsk brødtekst.')
+    expect(prompt).not.toContain('English body text.')
+  })
+
+  it('voicePass DOES send the short lines — they are prose it may rewrite', () => {
+    const s = emptyStore()
+    s.projects = [makeProject({
+      customer: { en: 'Acme' },
+      long_description: { en: 'English body text.' },
+      short_description: { en: 'Short English line.' },
+    })]
+    const prompt = buildVoicePassPrompt(s, 'en')
+    expect(prompt).toContain('Short English line.')
+  })
+
+  it('cvReview says so plainly when the registry is empty', () => {
+    expect(buildCvReviewPrompt(emptyStore(), 'en')).toContain('(none yet)')
   })
 })

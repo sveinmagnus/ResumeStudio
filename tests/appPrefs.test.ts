@@ -69,3 +69,30 @@ describe('setDefaultFonts()', () => {
     off()
   })
 })
+
+describe('getDefaultFonts falls back per field', () => {
+  it('uses the brand defaults when nothing is stored', () => {
+    localStorage.clear()
+    expect(getDefaultFonts()).toEqual(CATALOG_DEFAULT_FONTS)
+  })
+
+  it('uses the brand default for an EMPTY stored value', () => {
+    localStorage.setItem('rs.defaultFonts', '')
+    expect(getDefaultFonts()).toEqual(CATALOG_DEFAULT_FONTS)
+  })
+
+  it('falls back per field, keeping whichever half is usable', () => {
+    localStorage.setItem('rs.defaultFonts', JSON.stringify({ heading: 'times' }))
+    expect(getDefaultFonts()).toEqual({ heading: 'times', body: CATALOG_DEFAULT_FONTS.body })
+
+    localStorage.setItem('rs.defaultFonts', JSON.stringify({ heading: 42, body: 'courier' }))
+    expect(getDefaultFonts()).toEqual({ heading: CATALOG_DEFAULT_FONTS.heading, body: 'courier' })
+  })
+
+  it('falls back for unparseable or non-object stored values', () => {
+    for (const raw of ['{oh no', 'null', '42', '"text"']) {
+      localStorage.setItem('rs.defaultFonts', raw)
+      expect(getDefaultFonts(), raw).toEqual(CATALOG_DEFAULT_FONTS)
+    }
+  })
+})
