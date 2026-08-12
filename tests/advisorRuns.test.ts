@@ -5,7 +5,7 @@ import type { ResumeStore } from '../src/types'
 import {
   selectRun, unresolved, unseenRuns, hasRunning, useAdvisors, advisorSection,
 } from '../src/store/useAdvisors'
-import { applyAchievements, validateMining } from '../src/lib/achievementMining'
+import { applyAchievements, validateMining, buildMiningPrompt } from '../src/lib/achievementMining'
 
 const RESUME = 'resume-1'
 
@@ -274,5 +274,130 @@ describe('bilingual achievements', () => {
       s, [{ ...a, translations: { no: { text: '   ', detail: '' } } }], 'en',
     )
     expect(data.projects[0].highlights[0]).toEqual({ en: 'Cut release time to a day' })
+  })
+})
+
+describe('achievement mining — the prompt, the drops and what lands where', () => {
+  const store = (): ResumeStore => {
+    const s = emptyStore()
+    s.projects = [makeProject({
+      id: 'p1',
+      customer: { en: 'Acme' },
+      long_description: { en: 'We moved from weekly to daily releases.' },
+      short_description: { en: 'Release work.' },
+    })]
+    return s
+  }
+
+  const one = (over: Record<string, unknown> = {}) => ({
+    target: 'highlight', section: 'projects', item_id: 'p1',
+    text: 'Cut release time to a day',
+    evidence: 'We moved from weekly to daily releases.',
+    ...over,
+  })
+
+  it('sends the LONG descriptions and not the one-line summaries', () => {
+    // The short line is derived from the long one; including it would spend
+    // context on text that can hold no unmined achievement.
+    const prompt = buildMiningPrompt(store(), 'en')
+    expect(prompt).toContain('We moved from weekly to daily releases.')
+    expect(prompt).not.toContain('Release work.')
+  })
+
+  it('counts entries from ONE when it reports what it dropped', () => {
+    const { dropped } = validateMining({ achievements: [one({ item_id: 'gone' })] }, store(), 'en')
+    expect(dropped[0]).toMatch(/^Entry 1 /)
+  })
+
+  it('quotes only the START of a rejected achievement, not the whole line', () => {
+    const long = 'x'.repeat(200)
+    const { dropped } = validateMining({ achievements: [one({ text: long, evidence: '' })] }, store(), 'en')
+    expect(dropped[0]).toContain('…')
+    expect(dropped[0].length).toBeLessThan(120)
+  })
+
+  it('drops an achievement with no supporting quote — the anti-invention contract', () => {
+    const { achievements, dropped } = validateMining(
+      { achievements: [one({ evidence: '' })] }, store(), 'en',
+    )
+    expect(achievements).toHaveLength(0)
+    expect(dropped[0]).toMatch(/^Entry 1 /)
+    expect(dropped[0]).toMatch(/quoted no supporting text/)
+  })
+
+  it('does not let a translation overwrite the primary column', () => {
+    // A model echoing the source locale back in `translations` would replace the
+    // text the user is reviewing with an unreviewed one.
+    const s = store()
+    const [a] = validateMining({ achievements: [one()] }, s, 'en').achievements
+    const echoed = { ...a, translations: { en: { text: 'Something else', detail: '' } } }
+    const { data } = applyAchievements(s, [echoed], 'en')
+    expect(data.projects[0].highlights[0]).toEqual({ en: 'Cut release time to a day' })
+  })
+
+  it('lands a highlight as a highlight and nothing else', () => {
+    const s = store()
+    const { achievements } = validateMining({ achievements: [one()] }, s, 'en')
+    const { data, highlights, competencies } = applyAchievements(s, achievements, 'en')
+    expect([highlights, competencies]).toEqual([1, 0])
+    expect(data.key_competencies).toBe(s.key_competencies)
+  })
+
+  it('lands a competency as a competency and adds no highlight', () => {
+    const s = store()
+    const { achievements } = validateMining(
+      { achievements: [one({ target: 'competency', detail: 'Owns delivery cadence.' })] }, s, 'en',
+    )
+    const { data, highlights, competencies } = applyAchievements(s, achievements, 'en')
+    expect([highlights, competencies]).toEqual([0, 1])
+    expect(data.projects[0].highlights).toEqual([])
+  })
+
+  it('refuses a highlight for an item that has no highlights at all', () => {
+    const s = store()
+    delete (s.projects[0] as unknown as Record<string, unknown>).highlights
+    const { achievements, dropped } = validateMining({ achievements: [one()] }, s, 'en')
+    expect(achievements).toHaveLength(0)
+    expect(dropped[0]).toMatch(/no highlights/)
+  })
+
+  it('adds the FIRST highlight when the array went missing after the run', () => {
+    // The run is non-blocking, so the item can change under it; the write must
+    // start a fresh list rather than reading through a missing one.
+    const s = store()
+    const { achievements } = validateMining({ achievements: [one()] }, s, 'en')
+    delete (s.projects[0] as unknown as Record<string, unknown>).highlights
+    const { data, highlights } = applyAchievements(s, achievements, 'en')
+    expect(highlights).toBe(1)
+    expect(data.projects[0].highlights).toEqual([{ en: 'Cut release time to a day' }])
+  })
+
+  it('appends beside an existing DIFFERENT highlight', () => {
+    const s = store()
+    s.projects[0].highlights = [{ en: 'Something else entirely' }]
+    const { achievements } = validateMining({ achievements: [one()] }, s, 'en')
+    const { data } = applyAchievements(s, achievements, 'en')
+    expect(data.projects[0].highlights.map((h) => h.en))
+      .toEqual(['Something else entirely', 'Cut release time to a day'])
+  })
+
+  it('does not stack a duplicate when the existing line is stored padded', () => {
+    // Re-running the pass must not add the same line twice, and the stored
+    // value may carry whitespace the model never sent.
+    const s = store()
+    s.projects[0].highlights = [{ en: '  Cut release time to a day  ' }]
+    const { achievements } = validateMining({ achievements: [one()] }, s, 'en')
+    const { data, highlights } = applyAchievements(s, achievements, 'en')
+    expect(highlights).toBe(0)
+    expect(data.projects[0].highlights).toHaveLength(1)
+  })
+
+  it('survives a highlights array holding a blank entry', () => {
+    const s = store()
+    ;(s.projects[0] as unknown as { highlights: unknown[] }).highlights = [null, { en: 'Other' }]
+    const { achievements } = validateMining({ achievements: [one()] }, s, 'en')
+    const { data, highlights } = applyAchievements(s, achievements, 'en')
+    expect(highlights).toBe(1)
+    expect(data.projects[0].highlights).toHaveLength(3)
   })
 })
