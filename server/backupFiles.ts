@@ -5,9 +5,17 @@
  * see `scanBackupDir` — so an existing folder keeps working). The folder now
  * holds:
  *
- *   <slug>__<resume-id>.json   one file per resume  (`resumestudio-resume/v1`)
- *   resume-studio-registry.json  the instance registry (`resumestudio-registry/v1`)
- *   deleted-resumes.json         erasure tombstones   (`resumestudio-tombstones/v1`)
+ *   <slug>__<resume-id>.json             one file per resume
+ *                                          (`resumestudio-resume/v1`)
+ *   resume-studio-registry.json          the instance registry
+ *                                          (`resumestudio-registry/v1`)
+ *   resume-studio-deleted-resumes.json   erasure tombstones
+ *                                          (`resumestudio-tombstones/v1`)
+ *
+ * The two fixed names carry the app's own prefix because a sync folder is
+ * normally a shared cloud folder holding other things too — see
+ * `LEGACY_REGISTRY_FILENAME` / `LEGACY_TOMBSTONE_FILENAME` for how a folder
+ * written by an older build is carried across.
  *
  * WHY one file per person. Every resume is one identified person's personal
  * data, and GDPR Art. 17 erasure has to be actionable at that granularity — on
@@ -86,7 +94,15 @@ export const REGISTRY_FILENAME = 'resume-studio-registry.json'
  * pre-split monolith gets.
  */
 export const LEGACY_REGISTRY_FILENAME = 'registry.json'
-export const TOMBSTONE_FILENAME = 'deleted-resumes.json'
+export const TOMBSTONE_FILENAME = 'resume-studio-deleted-resumes.json'
+/**
+ * The tombstone file's former name, kept for the same reason as
+ * `LEGACY_REGISTRY_FILENAME` — and handled more carefully, because this file
+ * is what stops a deleted person's CV coming back. Its contents are carried
+ * into the new name before the old one is removed; a tombstone dropped on the
+ * floor would let the next machine to sync resurrect the resume it erased.
+ */
+export const LEGACY_TOMBSTONE_FILENAME = 'deleted-resumes.json'
 
 /** One resume, standalone and portable. The unit of extraction AND of erasure. */
 export interface ResumeFileV1 {
@@ -585,6 +601,31 @@ export function writeResumeFiles(
     } catch { /* already gone */ }
   }
 
+  /**
+   * Move the tombstones to the new name, CONTENT FIRST.
+   *
+   * The registry above can simply be rewritten from the live DB, so losing the
+   * old copy costs nothing. Tombstones exist only in this folder: they are the
+   * record of what was erased, and dropping one lets the next machine to sync
+   * restore a resume somebody deleted. So the entries are written under the new
+   * name before the old file is touched, and the old file is removed only if
+   * that write succeeded. `existing.tombstones` is already the union of both
+   * files (the scan matches on `$schema`), so nothing is lost if a folder
+   * somehow holds each.
+   *
+   * A legacy file that does not parse is left alone: we cannot prove what it
+   * held, and an unexplained leftover file is a far better outcome than a
+   * silently un-erased person.
+   */
+  const legacyTombstones = path.join(dir, LEGACY_TOMBSTONE_FILENAME)
+  if (fs.existsSync(legacyTombstones) && existing.tombstones.length > 0) {
+    try {
+      writeJsonAtomic(dir, TOMBSTONE_FILENAME, buildTombstoneFile(existing.tombstones))
+      fs.unlinkSync(legacyTombstones)
+      result.removed.push(LEGACY_TOMBSTONE_FILENAME)
+    } catch { /* leave the legacy file in place — see above */ }
+  }
+
   // Retire the legacy monolith once every resume it held has its own file.
   // Leaving it would defeat the whole point: a single file with every person's
   // CV in it, which per-person erasure cannot touch.
@@ -605,12 +646,19 @@ export function writeResumeFiles(
 
 /** Read the folder's tombstones (empty when there are none / the file is bad). */
 export function readTombstones(dir: string): Tombstone[] {
-  try {
-    const json: unknown = JSON.parse(fs.readFileSync(path.join(dir, TOMBSTONE_FILENAME), 'utf8'))
-    return isTombstoneFile(json) ? parseTombstones(json.tombstones) : []
-  } catch {
-    return []
+  // Falls back to the pre-rename name. Unlike the registry — which is only ever
+  // reached through the schema-driven scan — this reads one file by name, so a
+  // folder written by an older build would otherwise report NO deletions, and
+  // "no tombstones" is precisely how an erased resume comes back.
+  for (const name of [TOMBSTONE_FILENAME, LEGACY_TOMBSTONE_FILENAME]) {
+    try {
+      const json: unknown = JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8'))
+      if (isTombstoneFile(json)) return parseTombstones(json.tombstones)
+    } catch {
+      // Missing or unreadable — try the next name.
+    }
   }
+  return []
 }
 
 /** How long a tombstone is kept before it is pruned (a year of offline machines). */
@@ -635,6 +683,14 @@ export function recordDeletion(dir: string, id: string, now = new Date()): void 
       .filter((t) => t.id !== id && Date.parse(t.deleted_at) >= cutoff)
     kept.push({ id, deleted_at: now.toISOString() })
     writeJsonAtomic(dir, TOMBSTONE_FILENAME, buildTombstoneFile(kept))
+    // `kept` came from the scan, which unions both filenames, so the new file
+    // now holds everything the old one did plus this deletion. Removing it here
+    // as well as in writeResumeFiles matters because a folder can go a long
+    // time between publishes, and until the old file is gone the same deletions
+    // are recorded twice.
+    if (fs.existsSync(path.join(dir, LEGACY_TOMBSTONE_FILENAME))) {
+      try { fs.unlinkSync(path.join(dir, LEGACY_TOMBSTONE_FILENAME)) } catch { /* already gone */ }
+    }
   } catch {
     // Swallowed on purpose: see the doc comment.
   }

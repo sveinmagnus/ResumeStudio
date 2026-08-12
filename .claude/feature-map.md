@@ -491,7 +491,7 @@ prescriptive.
 - **Per-person backup files + right to be forgotten** — the sync folder's unit is
   one identified person, so a single CV can be handed over or deleted as one
   file. Deleting a resume removes its file and writes an id-only tombstone
-  (`deleted-resumes.json`) that other machines honour, so an erasure can't be
+  (`resume-studio-deleted-resumes.json`) that other machines honour, so an erasure can't be
   undone by the next machine to sync; a copy edited *after* the deletion is
   treated as a revival and kept. **Export all resumes (.zip)** in Settings
   bundles the same files into one archive, and importing that zip (or any single
@@ -650,7 +650,7 @@ navigation** (Ctrl-click / "Open in new tab" work on every section and view).
 **Per-person backup files (August 2026).** The sync folder went from one
 `resume-studio-backup.json` holding everybody to **one file per resume**
 (`server/backupFiles.ts`: `<slug>__<resume-id>.json` + `resume-studio-registry.json` +
-`deleted-resumes.json`), because a resume is one identified person's data and
+`resume-studio-deleted-resumes.json`), because a resume is one identified person's data and
 GDPR erasure has to be actionable at that granularity on disk, not only in the
 DB. Identity is the id INSIDE the file, so a rename moves the file rather than
 adding a second one and two machines converge on one resume. Deleting a resume

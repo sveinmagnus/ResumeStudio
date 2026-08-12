@@ -3,11 +3,12 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 import {
-  REGISTRY_FILENAME, LEGACY_REGISTRY_FILENAME, TOMBSTONE_FILENAME,
+  REGISTRY_FILENAME, LEGACY_REGISTRY_FILENAME,
+  TOMBSTONE_FILENAME, LEGACY_TOMBSTONE_FILENAME,
   slugForResume, resumeFileName, resumeIdFromFileName,
   referencedCanonicalIds, collectReferencedRegistry,
   buildResumeFile, reconcileSources, scanBackupDir, folderFingerprint, folderLastWrite,
-  writeResumeFiles, recordDeletion, readTombstones, TOMBSTONE_TTL_MS,
+  writeResumeFiles, recordDeletion, readTombstones, TOMBSTONE_TTL_MS, type Tombstone,
 } from '../../server/backupFiles'
 import { BACKUP_FILENAME } from '../../server/backup'
 import type { ResumeBackupEntry } from '../../server/db'
@@ -410,6 +411,84 @@ describe('recordDeletion', () => {
     const dir = tmp()
     try {
       expect(readTombstones(dir)).toEqual([])
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  /**
+   * The tombstone file was renamed from `deleted-resumes.json` to
+   * `resume-studio-deleted-resumes.json`. This is the rename with teeth: the
+   * registry can be rewritten from the DB, but tombstones exist ONLY in the
+   * folder, and losing one lets the next machine to sync restore a resume
+   * somebody erased. So the property under test is not "the file moved" — it
+   * is "no deletion was forgotten while it moved".
+   */
+  const legacyTombstoneFile = (dir: string, tombstones: Tombstone[]) => {
+    fs.writeFileSync(
+      path.join(dir, LEGACY_TOMBSTONE_FILENAME),
+      JSON.stringify({
+        $schema: 'resumestudio-tombstones/v1',
+        format_version: 1,
+        exported_at: '2026-08-01T00:00:00.000Z',
+        generator: 'resume-studio',
+        tombstones,
+      }),
+    )
+  }
+
+  it('reads tombstones written under the old name', () => {
+    const dir = tmp()
+    try {
+      legacyTombstoneFile(dir, [{ id: 'erased', deleted_at: '2026-07-01T00:00:00.000Z' }])
+      // Both the by-name read and the schema-driven scan must see it, or an
+      // erasure made before the upgrade silently stops propagating.
+      expect(readTombstones(dir).map((t) => t.id)).toEqual(['erased'])
+      expect(scanBackupDir(dir).tombstones.map((t) => t.id)).toEqual(['erased'])
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('carries old tombstones into the new file before removing the old one', () => {
+    const dir = tmp()
+    try {
+      legacyTombstoneFile(dir, [{ id: 'erased-before-upgrade', deleted_at: '2026-07-01T00:00:00.000Z' }])
+
+      const result = writeResumeFiles(dir, [entry()], [reg()])
+
+      const names = fs.readdirSync(dir)
+      expect(names).toContain(TOMBSTONE_FILENAME)
+      expect(names).not.toContain(LEGACY_TOMBSTONE_FILENAME)
+      expect(result.removed).toContain(LEGACY_TOMBSTONE_FILENAME)
+      // The deletion survived the move — the whole point.
+      expect(readTombstones(dir).map((t) => t.id)).toEqual(['erased-before-upgrade'])
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('leaves an unparseable legacy tombstone file alone', () => {
+    // We cannot prove what it held, and an unexplained leftover file is a much
+    // better outcome than a person who quietly stops being erased.
+    const dir = tmp()
+    try {
+      fs.writeFileSync(path.join(dir, LEGACY_TOMBSTONE_FILENAME), '{ not json')
+      writeResumeFiles(dir, [entry()], [reg()])
+      expect(fs.readdirSync(dir)).toContain(LEGACY_TOMBSTONE_FILENAME)
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('recordDeletion retires the old file, keeping every deletion', () => {
+    const dir = tmp()
+    try {
+      legacyTombstoneFile(dir, [{ id: 'old', deleted_at: '2026-07-01T00:00:00.000Z' }])
+      recordDeletion(dir, 'new', new Date('2026-08-02T00:00:00.000Z'))
+
+      expect(fs.readdirSync(dir)).not.toContain(LEGACY_TOMBSTONE_FILENAME)
+      expect(readTombstones(dir).map((t) => t.id).sort()).toEqual(['new', 'old'])
     } finally {
       fs.rmSync(dir, { recursive: true, force: true })
     }

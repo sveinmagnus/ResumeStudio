@@ -176,7 +176,7 @@ file per resume** in that folder, named after the resume and its permanent id:
   bjorn-odegard-cv__3f2a1b2c-….json     ← one person, standalone and portable
   ada-lovelace-cv__7c9e0d41-….json
   resume-studio-registry.json           ← the shared skill/role registry
-  deleted-resumes.json                  ← erasure markers (ids + times only)
+  resume-studio-deleted-resumes.json    ← erasure markers (ids + times only)
 ```
 
 A resume is one identified person's data, so it gets its own file: you can hand
@@ -239,7 +239,7 @@ but it is not a real-time multi-writer collaboration system.
 ### Deleting a person's data everywhere
 
 Deleting a resume in the app deletes it here *and* in the sync folder: the
-resume's file is removed and a marker is written into `deleted-resumes.json`
+resume's file is removed and a marker is written into `resume-studio-deleted-resumes.json`
 recording only its id and the time. Other computers see that marker and remove
 their copy too, instead of helpfully syncing the resume back — which is what
 would otherwise make a deletion silently undo itself.

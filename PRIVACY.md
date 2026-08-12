@@ -116,7 +116,7 @@ Deleting a résumé removes the row, its snapshots (database cascade) and its
 file(s) in the sync folder.
 
 To let other machines learn about the deletion, a **tombstone** is appended to
-`deleted-resumes.json`: **an id and a timestamp, nothing else.** The record that
+`resume-studio-deleted-resumes.json`: **an id and a timestamp, nothing else.** The record that
 propagates an erasure is deliberately not itself personal data — no name, no
 content. Tombstones expire after one year.
 
