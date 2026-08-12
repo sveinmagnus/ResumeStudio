@@ -6,6 +6,7 @@ import { describe, it, expect } from 'vitest'
 import { buildViewText, buildViewMarkdown } from '../src/lib/viewText'
 import { buildViewSections } from '../src/lib/viewFilter'
 import { DEFAULT_VIEW_STYLE } from '../src/lib/viewStyle'
+import { withFooterDefaults } from '../src/lib/viewHeader'
 import {
   emptyStore, makeProject, makeWork, makeReference, makeRecommendation,
   makeSpokenLanguage, makeView, makeKQ, makeSkill, makeSkillCategory, makeResume,
@@ -815,5 +816,160 @@ describe('viewText — no dangling separators or prefixes', () => {
     const i = lines.indexOf('Summary.')
     expect(i).toBeGreaterThan(-1)
     expect(lines[i - 1]).not.toBe('')
+  })
+})
+
+/**
+ * The ATS text export is read by a machine and by a recruiter pasting it into a
+ * form, so its blank lines carry the structure. These pin the parts of that
+ * structure a renderer can lose without dropping a single word.
+ */
+describe('buildViewText — blank lines, empty blocks and the trailing edge', () => {
+  const store = (html: string): ResumeStore => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'Ada Lovelace' })
+    s.projects = [makeProject({ id: 'p1', customer: { en: 'AcmeCo' }, long_description: { en: html } })]
+    return s
+  }
+  const view = () => makeView({ sections: [{ key: 'projects', detail: 'full', sort_order: 0 }] })
+  const textFor = (html: string) => buildViewText(store(html), view(), 'en')
+
+  it('separates two paragraphs of one body with a blank line', () => {
+    const out = textFor('<p>First one.</p><p>Second one.</p>')
+    expect(out).toContain('First one.\n\nSecond one.')
+  })
+
+  it('keeps consecutive list items on adjacent lines, with no blank between them', () => {
+    const out = textFor('<ul><li>One</li><li>Two</li></ul>')
+    expect(out).toMatch(/- One\n- Two/)
+  })
+
+  it('puts a blank line between a paragraph and the list that follows it', () => {
+    const out = textFor('<p>Lead-in.</p><ul><li>One</li></ul>')
+    expect(out).toContain('Lead-in.\n\n- One')
+  })
+
+  it('skips a block whose only content is markup', () => {
+    // An empty paragraph would otherwise contribute a stray blank line.
+    const out = textFor('<p>First one.</p><p><strong> </strong></p><p>Second one.</p>')
+    expect(out).toContain('First one.\n\nSecond one.')
+    expect(out).not.toMatch(/\n\n\n/)
+  })
+
+  it('ends with exactly one newline, whatever the last section left behind', () => {
+    const out = textFor('<p>Only paragraph.</p>')
+    expect(out.endsWith('\n')).toBe(true)
+    expect(out.endsWith('\n\n')).toBe(false)
+  })
+
+  it('renders an inline-layout item as one line, and marks the title in Markdown', () => {
+    const s = store('<p>Body.</p>')
+    s.spoken_languages = [makeSpokenLanguage({ id: 'l1', name: { en: 'Norwegian' }, level: { en: 'Native' } })]
+    const v = makeView({
+      sections: [
+        { key: 'projects', detail: 'full', sort_order: 0 },
+        { key: 'spoken_languages', detail: 'full', sort_order: 1 },
+      ],
+    })
+    const plain = buildViewText(s, v, 'en')
+    const md = buildViewMarkdown(s, v, 'en')
+    expect(plain).toMatch(/Norwegian — Native/)
+    expect(md).toMatch(/\*\*Norwegian\*\* — Native/)
+  })
+
+  it('omits a section the catalog cannot render rather than printing its heading', () => {
+    // The registries have titles for the editor but no full/summary view; a
+    // heading with nothing under it reads as a broken export.
+    const s = store('<p>Body.</p>')
+    s.skills = [makeSkill({ id: 's1', name: { en: 'Go' } })]
+    const out = buildViewText(s, makeView({
+      sections: [
+        { key: 'projects', detail: 'full', sort_order: 0 },
+        { key: 'roles', detail: 'full', sort_order: 1 },
+      ],
+    }), 'en')
+    expect(out).not.toMatch(/ROLE/i)
+  })
+})
+
+describe('buildViewText — the matrix section, the tag line and the footer', () => {
+  const matrixStore = (): ResumeStore => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'Ada Lovelace' })
+    s.skill_categories = [makeSkillCategory({ id: 'c1', name: { en: 'Languages' } })]
+    s.skills = [
+      makeSkill({ id: 's1', name: { en: 'Go' }, category_id: 'c1', is_highlighted: true, total_duration_in_years: 8, proficiency: 4 }),
+      makeSkill({ id: 's2', name: { en: 'Rust' }, category_id: 'c1', total_duration_in_years: 2, proficiency: 2 }),
+    ]
+    return s
+  }
+  const matrixView = (detail: 'full' | 'summary') => makeView({
+    sections: [{ key: 'skill_matrix', detail, sort_order: 0 }],
+  })
+
+  it('narrows the matrix to highlighted skills at SUMMARY detail', () => {
+    const full = buildViewText(matrixStore(), matrixView('full'), 'en')
+    expect(full).toContain('Go')
+    expect(full).toContain('Rust')
+
+    const summary = buildViewText(matrixStore(), matrixView('summary'), 'en')
+    expect(summary).toContain('Go')
+    expect(summary).not.toContain('Rust')
+  })
+
+  it('gives the Markdown matrix a category column, and drops it when no row has one', () => {
+    const md = buildViewMarkdown(matrixStore(), matrixView('full'), 'en')
+    expect(md).toContain('Category')
+    expect(md).toMatch(/\|\s*Go\s*\|\s*Languages\s*\|/)
+
+    const noCategories = matrixStore()
+    noCategories.skills = noCategories.skills.map((sk) => ({ ...sk, category_id: null }))
+    const plain = buildViewMarkdown(noCategories, matrixView('full'), 'en')
+    expect(plain).not.toContain('Category')
+  })
+
+  it('labels a project’s tag line and lists the tags after it', () => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'Ada Lovelace' })
+    s.skills = [makeSkill({ id: 's1', name: { en: 'Go' } }), makeSkill({ id: 's2', name: { en: 'Rust' } })]
+    s.projects = [makeProject({
+      id: 'p1', customer: { en: 'AcmeCo' }, long_description: { en: '<p>Body.</p>' },
+      skills: [
+        { skill_id: 's1', name: { en: 'Go' }, proficiency: 0 },
+        { skill_id: 's2', name: { en: 'Rust' }, proficiency: 0 },
+      ],
+    })]
+    const out = buildViewText(s, makeView({ sections: [{ key: 'projects', detail: 'full', sort_order: 0 }] }), 'en')
+    expect(out).toMatch(/Go, Rust/)
+  })
+
+  it('adds no footer line when the view has nothing to put in one', () => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'Ada Lovelace' })
+    s.projects = [makeProject({ id: 'p1', customer: { en: 'AcmeCo' }, long_description: { en: '<p>Body.</p>' } })]
+    const view = makeView({
+      sections: [{ key: 'projects', detail: 'full', sort_order: 0 }],
+      footer: withFooterDefaults({ copyright: 'none', note: {} }),
+    })
+    const md = buildViewMarkdown(s, view, 'en')
+    // The Markdown footer is a rule plus the text; neither belongs here.
+    expect(md).not.toContain('---')
+    expect(md.trimEnd().endsWith('Body.')).toBe(true)
+  })
+
+  it('writes the footer text after a rule in Markdown and bare in text', () => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'Ada Lovelace' })
+    s.projects = [makeProject({ id: 'p1', customer: { en: 'AcmeCo' }, long_description: { en: '<p>Body.</p>' } })]
+    const view = makeView({
+      sections: [{ key: 'projects', detail: 'full', sort_order: 0 }],
+      footer: withFooterDefaults({ copyright: 'none', note: { en: 'Confidential' } }),
+    })
+    expect(buildViewMarkdown(s, view, 'en'))
+      .toContain(['---', 'Confidential'].join(String.fromCharCode(10)))
+    const plain = buildViewText(s, view, 'en')
+    // Plain text gets the words with no rule above them (section headings use
+    // dashes of their own, so the rule would read as another heading).
+    expect(plain.trimEnd().split(String.fromCharCode(10)).pop()).toBe('Confidential')
   })
 })

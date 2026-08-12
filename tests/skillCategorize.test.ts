@@ -588,3 +588,90 @@ describe('autoCategorizeSkills — the graph vote', () => {
     expect(out.assignments[0].category).toBe('Platforms')
   })
 })
+
+describe('autoCategorizeSkills — choosing between two matches', () => {
+  it('prefers the higher tier when two locale values match DIFFERENT domains', () => {
+    // The English column matches Kubernetes exactly; the Norwegian one is a
+    // typo that fuzzy-matches TypeScript. Taking the later match would file the
+    // skill under the wrong category.
+    const store = emptyStore()
+    store.skills.push(makeSkill({ id: 'k8s', name: { en: 'Kubernetes', no: 'TypeScriptt' } }))
+    const { store: out, assignments } = autoCategorizeSkills(store, DOMAINS, { fuzzy: true })
+    expect(assignments[0].tier).toBe('exact')
+    expect(catNameOf(out, out.skills[0].category_id)).toBe('Cloud & Infrastructure')
+  })
+
+  it('creates a category for a store with no resume record', () => {
+    // An import can categorise before the profile exists; reading the id
+    // unguarded would throw at the first new category.
+    const store = emptyStore()
+    store.resume = null
+    store.skills.push(makeSkill({ id: 'ts', name: { en: 'TypeScript' } }))
+    const { store: out, changed } = autoCategorizeSkills(store, DOMAINS)
+    expect(changed).toBe(1)
+    expect(out.skill_categories![0].resume_id).toBe('')
+  })
+
+  it('stops at the first EXACT match rather than reading every column', () => {
+    // Two exact matches in different columns would otherwise let the last one
+    // win; the first is what the assignment reports.
+    const store = emptyStore()
+    store.skills.push(makeSkill({ id: 'x', name: { en: 'Kubernetes', no: 'TypeScript' } }))
+    const { store: out } = autoCategorizeSkills(store, DOMAINS)
+    expect(catNameOf(out, out.skills[0].category_id)).toBe('Cloud & Infrastructure')
+  })
+
+  it('skips a locale slot that is blank', () => {
+    const store = emptyStore()
+    store.skills.push(makeSkill({ id: 'ts', name: { en: '   ', no: 'TypeScript' } }))
+    const { store: out, changed } = autoCategorizeSkills(store, DOMAINS)
+    expect(changed).toBe(1)
+    expect(catNameOf(out, out.skills[0].category_id)).toBe('Software Development')
+  })
+
+  it('reuses an existing category with the same name instead of adding a second', () => {
+    const store = emptyStore()
+    store.skill_categories = [makeSkillCategory({ id: 'cat1', name: { en: 'Software Development' } })]
+    store.skills.push(makeSkill({ id: 'ts', name: { en: 'TypeScript' } }))
+    const { store: out } = autoCategorizeSkills(store, DOMAINS)
+    expect(out.skill_categories).toHaveLength(1)
+    expect(out.skills[0].category_id).toBe('cat1')
+  })
+
+  it('matches an existing category name case- and padding-insensitively', () => {
+    const store = emptyStore()
+    store.skill_categories = [makeSkillCategory({ id: 'cat1', name: { en: '  software development  ' } })]
+    store.skills.push(makeSkill({ id: 'ts', name: { en: 'TypeScript' } }))
+    const { store: out } = autoCategorizeSkills(store, DOMAINS)
+    expect(out.skill_categories).toHaveLength(1)
+    expect(out.skills[0].category_id).toBe('cat1')
+  })
+
+  it('adds each new category once, however many skills land in it', () => {
+    const store = emptyStore()
+    store.skills.push(makeSkill({ id: 'ts', name: { en: 'TypeScript' } }))
+    store.skills.push(makeSkill({ id: 'react', name: { en: 'React' } }))
+    const { store: out, changed } = autoCategorizeSkills(store, DOMAINS)
+    expect(changed).toBe(2)
+    expect(out.skill_categories).toHaveLength(1)
+    expect(out.skills[0].category_id).toBe(out.skills[1].category_id)
+  })
+
+  it('numbers a new category after the ones already there', () => {
+    const store = emptyStore()
+    store.skill_categories = [makeSkillCategory({ id: 'cat1', name: { en: 'Existing' }, sort_order: 0 })]
+    store.skills.push(makeSkill({ id: 'ts', name: { en: 'TypeScript' } }))
+    const { store: out } = autoCategorizeSkills(store, DOMAINS)
+    const added = out.skill_categories!.find((c) => c.id !== 'cat1')!
+    expect(added.sort_order).toBe(1)
+  })
+
+  it('does nothing at all when the library is empty', () => {
+    const store = emptyStore()
+    store.skills.push(makeSkill({ id: 'ts', name: { en: 'TypeScript' } }))
+    const out = autoCategorizeSkills(store, {})
+    expect(out.changed).toBe(0)
+    expect(out.assignments).toEqual([])
+    expect(out.store).toBe(store)
+  })
+})
