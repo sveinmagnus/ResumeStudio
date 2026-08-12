@@ -309,3 +309,68 @@ describe('a section the catalog does not describe', () => {
     expect(sortItems('made_up_section', items, 'alpha', 'en').map((x) => x.id)).toEqual(['alfa', 'beta'])
   })
 })
+
+/**
+ * The date comparator's two edges.
+ *
+ * An UNDATED item floats to the top whichever direction is asked for, because a
+ * freshly added row has to stay where the user can see it until they date it.
+ * And equal dates must compare as EQUAL — returning a non-zero for a tie makes
+ * the order depend on the sort algorithm's internals, so the same list can come
+ * out differently after an unrelated edit.
+ */
+describe('sortItems — undated rows and exact ties', () => {
+  const ym = (year: number, month: number | null = 1) => ({ year, month })
+  const item = (id: string, start: unknown, end: unknown = null, sort_order = 0) =>
+    ({ id, start, end, sort_order } as never)
+
+  const ids = (mode: string, items: unknown[]) =>
+    sortItems('projects', items as never, mode as never, 'en').map((i) => i.id)
+
+  it('keeps an undated row first in BOTH directions', () => {
+    const rows = [item('dated', ym(2020)), item('undated', null)]
+    expect(ids('start', rows)).toEqual(['undated', 'dated'])
+    expect(ids('start_asc', rows)).toEqual(['undated', 'dated'])
+  })
+
+  it('keeps an undated row above BOTH neighbours it is compared with', () => {
+    // Three rows so the comparator is called in both argument orders: with two
+    // the engine may only ever ask "does the new row come before the old one?",
+    // and the mirror case goes unexercised.
+    const rows = [item('older', ym(2015)), item('undated', null), item('newer', ym(2022))]
+    expect(ids('start', rows)).toEqual(['undated', 'newer', 'older'])
+    expect(ids('start_asc', rows)).toEqual(['undated', 'older', 'newer'])
+  })
+
+  it('keeps two undated rows in their given order', () => {
+    expect(ids('start', [item('a', null), item('b', null)])).toEqual(['a', 'b'])
+  })
+
+  it('leaves two rows with the SAME date in their given order', () => {
+    // A tie that reports an order turns a stable list into an unstable one.
+    const rows = [item('a', ym(2020, 6)), item('b', ym(2020, 6))]
+    expect(ids('start', rows)).toEqual(['a', 'b'])
+    expect(ids('start_asc', rows)).toEqual(['a', 'b'])
+  })
+
+  it('tie-breaks two ONGOING rows by their start date, in the same direction', () => {
+    // Both ends are open, so the end date cannot separate them; the later start
+    // is the more recent engagement.
+    const rows = [
+      item('older', ym(2018, 1), null),
+      item('newer', ym(2022, 1), null),
+    ]
+    expect(ids('end', rows)).toEqual(['newer', 'older'])
+    expect(ids('end_asc', rows)).toEqual(['older', 'newer'])
+  })
+
+  it('does not tie-break by start when only ONE row is ongoing', () => {
+    // A real end date beats an open one on its own; reaching for the start here
+    // would let a long-finished row outrank a running one.
+    const rows = [
+      item('finished', ym(2010, 1), ym(2011, 1)),
+      item('ongoing', ym(2000, 1), null),
+    ]
+    expect(ids('end', rows)).toEqual(['ongoing', 'finished'])
+  })
+})
