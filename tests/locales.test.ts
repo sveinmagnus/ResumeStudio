@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { resolve, fmtDate, fmtRange, fmtRelativeTime, LOCALE_LABELS, detectLocalesInData, sortLocales, bcp47 } from '../src/lib/locales'
 import { emptyStore, makeProject, makeWork } from './fixtures'
+import type { ResumeStore } from '../src/types'
 
 describe('fmtRelativeTime()', () => {
   const now = new Date('2026-05-31T12:00:00Z').getTime()
@@ -227,5 +228,53 @@ describe('sortLocales()', () => {
 
   it('leaves a single-locale list alone', () => {
     expect(sortLocales(['en'])).toEqual(['en'])
+  })
+})
+
+describe('fmtRelativeTime — the boundaries between phrasings', () => {
+  const NOW = Date.parse('2026-08-12T12:00:00Z')
+  const ago = (ms: number) => fmtRelativeTime(new Date(NOW - ms).toISOString(), NOW)
+
+  it('reads "just now" right up to 45 seconds, and switches at 45', () => {
+    expect(ago(44_000)).toBe('just now')
+    expect(ago(45_000)).toBe('1 min ago')
+  })
+
+  it('treats a future timestamp as just now rather than a negative age', () => {
+    // Two machines' clocks disagree; a "-3 min ago" would look like a bug.
+    expect(fmtRelativeTime(new Date(NOW + 60_000).toISOString(), NOW)).toBe('just now')
+  })
+
+  it('counts minutes up to the hour, then hours', () => {
+    expect(ago(59 * 60_000)).toBe('59 min ago')
+    expect(ago(60 * 60_000)).toBe('1 hour ago')
+    expect(ago(2 * 3600_000)).toBe('2 hours ago')
+  })
+
+  it('hands anything a full day old to the locale date format, at exactly 24 hours', () => {
+    expect(ago(23 * 3600_000)).toBe('23 hours ago')
+    const full = ago(24 * 3600_000)
+    expect(full).not.toMatch(/hour|min|just now/)
+    expect(full).toBe(new Date(NOW - 24 * 3600_000).toLocaleString())
+  })
+
+  it('returns nothing for an unparseable timestamp', () => {
+    expect(fmtRelativeTime('not a date', NOW)).toBe('')
+  })
+})
+
+describe('detectLocalesInData — malformed values', () => {
+  it('does not treat a locale key holding an OBJECT as a filled locale', () => {
+    // An import can produce { en: { … } } where a string was expected; the
+    // walker must recurse rather than take the key's presence as content.
+    const data = { resume: { title: { en: { nested: 'Consultant' } } } } as unknown as ResumeStore
+    expect(detectLocalesInData(data)).toEqual([])
+  })
+
+  it('still finds a locale nested under a malformed sibling', () => {
+    const data = {
+      resume: { title: { en: { nested: 'Consultant' } }, nationality: { no: 'Norsk' } },
+    } as unknown as ResumeStore
+    expect(detectLocalesInData(data)).toEqual(['no'])
   })
 })

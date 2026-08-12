@@ -153,7 +153,7 @@ export function fmtRelativeTime(iso: string, now: number = Date.now()): string {
   const then = new Date(iso).getTime()
   if (Number.isNaN(then)) return ''
   const secs = Math.round((now - then) / 1000)
-  if (secs < 0) return 'just now'
+  // Negative (a clock skewed between machines) falls in here too.
   if (secs < 45) return 'just now'
   const mins = Math.round(secs / 60)
   if (mins < 60) return `${mins} min ago`

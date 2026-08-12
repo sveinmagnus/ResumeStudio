@@ -82,3 +82,30 @@ describe('parseRoute ∘ pathFor round-trip', () => {
     expect(parseRoute(pathFor(view))).toEqual(view)
   })
 })
+
+describe('parseRoute — a third segment belongs to /views/ only', () => {
+  it('accepts a view id under views', () => {
+    expect(parseRoute('/r/abc/views/v1')).toEqual({ name: 'editor', id: 'abc', section: 'views', viewId: 'v1' })
+  })
+
+  it('rejects a third segment under any other section', () => {
+    // Without this the extra segment is silently ignored and the URL resolves
+    // to the section, so a typo'd link looks like it worked.
+    expect(parseRoute('/r/abc/projects/extra')).toEqual({ name: 'not-found', path: '/r/abc/projects/extra' })
+    expect(parseRoute('/r/abc/views')).toEqual({ name: 'editor', id: 'abc', section: 'views' })
+  })
+})
+
+describe('pathFor — the view path needs BOTH the section and the id', () => {
+  it('builds the view path when both are present', () => {
+    expect(pathFor({ name: 'editor', id: 'abc', section: 'views', viewId: 'v1' })).toBe('/r/abc/views/v1')
+  })
+
+  it('ignores a stray view id on another section', () => {
+    expect(pathFor({ name: 'editor', id: 'abc', section: 'projects', viewId: 'v1' })).toBe('/r/abc/projects')
+  })
+
+  it('falls back to the section path when the view id is missing', () => {
+    expect(pathFor({ name: 'editor', id: 'abc', section: 'views' })).toBe('/r/abc/views')
+  })
+})

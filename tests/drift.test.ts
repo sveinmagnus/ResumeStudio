@@ -6,7 +6,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { computeDrift, extractNumbers, wordCount, numberDiff, driftDismissKey } from '../src/lib/drift'
-import { emptyStore, makeProject, makeResume, makeEducation } from './fixtures'
+import { emptyStore, makeProject, makeResume, makeEducation, makeKQ } from './fixtures'
 import type { ResumeStore } from '../src/types'
 
 describe('extractNumbers()', () => {
@@ -300,5 +300,92 @@ describe('drift — the length signal', () => {
     // A missing translation is a different report; this one compares what is
     // there against what is there.
     expect(findings(words(20), '')).toEqual([])
+  })
+})
+
+describe('computeDrift — the both-sides-present gate', () => {
+  // One tracked field only: a single-locale title and customer are skipped by
+  // the same gate under test, so comparedFields counts the description alone.
+  const withDesc = (en: string | undefined, no: string | undefined): ResumeStore => {
+    const s = emptyStore()
+    s.resume = makeResume({ supported_locales: ['en', 'no'], title: { en: 'Consultant' } })
+    const ls: Record<string, string> = {}
+    if (en !== undefined) ls.en = en
+    if (no !== undefined) ls.no = no
+    s.projects = [makeProject({ customer: { en: 'Acme' }, description: {}, long_description: ls })]
+    return s
+  }
+
+  it('compares a field only when BOTH locales hold real text', () => {
+    expect(computeDrift(withDesc('<p>Ran 3 teams</p>', '<p>Ledet 3 team</p>'), 'en', 'no').comparedFields).toBe(1)
+  })
+
+  it('skips a field missing on either side — that is completeness’s job', () => {
+    expect(computeDrift(withDesc('<p>Ran 3 teams</p>', undefined), 'en', 'no').comparedFields).toBe(0)
+    expect(computeDrift(withDesc(undefined, '<p>Ledet 3 team</p>'), 'en', 'no').comparedFields).toBe(0)
+  })
+
+  it('skips a side whose markup carries no TEXT, not just no value', () => {
+    // '<p>   </p>' is a non-empty string, so only the trimmed plain text can
+    // tell it apart from real content.
+    expect(computeDrift(withDesc('<p>Ran 3 teams</p>', '<p>   </p>'), 'en', 'no').comparedFields).toBe(0)
+    expect(computeDrift(withDesc('<p> </p>', '<p>Ledet 3 team</p>'), 'en', 'no').comparedFields).toBe(0)
+  })
+})
+
+describe('computeDrift — finding order and number phrasing', () => {
+  const oneField = (en: string, no: string): ReturnType<typeof computeDrift> => {
+    const s = emptyStore()
+    s.resume = makeResume({ supported_locales: ['en', 'no'], title: { en: 'Consultant' } })
+    s.projects = [makeProject({ customer: { en: 'Acme' }, description: {}, long_description: { en: en, no: no } })]
+    return computeDrift(s, 'en', 'no')
+  }
+
+  it('puts every HIGH finding before every LOW one, whatever the section order', () => {
+    const s = emptyStore()
+    s.resume = makeResume({ supported_locales: ['en', 'no'], title: { en: 'Consultant' } })
+    // A length gap on the FIRST-walked section, a number mismatch on the later one.
+    s.key_qualifications = [makeKQ({
+      summary: {
+        en: '<p>one two three four five six seven eight nine ten eleven twelve</p>',
+        no: '<p>kort</p>',
+      },
+    })]
+    s.projects = [makeProject({
+      customer: { en: 'Acme' }, description: {},
+      long_description: { en: '<p>Graduated 2019</p>', no: '<p>Fullførte 2020</p>' },
+    })]
+    const { findings } = computeDrift(s, 'en', 'no')
+    expect(findings.map((f) => f.severity)).toEqual(['high', 'low'])
+    expect(findings[0].kind).toBe('numbers')
+  })
+
+  it('orders two findings of the SAME severity by section', () => {
+    // The comparator falls through to the section name; without that step the
+    // two rows come out in whichever order the walk produced.
+    const s = emptyStore()
+    s.resume = makeResume({ supported_locales: ['en', 'no'], title: { en: 'Consultant' } })
+    // Both findings are HIGH, so only the section step can separate them.
+    s.projects = [makeProject({ customer: { en: 'Acme' }, description: {}, long_description: { en: '<p>2019</p>', no: '<p>2020</p>' } })]
+    s.key_qualifications = [makeKQ({ summary: { en: '<p>2021</p>', no: '<p>2022</p>' } })]
+    const { findings } = computeDrift(s, 'en', 'no')
+    expect(findings.map((f) => f.severity)).toEqual(['high', 'high'])
+    expect(findings.map((f) => f.meta.section)).toEqual(['key_qualifications', 'projects'])
+  })
+
+  it('names only the side that actually has the extra numbers', () => {
+    const detail = oneField('<p>Ran it</p>', '<p>Ledet fra 2019</p>').findings[0].detail
+    expect(detail).toContain('2019 only in NO')
+    expect(detail).not.toContain('only in EN')
+  })
+
+  it('lists up to four numbers in full, then counts the remainder', () => {
+    // Exactly four unique-to-EN numbers: all shown, no tail.
+    const four = oneField('<p>2019 2020 2021 2022</p>', '<p>ingen</p>').findings[0].detail
+    expect(four).toContain('2019, 2020, 2021, 2022 only in EN')
+    expect(four).not.toContain('more')
+    // Six: four shown and the count of what was dropped.
+    expect(oneField('<p>2019 2020 2021 2022 2023 2024</p>', '<p>ingen</p>').findings[0].detail)
+      .toContain('2019, 2020, 2021, 2022, +2 more only in EN')
   })
 })

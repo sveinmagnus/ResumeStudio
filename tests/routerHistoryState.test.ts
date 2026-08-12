@@ -68,3 +68,51 @@ describe('takePendingRestore', () => {
     expect(takePendingRestore()).toBeNull()
   })
 })
+
+describe('stampHistoryState — the dedupe guard', () => {
+  it('rewrites the snapshot when the scroll position moved', () => {
+    stampHistoryState({ scrollY: 100, expandedItemId: 'a' })
+    stampHistoryState({ scrollY: 200, expandedItemId: 'a' })
+    expect((window.history.state as { ui: { scrollY: number } }).ui.scrollY).toBe(200)
+  })
+
+  it('rewrites the snapshot when a different card is open', () => {
+    stampHistoryState({ scrollY: 100, expandedItemId: 'a' })
+    stampHistoryState({ scrollY: 100, expandedItemId: 'b' })
+    expect((window.history.state as { ui: { expandedItemId: string | null } }).ui.expandedItemId).toBe('b')
+  })
+
+  it('keeps any other state already on the entry', () => {
+    window.history.replaceState({ keep: 1 }, '', '/r/abc/projects')
+    stampHistoryState({ scrollY: 10, expandedItemId: null })
+    expect(window.history.state).toEqual({ keep: 1, ui: { scrollY: 10, expandedItemId: null } })
+  })
+})
+
+describe('navigate', () => {
+  it('accepts a Route object and builds its path', () => {
+    navigate({ name: 'editor', id: 'xyz', section: 'projects' })
+    expect(window.location.pathname).toBe('/r/xyz/projects')
+  })
+
+  it('accepts a path string as given', () => {
+    navigate('/r/xyz/courses')
+    expect(window.location.pathname).toBe('/r/xyz/courses')
+  })
+
+  it('does nothing when the target is where we already are', () => {
+    navigate('/r/abc/educations')
+    const len = window.history.length
+    navigate('/r/abc/educations')
+    expect(window.history.length).toBe(len)
+    expect(window.location.pathname).toBe('/r/abc/educations')
+  })
+
+  it('replaces instead of pushing when asked', () => {
+    navigate('/r/abc/one')
+    const len = window.history.length
+    navigate('/r/abc/two', { replace: true })
+    expect(window.location.pathname).toBe('/r/abc/two')
+    expect(window.history.length).toBe(len)
+  })
+})

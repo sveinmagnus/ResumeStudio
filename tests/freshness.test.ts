@@ -380,3 +380,244 @@ describe('freshness — exemptions and ordering', () => {
   })
 })
 
+
+describe('freshnessReport — the single-engagement exemption', () => {
+  const old = { year: 2018, month: 1 }
+  const work = (id: string, over = {}) =>
+    makeWork({ id, employer: { en: id }, start: old, end: null, ...over })
+  const proj = (id: string, over = {}) =>
+    makeProject({ id, customer: { en: id }, start: old, end: null, ...over })
+
+  it('exempts a lone ongoing employment, however old its start', () => {
+    const s = emptyStore()
+    s.work_experiences = [work('main')]
+    expect(freshnessReport(s, NOW, 'en').staleOngoing).toEqual([])
+  })
+
+  it('exempts nobody once TWO employments are open — one may be a leftover', () => {
+    const s = emptyStore()
+    s.work_experiences = [work('a'), work('b')]
+    expect(freshnessReport(s, NOW, 'en').staleOngoing.map((x) => x.id).sort()).toEqual(['a', 'b'])
+  })
+
+  it('does not count a DISABLED open employment towards the exemption', () => {
+    // Two rows, but only one is live, so the live one is still the main job.
+    const s = emptyStore()
+    s.work_experiences = [work('live'), work('gone', { disabled: true })]
+    expect(freshnessReport(s, NOW, 'en').staleOngoing).toEqual([])
+  })
+
+  it('does not count an employment with NO start towards the exemption', () => {
+    // An undated open row is not a candidate for "the current job", and it is
+    // not stale either — staleness is measured from a start date.
+    const s = emptyStore()
+    s.work_experiences = [work('dated'), work('undated', { start: null })]
+    expect(freshnessReport(s, NOW, 'en').staleOngoing).toEqual([])
+  })
+
+  it('does not count a CLOSED employment towards the exemption', () => {
+    const s = emptyStore()
+    s.work_experiences = [work('open'), work('closed', { end: { year: 2020, month: 6 } })]
+    expect(freshnessReport(s, NOW, 'en').staleOngoing).toEqual([])
+  })
+
+  it('exempts a lone open project only when it is full-time or unspecified', () => {
+    const full = emptyStore()
+    full.projects = [proj('main', { percent_allocated: 100 })]
+    expect(freshnessReport(full, NOW, 'en').staleOngoing).toEqual([])
+
+    const unset = emptyStore()
+    unset.projects = [proj('main', { percent_allocated: null })]
+    expect(freshnessReport(unset, NOW, 'en').staleOngoing).toEqual([])
+
+    // A part-time open project is not the main engagement, so it still nags.
+    const part = emptyStore()
+    part.projects = [proj('side', { percent_allocated: 20 })]
+    expect(freshnessReport(part, NOW, 'en').staleOngoing.map((x) => x.id)).toEqual(['side'])
+  })
+
+  it('does not count a CLOSED or DISABLED project towards the project exemption', () => {
+    // Both siblings are full-time, so only the open/live test can keep the lone
+    // open project exempt.
+    const closed = emptyStore()
+    closed.projects = [proj('open'), proj('done', { end: { year: 2020, month: 1 } })]
+    expect(freshnessReport(closed, NOW, 'en').staleOngoing).toEqual([])
+
+    const hidden = emptyStore()
+    hidden.projects = [proj('open'), proj('gone', { disabled: true })]
+    expect(freshnessReport(hidden, NOW, 'en').staleOngoing).toEqual([])
+
+    const undated = emptyStore()
+    undated.projects = [proj('open'), proj('undated', { start: null })]
+    expect(freshnessReport(undated, NOW, 'en').staleOngoing).toEqual([])
+  })
+
+  it('keeps the employment and project exemptions separate', () => {
+    const s = emptyStore()
+    s.work_experiences = [work('job')]
+    s.projects = [proj('p1'), proj('p2')]
+    expect(freshnessReport(s, NOW, 'en').staleOngoing.map((x) => x.id).sort()).toEqual(['p1', 'p2'])
+  })
+})
+
+describe('freshnessReport — the stale threshold and labels', () => {
+  it('nags at the threshold but not one month inside it', () => {
+    // NOW is June 2026 and the default is 3 years, so June 2023 is the edge.
+    const at = (start: { year: number; month: number }) => {
+      const s = emptyStore()
+      s.projects = [
+        makeProject({ id: 'p', customer: { en: 'P' }, start, end: null }),
+        makeProject({ id: 'other', customer: { en: 'O' }, start, end: null }),
+      ]
+      return freshnessReport(s, NOW, 'en').staleOngoing.map((x) => x.id)
+    }
+    expect(at({ year: 2023, month: 6 })).toEqual(['p', 'other'])
+    expect(at({ year: 2023, month: 7 })).toEqual([])
+  })
+
+  it('treats a year-only start as January — the earliest plausible date', () => {
+    const s = emptyStore()
+    s.projects = [
+      makeProject({ id: 'p', customer: { en: 'P' }, start: { year: 2023, month: null }, end: null }),
+      makeProject({ id: 'other', customer: { en: 'O' }, start: { year: 2026, month: 1 }, end: null }),
+    ]
+    expect(freshnessReport(s, NOW, 'en').staleOngoing.map((x) => x.id)).toEqual(['p'])
+  })
+
+  it('labels each stale row from its own identity field, with a fallback', () => {
+    const s = emptyStore()
+    s.projects = [
+      makeProject({ id: 'p1', customer: { en: 'Acme' }, start: { year: 2018, month: 1 }, end: null }),
+      makeProject({ id: 'p2', customer: {}, start: { year: 2018, month: 1 }, end: null }),
+    ]
+    s.work_experiences = [
+      makeWork({ id: 'w1', employer: { en: 'Cartavio' }, start: { year: 2018, month: 1 }, end: null }),
+      makeWork({ id: 'w2', employer: {}, start: { year: 2018, month: 1 }, end: null }),
+    ]
+    const rows = freshnessReport(s, NOW, 'en').staleOngoing
+    expect(rows.find((r) => r.id === 'p1')!.label).toBe('Acme')
+    expect(rows.find((r) => r.id === 'p2')!.label).toBe('Untitled project')
+    expect(rows.find((r) => r.id === 'w1')!.label).toBe('Cartavio')
+    expect(rows.find((r) => r.id === 'w2')!.label).toBe('Untitled employer')
+  })
+
+  it('resolves a label in the requested locale', () => {
+    const s = emptyStore()
+    s.projects = [
+      makeProject({ id: 'p1', customer: { en: 'The Bank', no: 'Banken' }, start: { year: 2018, month: 1 }, end: null }),
+      makeProject({ id: 'p2', customer: { en: 'Other' }, start: { year: 2018, month: 1 }, end: null }),
+    ]
+    expect(freshnessReport(s, NOW, 'no').staleOngoing.find((r) => r.id === 'p1')!.label).toBe('Banken')
+  })
+})
+
+describe('freshnessReport — ordering and totals', () => {
+  it('orders certifications soonest-first within each bucket', () => {
+    const s = emptyStore()
+    s.certifications = [
+      makeCertification({ id: 'later', name: { en: 'L' }, expires: { year: 2026, month: 8 } }),
+      makeCertification({ id: 'soon', name: { en: 'S' }, expires: { year: 2026, month: 7 } }),
+      makeCertification({ id: 'old', name: { en: 'O' }, expires: { year: 2024, month: 1 } }),
+      makeCertification({ id: 'older', name: { en: 'Or' }, expires: { year: 2020, month: 1 } }),
+    ]
+    const r = freshnessReport(s, NOW, 'en')
+    expect(r.expiringCerts.map((c) => c.id)).toEqual(['soon', 'later'])
+    expect(r.expiredCerts.map((c) => c.id)).toEqual(['older', 'old'])
+  })
+
+  it('orders stale rows oldest-first', () => {
+    const s = emptyStore()
+    s.projects = [
+      makeProject({ id: 'newer', customer: { en: 'N' }, start: { year: 2022, month: 1 }, end: null }),
+      makeProject({ id: 'oldest', customer: { en: 'O' }, start: { year: 2015, month: 1 }, end: null }),
+      makeProject({ id: 'middle', customer: { en: 'M' }, start: { year: 2019, month: 1 }, end: null }),
+    ]
+    expect(freshnessReport(s, NOW, 'en').staleOngoing.map((x) => x.id))
+      .toEqual(['oldest', 'middle', 'newer'])
+  })
+
+  it('orders snoozed rows by label', () => {
+    const s = emptyStore()
+    s.certifications = [
+      makeCertification({ id: 'c1', name: { en: 'Zebra' }, expires: { year: 2026, month: 7 } }),
+      makeCertification({ id: 'c2', name: { en: 'Alpha' }, expires: { year: 2026, month: 7 } }),
+    ]
+    s.resume = makeResume({
+      attention_dismissals: {
+        [certWarningKey('c1')]: '2027-01-01T00:00:00Z',
+        [certWarningKey('c2')]: '2027-01-01T00:00:00Z',
+      },
+    })
+    expect(freshnessReport(s, NOW, 'en').snoozed.map((x) => x.label)).toEqual(['Alpha', 'Zebra'])
+  })
+
+  it('totals all three buckets, and counts a snoozed row in none of them', () => {
+    const s = emptyStore()
+    s.certifications = [
+      makeCertification({ id: 'exp', name: { en: 'E' }, expires: { year: 2024, month: 1 } }),
+      makeCertification({ id: 'soon', name: { en: 'S' }, expires: { year: 2026, month: 7 } }),
+      makeCertification({ id: 'hush', name: { en: 'H' }, expires: { year: 2026, month: 7 } }),
+    ]
+    s.projects = [
+      makeProject({ id: 'p1', customer: { en: 'P' }, start: { year: 2018, month: 1 }, end: null }),
+      makeProject({ id: 'p2', customer: { en: 'Q' }, start: { year: 2018, month: 1 }, end: null }),
+    ]
+    s.resume = makeResume({ attention_dismissals: { [certWarningKey('hush')]: '2027-01-01T00:00:00Z' } })
+    const r = freshnessReport(s, NOW, 'en')
+    expect([r.expiredCerts.length, r.expiringCerts.length, r.staleOngoing.length]).toEqual([1, 1, 2])
+    expect(r.total).toBe(4)
+    expect(r.snoozed.map((x) => x.key)).toEqual([certWarningKey('hush')])
+  })
+})
+
+describe('freshnessReport — the snooze window', () => {
+  const soon = { year: 2026, month: 7 }
+  const withDismissal = (until: string): ReturnType<typeof freshnessReport> => {
+    const s = emptyStore()
+    s.certifications = [makeCertification({ id: 'c1', name: { en: 'AWS' }, expires: soon })]
+    s.resume = makeResume({ attention_dismissals: { [certWarningKey('c1')]: until } })
+    return freshnessReport(s, NOW, 'en')
+  }
+
+  it('suppresses the warning while the snooze is in the future', () => {
+    const r = withDismissal('2026-06-16T00:00:00Z')
+    expect(r.expiringCerts).toEqual([])
+    expect(r.snoozed.map((x) => x.until)).toEqual(['2026-06-16T00:00:00Z'])
+  })
+
+  it('surfaces the warning again the instant the snooze lapses', () => {
+    // Exactly NOW has lapsed — the window is strictly in the future.
+    expect(withDismissal(NOW.toISOString()).expiringCerts.map((c) => c.id)).toEqual(['c1'])
+    expect(withDismissal('2026-06-14T00:00:00Z').expiringCerts.map((c) => c.id)).toEqual(['c1'])
+  })
+
+  it('ignores an unparseable dismissal rather than suppressing forever', () => {
+    expect(withDismissal('whenever').expiringCerts.map((c) => c.id)).toEqual(['c1'])
+    expect(withDismissal('').expiringCerts.map((c) => c.id)).toEqual(['c1'])
+  })
+
+  it('keys a certification warning distinctly from a stale-ongoing one', () => {
+    expect(certWarningKey('x')).toBe('cert:x')
+    expect(staleWarningKey('projects', 'x')).not.toBe(certWarningKey('x'))
+    expect(staleWarningKey('projects', 'x')).not.toBe(staleWarningKey('work_experiences', 'x'))
+  })
+})
+
+describe('isResumeStale — the cutoff', () => {
+  it('is stale strictly before the cutoff, not at it', () => {
+    const cutoff = new Date(NOW)
+    cutoff.setMonth(cutoff.getMonth() - 6)
+    expect(isResumeStale(cutoff.toISOString(), NOW)).toBe(false)
+    expect(isResumeStale(new Date(cutoff.getTime() - 1).toISOString(), NOW)).toBe(true)
+  })
+
+  it('treats an unparseable or empty timestamp as fresh', () => {
+    expect(isResumeStale('not a date', NOW)).toBe(false)
+    expect(isResumeStale('', NOW)).toBe(false)
+  })
+
+  it('honours a custom window', () => {
+    expect(isResumeStale('2026-04-01T00:00:00Z', NOW, 1)).toBe(true)
+    expect(isResumeStale('2026-04-01T00:00:00Z', NOW, 6)).toBe(false)
+  })
+})
