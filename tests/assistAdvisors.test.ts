@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  emptyStore, makeCertification, makeCourse, makeEducation, makeKQ, makeProject, makeView,
+  emptyStore, makeCertification, makeCourse, makeEducation, makeKQ, makeProject, makeView, makeSkill,
   makeWork, makeKeyCompetency, makeResume,
 } from './fixtures'
 import type { KeyCompetency, ResumeStore } from '../src/types'
@@ -1632,5 +1632,74 @@ describe('the two response contracts are spelled out for the model', () => {
     expect(spec).toContain(PROPOSALS_SCHEMA)
     expect(spec).toMatch(/ONLY this JSON|no prose/i)
     expect(spec.split('\n').length).toBeGreaterThan(2)
+  })
+})
+
+describe('the two whole-CV prompts describe their own scope', () => {
+  it('voicePass spells out the prose fields a rewrite may touch, per section', () => {
+    // "Guess which fields you may edit" is how an identity field gets rewritten.
+    const prompt = buildVoicePassPrompt(emptyStore(), 'en')
+    expect(prompt).toContain('projects: long_description')
+    // Identity and list fields are not offered.
+    expect(prompt).not.toMatch(/projects:[^\n]*customer/)
+    expect(prompt).not.toMatch(/projects:[^\n]*highlights/)
+  })
+
+  it('voicePass can be narrowed to one section', () => {
+    const prompt = buildVoicePassPrompt(emptyStore(), 'en', { sections: ['educations'] })
+    expect(prompt).toContain('educations: ')
+    expect(prompt).not.toContain('projects: ')
+  })
+
+  it('cvReview lists the registry skills so the model can spot prose naming others', () => {
+    const s = emptyStore()
+    s.skills = [makeSkill({ id: 's1', name: { en: 'Kubernetes' } }), makeSkill({ id: 's2', name: {} })]
+    const line = buildCvReviewPrompt(s, 'en')
+      .split(/\r?\n/).find((l) => l.startsWith('Skills currently in the registry:'))!
+    // A nameless registry entry must not become an empty item in the list.
+    expect(line).toBe('Skills currently in the registry: Kubernetes')
+  })
+
+  it('cvReview reads the CV in the requested locale and leaves the short lines out', () => {
+    // A4/A2 work on the long text; the one-line summaries are derived from it,
+    // so reviewing them is reviewing the same words twice.
+    const s = emptyStore()
+    s.projects = [makeProject({
+      customer: { en: 'Acme' },
+      long_description: { en: 'English body text.', no: 'Norsk brødtekst.' },
+      short_description: { en: 'Short English line.', no: 'Kort norsk linje.' },
+    })]
+    const no = buildCvReviewPrompt(s, 'no')
+    expect(no).toContain('Norsk brødtekst.')
+    expect(no).not.toContain('English body text.')
+    expect(no).not.toContain('Kort norsk linje.')
+  })
+
+  it('voicePass reads the CV in the locale it was given', () => {
+    // A rewrite pass that reads the English column and proposes edits to the
+    // Norwegian one would replace text with a translation.
+    const s = emptyStore()
+    s.projects = [makeProject({
+      customer: { en: 'Acme' },
+      long_description: { en: 'English body text.', no: 'Norsk brødtekst.' },
+    })]
+    const prompt = buildVoicePassPrompt(s, 'no')
+    expect(prompt).toContain('Norsk brødtekst.')
+    expect(prompt).not.toContain('English body text.')
+  })
+
+  it('voicePass DOES send the short lines — they are prose it may rewrite', () => {
+    const s = emptyStore()
+    s.projects = [makeProject({
+      customer: { en: 'Acme' },
+      long_description: { en: 'English body text.' },
+      short_description: { en: 'Short English line.' },
+    })]
+    const prompt = buildVoicePassPrompt(s, 'en')
+    expect(prompt).toContain('Short English line.')
+  })
+
+  it('cvReview says so plainly when the registry is empty', () => {
+    expect(buildCvReviewPrompt(emptyStore(), 'en')).toContain('(none yet)')
   })
 })

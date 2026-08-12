@@ -54,3 +54,31 @@ describe('exportFilename()', () => {
     expect(exportFilename('', '', 'docx')).toBe('resume_view.docx')
   })
 })
+
+describe('the filename sanitiser, step by step', () => {
+  it('collapses each transformation the slug depends on', () => {
+    // One assertion per rewrite the function performs, so losing any single one
+    // shows up here rather than as an odd filename in a download folder.
+    expect(slugifyFilenamePart('a<<>>b')).toBe('a_b')
+    expect(slugifyFilenamePart('  Backend / DevOps  ')).toBe('Backend_DevOps')
+    expect(slugifyFilenamePart('..hidden..')).toBe('hidden')
+    expect(slugifyFilenamePart('___Ada___')).toBe('Ada')
+    expect(slugifyFilenamePart('x'.repeat(120))).toHaveLength(80)
+    expect(slugifyFilenamePart('   ')).toBe('resume')
+    expect(slugifyFilenamePart('***', 'view')).toBe('view')
+  })
+
+  it('turns a RUN of illegal characters into ONE separator', () => {
+    // "a<<>>b" must not become "a____b" — the run is one boundary, not four.
+    expect(slugifyFilenamePart('a<<>>b')).toBe(slugifyFilenamePart('a<b'))
+  })
+
+  it('treats control characters as illegal, like the Windows-reserved set', () => {
+    expect(slugifyFilenamePart(`a\u0000\u001fb`)).toBe(slugifyFilenamePart('a<b'))
+  })
+
+  it('handles an absent input as an empty one', () => {
+    expect(slugifyFilenamePart(undefined)).toBe(slugifyFilenamePart(''))
+    expect(slugifyFilenamePart(null as never)).toBe(slugifyFilenamePart(''))
+  })
+})
