@@ -258,3 +258,80 @@ describe('skillMatrixRows — the usage scan', () => {
       .toEqual({ year: 2021, month: 6 })
   })
 })
+
+/**
+ * Category selection and the view's own filters.
+ *
+ * The matrix is selected BY CATEGORY (§: the view editor shows category toggles
+ * for this section, shared with the Skills Showcase), which is unlike every other
+ * section's per-item exclusion — so it needs its own assertions.
+ */
+describe('skillMatrixRows — selection and filters', () => {
+  const store = (): ResumeStore => {
+    const s = emptyStore()
+    s.skill_categories = [
+      makeSkillCategory({ id: 'lang', name: { en: 'Languages' } }),
+      makeSkillCategory({ id: 'plat', name: { en: 'Platforms' } }),
+    ]
+    s.skills = [
+      makeSkill({ id: 'go', name: { en: 'Go' }, category_id: 'lang', is_highlighted: true }),
+      makeSkill({ id: 'rust', name: { en: 'Rust' }, category_id: 'lang' }),
+      makeSkill({ id: 'k8s', name: { en: 'Kubernetes' }, category_id: 'plat' }),
+      makeSkill({ id: 'loose', name: { en: 'Bash' }, category_id: null }),
+    ]
+    return s
+  }
+  const names = (view: Parameters<typeof skillMatrixRows>[1], opts = {}) =>
+    skillMatrixRows(store(), view, 'en', opts).map((r) => r.name)
+
+  it('lists every skill by default, categorised or not', () => {
+    expect(names(makeView()).sort()).toEqual(['Bash', 'Go', 'Kubernetes', 'Rust'])
+  })
+
+  it('drops a whole CATEGORY when its id is excluded', () => {
+    // The exclusion list holds category ids for this section, not skill ids.
+    expect(names(makeView({ excluded_item_ids: ['lang'] })).sort())
+      .toEqual(['Bash', 'Kubernetes'])
+  })
+
+  it('drops an uncategorised skill via the uncategorised bucket', () => {
+    const out = names(makeView({ excluded_item_ids: ['plat', 'lang'] }))
+    expect(out).toEqual(['Bash'])
+  })
+
+  it('keeps a skill whose category id is stale rather than hiding it', () => {
+    // A dangling category link must not make a skill vanish from the matrix.
+    const s = store()
+    s.skills[0].category_id = 'gone'
+    expect(skillMatrixRows(s, makeView(), 'en').map((r) => r.name)).toContain('Go')
+  })
+
+  it('shows only highlighted skills when asked for the summary set', () => {
+    expect(names(makeView(), { highlightedOnly: true })).toEqual(['Go'])
+  })
+
+  it('reports the category NAME on each row, blank when uncategorised', () => {
+    const rows = skillMatrixRows(store(), makeView(), 'en')
+    expect(rows.find((r) => r.name === 'Go')!.category).toBe('Languages')
+    expect(rows.find((r) => r.name === 'Bash')!.category).toBe('')
+  })
+
+  it('resolves the skill and category names in the requested locale', () => {
+    const s = store()
+    s.skills[0].name = { en: 'Go', no: 'Go-språket' }
+    s.skill_categories![0].name = { en: 'Languages', no: 'Språk' }
+    const row = skillMatrixRows(s, makeView(), 'no').find((r) => r.name === 'Go-språket')!
+    expect(row.category).toBe('Språk')
+  })
+
+  it('skips a skill with no usable name at all', () => {
+    const s = store()
+    s.skills.push(makeSkill({ id: 'blank', name: {} }))
+    expect(skillMatrixRows(s, makeView(), 'en').some((r) => r.name === '')).toBe(false)
+  })
+
+  it('returns nothing for an empty registry', () => {
+    const s = emptyStore()
+    expect(skillMatrixRows(s, makeView(), 'en')).toEqual([])
+  })
+})

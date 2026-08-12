@@ -485,3 +485,94 @@ describe('letterAdvice — the run gate and prompt inputs', () => {
       .toBe('The turnaround')
   })
 })
+
+/**
+ * B1's ordering and its evidence downgrade.
+ *
+ * The report is read top-down when deciding whether to apply at all, so the order
+ * IS the message: essentials before desirables, gaps before what is already fine.
+ */
+describe('validateJobFit — weight, order and evidence', () => {
+  const store = () => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    s.projects = [makeProject({ id: 'p1', customer: { en: 'Acme' } })]
+    return s
+  }
+  const reply = (requirements: unknown[]) => ({ verdict: 'Worth applying.', requirements })
+
+  it('defaults an unstated weight to ESSENTIAL, not desirable', () => {
+    // Under-weighting a requirement moves it down the report and out of sight.
+    const r = validateJobFit(reply([{ requirement: 'Kubernetes', status: 'missing' }]), store(), 'en')
+    expect(r.requirements[0].weight).toBe('essential')
+  })
+
+  it('honours an explicit desirable', () => {
+    const r = validateJobFit(reply([
+      { requirement: 'Nice to have', status: 'missing', weight: 'desirable' },
+    ]), store(), 'en')
+    expect(r.requirements[0].weight).toBe('desirable')
+  })
+
+  it('treats an unknown weight as essential', () => {
+    const r = validateJobFit(reply([
+      { requirement: 'X', status: 'missing', weight: 'mandatory-ish' },
+    ]), store(), 'en')
+    expect(r.requirements[0].weight).toBe('essential')
+  })
+
+  it('puts every essential before every desirable', () => {
+    const r = validateJobFit(reply([
+      { requirement: 'Desirable gap', status: 'missing', weight: 'desirable' },
+      { requirement: 'Essential met', status: 'evidenced', weight: 'essential',
+        evidence: [{ section: 'projects', item_id: 'p1' }] },
+    ]), store(), 'en')
+    expect(r.requirements.map((x) => x.weight)).toEqual(['essential', 'desirable'])
+  })
+
+  it('within one weight, puts the gaps first', () => {
+    const r = validateJobFit(reply([
+      { requirement: 'Met', status: 'evidenced', evidence: [{ section: 'projects', item_id: 'p1' }] },
+      { requirement: 'Adjacent', status: 'adjacent' },
+      { requirement: 'Missing', status: 'missing' },
+    ]), store(), 'en')
+    expect(r.requirements.map((x) => x.requirement)).toEqual(['Missing', 'Adjacent', 'Met'])
+  })
+
+  it('downgrades an EVIDENCED row whose citation does not resolve — it does not drop it', () => {
+    // Unproven is not proof, but losing the row breaks the completeness that
+    // makes the report worth reading.
+    const r = validateJobFit(reply([
+      { requirement: 'Kubernetes', status: 'evidenced', evidence: [{ section: 'projects', item_id: 'ghost' }] },
+    ]), store(), 'en')
+    expect(r.requirements).toHaveLength(1)
+    expect(r.requirements[0].status).toBe('adjacent')
+  })
+
+  it('keeps an evidenced row whose citation resolves', () => {
+    const r = validateJobFit(reply([
+      { requirement: 'Kubernetes', status: 'evidenced', evidence: [{ section: 'projects', item_id: 'p1' }] },
+    ]), store(), 'en')
+    expect(r.requirements[0].status).toBe('evidenced')
+    expect(r.requirements[0].evidence).toHaveLength(1)
+  })
+
+  it('ignores a citation naming a section the advisors do not know', () => {
+    const r = validateJobFit(reply([
+      { requirement: 'X', status: 'evidenced', evidence: [{ section: 'skills', item_id: 'p1' }] },
+    ]), store(), 'en')
+    expect(r.requirements[0].status).toBe('adjacent')
+  })
+
+  it('carries the verdict text through, capped', () => {
+    const long = 'x'.repeat(4000)
+    expect(validateJobFit({ verdict: long, requirements: [] }, store(), 'en').verdict.length)
+      .toBeLessThan(long.length)
+  })
+
+  it('drops a requirement with no text, naming the position', () => {
+    const r = validateJobFit(reply([{ status: 'missing' }]), store(), 'en')
+    expect(r.requirements).toEqual([])
+    expect(r.dropped.join(' ')).toMatch(/Requirement 1/)
+  })
+})
