@@ -426,3 +426,138 @@ describe('importFromLinkedIn — imported defaults and absent columns', () => {
     expect(store.work_experiences[0].role_title).toEqual({ en: 'Architect' })
   })
 })
+
+/**
+ * The per-row skip rules, asserted by IDENTITY rather than by count.
+ *
+ * Each rule is "skip when every field we could use is empty", and LinkedIn files
+ * carry columns we ignore — so a row can be non-blank overall and still have
+ * nothing for us. Counting the survivors hides a rule that skips the wrong row
+ * while keeping the total right, which is exactly what happened here.
+ */
+describe('importFromLinkedIn — which rows are skipped, and which are kept', () => {
+  const zip = (files: Record<string, string>) => importFromLinkedIn(files)
+  const csv = (header: string, ...rows: string[]) => [header, ...rows].join(String.fromCharCode(10))
+
+  it('keeps a position that has a title but no company', () => {
+    // A freelance engagement is often filed without a company name; dropping it
+    // silently loses a job from the CV.
+    const store = zip({ 'Positions.csv': csv('Company Name,Title', ',Independent consultant') })
+    expect(store.work_experiences.map((w) => w.role_title.en)).toEqual(['Independent consultant'])
+  })
+
+  it('keeps a position that has a company but no title', () => {
+    const store = zip({ 'Positions.csv': csv('Company Name,Title', 'Acme,') })
+    expect(store.work_experiences.map((w) => w.employer.en)).toEqual(['Acme'])
+  })
+
+  it('drops a position row whose only content is in a column we ignore', () => {
+    const store = zip({
+      'Positions.csv': csv('Company Name,Title,Location', ',,Oslo'),
+    })
+    expect(store.work_experiences).toEqual([])
+  })
+
+  it('drops an education row with no school name', () => {
+    // The school IS the entry; a degree with no institution reads as a mistake.
+    const store = zip({
+      'Education.csv': csv('School Name,Degree Name', ',MSc Computer Science'),
+    })
+    expect(store.educations).toEqual([])
+  })
+
+  it('drops a language row with no name, and a certification row with no name', () => {
+    expect(zip({ 'Languages.csv': csv('Name,Proficiency', ',Native') }).spoken_languages).toEqual([])
+    expect(zip({ 'Certifications.csv': csv('Name,Authority', ',Amazon') }).certifications).toEqual([])
+  })
+
+  it('keeps a project with a title but no description, and one with only a description', () => {
+    const titled = zip({ 'Projects.csv': csv('Title,Description', 'Payments platform,') })
+    expect(titled.projects.map((p) => p.description.en)).toEqual(['Payments platform'])
+
+    const described = zip({ 'Projects.csv': csv('Title,Description', ',Ran the rebuild') })
+    expect(described.projects.map((p) => p.long_description.en)).toEqual(['Ran the rebuild'])
+  })
+
+  it('drops a project row whose only content is a URL', () => {
+    const store = zip({ 'Projects.csv': csv('Title,Description,Url', ',,https://x.test') })
+    expect(store.projects).toEqual([])
+  })
+})
+
+/**
+ * What an imported store starts as. LinkedIn carries none of the registry or
+ * export concepts, so those arrays have to arrive EMPTY — a seeded value would
+ * surface as a phantom role, skill link or Resume View the user never made.
+ */
+describe('importFromLinkedIn — the shape it hands over', () => {
+  const zip = (files: Record<string, string>) => importFromLinkedIn(files)
+  const csv = (header: string, ...rows: string[]) => [header, ...rows].join(String.fromCharCode(10))
+
+  const full = () => zip({
+    'Profile.csv': csv('First Name,Last Name,Summary', 'Kari,Nordmann,I build systems.'),
+    'Positions.csv': csv('Company Name,Title', 'Acme,Architect'),
+    'Education.csv': csv('School Name', 'NTNU'),
+    'Skills.csv': csv('Name', 'Go'),
+    'Languages.csv': csv('Name,Proficiency', 'Norwegian,Native'),
+    'Certifications.csv': csv('Name,Authority', 'AWS SA,Amazon'),
+    'Projects.csv': csv('Title,Description', 'Payments,Did it'),
+    'Recommendations_Received.csv': csv('First Name,Last Name,Text', 'Jane,Boss,Excellent.'),
+  })
+
+  it('declares exactly the one locale it imported into', () => {
+    expect(full().resume!.supported_locales).toEqual(['en'])
+    expect(full().resume!.default_locale).toBe('en')
+  })
+
+  it('leaves every section LinkedIn knows nothing about empty', () => {
+    const s = full()
+    expect({
+      roles: s.roles, industries: s.industries, key_competencies: s.key_competencies,
+      courses: s.courses, positions: s.positions, presentations: s.presentations,
+      honor_awards: s.honor_awards, publications: s.publications, references: s.references,
+      skill_categories: s.skill_categories, views: s.views, cover_letters: s.cover_letters,
+    }).toEqual({
+      roles: [], industries: [], key_competencies: [],
+      courses: [], positions: [], presentations: [],
+      honor_awards: [], publications: [], references: [],
+      skill_categories: [], views: [], cover_letters: [],
+    })
+  })
+
+  it('leaves the per-item link lists empty', () => {
+    // LinkedIn has no registry, so nothing can be linked yet; a seeded id here
+    // would point at an entry that does not exist.
+    const s = full()
+    expect(s.work_experiences[0].role_ids).toEqual([])
+    expect(s.certifications[0].skill_ids).toEqual([])
+    expect(s.projects[0]).toMatchObject({ highlights: [], roles: [], skills: [], industries: [] })
+    expect(s.key_qualifications[0]).toMatchObject({ key_points: [], competency_ids: [] })
+  })
+
+  it('imports every entity enabled and unstarred', () => {
+    // Disabled is a soft delete: an import that lands disabled is invisible in
+    // every export, so the consultant never sees what arrived.
+    const s = full()
+    for (const [what, item] of [
+      ['profile', s.key_qualifications[0]],
+      ['employment', s.work_experiences[0]],
+      ['education', s.educations[0]],
+      ['certification', s.certifications[0]],
+      ['project', s.projects[0]],
+      ['recommendation', s.recommendations[0]],
+    ] as const) {
+      expect(item, what).toMatchObject({ starred: false, disabled: false })
+    }
+  })
+})
+
+describe('parseLinkedInDate — the two-part form is exactly two parts', () => {
+  it('refuses a trailing word after the year', () => {
+    // "Mar 2020 (present)" reads as a valid month and year if only the first two
+    // words are looked at — and the row would then claim a date the file did not
+    // give in a form we understand.
+    expect(parseLinkedInDate('Mar 2020 (present)')).toBeNull()
+    expect(parseLinkedInDate('Mar 2020')).toEqual({ year: 2020, month: 3 })
+  })
+})
