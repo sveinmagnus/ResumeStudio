@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   paramsOf, inputBudget, estimateTokens, sizeHint, providerBlurb, isRemote, extractJson,
-  supportsAdvanced, looksHighEnd, looksWeakForWriting,
+  supportsAdvanced, looksHighEnd, looksWeakForWriting, backendName,
 } from '../src/lib/llmAssist'
 import type { AssistStatus } from '../src/lib/api'
 
@@ -274,5 +274,125 @@ describe('extractJson()', () => {
   it('keeps nested braces intact (outermost object wins)', () => {
     const nested = '{"a":{"b":[{"c":1}]}}'
     expect(extractJson(`text ${nested} more`)).toBe(nested)
+  })
+})
+
+describe('extractJson — finding the JSON in a fluent reply', () => {
+  it('returns clean JSON untouched', () => {
+    expect(extractJson('{"a":1}')).toBe('{"a":1}')
+    expect(extractJson('  [1,2]  ')).toBe('[1,2]')
+  })
+
+  it('unwraps a fenced block, tagged or bare, however the newline is written', () => {
+    expect(extractJson('```json\n{"a":1}\n```')).toBe('{"a":1}')
+    expect(extractJson('```\n{"a":1}\n```')).toBe('{"a":1}')
+    expect(extractJson('```JSON\r\n{"a":1}\r\n```')).toBe('{"a":1}')
+    // No newline at all after the fence, and no space either.
+    expect(extractJson('```{"a":1}```')).toBe('{"a":1}')
+    expect(extractJson('```json {"a":1}```')).toBe('{"a":1}')
+  })
+
+  it('takes the FIRST fenced block when the model wrote two', () => {
+    expect(extractJson('```\n{"a":1}\n```\nand also\n```\n{"b":2}\n```')).toBe('{"a":1}')
+  })
+
+  it('trims prose either side of an unfenced object or array', () => {
+    expect(extractJson('Here is the answer: {"a":1} — hope that helps!')).toBe('{"a":1}')
+    expect(extractJson('Sure!\n[1,2]\nLet me know.')).toBe('[1,2]')
+  })
+
+  it('takes the OUTERMOST braces, so a nested object survives intact', () => {
+    expect(extractJson('text {"a":{"b":1}} text')).toBe('{"a":{"b":1}}')
+  })
+
+  it('leaves a reply with no JSON in it unchanged, so the parse error stays the user\u2019s', () => {
+    expect(extractJson('I cannot help with that.')).toBe('I cannot help with that.')
+    expect(extractJson('  ')).toBe('')
+  })
+
+  it('does not mistake a CLOSING brace before the opening one for a payload', () => {
+    // "} … {" must not slice backwards into an empty or reversed string.
+    expect(extractJson('} then {')).toBe('} then {')
+  })
+
+  it('keeps a single-character payload', () => {
+    expect(extractJson('```\n{}\n```')).toBe('{}')
+  })
+})
+
+describe('backendName — naming the destination once', () => {
+  const status = (provider: string, model: string): AssistStatus => ({
+    configured: true, local: false, provider, model, highEnd: false,
+  })
+
+  it('prints both when the model id does not already say who it is', () => {
+    expect(backendName(status('openai', 'o3-mini'))).toBe('openai, o3-mini')
+  })
+
+  it('prints the model alone when it already contains the provider name', () => {
+    // "gemini, gemini-3.6-flash" said the same word twice.
+    expect(backendName(status('gemini', 'gemini-3.6-flash'))).toBe('gemini-3.6-flash')
+  })
+
+  it('matches the provider name case-insensitively', () => {
+    expect(backendName(status('Gemini', 'gemini-3.6-flash'))).toBe('gemini-3.6-flash')
+    expect(backendName(status('openai', 'OpenAI-GPT'))).toBe('OpenAI-GPT')
+  })
+
+  it('falls back to whichever half it has', () => {
+    expect(backendName(status('ollama', ''))).toBe('ollama')
+    expect(backendName(status('ollama', '   '))).toBe('ollama')
+    expect(backendName(status('', 'llama3'))).toBe('llama3')
+    expect(backendName(status('   ', 'llama3'))).toBe('llama3')
+  })
+
+  it('trims both halves rather than printing the padding', () => {
+    expect(backendName(status('  openai  ', '  o3-mini  '))).toBe('openai, o3-mini')
+  })
+})
+
+describe('looksHighEnd — the suggestion, never the decision', () => {
+  it('ignores surrounding whitespace on the model id', () => {
+    expect(looksHighEnd('  claude-opus-4-5  ')).toBe(true)
+    expect(looksHighEnd('   ')).toBe(false)
+    expect(looksHighEnd('')).toBe(false)
+  })
+
+  it('recognises the 405B llama with or without the separators', () => {
+    expect(looksHighEnd('llama-3.1-405b')).toBe(true)
+    expect(looksHighEnd('llama3-405b')).toBe(true)
+    expect(looksHighEnd('llama405b')).toBe(true)
+    expect(looksHighEnd('llama-3.1-8b')).toBe(false)
+  })
+
+  it('uses the parsed size when there is one, and the name when there is not', () => {
+    expect(looksHighEnd('qwen2.5:32b')).toBe(true)
+    expect(looksHighEnd('qwen2.5:14b')).toBe(false)
+    expect(looksHighEnd('some-unknown-model')).toBe(false)
+  })
+})
+
+describe('paramsOf — decimal sizes', () => {
+  it('reads a multi-digit decimal, not just one place', () => {
+    expect(paramsOf('model:1.25b')).toBeCloseTo(1.25, 3)
+    expect(paramsOf('model:0.5b')).toBeCloseTo(0.5, 3)
+    expect(paramsOf('model:270.75m')).toBeCloseTo(0.27075, 5)
+  })
+})
+
+describe('sizeHint fires just PAST the budget, not at it', () => {
+  it('stays silent at exactly the budget and speaks one token later', () => {
+    // "Warn at exactly the limit" would nag on a prompt that fits, which is the
+    // difference between an informative hint and one people learn to ignore.
+    const status = local('llama3:3b')
+    const budget = inputBudget(status)
+    // Largest char count that still estimates to exactly `budget` tokens.
+    const atBudget = budget * 3.5
+    expect(estimateTokens(atBudget)).toBe(budget)
+    expect(sizeHint(atBudget, status)).toBeNull()
+
+    const overBudget = atBudget + 1
+    expect(estimateTokens(overBudget)).toBe(budget + 1)
+    expect(sizeHint(overBudget, status)).toMatch(/long/)
   })
 })
