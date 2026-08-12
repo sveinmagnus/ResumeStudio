@@ -103,3 +103,31 @@ describe('toHighlights()', () => {
       .toEqual([{ en: 'Speed: Cut build times.' }])
   })
 })
+
+describe('validateKeyPoints — the shapes a model actually returns', () => {
+  it('names what was wrong: not an object, versus no points array', () => {
+    // Two different repairs for the user, so the two messages must differ.
+    expect(() => validateKeyPoints('a string')).toThrow(/not a JSON object/)
+    expect(() => validateKeyPoints(null)).toThrow(/not a JSON object/)
+    expect(() => validateKeyPoints({ result: [] })).toThrow(/no "points" array/)
+  })
+
+  it('trims a plain-string point rather than carrying the model’s padding', () => {
+    expect(validateKeyPoints({ points: ['  Led the migration  '] }))
+      .toEqual([{ label: '', body: 'Led the migration' }])
+  })
+
+  it('trims a label as well as a body', () => {
+    expect(validateKeyPoints({ points: [{ label: '  Scale  ', body: '  Ran it  ' }] }))
+      .toEqual([{ label: 'Scale', body: 'Ran it' }])
+  })
+
+  it('skips a null or primitive entry among good ones instead of throwing', () => {
+    expect(validateKeyPoints({ points: [null, 42, { body: 'Real point' }] }))
+      .toEqual([{ label: '', body: 'Real point' }])
+  })
+
+  it('drops a whitespace-only body — a bullet with nothing in it', () => {
+    expect(() => validateKeyPoints({ points: [{ body: '   ' }] })).toThrow(/no points/)
+  })
+})
