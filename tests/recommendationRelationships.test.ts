@@ -89,3 +89,33 @@ describe('recommendationRelationships', () => {
     expect(matchRelationshipKey({ en: '', no: 'Var min leder' })).toBe('manager')
   })
 })
+
+describe('matchRelationshipKey — how a stored value finds its option again', () => {
+  const option = RELATIONSHIP_OPTIONS[0]
+
+  it('matches a label case-insensitively and ignoring padding', () => {
+    // The value was typed or imported; the option list is fixed.
+    expect(matchRelationshipKey({ en: option.labels.en })).toBe(option.key)
+    expect(matchRelationshipKey({ en: `  ${option.labels.en.toUpperCase()}  ` })).toBe(option.key)
+    expect(matchRelationshipKey({ en: option.labels.en.toLowerCase() })).toBe(option.key)
+  })
+
+  it('matches on the locale the label belongs to, not across locales', () => {
+    expect(matchRelationshipKey({ no: option.labels.no })).toBe(option.key)
+    // The Norwegian label stored under `en` is not that option in English.
+    if (option.labels.no !== option.labels.en) {
+      expect(matchRelationshipKey({ en: option.labels.no })).toBeNull()
+    }
+  })
+
+  it('ignores blank locale slots when deciding there is nothing to match', () => {
+    expect(matchRelationshipKey({ en: '   ', no: option.labels.no })).toBe(option.key)
+    expect(matchRelationshipKey({ en: '   ' })).toBeNull()
+    expect(matchRelationshipKey({})).toBeNull()
+    expect(matchRelationshipKey(undefined)).toBeNull()
+  })
+
+  it('returns null for free text, so the dropdown stays on "custom"', () => {
+    expect(matchRelationshipKey({ en: 'Sat opposite me for three years' })).toBeNull()
+  })
+})
