@@ -4,6 +4,8 @@ import {
   validateTailorResponse, applyTailorResponse, InvalidTailorResponseError,
   postingLabel, tailorPurpose, tailorableSectionKeys,
 } from '../src/lib/viewTailor'
+import { DEFAULT_VIEW_STYLE } from '../src/lib/viewStyle'
+import { DEFAULT_VIEW_HEADER, DEFAULT_VIEW_FOOTER, defaultHeaderFields } from '../src/lib/viewHeader'
 import { emptyStore, makeProject, makeWork, makeSkill, makeView } from './fixtures'
 
 function storeWithContent() {
@@ -311,5 +313,155 @@ describe('validateTailorResponse — per-field checks', () => {
     const paths = pathsOf(bad({ view_name: {}, introduction: {} }))
     expect(paths).toContain('view_name')
     expect(paths).toContain('introduction')
+  })
+})
+
+describe('validateTailorResponse — the shapes it accepts and refuses', () => {
+  const ok = (over: Record<string, unknown> = {}) => ({ $schema: TAILOR_SCHEMA, ...over })
+  const issuesOf = (json: unknown): string[] => {
+    try {
+      validateTailorResponse(json)
+      return []
+    } catch (e) {
+      return (e as InvalidTailorResponseError).issues.map((i) => `${i.path}: ${i.reason}`)
+    }
+  }
+
+  it('refuses a root that is not a plain object, naming the root', () => {
+    for (const bad of ['hi', 42, null, undefined, true, ['a']]) {
+      expect(issuesOf(bad), String(bad)).toEqual(['(root): expected a JSON object'])
+    }
+  })
+
+  it('accepts an absent optional field but not a wrongly-typed one', () => {
+    expect(issuesOf(ok())).toEqual([])
+    expect(issuesOf(ok({ view_name: null, introduction: null }))).toEqual([])
+    // A model that answers with a number is fine — it stringifies cleanly.
+    expect(issuesOf(ok({ view_name: 42 }))).toEqual([])
+    expect(issuesOf(ok({ view_name: { nested: true } }))).toEqual(['view_name: expected a string'])
+    expect(issuesOf(ok({ introduction: ['a'] }))).toEqual(['introduction: expected a string'])
+  })
+
+  it('refuses a section_detail that is not an object of section→detail', () => {
+    expect(issuesOf(ok({ section_detail: null }))).toEqual([])
+    expect(issuesOf(ok({ section_detail: 'full' })))
+      .toEqual(['section_detail: expected an object of section→detail'])
+    expect(issuesOf(ok({ section_detail: ['full'] })))
+      .toEqual(['section_detail: expected an object of section→detail'])
+  })
+
+  it('accepts only the three detail levels, naming the offending key', () => {
+    expect(issuesOf(ok({ section_detail: { projects: 'off', courses: 'summary', educations: 'full' } })))
+      .toEqual([])
+    expect(issuesOf(ok({ section_detail: { projects: 'everything' } })))
+      .toEqual(['section_detail.projects: expected "off" | "summary" | "full", got "everything"'])
+    expect(issuesOf(ok({ section_detail: { projects: 3 } })))
+      .toEqual(['section_detail.projects: expected "off" | "summary" | "full", got 3'])
+  })
+
+  it('refuses a non-array id list, and points at the offending entry', () => {
+    expect(issuesOf(ok({ exclude_item_ids: null, gaps: null }))).toEqual([])
+    expect(issuesOf(ok({ exclude_item_ids: 'p1' })))
+      .toEqual(['exclude_item_ids: expected an array of strings'])
+    expect(issuesOf(ok({ gaps: [{}, 'ok', null] })))
+      .toEqual(['gaps[0]: expected a string', 'gaps[2]: expected a string'])
+    // Numbers are accepted for the same reason as above.
+    expect(issuesOf(ok({ exclude_item_ids: [1, 2] }))).toEqual([])
+  })
+
+  it('reports EVERY problem in one pass rather than the first', () => {
+    const issues = issuesOf({
+      $schema: 'wrong/v1', view_name: {}, section_detail: 'x', gaps: [{}],
+    })
+    expect(issues).toHaveLength(4)
+  })
+
+  it('names the schema it wanted when the schema is wrong or missing', () => {
+    expect(issuesOf({ view_name: 'x' })[0]).toContain(TAILOR_SCHEMA)
+    expect(issuesOf({ $schema: 42 })[0]).toContain('got 42')
+  })
+})
+
+describe('isTailorFormat is lenient but not blind', () => {
+  it('accepts any tailor schema version and refuses everything else', () => {
+    expect(isTailorFormat({ $schema: 'resumestudio-tailor/v2' })).toBe(true)
+    expect(isTailorFormat({ $schema: 42 })).toBe(false)
+    expect(isTailorFormat({})).toBe(false)
+    expect(isTailorFormat('resumestudio-tailor/v1')).toBe(false)
+  })
+})
+
+describe('the view a tailor response produces is a complete, plain view', () => {
+  const base = {
+    $schema: TAILOR_SCHEMA,
+    view_name: '  Tailored TS CV  ',
+    introduction: '  Pitch text  ',
+    section_detail: { projects: 'full' },
+  }
+
+  it('trims the name and the introduction the model sent', () => {
+    const res = applyTailorResponse(storeWithContent(), base, 'en')
+    expect(res.view.name).toBe('Tailored TS CV')
+    expect(res.view.introduction).toEqual({ en: 'Pitch text' })
+  })
+
+  it('names the view "Tailored view" when the model gave nothing usable', () => {
+    for (const view_name of ['', '   ', undefined, 42]) {
+      const res = applyTailorResponse(storeWithContent(), { ...base, view_name } as never, 'en')
+      expect(res.view.name, String(view_name)).toBe('Tailored view')
+    }
+  })
+
+  it('leaves the introduction EMPTY rather than storing a blank locale slot', () => {
+    const res = applyTailorResponse(storeWithContent(), { ...base, introduction: '   ' }, 'en')
+    expect(res.view.introduction).toEqual({})
+  })
+
+  it('starts the view unstarred, photoless and unlimited — the model decides content, not chrome', () => {
+    const res = applyTailorResponse(storeWithContent(), base, 'en')
+    expect(res.view.include_photo).toBe(false)
+    expect(res.view.starred_only).toBe(false)
+    expect(res.view.page_limit).toBeNull()
+    expect(res.view.template_id).toBeNull()
+    expect(res.view.export_locale).toBeNull()
+    expect(res.view.last_exported_at).toBeNull()
+  })
+
+  it('carries the brand style, header and footer defaults in full', () => {
+    const res = applyTailorResponse(storeWithContent(), base, 'en')
+    expect(res.view.style).toEqual(DEFAULT_VIEW_STYLE)
+    expect(res.view.header.photo_placement).toBe(DEFAULT_VIEW_HEADER.photo_placement)
+    expect(res.view.header.fields.map((f) => f.key)).toEqual(defaultHeaderFields().map((f) => f.key))
+    expect(res.view.footer.copyright).toBe(DEFAULT_VIEW_FOOTER.copyright)
+    expect(res.view.footer.copyright_custom).toEqual({})
+    expect(res.view.footer.note).toEqual({})
+  })
+
+  it('reports nothing excluded and no gaps when the model listed neither', () => {
+    const res = applyTailorResponse(storeWithContent(), base, 'en')
+    expect(res.view.excluded_item_ids).toEqual([])
+    expect(res.gaps).toEqual([])
+    expect(res.unknownItemIds).toEqual([])
+    expect(res.excludedTitles).toEqual([])
+  })
+
+  it('resolves an excluded id against the SYNTHETIC-free section list', () => {
+    // promoted_projects reuses the projects array; walking it would map the same
+    // id twice and could label an exclusion with the wrong section's title.
+    const store = storeWithContent()
+    const res = applyTailorResponse(store, { ...base, exclude_item_ids: ['p2'] }, 'en')
+    expect(res.view.excluded_item_ids).toEqual(['p2'])
+    expect(res.excludedTitles).toHaveLength(1)
+  })
+})
+
+describe('postingLabel caps the note', () => {
+  it('keeps a line of exactly the limit whole, and shortens a longer one', () => {
+    const exactly80 = 'x'.repeat(80)
+    expect(postingLabel(exactly80)).toBe(exactly80)
+    const over = 'y'.repeat(81)
+    const out = postingLabel(over)
+    expect(out).toHaveLength(80)
+    expect(out.endsWith('…')).toBe(true)
   })
 })
