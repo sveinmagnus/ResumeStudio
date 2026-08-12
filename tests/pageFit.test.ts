@@ -113,3 +113,27 @@ describe('applyCuts()', () => {
     expect(v.excluded_item_ids).toEqual(['p1'])
   })
 })
+
+describe('validatePageFit — what it refuses to pass on', () => {
+  it('says which of the two malformed replies it got', () => {
+    expect(() => validatePageFit('a string', store(), view(), 'en')).toThrow(/not a JSON object/i)
+    expect(() => validatePageFit(null, store(), view(), 'en')).toThrow(/not a JSON object/i)
+    expect(() => validatePageFit({ items: [] }, store(), view(), 'en')).toThrow(/no "cut" array/i)
+    expect(() => validatePageFit('a string', store(), view(), 'en')).toThrow(InvalidPageFitError)
+  })
+
+  it('skips an entry that is not an object, or has no string id', () => {
+    const out = validatePageFit(
+      { cut: [null, 'p1', 42, { id: 42 }, { why: 'no id' }, { id: 'p1', why: 'ok' }] },
+      store(), view(), 'en',
+    )
+    expect(out.map((s) => s.itemId)).toEqual(['p1'])
+  })
+
+  it('trims the reason, and tolerates one that is not a string', () => {
+    expect(validatePageFit({ cut: [{ id: 'p1', why: '  oldest  ' }] }, store(), view(), 'en')[0].why)
+      .toBe('oldest')
+    expect(validatePageFit({ cut: [{ id: 'p1', why: 42 }] }, store(), view(), 'en')[0].why).toBe('')
+    expect(validatePageFit({ cut: [{ id: 'p1' }] }, store(), view(), 'en')[0].why).toBe('')
+  })
+})
