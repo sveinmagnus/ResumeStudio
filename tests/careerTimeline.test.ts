@@ -319,3 +319,169 @@ describe('buildCareerTimeline — bar labels', () => {
     expect(bars(s, 'projects')).toEqual([])
   })
 })
+
+describe('bars are ordered before they are packed into lanes', () => {
+  const ym = (year: number, month: number) => ({ year, month })
+  const built = (store: ResumeStore) => buildCareerTimeline(store, 'en', opts)
+
+  it('orders employment bars by start date whatever order the store holds', () => {
+    // Lane packing assumes sorted input, so the order IS load-bearing rather
+    // than cosmetic: an unsorted bar opens a lane it does not need.
+    const s = emptyStore()
+    s.work_experiences = [
+      makeWork({ id: 'later', employer: { en: 'Later' }, start: ym(2022, 1), end: ym(2023, 1) }),
+      makeWork({ id: 'first', employer: { en: 'First' }, start: ym(2015, 1), end: ym(2016, 1) }),
+      makeWork({ id: 'middle', employer: { en: 'Middle' }, start: ym(2018, 1), end: ym(2019, 1) }),
+    ]
+    const m = built(s)
+    expect(m.employment.bars.map((b) => b.id)).toEqual(['first', 'middle', 'later'])
+    expect(m.employment.lanes).toBe(1)
+  })
+
+  it('breaks a same-start tie by end date, shortest first', () => {
+    const s = emptyStore()
+    s.work_experiences = [
+      makeWork({ id: 'long', employer: { en: 'Long' }, start: ym(2020, 1), end: ym(2025, 1) }),
+      makeWork({ id: 'short', employer: { en: 'Short' }, start: ym(2020, 1), end: ym(2021, 1) }),
+    ]
+    expect(built(s).employment.bars.map((b) => b.id)).toEqual(['short', 'long'])
+  })
+
+  it('orders education and project bars the same way', () => {
+    const s = emptyStore()
+    s.educations = [
+      makeEducation({ id: 'e2', school: { en: 'Second' }, start: ym(2012, 1), end: ym(2014, 1) }),
+      makeEducation({ id: 'e1', school: { en: 'First' }, start: ym(2008, 1), end: ym(2011, 1) }),
+    ]
+    s.projects = [
+      makeProject({ id: 'p2', customer: { en: 'Second' }, start: ym(2022, 1), end: ym(2023, 1) }),
+      makeProject({ id: 'p1', customer: { en: 'First' }, start: ym(2019, 1), end: ym(2020, 1) }),
+    ]
+    const m = built(s)
+    expect(m.education.bars.map((b) => b.id)).toEqual(['e1', 'e2'])
+    expect(m.projects.bars.map((b) => b.id)).toEqual(['p1', 'p2'])
+  })
+
+  it('keeps each kind in its own row — a project never lands among the jobs', () => {
+    const s = emptyStore()
+    s.work_experiences = [makeWork({ id: 'w', employer: { en: 'Job' }, start: ym(2020, 1), end: null })]
+    s.educations = [makeEducation({ id: 'e', school: { en: 'Uni' }, start: ym(2010, 1), end: ym(2013, 1) })]
+    s.projects = [makeProject({ id: 'p', customer: { en: 'Client' }, start: ym(2021, 1), end: null })]
+    const m = built(s)
+    expect(m.employment.bars.map((b) => b.id)).toEqual(['w'])
+    expect(m.education.bars.map((b) => b.id)).toEqual(['e'])
+    expect(m.projects.bars.map((b) => b.id)).toEqual(['p'])
+  })
+
+  it('packs each overlapping bar into its own lane, and reports the count', () => {
+    const s = emptyStore()
+    s.work_experiences = [
+      makeWork({ id: 'a', employer: { en: 'A' }, start: ym(2020, 1), end: ym(2024, 1) }),
+      makeWork({ id: 'b', employer: { en: 'B' }, start: ym(2021, 1), end: ym(2024, 1) }),
+      makeWork({ id: 'c', employer: { en: 'C' }, start: ym(2022, 1), end: ym(2024, 1) }),
+    ]
+    const m = built(s)
+    expect(m.employment.bars.map((b) => b.lane)).toEqual([0, 1, 2])
+    expect(m.employment.lanes).toBe(3)
+  })
+
+  it('reuses the FIRST free lane rather than opening a new one', () => {
+    const s = emptyStore()
+    s.work_experiences = [
+      makeWork({ id: 'a', employer: { en: 'A' }, start: ym(2010, 1), end: ym(2012, 1) }),
+      makeWork({ id: 'b', employer: { en: 'B' }, start: ym(2011, 1), end: ym(2020, 1) }),
+      makeWork({ id: 'c', employer: { en: 'C' }, start: ym(2013, 1), end: ym(2014, 1) }),
+    ]
+    const m = built(s)
+    // c fits back in lane 0, which a is no longer using.
+    expect(m.employment.bars.map((b) => `${b.id}:${b.lane}`)).toEqual(['a:0', 'b:1', 'c:0'])
+    expect(m.employment.lanes).toBe(2)
+  })
+})
+
+describe('project sublabels and gap coverage', () => {
+  const ym = (year: number, month: number) => ({ year, month })
+
+  it('joins a project\u2019s industries, skipping ones with no name', () => {
+    const s = emptyStore()
+    s.projects = [makeProject({
+      id: 'p', customer: { en: 'Client' }, start: ym(2020, 1), end: ym(2021, 1),
+      industries: [
+        { industry_id: 'i1', name: { en: 'Energy' } },
+        { industry_id: 'i2', name: {} },
+        { industry_id: 'i3', name: { en: 'Retail' } },
+      ],
+    })]
+    expect(buildCareerTimeline(s, 'en', opts).projects.bars[0].sublabel).toBe('Energy, Retail')
+  })
+
+  it('leaves the sublabel empty for a project with no industries', () => {
+    const s = emptyStore()
+    s.projects = [makeProject({ id: 'p', customer: { en: 'Client' }, start: ym(2020, 1), end: ym(2021, 1), industries: [] })]
+    expect(buildCareerTimeline(s, 'en', opts).projects.bars[0].sublabel).toBe('')
+  })
+
+  it('measures a gap from the FURTHEST end reached, not the previous bar\u2019s', () => {
+    // A long job that swallows a later short one must keep covering the span
+    // after the short one ends.
+    const s = emptyStore()
+    s.work_experiences = [
+      makeWork({ id: 'long', employer: { en: 'Long' }, start: ym(2010, 1), end: ym(2020, 1) }),
+      makeWork({ id: 'short', employer: { en: 'Short' }, start: ym(2012, 1), end: ym(2013, 1) }),
+      makeWork({ id: 'after', employer: { en: 'After' }, start: ym(2020, 5), end: ym(2021, 1) }),
+    ]
+    const gaps = buildCareerTimeline(s, 'en', opts).gaps
+    expect(gaps).toHaveLength(1)
+    expect(gaps[0].months).toBe(3)
+  })
+
+  it('reports every gap in a history with more than one', () => {
+    const s = emptyStore()
+    s.work_experiences = [
+      makeWork({ id: 'a', employer: { en: 'A' }, start: ym(2010, 1), end: ym(2011, 1) }),
+      makeWork({ id: 'b', employer: { en: 'B' }, start: ym(2012, 1), end: ym(2013, 1) }),
+      makeWork({ id: 'c', employer: { en: 'C' }, start: ym(2015, 1), end: ym(2016, 1) }),
+    ]
+    const gaps = buildCareerTimeline(s, 'en', opts).gaps
+    expect(gaps.map((g) => g.months)).toEqual([11, 23])
+  })
+
+  it('keeps the axis at zero when there is nothing to show', () => {
+    const m = buildCareerTimeline(emptyStore(), 'en', opts)
+    expect([m.minMonths, m.maxMonths, m.years]).toEqual([0, 0, []])
+  })
+})
+
+describe('the gap threshold and the axis bounds', () => {
+  const ym = (year: number, month: number) => ({ year, month })
+
+  it('reports NO gaps at all for a store with nothing in it', () => {
+    expect(buildCareerTimeline(emptyStore(), 'en', opts).gaps).toEqual([])
+  })
+
+  it('ignores a gap one month under the threshold and reports it at the threshold', () => {
+    const between = (startMonth: number) => {
+      const s = emptyStore()
+      s.work_experiences = [
+        makeWork({ id: 'a', employer: { en: 'A' }, start: ym(2020, 1), end: ym(2020, 6) }),
+        makeWork({ id: 'b', employer: { en: 'B' }, start: ym(2020, startMonth), end: ym(2021, 1) }),
+      ]
+      return buildCareerTimeline(s, 'en', opts).gaps
+    }
+    // Default threshold is two months: a single uncovered month is not a gap.
+    expect(between(8)).toEqual([])
+    expect(between(9).map((g) => g.months)).toEqual([2])
+  })
+
+  it('starts the axis at the EARLIEST bar, not the latest', () => {
+    const s = emptyStore()
+    s.work_experiences = [
+      makeWork({ id: 'late', employer: { en: 'Late' }, start: ym(2022, 5), end: ym(2023, 1) }),
+      makeWork({ id: 'early', employer: { en: 'Early' }, start: ym(2015, 3), end: ym(2016, 1) }),
+    ]
+    const m = buildCareerTimeline(s, 'en', opts)
+    expect(m.minMonths).toBe(2015 * 12)
+    expect(m.years[0]).toBe(2015)
+    expect(m.years).toContain(2022)
+  })
+})

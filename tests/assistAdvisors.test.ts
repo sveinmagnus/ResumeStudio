@@ -1703,3 +1703,67 @@ describe('the two whole-CV prompts describe their own scope', () => {
     expect(buildCvReviewPrompt(emptyStore(), 'en')).toContain('(none yet)')
   })
 })
+
+describe('tidyIntro strips what a model wraps around prose', () => {
+  it('strips a fence only at the START and only at the END', () => {
+    expect(tidyIntro('```\nAn introduction.\n```')).toBe('An introduction.')
+    expect(tidyIntro('```markdown\nAn introduction.\n```')).toBe('An introduction.')
+    // A fence in the middle is the model\u2019s own text, not a wrapper.
+    expect(tidyIntro('Before ``` after')).toBe('Before ``` after')
+  })
+
+  it('strips a fence tag written in capitals', () => {
+    expect(tidyIntro('```TEXT\nAn introduction.\n```')).toBe('An introduction.')
+  })
+
+  it('strips a leading label line, at the start only', () => {
+    expect(tidyIntro("Here's the introduction: An introduction.")).toBe('An introduction.')
+    expect(tidyIntro('Here is the intro: An introduction.')).toBe('An introduction.')
+    expect(tidyIntro('Introduction: An introduction.')).toBe('An introduction.')
+    // The same words mid-sentence are content.
+    expect(tidyIntro('She wrote an introduction: it was short.'))
+      .toBe('She wrote an introduction: it was short.')
+  })
+
+  it('keeps paragraph breaks — an intro may be more than one line', () => {
+    expect(tidyIntro('First line.\n\nSecond line.')).toBe('First line.\n\nSecond line.')
+  })
+
+  it('trims the surrounding whitespace at every stage', () => {
+    expect(tidyIntro('   ```\n  An introduction.  \n```   ')).toBe('An introduction.')
+    expect(tidyIntro('  Introduction:   An introduction.  ')).toBe('An introduction.')
+  })
+
+  it('unwraps quotes only when they wrap the whole thing', () => {
+    expect(tidyIntro('"An introduction."')).toBe('An introduction.')
+    expect(tidyIntro('She said "hello" to them.')).toBe('She said "hello" to them.')
+  })
+})
+
+
+describe('tidyIntro — the anchors and the cap', () => {
+  it('strips a fence tag only when the tag is letters, and with or without a newline', () => {
+    expect(tidyIntro('```123 words```')).toBe('123 words')
+    expect(tidyIntro(['```', '123 words', '```'].join(String.fromCharCode(10)))).toBe('123 words')
+  })
+
+  it('unwraps quotes ONLY when they open and close the whole thing', () => {
+    // Both anchors matter: a sentence that merely ENDS in a quote, or merely
+    // starts with one, must come back untouched.
+    expect(tidyIntro('She said "hello"')).toBe('She said "hello"')
+    expect(tidyIntro('"Quoted" and then more.')).toBe('"Quoted" and then more.')
+    expect(tidyIntro('"The whole thing."')).toBe('The whole thing.')
+    expect(tidyIntro('“Smart quotes too.”')).toBe('Smart quotes too.')
+  })
+
+  it('trims the padding that unwrapping leaves behind', () => {
+    expect(tidyIntro('"  An introduction.  "')).toBe('An introduction.')
+  })
+
+  it('caps a runaway reply rather than pasting an essay into the field', () => {
+    const huge = 'word '.repeat(2000).trim()
+    const out = tidyIntro(huge)
+    expect(out.length).toBeLessThan(huge.length)
+    expect(out.length).toBeGreaterThan(100)
+  })
+})
