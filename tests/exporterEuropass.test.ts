@@ -444,3 +444,160 @@ describe('exportEuropassXml — element presence', () => {
     })
   })
 })
+
+/**
+ * Europass is a SCHEMA, not a layout: every block is optional and a consumer
+ * reads the ones that are there. So an element emitted around an empty value is
+ * not cosmetic — `<Activities></Activities>` claims the entry described itself
+ * and said nothing, and the importer round-trips that back as a blank field.
+ */
+describe('exportEuropassXml — an empty value means an ABSENT element', () => {
+  const parse = (xml: string) => new DOMParser().parseFromString(xml, 'application/xml')
+  const build = (fill: (s: ResumeStore) => void, locale = 'en') => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'Kari Nordmann' })
+    fill(s)
+    return parse(exportEuropassXml(s, makeView({ sections: buildViewSections() }), locale))
+  }
+  const count = (doc: Document, tag: string) => doc.getElementsByTagName(tag).length
+  const text = (doc: Document, tag: string) =>
+    Array.from(doc.getElementsByTagName(tag)).map((e) => e.textContent)
+
+  it('writes a period that has only an END date', () => {
+    // An education finished in a year whose start nobody recorded is ordinary,
+    // and dropping the one date it has loses the entry\u2019s whole timeline.
+    const doc = build((s) => {
+      s.educations = [makeEducation({ id: 'e1', school: { en: 'NTNU' }, start: null, end: { year: 2016, month: 6 } })]
+    })
+    expect(count(doc, 'Period')).toBe(1)
+    expect(count(doc, 'From')).toBe(0)
+    expect(doc.getElementsByTagName('To')[0].getAttribute('year')).toBe('2016')
+  })
+
+  it('omits the Period entirely for an entry with no dates at all', () => {
+    const doc = build((s) => {
+      s.educations = [makeEducation({ id: 'e1', school: { en: 'NTNU' }, start: null, end: null })]
+      s.work_experiences = [makeWork({ id: 'w1', employer: { en: 'Acme' }, start: null, end: null })]
+    })
+    expect(count(doc, 'Period')).toBe(0)
+  })
+
+  it('trims the activities text, from either description field', () => {
+    const long = build((s) => {
+      s.work_experiences = [makeWork({ id: 'w1', employer: { en: 'Acme' }, long_description: { en: '  Ran it.  ' } })]
+    })
+    expect(text(long, 'Activities')).toEqual(['Ran it.'])
+
+    const short = build((s) => {
+      s.work_experiences = [makeWork({
+        id: 'w1', employer: { en: 'Acme' }, long_description: {}, description: { en: '  Ran it.  ' },
+      })]
+    })
+    expect(text(short, 'Activities')).toEqual(['Ran it.'])
+
+    const educated = build((s) => {
+      s.educations = [makeEducation({ id: 'e1', school: { en: 'NTNU' }, description: { en: '  Studied.  ' } })]
+    })
+    expect(text(educated, 'Activities')).toEqual(['Studied.'])
+  })
+
+  it('omits Activities for an entry that describes itself nowhere', () => {
+    const doc = build((s) => {
+      s.educations = [makeEducation({ id: 'e1', school: { en: 'NTNU' }, description: {} })]
+      s.work_experiences = [makeWork({ id: 'w1', employer: { en: 'Acme' }, long_description: {}, description: {} })]
+    })
+    expect(count(doc, 'Activities')).toBe(0)
+  })
+
+  it('puts the company URL in the Contact element the schema expects', () => {
+    const doc = build((s) => {
+      s.work_experiences = [makeWork({ id: 'w1', employer: { en: 'Acme' }, company_url: 'https://acme.test' })]
+    })
+    const website = doc.getElementsByTagName('Website')[0]
+    expect(website.getElementsByTagName('Contact')[0]?.textContent).toBe('https://acme.test')
+  })
+
+  it('reads the Norwegian and long-form spellings of a mother tongue', () => {
+    for (const level of ['morsm\u00e5l', 'Mother tongue']) {
+      const doc = build((s) => {
+        s.spoken_languages = [makeLang({ id: 'l1', name: { en: 'Norwegian' }, level: { en: level } })]
+      })
+      expect(count(doc, 'MotherTongue'), level).toBe(1)
+      expect(count(doc, 'ForeignLanguage'), level).toBe(0)
+    }
+  })
+
+  it('trims a free-text proficiency level', () => {
+    const doc = build((s) => {
+      s.spoken_languages = [makeLang({ id: 'l1', name: { en: 'German' }, level: { en: '  B2  ' } })]
+    })
+    expect(text(doc, 'Listening')).toEqual(['B2'])
+  })
+
+  it('leaves out a disabled or nameless language', () => {
+    const doc = build((s) => {
+      s.spoken_languages = [
+        makeLang({ id: 'l1', name: { en: 'German' }, level: { en: 'B2' }, disabled: true }),
+        makeLang({ id: 'l2', name: { en: '   ' }, level: { en: 'C1' } }),
+      ]
+    })
+    expect(count(doc, 'Skills')).toBe(0)
+  })
+
+  it('writes only the language list it has entries for', () => {
+    const motherOnly = build((s) => {
+      s.spoken_languages = [makeLang({ id: 'l1', name: { en: 'Norwegian' }, level: { en: 'Native' } })]
+    })
+    expect(count(motherOnly, 'MotherTongueList')).toBe(1)
+    expect(count(motherOnly, 'ForeignLanguageList')).toBe(0)
+
+    const foreignOnly = build((s) => {
+      s.spoken_languages = [makeLang({ id: 'l1', name: { en: 'German' }, level: { en: 'B2' } })]
+    })
+    expect(count(foreignOnly, 'MotherTongueList')).toBe(0)
+    expect(count(foreignOnly, 'ForeignLanguageList')).toBe(1)
+  })
+
+  it('omits the list elements for a section with nothing in it', () => {
+    const doc = build(() => {})
+    expect(count(doc, 'WorkExperienceList')).toBe(0)
+    expect(count(doc, 'EducationList')).toBe(0)
+    expect(count(doc, 'Skills')).toBe(0)
+  })
+
+  it('splits a name on a RUN of whitespace, not each space in it', () => {
+    const doc = build((s) => { s.resume = makeResume({ full_name: 'Kari  Nordmann' }) })
+    expect(text(doc, 'FirstName')).toEqual(['Kari'])
+    expect(text(doc, 'Surname')).toEqual(['Nordmann'])
+  })
+
+  it('omits each identification block whose field is empty', () => {
+    const doc = build((s) => {
+      s.resume = makeResume({
+        full_name: 'Kari', email: '', phone: null, website_url: '',
+        place_of_residence: {}, nationality: {}, title: {},
+      })
+    })
+    expect(count(doc, 'ContactInfo')).toBe(0)
+    expect(count(doc, 'Address')).toBe(0)
+    expect(count(doc, 'Demographics')).toBe(0)
+    expect(count(doc, 'Headline')).toBe(0)
+  })
+
+  it('omits Identification entirely when the resume record says nothing', () => {
+    const doc = build((s) => {
+      s.resume = makeResume({
+        full_name: '   ', email: '', phone: null, website_url: '',
+        place_of_residence: {}, nationality: {}, title: {},
+      })
+    })
+    expect(count(doc, 'Identification')).toBe(0)
+  })
+
+  it('exports a store with no resume record at all', () => {
+    const s = { ...emptyStore(), resume: undefined } as unknown as ResumeStore
+    const doc = parse(exportEuropassXml(s, makeView({ sections: buildViewSections() }), 'en'))
+    expect(count(doc, 'LearnerInfo')).toBe(1)
+    expect(count(doc, 'Identification')).toBe(0)
+  })
+})

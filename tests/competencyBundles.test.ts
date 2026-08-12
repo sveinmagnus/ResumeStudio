@@ -175,3 +175,53 @@ describe('reassignCompetency — the drops that must change nothing', () => {
       .toEqual([{ profileId: 'a', competency_ids: ['c2'] }])
   })
 })
+
+/**
+ * Dragging a competency between profiles. Each guard here is the difference
+ * between a move and a silent deletion, so all four are asserted by the PATCHES
+ * produced rather than by the store afterwards.
+ */
+describe('reassignCompetency — the guards on a drop', () => {
+  const qual = (id: string, competency_ids: string[]) =>
+    ({ id, competency_ids } as never)
+
+  it('does nothing when the drop lands on the group it came from', () => {
+    expect(reassignCompetency([qual('kq1', ['c1'])], 'kq1', 'kq1', 'c1')).toEqual([])
+  })
+
+  it('does nothing when the target profile already holds it', () => {
+    // Otherwise the drop detaches it from the source and the user loses a
+    // membership by dropping it where it already was.
+    const quals = [qual('kq1', ['c1']), qual('kq2', ['c1'])]
+    expect(reassignCompetency(quals, 'kq1', 'kq2', 'c1')).toEqual([])
+  })
+
+  it('detaches from the source and attaches to the target', () => {
+    const quals = [qual('kq1', ['c1', 'c2']), qual('kq2', ['c9'])]
+    expect(reassignCompetency(quals, 'kq1', 'kq2', 'c1')).toEqual([
+      { profileId: 'kq1', competency_ids: ['c2'] },
+      { profileId: 'kq2', competency_ids: ['c9', 'c1'] },
+    ])
+  })
+
+  it('only detaches when the target is the unassigned bucket', () => {
+    const quals = [qual('kq1', ['c1', 'c2'])]
+    expect(reassignCompetency(quals, 'kq1', UNASSIGNED_GROUP, 'c1')).toEqual([
+      { profileId: 'kq1', competency_ids: ['c2'] },
+    ])
+  })
+
+  it('only attaches when it came FROM the unassigned bucket', () => {
+    const quals = [qual('kq1', ['c9'])]
+    expect(reassignCompetency(quals, UNASSIGNED_GROUP, 'kq1', 'c1')).toEqual([
+      { profileId: 'kq1', competency_ids: ['c9', 'c1'] },
+    ])
+  })
+
+  it('appends to a profile whose bundle list is absent', () => {
+    const quals = [{ id: 'kq1' } as never]
+    expect(reassignCompetency(quals, UNASSIGNED_GROUP, 'kq1', 'c1')).toEqual([
+      { profileId: 'kq1', competency_ids: ['c1'] },
+    ])
+  })
+})

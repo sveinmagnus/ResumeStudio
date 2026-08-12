@@ -389,3 +389,56 @@ describe('computeDrift — finding order and number phrasing', () => {
       .toContain('2019, 2020, 2021, 2022, +2 more only in EN')
   })
 })
+
+describe('numberDiff — the one-sided case', () => {
+  it('sorts a one-sided list on either side', () => {
+    // The finding names these numbers in the order given; unsorted, the same
+    // disagreement reads differently depending on the sentence it came from.
+    expect(numberDiff('1000 and 300 and 250 shared', 'shared').onlyA)
+      .toEqual(['1000', '250', '300'])
+    expect(numberDiff('shared', 'shared 1000 og 300 og 250').onlyB)
+      .toEqual(['1000', '250', '300'])
+  })
+
+  it('applies the salience rule to the B side as well as the A side', () => {
+    // "three projects" ⇄ "3 prosjekter" is a spelling choice, not drift — and
+    // that has to hold whichever language wrote the digit.
+    expect(numberDiff('three projects', '3 prosjekter')).toEqual({ onlyA: [], onlyB: [] })
+    expect(numberDiff('3 projects', 'tre prosjekter')).toEqual({ onlyA: [], onlyB: [] })
+  })
+})
+
+describe('wordCount — one word per run of whitespace', () => {
+  it('does not count the gap between two spaces as a word', () => {
+    // A double space is invisible in the editor; counting it would make a
+    // length ratio depend on typing rather than content.
+    expect(wordCount('one  two')).toBe(2)
+    const nl = String.fromCharCode(10)
+    expect(wordCount(`one${nl}${nl}two`)).toBe(2)
+  })
+})
+
+describe('driftDismissKey — a stable id per field and kind', () => {
+  it('names a resume-level field "root" rather than leaving a hole', () => {
+    // The key is persisted in `drift_dismissals`; a null in the middle of it
+    // would not survive a round trip through JSON as the same string.
+    const key = driftDismissKey({ section: 'header', itemId: null, fieldLabel: 'Title' } as never, 'numbers')
+    expect(key).toBe('header:root:Title:numbers')
+  })
+
+  it('keys an item-level field by its item id', () => {
+    const key = driftDismissKey({ section: 'projects', itemId: 'p1', fieldLabel: 'Description' } as never, 'length')
+    expect(key).toBe('projects:p1:Description:length')
+  })
+})
+
+describe('computeDrift — a field is only compared when BOTH sides say something', () => {
+  it('skips a field that is only whitespace in one locale', () => {
+    // Whitespace is not content: comparing it reports a length ratio against
+    // nothing, and the user cannot see what they are supposed to fix.
+    expect(computeDrift(storeWith('A real description with several words here', '   '), 'en', 'no'))
+      .toMatchObject({ comparedFields: 0, findings: [] })
+    expect(computeDrift(storeWith('   ', 'En ekte beskrivelse med flere ord her'), 'en', 'no'))
+      .toMatchObject({ comparedFields: 0, findings: [] })
+  })
+})

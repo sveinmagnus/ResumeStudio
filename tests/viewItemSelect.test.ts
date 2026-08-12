@@ -268,3 +268,24 @@ describe('typeGroups() — the registry context is optional', () => {
     expect(facet(sets, 'Type')!.groups.map((g) => g.label)).toEqual(['Bok'])
   })
 })
+
+describe('typeGroups() — the Role facet reads role IDS, not role rows', () => {
+  it('ignores a link row that carries no role id', () => {
+    // An orphaned link row (no role_id) is not an untyped project: passing the
+    // row itself through as a value would put the project in BOTH its real role
+    // group and the "No type" bucket, and the counts would stop adding up.
+    const items: SelectableItem[] = [{ id: 'p1', roles: [{ role_id: 'pm' }, {}] }]
+    const registry = [role('pm', 'PM'), role('dev', 'Developer')]
+    const g = facet(typeGroups('projects', items, 'en', { roles: registry }), 'Role')!.groups
+    expect(g.find((x) => x.label === 'PM')!.ids).toEqual(['p1'])
+    expect(g.find((x) => x.value === '')?.ids ?? []).toEqual([])
+  })
+
+  it('offers no named role group when called without a registry', () => {
+    // The panel always passes the roles; the default is what a caller gets
+    // wrong, and a facet full of unnamed groups is worse than none.
+    const sets = typeGroups('projects', [{ id: 'p1', roles: [{ role_id: 'pm' }] }], 'en')
+    const g = facet(sets, 'Role')!.groups
+    expect(g.map((x) => x.value)).toEqual([''])
+  })
+})

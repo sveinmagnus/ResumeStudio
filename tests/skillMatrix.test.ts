@@ -3,7 +3,9 @@ import { skillMatrixRows, fmtLastUsed, fmtProficiency } from '../src/lib/skillMa
 import { buildViewHtml, buildViewSections } from '../src/lib/viewFilter'
 import { emptyStore, makeProject, makeSkill, makeSkillCategory, makeView } from './fixtures'
 import { xs } from '../src/lib/exportStrings'
-import type { ProjectSkill } from '../src/types'
+import { fmtDate } from '../src/lib/locales'
+import type { SkillMatrixRow } from '../src/lib/skillMatrix'
+import type { ProjectSkill, ResumeStore } from '../src/types'
 
 const ps = (skill_id: string, duration = 0): ProjectSkill => ({
   id: `ps-${skill_id}-${Math.random()}`, skill_id, name: {},
@@ -333,5 +335,136 @@ describe('skillMatrixRows — selection and filters', () => {
   it('returns nothing for an empty registry', () => {
     const s = emptyStore()
     expect(skillMatrixRows(s, makeView(), 'en')).toEqual([])
+  })
+})
+
+/**
+ * The row ORDER is the matrix's editorial voice: a tender reader looks at the
+ * first few rows and stops. Highlighted skills come first, then the longest
+ * experience, then alphabetically — and each of those three has to actively
+ * reorder, so the assertions below feed it lists already in the wrong order.
+ */
+describe('skillMatrixRows — the order the reader sees', () => {
+  const withYears = (over: Parameters<typeof makeSkill>[0]) =>
+    makeSkill({ total_duration_in_years: 0, ...over })
+
+  const order = (skills: Parameters<typeof makeSkill>[0][]) => {
+    const s = emptyStore()
+    s.skills = skills.map(withYears)
+    return skillMatrixRows(s, makeView(), 'en').map((r) => r.name)
+  }
+
+  it('lifts a highlighted skill above an unhighlighted one with MORE experience', () => {
+    expect(order([
+      { id: 'a', name: { en: 'Ada' }, total_duration_in_years: 12 },
+      { id: 'b', name: { en: 'Bash' }, total_duration_in_years: 1, is_highlighted: true },
+    ])).toEqual(['Bash', 'Ada'])
+  })
+
+  it('keeps a highlighted skill first even when the years tie', () => {
+    // The tie is the case that separates "highlighted OR years" from
+    // "highlighted AND years": with equal years the second rule contributes 0.
+    expect(order([
+      { id: 'a', name: { en: 'Ada' }, total_duration_in_years: 4 },
+      { id: 'z', name: { en: 'Zsh' }, total_duration_in_years: 4, is_highlighted: true },
+    ])).toEqual(['Zsh', 'Ada'])
+  })
+
+  it('orders by years DESCENDING within a group', () => {
+    expect(order([
+      { id: 'a', name: { en: 'Ada' }, total_duration_in_years: 2 },
+      { id: 'b', name: { en: 'Bash' }, total_duration_in_years: 9 },
+      { id: 'c', name: { en: 'C' }, total_duration_in_years: 5 },
+    ])).toEqual(['Bash', 'C', 'Ada'])
+  })
+
+  it('falls back to the skill name when both rules tie', () => {
+    expect(order([
+      { id: 'z', name: { en: 'Zsh' }, total_duration_in_years: 3 },
+      { id: 'a', name: { en: 'Ada' }, total_duration_in_years: 3 },
+    ])).toEqual(['Ada', 'Zsh'])
+  })
+})
+
+describe('skillMatrixRows — the per-row values a reader takes as fact', () => {
+  const rowFor = (over: Parameters<typeof makeSkill>[0], fill: (s: ResumeStore) => void = () => {}) => {
+    const s = emptyStore()
+    s.skills = [makeSkill({ id: 'sk', name: { en: 'Solo' }, total_duration_in_years: 0, ...over })]
+    fill(s)
+    return skillMatrixRows(s, makeView(), 'en')[0]
+  }
+
+  it('trims a library classification, and ignores a blank one', () => {
+    expect(rowFor({ classification: '  Technical  ' }).category).toBe('Technical')
+
+    // Whitespace is not a classification: fall through to the linked category.
+    const row = rowFor({ classification: '   ', category_id: 'cat' }, (s) => {
+      s.skill_categories = [makeSkillCategory({ id: 'cat', name: { en: 'Cloud' } })]
+    })
+    expect(row.category).toBe('Cloud')
+  })
+
+  it('reports no category when the store has no category list at all', () => {
+    // An older resume can reach here with the array absent, not empty.
+    const s = emptyStore()
+    s.skills = [makeSkill({ id: 'sk', name: { en: 'Solo' }, category_id: 'cat' })]
+    delete (s as { skill_categories?: unknown }).skill_categories
+    expect(skillMatrixRows(s, makeView(), 'en')[0].category).toBe('')
+  })
+
+  it('clamps proficiency into the 0-5 the column claims', () => {
+    expect(rowFor({ proficiency: 3 }).proficiency).toBe(3)
+    expect(rowFor({ proficiency: 9 }).proficiency).toBe(5)
+    expect(rowFor({ proficiency: -2 }).proficiency).toBe(0)
+  })
+
+  it('ignores usage from a project with no start date', () => {
+    // An undated project cannot say WHEN a skill was last used, and reporting
+    // its end alone would date the skill from a range nobody entered.
+    const row = rowFor({}, (s) => {
+      s.projects = [makeProject({
+        id: 'p1', start: null, end: { year: 2021, month: 6 },
+        skills: [{ skill_id: 'sk', name: {}, proficiency: 3 }] as never,
+      })]
+    })
+    expect(row.lastUsed).toBeNull()
+    expect(row.ongoing).toBe(false)
+  })
+
+  it('keeps the FIRST of two usages that fall in the same month', () => {
+    // A year-only end and January of that year compare equal; replacing on a tie
+    // would silently sharpen "2019" into "January 2019".
+    const row = rowFor({}, (s) => {
+      s.projects = [
+        makeProject({
+          id: 'p1', start: { year: 2018, month: 1 }, end: { year: 2019, month: null },
+          skills: [{ skill_id: 'sk', name: {}, proficiency: 3 }] as never,
+        }),
+        makeProject({
+          id: 'p2', start: { year: 2018, month: 1 }, end: { year: 2019, month: 1 },
+          skills: [{ skill_id: 'sk', name: {}, proficiency: 3 }] as never,
+        }),
+      ]
+    })
+    expect(row.lastUsed).toEqual({ year: 2019, month: null })
+  })
+})
+
+describe('fmtLastUsed', () => {
+  const row = (over: Partial<SkillMatrixRow>): SkillMatrixRow => ({
+    id: 'sk', name: 'Solo', category: '', years: 0, proficiency: 0,
+    lastUsed: null, ongoing: false, highlighted: false, ...over,
+  })
+
+  it('formats a closed last-used date in the section\u2019s own date format', () => {
+    expect(fmtLastUsed(row({ lastUsed: { year: 2021, month: 6 } }), 'en', 'month-year'))
+      .toBe(fmtDate({ year: 2021, month: 6 }, 'month-year', 'en'))
+    expect(fmtLastUsed(row({ lastUsed: { year: 2021, month: 6 } }), 'en', 'year-only'))
+      .toBe('2021')
+  })
+
+  it('says Ongoing only when the row is ongoing, and nothing with no date', () => {
+    expect(fmtLastUsed(row({ ongoing: true }), 'en')).toBe(xs('ongoing', 'en'))
+    expect(fmtLastUsed(row({}), 'en')).toBe('')
   })
 })

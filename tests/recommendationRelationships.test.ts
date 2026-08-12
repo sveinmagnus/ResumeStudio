@@ -119,3 +119,28 @@ describe('matchRelationshipKey — how a stored value finds its option again', (
     expect(matchRelationshipKey({ en: 'Sat opposite me for three years' })).toBeNull()
   })
 })
+
+describe('matchRelationshipKey — re-selecting a stored value', () => {
+  const opt = RELATIONSHIP_OPTIONS[0]
+
+  it('matches a label case-insensitively', () => {
+    // The value was written by an earlier version, an import, or by hand: the
+    // dropdown still has to find its own option or it shows as free text.
+    const label = opt.labels.en!
+    expect(matchRelationshipKey({ en: label.toUpperCase() })).toBe(opt.key)
+    expect(matchRelationshipKey({ en: `  ${label.toLowerCase()}  ` })).toBe(opt.key)
+  })
+
+  it('ignores a locale slot that holds only whitespace', () => {
+    // An empty slot must not be compared: a label is never blank, so a blank
+    // value can only produce a false match.
+    expect(matchRelationshipKey({ en: '   ' })).toBeNull()
+    expect(matchRelationshipKey({ en: '   ', no: opt.labels.no! })).toBe(opt.key)
+  })
+
+  it('is null for an empty map and for free text', () => {
+    expect(matchRelationshipKey({})).toBeNull()
+    expect(matchRelationshipKey(undefined)).toBeNull()
+    expect(matchRelationshipKey({ en: 'Rowing club treasurer' })).toBeNull()
+  })
+})

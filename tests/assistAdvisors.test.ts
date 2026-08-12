@@ -1768,3 +1768,151 @@ describe('tidyIntro — the anchors and the cap', () => {
   })
 })
 
+describe('the profile prompt and its validator, in detail', () => {
+  function withLibrary(over: Partial<KeyCompetency> = {}): ResumeStore {
+    const s = storeWithProject()
+    s.key_competencies = [{
+      id: 'comp-1', resume_id: 'resume-1', title: { en: 'Cloud architecture' },
+      description: { en: 'Designs cloud platforms.' }, sort_order: 0,
+      starred: false, disabled: false, ...over,
+    } as KeyCompetency]
+    return s
+  }
+  const libraryBlock = (prompt: string) =>
+    prompt.slice(prompt.indexOf('--- COMPETENCY LIBRARY ---'), prompt.indexOf('--- CV ---'))
+
+  it('flattens a competency description to ONE line, collapsing runs of space', () => {
+    // A catalog entry is `key: value` per line; a description carrying its own
+    // newlines would look like new fields to the model.
+    const s = withLibrary({
+      description: { en: `  Designs   platforms.${String.fromCharCode(10)}Runs them.  ` },
+    })
+    const library = libraryBlock(buildProfilePrompt(s, 'en', { brief: 'x', count: 2 }))
+    expect(library).toContain('  description: Designs platforms. Runs them.' + String.fromCharCode(10))
+  })
+
+  it('caps a very long description rather than spending the budget on one entry', () => {
+    const s = withLibrary({ description: { en: 'word '.repeat(200) } })
+    const line = libraryBlock(buildProfilePrompt(s, 'en', { brief: 'x', count: 2 }))
+      .split(String.fromCharCode(10)).find((l) => l.includes('description:'))!
+    expect(line.length).toBeLessThan(330)
+  })
+
+  it('reads a whitespace-only brief as no brief at all', () => {
+    const s = withLibrary()
+    const blank = buildProfilePrompt(s, 'en', { brief: '   ', count: 2 })
+    expect(blank).toMatch(/no brief given/)
+    // …and a real brief is what stands there instead.
+    const real = buildProfilePrompt(s, 'en', { brief: 'Public sector platforms', count: 2 })
+    expect(real).toContain('Public sector platforms')
+    expect(real).not.toMatch(/no brief given/)
+  })
+
+  it('digests the CV in the tidy locale, without the short descriptions', () => {
+    const s = withLibrary()
+    s.projects[0].short_description = { en: 'Short line.', no: 'Kort linje.' }
+    const prompt = buildProfilePrompt(s, 'no', { brief: 'x', count: 2 })
+    // The short line is the OUTPUT of an earlier assist; feeding it back would
+    // have the model rewrite its own summary instead of reading the evidence.
+    expect(prompt).not.toContain('Short line.')
+    expect(prompt).not.toContain('Kort linje.')
+    expect(prompt).toContain('Ansvarlig for arbeid.')
+  })
+
+  it('names a non-object reply as such, whatever kind it is', () => {
+    for (const bad of [null, undefined, 'text', 42]) {
+      expect(() => validateProfileDraft(bad, withLibrary(), 'en'), String(bad))
+        .toThrow(/not a JSON object/)
+    }
+    expect(() => validateProfileDraft({ drafts: [] }, withLibrary(), 'en'))
+      .toThrow(/no "profiles" array/)
+  })
+
+  it('trims and caps the text it keeps from a draft', () => {
+    const { profiles } = validateProfileDraft({
+      profiles: [{ tag_line: `  ${'t'.repeat(300)}  `, summary: 'Real summary.' }],
+    }, withLibrary(), 'en')
+    expect(profiles[0].tagLine.startsWith(' ')).toBe(false)
+    expect(profiles[0].tagLine).toHaveLength(200)
+  })
+
+  it('takes only the first few profiles and numbers a dropped one from ONE', () => {
+    const many = Array.from({ length: 9 }, (_, i) => ({ tag_line: `T${i}`, summary: 'S' }))
+    const { profiles } = validateProfileDraft({ profiles: many }, withLibrary(), 'en')
+    expect(profiles).toHaveLength(6)
+
+    const { dropped } = validateProfileDraft({
+      profiles: [{ tag_line: 'Fine', summary: 'S' }, 'not an object', {}],
+    }, withLibrary(), 'en')
+    expect(dropped).toEqual([
+      'Profile 2 was not an object.',
+      'Profile 3 had no tag line or summary.',
+    ])
+  })
+})
+
+describe('a drafted profile, once applied', () => {
+  const library = (): ResumeStore => {
+    const s = storeWithProject()
+    s.key_competencies = [{
+      id: 'comp-1', resume_id: 'resume-1', title: { en: 'Cloud architecture' },
+      description: { en: '  Designs cloud platforms.  ' }, sort_order: 0,
+      starred: false, disabled: false,
+    } as KeyCompetency]
+    return s
+  }
+  const drafted = (over: Record<string, unknown> = {}, bundle: unknown[] = []) =>
+    validateProfileDraft({ profiles: [{
+      tag_line: 'Cloud architect', summary: 'Builds platforms.', bundle, ...over,
+    }] }, library(), 'en').profiles[0]
+
+  it('trims a library description before showing it beside the draft', () => {
+    // The bundle rows are rendered next to the drafted text in the panel, so a
+    // leading space is a visible indent nobody typed.
+    expect(drafted({}, [{ id: 'comp-1' }]).bundle[0].description).toBe('Designs cloud platforms.')
+  })
+
+  it('takes only the first dozen bundle entries, and none from a non-array', () => {
+    const many = Array.from({ length: 20 }, (_, i) => ({ id: null, title: `T${i}` }))
+    expect(drafted({}, many).bundle).toHaveLength(12)
+    expect(drafted({ bundle: 'comp-1' }).bundle).toEqual([])
+  })
+
+  it('names the profile that referenced a competency the library does not have', () => {
+    const { dropped } = validateProfileDraft({ profiles: [
+      { tag_line: 'A', summary: 'S' },
+      { tag_line: 'B', summary: 'S', bundle: [{ id: 'comp-nope' }] },
+    ] }, library(), 'en')
+    expect(dropped).toEqual([`Profile 2 referenced a competency that isn't in the library.`])
+  })
+
+  it('writes the drafted text into the locale being worked in', () => {
+    const out = applyProfileDraft(library(), drafted({ summary_short: 'Short line.' }), 'no')
+    const added = out.key_qualifications[out.key_qualifications.length - 1]
+    expect(added.tag_line).toEqual({ no: 'Cloud architect' })
+    expect(added.summary).toEqual({ no: 'Builds platforms.' })
+    expect(added.summary_short).toEqual({ no: 'Short line.' })
+    // Key points are the OLD bullet list; a generated profile uses the bundle.
+    expect(added.key_points).toEqual([])
+  })
+
+  it('leaves summary_short off entirely when the draft has none', () => {
+    const out = applyProfileDraft(library(), drafted(), 'en')
+    const added = out.key_qualifications[out.key_qualifications.length - 1]
+    expect('summary_short' in added).toBe(false)
+  })
+
+  it('creates a proposed competency unstarred and enabled', () => {
+    const out = applyProfileDraft(
+      library(), drafted({}, [{ id: null, title: 'Procurement', description: 'Knows it.' }]), 'en')
+    const created = out.key_competencies[out.key_competencies.length - 1]
+    expect(created).toMatchObject({ starred: false, disabled: false })
+    expect(out.key_qualifications[0].competency_ids).toEqual([created.id])
+  })
+
+  it('applies to a store with no resume record and an empty library', () => {
+    const bare = { ...emptyStore(), resume: undefined } as unknown as ResumeStore
+    const out = applyProfileDraft(bare, drafted({}, [{ id: null, title: 'Procurement' }]), 'en')
+    expect(out.key_competencies[0].resume_id).toBe('')
+  })
+})

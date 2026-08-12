@@ -271,6 +271,21 @@ describe('skillExperience / roleExperience — the union and its sources', () =>
     expect(skillExperience(s, s.skills[0], NOW).computedMonths).toBe(0)
   })
 
+  it('ignores a project that uses a DIFFERENT skill', () => {
+    // An empty skill list proves nothing: the link check has to compare ids, and
+    // a project that lists Rust must not lend its months to Go.
+    const s = emptyStore()
+    s.skills = [makeSkill({ id: 'go', name: { en: 'Go' } })]
+    s.projects = [makeProject({
+      id: 'p1', start: ym(2020, 1), end: ym(2020, 12),
+      skills: [{
+        id: 'ps1', skill_id: 'rust', name: {},
+        duration_in_years: 0, offset_in_years: 0, total_duration_in_years: 0, sort_order: 0,
+      }],
+    } as never)]
+    expect(skillExperience(s, s.skills[0], NOW).computedMonths).toBe(0)
+  })
+
   describe('the legacy fallback', () => {
     it('uses the stored number ONLY when no dated usage exists', () => {
       const only = withSkill([], { total_duration_in_years: 4 })
@@ -329,11 +344,52 @@ describe('skillExperience / roleExperience — the union and its sources', () =>
       expect(roleExperience(s, s.roles[0], NOW).computedMonths).toBe(0)
     })
 
+    it('ignores a project, employment or position linked to ANOTHER role', () => {
+      const s = roleStore()
+      s.projects = [makeProject({ id: 'p1', roles: [{ id: 'r1', role_id: 'dev', name: {}, sort_order: 0 }] as never, start: ym(2020, 1), end: ym(2020, 6) })]
+      s.work_experiences = [makeWork({ id: 'w1', role_ids: ['dev'], start: ym(2021, 1), end: ym(2021, 6) })]
+      s.positions = [{ ...makePosition({ id: 'pos1' }), role_ids: ['dev'], start: ym(2022, 1), end: ym(2022, 6) } as never]
+      expect(roleExperience(s, s.roles[0], NOW).computedMonths).toBe(0)
+    })
+
+    it('counts a project that lists this role ALONGSIDE others', () => {
+      // "some", not "every": a project is usually staffed with several roles, and
+      // requiring all of them to match would drop most of the real links.
+      const s = roleStore()
+      s.projects = [makeProject({
+        id: 'p1', start: ym(2020, 1), end: ym(2020, 6),
+        roles: [
+          { id: 'r1', role_id: 'dev', name: {}, sort_order: 0 },
+          { id: 'r2', role_id: 'arch', name: {}, sort_order: 1 },
+        ] as never,
+      } as never)]
+      expect(roleExperience(s, s.roles[0], NOW).computedMonths).toBe(6)
+    })
+
+    it('adds nothing when the role carries no adjustment', () => {
+      // An absent offset is zero, not one year: `|| 0` is what makes that true.
+      const s = roleStore()
+      s.projects = [makeProject({ id: 'p1', roles: [{ id: 'r1', role_id: 'arch', name: {}, sort_order: 0 }] as never, start: ym(2020, 1), end: ym(2020, 12) })]
+      delete (s.roles[0] as unknown as Record<string, unknown>).years_of_experience_offset
+      expect(roleExperience(s, s.roles[0], NOW)).toMatchObject({ adjustmentMonths: 0, totalMonths: 12 })
+    })
+
     it('survives a position with no role_ids array at all', () => {
       const s = roleStore()
       s.positions = [{ ...makePosition({ id: 'pos1' }), start: ym(2020, 1), end: ym(2020, 6) } as never]
       delete (s.positions[0] as unknown as Record<string, unknown>).role_ids
       expect(() => roleExperience(s, s.roles[0], NOW)).not.toThrow()
     })
+  })
+})
+
+describe('splitMonths — the sign of zero', () => {
+  it('splits zero as positive zero, not negative zero', () => {
+    // The two adjustment inputs render these numbers straight into value
+    // attributes, and "-0" in a number field is a value the user cannot type or
+    // correct.
+    const { years, months } = splitMonths(0)
+    expect(Object.is(years, 0)).toBe(true)
+    expect(Object.is(months, 0)).toBe(true)
   })
 })
