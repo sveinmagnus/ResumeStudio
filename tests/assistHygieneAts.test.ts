@@ -1463,3 +1463,151 @@ describe('buildGlossary — which pairs are worth sending', () => {
     expect(out.keep.filter((k) => k === 'NAV')).toHaveLength(1)
   })
 })
+
+/**
+ * C4 is proposal-only by construction (CLAUDE.md §15), so the prompt is where its
+ * usefulness is decided: the model sees every registry entry with a REFERENCE
+ * COUNT (merging away the one with 40 uses is the destructive mistake), and the
+ * uncategorised skills with whatever the library already says about them.
+ */
+describe('buildHygienePrompt — what the model is shown', () => {
+  const store = (over: Partial<ResumeStore> = {}) => ({ ...emptyStore(), ...over }) as ResumeStore
+
+  it('starts the catalog with the first registry heading', () => {
+    const s = store({ skills: [makeSkill({ id: 's1', name: { en: 'Go' } })] })
+    const catalog = buildHygienePrompt(s, 'en').split('--- REGISTRIES ---')[1]!.split('--- CATEGORIES ---')[0]
+    const firstLine = catalog.split(String.fromCharCode(10)).map((l) => l.trim()).find(Boolean)
+    expect(firstLine).toBe('## skills')
+  })
+
+  it('lists each registry entry with its id, name and use count', () => {
+    const s = store({
+      skills: [makeSkill({ id: 's1', name: { en: 'Kubernetes' } })],
+      roles: [makeRole({ id: 'r1', name: { en: 'Architect' } })],
+      projects: [makeProject({
+        id: 'p1',
+        skills: [{ skill_id: 's1', name: { en: 'Kubernetes' }, proficiency: 0 }],
+        roles: [{ role_id: 'r1', name: { en: 'Architect' }, description: {} }],
+      })],
+    })
+    const prompt = buildHygienePrompt(s, 'en')
+    expect(prompt).toMatch(/## skills/)
+    expect(prompt).toMatch(/id: s1 \| name: Kubernetes \| used: 1/)
+    expect(prompt).toMatch(/id: r1 \| name: Architect \| used: 1/)
+  })
+
+  it('shows a zero count for an entry nothing references', () => {
+    const s = store({ skills: [makeSkill({ id: 's1', name: { en: 'Unused' } })] })
+    expect(buildHygienePrompt(s, 'en')).toMatch(/name: Unused \| used: 0/)
+  })
+
+  it('omits a registry with nothing in it, and a nameless entry from the merge catalog', () => {
+    // A nameless entry cannot be judged a duplicate of anything, so it is not
+    // offered for merging.
+    const s = store({ skills: [makeSkill({ id: 's1', name: {} })] })
+    const prompt = buildHygienePrompt(s, 'en')
+    const catalog = prompt.split('--- CATEGORIES ---')[0]
+    expect(catalog).not.toMatch(/## roles/)
+    expect(catalog).not.toMatch(/id: s1/)
+  })
+
+  it('names each entry in the locale being tidied', () => {
+    const s = store({ skills: [makeSkill({ id: 's1', name: { en: 'Spreadsheets', no: 'Regneark' } })] })
+    expect(buildHygienePrompt(s, 'no')).toContain('Regneark')
+    expect(buildHygienePrompt(s, 'no')).not.toContain('Spreadsheets')
+  })
+
+  it('lists the UNCATEGORISED skills, and says so when there are none', () => {
+    const withLoose = store({
+      skill_categories: [makeSkillCategory({ id: 'c1', name: { en: 'Languages' } })],
+      skills: [
+        makeSkill({ id: 's1', name: { en: 'Go' }, category_id: null }),
+        makeSkill({ id: 's2', name: { en: 'Rust' }, category_id: 'c1' }),
+      ],
+    })
+    const prompt = buildHygienePrompt(withLoose, 'en')
+    expect(prompt).toMatch(/id: s1 \| name: Go/)
+    // A skill that already has a category is not offered for categorisation.
+    expect(prompt.split('--- CATEGORIES ---')[1]).not.toContain('Rust')
+    expect(prompt).toContain('Languages')
+
+    const allPlaced = store({
+      skill_categories: [makeSkillCategory({ id: 'c1', name: { en: 'Languages' } })],
+      skills: [makeSkill({ id: 's2', name: { en: 'Rust' }, category_id: 'c1' })],
+    })
+    expect(buildHygienePrompt(allPlaced, 'en')).toContain('every skill already has a category')
+  })
+
+  it('passes on what the library already says about a skill', () => {
+    // The classification is a hint the model should not have to guess at.
+    const s = store({
+      skills: [makeSkill({ id: 's1', name: { en: 'Go' }, category_id: null, classification: 'Technical' })],
+    })
+    expect(buildHygienePrompt(s, 'en')).toMatch(/name: Go \| library says: Technical/)
+  })
+
+  it('says there are no categories yet rather than showing an empty list', () => {
+    const s = store({ skills: [makeSkill({ id: 's1', name: { en: 'Go' }, category_id: null })] })
+    expect(buildHygienePrompt(s, 'en')).toContain('no categories yet')
+  })
+
+  it('leaves no run of blank lines at the end of the catalog block', () => {
+    const s = store({ skills: [makeSkill({ id: 's1', name: { en: 'Go' } })] })
+    const catalog = buildHygienePrompt(s, 'en').split('--- CATEGORIES ---')[0]
+    const nl = String.fromCharCode(10)
+    expect(catalog.endsWith(nl + nl + nl)).toBe(false)
+  })
+})
+
+describe('applyHygiene — a merge that cannot apply is reported, not counted', () => {
+  it('skips a merge whose two ids are the same entry', () => {
+    // Nothing to merge: `mergeRegistry` returns the store untouched, and
+    // counting that as a merge would tell the user work happened.
+    const s = { ...emptyStore(), skills: [makeSkill({ id: 's1', name: { en: 'Go' } })] } as ResumeStore
+    const out = applyHygiene(s, [{
+      key: 'merge:0', kind: 'skills', keepId: 's1', dropId: 's1',
+      keepName: 'Go', dropName: 'Go', refs: 0, why: 'same',
+    } as never], [], 'en')
+    expect(out.merged).toBe(0)
+    expect(out.skipped[0]).toMatch(/did not apply/)
+    expect(out.data.skills).toHaveLength(1)
+  })
+})
+
+describe('validateHygiene — the category proposals', () => {
+  const store = () => ({
+    ...emptyStore(),
+    skills: [makeSkill({ id: 's1', name: { en: 'Go' }, category_id: null })],
+    skill_categories: [makeSkillCategory({ id: 'c1', name: { en: 'Languages' } })],
+  }) as ResumeStore
+
+  it('drops a non-object proposal, saying so and counting from ONE', () => {
+    const { dropped, categories } = validateHygiene({ categories: ['nonsense'] }, store(), 'en')
+    expect(categories).toEqual([])
+    expect(dropped[0]).toBe('Category 1 was not an object.')
+  })
+
+  it('trims and caps the reason it keeps from a proposal', () => {
+    const huge = `   ${'x'.repeat(500)}   `
+    const { categories } = validateHygiene(
+      { categories: [{ skill_id: 's1', category_id: 'c1', reason: huge }] }, store(), 'en')
+    expect(categories).toHaveLength(1)
+    expect(categories[0].reason.startsWith(' ')).toBe(false)
+    expect(categories[0].reason.length).toBe(300)
+  })
+
+  it('trims and caps a proposed NEW category name', () => {
+    const { categories } = validateHygiene(
+      { categories: [{ skill_id: 's1', category_name: `  ${'y'.repeat(200)}  ` }] }, store(), 'en')
+    expect(categories).toHaveLength(1)
+    expect(categories[0].categoryName.startsWith(' ')).toBe(false)
+    expect(categories[0].categoryName.length).toBe(120)
+  })
+
+  it('drops a proposal naming a skill the registry does not have', () => {
+    const { dropped, categories } = validateHygiene(
+      { categories: [{ skill_id: 'gone', category_id: 'c1' }] }, store(), 'en')
+    expect(categories).toEqual([])
+    expect(dropped[0]).toMatch(/isn't in the registry/)
+  })
+})
