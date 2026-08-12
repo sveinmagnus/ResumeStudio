@@ -1266,3 +1266,232 @@ describe('migrate — text guards and per-field defaults', () => {
     })
   })
 })
+
+/**
+ * The shape-sniffing inside each migration.
+ *
+ * Migrations are idempotent sniffers (CLAUDE.md §8): they run on every load of
+ * outside data and have to tell an already-migrated store from an old one without
+ * a version to trust. These call the helpers directly, because `migrateStore`
+ * gates each one on `shape_version` and would skip the sniffing under test.
+ */
+describe('internProjectIndustries — the legacy free-text field', () => {
+  const store = (projects: unknown[], industries: unknown[] = []) => ({
+    ...emptyStore(), projects, industries,
+  }) as unknown as ResumeStore
+
+  it('interns one entry per distinct name and links each project to it', () => {
+    const out = internProjectIndustries(store([
+      { ...makeProject({ id: 'p1' }), industry: { en: 'Energy' } },
+      { ...makeProject({ id: 'p2' }), industry: { en: 'Energy' } },
+      { ...makeProject({ id: 'p3' }), industry: { en: 'Retail' } },
+    ]))
+    expect(out.industries.map((i) => Object.values(i.name)[0]).sort()).toEqual(['Energy', 'Retail'])
+    const energy = out.industries.find((i) => Object.values(i.name)[0] === 'Energy')!
+    expect(out.projects[0].industries[0].industry_id).toBe(energy.id)
+    expect(out.projects[1].industries[0].industry_id).toBe(energy.id)
+  })
+
+  it('carries the legacy name onto the link, not an empty one', () => {
+    const out = internProjectIndustries(store([
+      { ...makeProject({ id: 'p1' }), industry: { en: 'Energy', no: 'Energi' } },
+    ]))
+    expect(out.projects[0].industries[0].name).toEqual({ en: 'Energy', no: 'Energi' })
+    expect(out.industries[0].name).toEqual({ en: 'Energy', no: 'Energi' })
+  })
+
+  it('adds no second link when the project already links that industry', () => {
+    // A half-migrated project can carry both the legacy field and the array.
+    const out = internProjectIndustries(store(
+      [{
+        ...makeProject({ id: 'p1' }),
+        industry: { en: 'Energy' },
+        industries: [{ id: 'link1', industry_id: 'reg-energy', name: { en: 'Energy' }, sort_order: 0 }],
+      }],
+      [{ id: 'reg-energy', resume_id: 'r1', name: { en: 'Energy' }, sort_order: 0, disabled: false }],
+    ))
+    expect(out.projects[0].industries.map((pi) => pi.industry_id)).toEqual(['reg-energy'])
+  })
+
+  it('adds the link when the project links a DIFFERENT industry already', () => {
+    // The guard is per industry id, not "has any link at all" — otherwise one
+    // unrelated link swallows the legacy field.
+    const out = internProjectIndustries(store(
+      [{
+        ...makeProject({ id: 'p1' }),
+        industry: { en: 'Energy' },
+        industries: [{ id: 'link1', industry_id: 'reg-retail', name: { en: 'Retail' }, sort_order: 0 }],
+      }],
+      [{ id: 'reg-retail', resume_id: 'r1', name: { en: 'Retail' }, sort_order: 0, disabled: false }],
+    ))
+    const names = out.projects[0].industries.map((pi) => Object.values(pi.name)[0]).sort()
+    expect(names).toEqual(['Energy', 'Retail'])
+  })
+
+  it('drops the legacy fields once the link exists', () => {
+    const out = internProjectIndustries(store([
+      { ...makeProject({ id: 'p1' }), industry: { en: 'Energy' }, industry_id: 'old' },
+    ]))
+    const raw = out.projects[0] as unknown as Record<string, unknown>
+    expect('industry' in raw).toBe(false)
+    expect('industry_id' in raw).toBe(false)
+  })
+
+  it('leaves a clean v4 project by reference', () => {
+    const clean = { ...makeProject({ id: 'p1' }), industries: [] }
+    const input = store([clean])
+    expect(internProjectIndustries(input).projects[0]).toBe(clean)
+  })
+
+  it('leaves a project whose legacy field is empty with no industries', () => {
+    const out = internProjectIndustries(store([{ ...makeProject({ id: 'p1' }), industry: {} }]))
+    expect(out.industries).toEqual([])
+    expect(out.projects[0].industries).toEqual([])
+  })
+})
+
+describe('unifyShowcaseCategories — the shapes a category list can hold', () => {
+  const store = (over: Record<string, unknown>) => ({
+    ...emptyStore(), ...over,
+  }) as unknown as ResumeStore
+
+  it('turns a v5 string into an entity and links the skill that named it', () => {
+    const out = unifyShowcaseCategories(store({
+      skill_categories: ['Languages'],
+      skills: [{ ...makeSkill({ id: 's1', name: { en: 'Go' } }), category: 'Languages' }],
+    }))
+    const cat = out.skill_categories!.find((c) => Object.values(c.name)[0] === 'Languages')!
+    expect(cat).toBeTruthy()
+    expect(out.skills[0].category_id).toBe(cat.id)
+    expect('category' in (out.skills[0] as unknown as Record<string, unknown>)).toBe(false)
+  })
+
+  it('keeps an entity that already carries an id', () => {
+    const out = unifyShowcaseCategories(store({
+      skill_categories: [{ id: 'cat-1', resume_id: 'r1', name: { en: 'Platforms' }, sort_order: 0, disabled: false }],
+      skills: [],
+    }))
+    expect(out.skill_categories!.map((c) => c.id)).toEqual(['cat-1'])
+  })
+
+  it('returns the store untouched when there is nothing legacy to convert', () => {
+    // The sniffer's early-out: entities already, no showcase groups, no skill
+    // carrying a category string. Rewriting here would churn every load.
+    const input = store({
+      skill_categories: [{ id: 'cat-1', resume_id: 'r1', name: { en: 'Languages' }, sort_order: 0, disabled: false }],
+      skills: [makeSkill({ id: 's1', name: { en: 'Go' }, category_id: 'cat-1' })],
+    })
+    expect(unifyShowcaseCategories(input)).toBe(input)
+  })
+
+  it('keeps an id-bearing entity through a run that converts something else', () => {
+    const out = unifyShowcaseCategories(store({
+      skill_categories: [{ id: 'cat-1', resume_id: 'r1', name: { en: 'Platforms' }, sort_order: 0, disabled: false }],
+      skills: [{ ...makeSkill({ id: 's1', name: { en: 'Go' } }), category: 'Languages' }],
+    }))
+    expect(out.skill_categories!.map((c) => c.id)).toContain('cat-1')
+    expect(out.skill_categories!.map((c) => Object.values(c.name)[0]).sort())
+      .toEqual(['Languages', 'Platforms'])
+  })
+
+  it('collapses two id-bearing entities that share a name', () => {
+    // Two rows for "Platforms" would render as two identical group headings in
+    // the showcase; the first one wins and the skills follow it.
+    const out = unifyShowcaseCategories(store({
+      skill_categories: [
+        { id: 'cat-1', resume_id: 'r1', name: { en: 'Platforms' }, sort_order: 0, disabled: false },
+        { id: 'cat-2', resume_id: 'r1', name: { en: 'Platforms' }, sort_order: 1, disabled: false },
+      ],
+      skills: [{ ...makeSkill({ id: 's1', name: { en: 'Go' } }), category: 'Languages' }],
+    }))
+    expect(out.skill_categories!.filter((c) => Object.values(c.name)[0] === 'Platforms'))
+      .toHaveLength(1)
+  })
+
+  it('skips junk in the list while converting the rest', () => {
+    // Only a trimmed string or an object with an id is a category; anything else
+    // would become an entity with no usable name.
+    const out = unifyShowcaseCategories(store({
+      skill_categories: ['Languages', null, 42, '   ', { name: { en: 'No id here' } }],
+      skills: [{ ...makeSkill({ id: 's1', name: { en: 'Go' } }), category: 'Platforms' }],
+    }))
+    expect(out.skill_categories!.map((c) => Object.values(c.name)[0]).sort())
+      .toEqual(['Languages', 'Platforms'])
+  })
+
+  it('does not add a second entity for a name a showcase group already made', () => {
+    const out = unifyShowcaseCategories(store({
+      technology_categories: [{ id: 'tc1', name: { en: 'Languages' }, skills: [{ skill_id: 's1' }] }],
+      skill_categories: [{ id: 'cat-1', resume_id: 'r1', name: { en: 'Languages' }, sort_order: 1, disabled: false }],
+      skills: [makeSkill({ id: 's1', name: { en: 'Go' } })],
+    }))
+    const languages = out.skill_categories!.filter((c) => Object.values(c.name)[0] === 'Languages')
+    expect(languages).toHaveLength(1)
+    // The showcase group is the one that wins, and the skill points at it.
+    expect(out.skills[0].category_id).toBe(languages[0].id)
+  })
+
+  it('keeps an entity whose name is empty rather than dropping the category', () => {
+    const out = unifyShowcaseCategories(store({
+      skill_categories: [{ id: 'cat-1', resume_id: 'r1', name: {}, sort_order: 0, disabled: false }],
+      skills: [],
+    }))
+    expect(out.skill_categories!.map((c) => c.id)).toEqual(['cat-1'])
+  })
+
+  it('is idempotent — a second pass changes nothing', () => {
+    const once = unifyShowcaseCategories(store({
+      skill_categories: ['Languages'],
+      skills: [{ ...makeSkill({ id: 's1', name: { en: 'Go' } }), category: 'Languages' }],
+    }))
+    const twice = unifyShowcaseCategories(JSON.parse(JSON.stringify(once)) as ResumeStore)
+    expect(twice.skill_categories).toEqual(once.skill_categories)
+    expect(twice.skills).toEqual(once.skills)
+  })
+})
+
+describe('migrateStore — the legacy skill_tags field', () => {
+  const withTags = (over: Record<string, unknown>) => ({
+    ...emptyStore(), shape_version: 1, ...over,
+  }) as unknown as ResumeStore
+
+  it('removes skill_tags from every section that carried it', () => {
+    const out = migrateStore(withTags({
+      projects: [{ ...makeProject({ id: 'p1' }), skill_tags: ['go'] }],
+      work_experiences: [{ ...makeWork({ id: 'w1' }), skill_tags: ['rust'] }],
+    }))
+    expect('skill_tags' in (out.projects[0] as unknown as Record<string, unknown>)).toBe(false)
+    expect('skill_tags' in (out.work_experiences[0] as unknown as Record<string, unknown>)).toBe(false)
+  })
+
+  it('strips the field from the row that has it and keeps the row that does not', () => {
+    const out = migrateStore(withTags({
+      projects: [
+        { ...makeProject({ id: 'p1' }), skill_tags: [] },
+        makeProject({ id: 'p2' }),
+      ],
+    }))
+    expect(out.projects.map((p) => p.id)).toEqual(['p1', 'p2'])
+    for (const project of out.projects) {
+      expect('skill_tags' in (project as unknown as Record<string, unknown>)).toBe(false)
+    }
+  })
+
+  it('leaves a row that never carried the field BY REFERENCE', () => {
+    // Rewriting a row that needed nothing makes every load look like an edit to
+    // the auto-save layer.
+    const clean = makeProject({ id: 'p2' })
+    const out = migrateStore(withTags({
+      projects: [{ ...makeProject({ id: 'p1' }), skill_tags: ['go'] }, clean],
+    }))
+    expect(out.projects[1]).toBe(clean)
+  })
+
+  it('leaves a whole section alone when no row carries the field', () => {
+    // The array itself is untouched, not merely its contents: rebuilding it
+    // would mark the section dirty on every load.
+    const store = withTags({ projects: [makeProject({ id: 'p1' })] })
+    const before = store.projects
+    expect(migrateStore(store).projects).toBe(before)
+  })
+})
