@@ -2,8 +2,9 @@ import { describe, it, expect } from 'vitest'
 import { searchStore } from '../src/lib/contentSearch'
 import {
   emptyStore, makeResume, makeProject, makeSkill, makeWork, makeReference, makeIndustry, makeSkillCategory,
+  makeView,
 } from './fixtures'
-import type { ProjectSkill } from '../src/types'
+import type { ProjectSkill, ResumeStore } from '../src/types'
 
 const ps = (skill_id: string, name: Record<string, string>): ProjectSkill => ({
   id: `ps-${skill_id}`, skill_id, name, duration_in_years: 0, offset_in_years: 0, total_duration_in_years: 0, sort_order: 0,
@@ -282,5 +283,89 @@ describe('searchStore — gate, header and order', () => {
     for (const hit of searchStore(s, 'needle', 'en')) {
       expect(hit.snippet.length).toBeLessThan(200)
     }
+  })
+})
+
+/**
+ * The snippet's exact geometry. The user reads the snippet to understand WHY a
+ * row matched, so the window has to sit on the match with a readable margin —
+ * and a value that matched in another locale still has to be short enough to
+ * scan. Both cuts are asserted by character count here, because "contains the
+ * needle" passes for a window that is twice too wide or cut off early.
+ */
+describe('contentSearch — the snippet window, to the character', () => {
+  const snippetFor = (text: string, q: string) => {
+    const s = emptyStore()
+    s.projects = [makeProject({ id: 'p1', customer: {}, description: {}, long_description: { en: text } })]
+    return searchStore(s, q, 'en')[0]?.snippet ?? ''
+  }
+
+  it('keeps 40 characters on each side of a mid-text match', () => {
+    const text = `${'a'.repeat(100)}NEEDLE${'b'.repeat(100)}`
+    expect(snippetFor(text, 'needle'))
+      .toBe(`\u2026${'a'.repeat(40)}NEEDLE${'b'.repeat(40)}\u2026`)
+  })
+
+  it('opens at the very start with no ellipsis, still 40 characters after', () => {
+    expect(snippetFor(`NEEDLE${'b'.repeat(100)}`, 'needle'))
+      .toBe(`NEEDLE${'b'.repeat(40)}\u2026`)
+  })
+
+  it('runs to the end with no closing ellipsis', () => {
+    expect(snippetFor(`${'a'.repeat(100)}NEEDLE`, 'needle'))
+      .toBe(`\u2026${'a'.repeat(40)}NEEDLE`)
+  })
+
+  it('shows the value that MATCHED, not the one being displayed', () => {
+    // A project can match on its Norwegian text while the English column is what
+    // the editor shows. The snippet quotes the matching value, so the user can
+    // see why the row is in the list at all.
+    const s = emptyStore()
+    s.projects = [makeProject({
+      id: 'p1', customer: { en: 'x'.repeat(500), no: 'NEEDLE' }, description: {}, long_description: {},
+    })]
+    expect(searchStore(s, 'needle', 'en')[0].snippet).toBe('NEEDLE')
+  })
+})
+
+/**
+ * Ranking. A title match wins, then the section's own order, then the title
+ * itself — and the two pseudo-sections (the resume header and the skill
+ * categories, neither of which is in SECTIONS) sit ahead of the content.
+ */
+describe('searchStore — what comes first', () => {
+  it('puts the resume header ahead of a skill category on an equal title match', () => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'Cloud' })
+    s.skill_categories = [makeSkillCategory({ id: 'c1', name: { en: 'Cloud' } })]
+    const hits = searchStore(s, 'cloud', 'en')
+    expect(hits.map((h) => h.section)).toEqual(['header', 'skills'])
+  })
+
+  it('ranks a skill category NAME match above a header body match', () => {
+    // The category matched on its own title; the header matched somewhere in the
+    // contact block. Title matches are what the user meant.
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'Kari', title: { en: 'Cloud platform' } })
+    s.skill_categories = [makeSkillCategory({ id: 'c1', name: { en: 'Cloud platform' } })]
+    expect(searchStore(s, 'cloud platform', 'en')[0].title).toBe('Cloud platform')
+  })
+
+  it('orders two body-only hits by the sidebar order of their sections', () => {
+    const s = emptyStore()
+    s.projects = [makeProject({
+      id: 'p1', customer: { en: 'Acme' }, long_description: { en: 'Ran the NEEDLE work' },
+    })]
+    s.references = [makeReference({ id: 'r1', name: 'Ola Hansen', company: 'NEEDLE AS' })]
+    expect(searchStore(s, 'needle', 'en').map((h) => h.section))
+      .toEqual(['projects', 'references'])
+  })
+
+  it('never returns a Resume View, whatever its name says', () => {
+    // Views are export settings, not content: finding one under Ctrl+K would
+    // navigate the user to a config screen for a word they wrote in their CV.
+    const s = emptyStore()
+    s.views = [makeView({ id: 'v1', name: 'Kubernetes tender' })]
+    expect(searchStore(s, 'kubernetes', 'en').some((h) => h.section === 'views')).toBe(false)
   })
 })

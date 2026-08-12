@@ -56,10 +56,15 @@ function collectStrings(value: unknown, key: string, out: string[]): void {
   }
 }
 
-/** Trim a matched string to ~`pad` chars on each side of the match, with ellipses. */
+/**
+ * Trim a matched string to ~`pad` chars on each side of the match, with ellipses.
+ *
+ * Every caller found `text` BY testing that it contains `lowerQuery`, so there is
+ * no no-match case to fall back to; a miss would degrade to the opening of the
+ * text, which is what an untrimmed snippet was anyway.
+ */
 function ellipsize(text: string, lowerQuery: string, pad = 40): string {
-  const idx = text.toLowerCase().indexOf(lowerQuery)
-  if (idx < 0) return text.length > pad * 2 ? text.slice(0, pad * 2) + '…' : text
+  const idx = Math.max(0, text.toLowerCase().indexOf(lowerQuery))
   const start = Math.max(0, idx - pad)
   const end = Math.min(text.length, idx + lowerQuery.length + pad)
   return (start > 0 ? '…' : '') + text.slice(start, end) + (end < text.length ? '…' : '')
