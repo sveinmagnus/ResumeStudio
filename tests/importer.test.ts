@@ -826,3 +826,262 @@ describe('importFromCVPartner — resume-root scalars', () => {
     expect(imp({}).resume!.default_locale).toBe('en')
   })
 })
+
+/**
+ * The optional fields on every CVpartner row.
+ *
+ * A real export omits fields per item rather than per file: one project carries
+ * `order`, the next does not; one role is starred, most are not. Each of those is
+ * its own `|| default` in the importer, so they are checked in pairs — carried
+ * when present, defaulted when absent — section by section.
+ */
+describe('importFromCVPartner — optional numbers and flags, per section', () => {
+  it('carries a role\u2019s experience numbers and flags, and defaults them when absent', () => {
+    const store = importFromCVPartner({
+      cv_roles: [
+        {
+          _id: 'r1', name: { en: 'Architect' }, years_of_experience: 12,
+          years_of_experience_offset: 3, starred: true, order: 5, disabled: true,
+        },
+        { _id: 'r2', name: { en: 'Developer' } },
+      ],
+    })
+    expect(store.roles[0]).toMatchObject({
+      years_of_experience: 12, years_of_experience_offset: 3,
+      starred: true, sort_order: 5, disabled: true,
+    })
+    expect(store.roles[1]).toMatchObject({
+      years_of_experience: 0, years_of_experience_offset: 0,
+      starred: false, sort_order: 0, disabled: false,
+    })
+  })
+
+  it('carries a technology\u2019s duration and proficiency, and defaults them when absent', () => {
+    const store = importFromCVPartner({
+      technologies: [{
+        _id: 'cat1', category: { en: 'Languages' },
+        technology_skills: [
+          { _id: 's1', tags: { en: 'Go' }, total_duration_in_years: 8, proficiency: 4 },
+          { _id: 's2', tags: { en: 'Rust' } },
+        ],
+      }],
+    })
+    const go = store.skills.find((s) => Object.values(s.name)[0] === 'Go')!
+    const rust = store.skills.find((s) => Object.values(s.name)[0] === 'Rust')!
+    expect(go).toMatchObject({ total_duration_in_years: 8, proficiency: 4 })
+    expect(rust).toMatchObject({ total_duration_in_years: 0, proficiency: 0 })
+  })
+
+  it('carries an employment\u2019s order and flags, and defaults them when absent', () => {
+    const store = importFromCVPartner({
+      work_experiences: [
+        { employer: { en: 'Acme' }, order: 7, starred: true, disabled: true },
+        { employer: { en: 'Beta' } },
+      ],
+    })
+    expect(store.work_experiences[0]).toMatchObject({ sort_order: 7, starred: true, disabled: true })
+    expect(store.work_experiences[1]).toMatchObject({ sort_order: 0, starred: false, disabled: false })
+  })
+
+  it('carries an education\u2019s order and flags, and defaults them when absent', () => {
+    const store = importFromCVPartner({
+      educations: [
+        { school: { en: 'NTNU' }, order: 4, starred: true, disabled: true },
+        { school: { en: 'UiO' } },
+      ],
+    })
+    expect(store.educations[0]).toMatchObject({ sort_order: 4, starred: true, disabled: true })
+    expect(store.educations[1]).toMatchObject({ sort_order: 0, starred: false, disabled: false })
+  })
+
+  it('treats an EMPTY year_to as ongoing, and a present one as an end date', () => {
+    // CVpartner writes '' rather than omitting the field for current roles; a
+    // truthiness check that missed that would date every ongoing job to year 0.
+    const store = importFromCVPartner({
+      work_experiences: [
+        { employer: { en: 'Now' }, year_from: '2020', month_from: '1', year_to: '', month_to: '' },
+        { employer: { en: 'Then' }, year_from: '2015', month_from: '2', year_to: '2018', month_to: '6' },
+      ],
+      educations: [
+        { school: { en: 'Ongoing' }, year_from: '2021', year_to: '' },
+        { school: { en: 'Finished' }, year_from: '2010', year_to: '2013' },
+      ],
+    })
+    expect(store.work_experiences[0].end).toBeNull()
+    expect(store.work_experiences[1].end).toEqual({ year: 2018, month: 6 })
+    expect(store.educations[0].end).toBeNull()
+    expect(store.educations[1].end).toEqual({ year: 2013, month: null })
+  })
+})
+
+describe('importFromCVPartner — the project↔registry links', () => {
+  const withProjectSkill = (tags: Record<string, string>, over: Record<string, unknown> = {}) => ({
+    technologies: [{
+      _id: 'cat1', category: { en: 'Languages' },
+      technology_skills: [{ _id: 'reg-go', tags: { en: 'Go' }, total_duration_in_years: 5 }],
+    }],
+    project_experiences: [{
+      _id: 'p1', customer: { en: 'AcmeCo' },
+      project_experience_skills: [{ _id: 'ps1', tags, ...over }],
+    }],
+  })
+
+  it('links a project skill to the registry entry with the same name, whatever its case', () => {
+    // The registry is built from `technologies`; a project's own skill rows are
+    // separate objects, so they are matched by NAME or they duplicate the entry.
+    const store = importFromCVPartner(withProjectSkill({ en: 'GO' }))
+    expect(store.skills).toHaveLength(1)
+    expect(store.projects[0].skills[0].skill_id).toBe(store.skills[0].id)
+  })
+
+  it('creates a registry entry for a project skill the technologies list never mentioned', () => {
+    const store = importFromCVPartner(withProjectSkill({ en: 'Rust' }))
+    expect(store.skills.map((s) => Object.values(s.name)[0]).sort()).toEqual(['Go', 'Rust'])
+    const rust = store.skills.find((s) => Object.values(s.name)[0] === 'Rust')!
+    expect(store.projects[0].skills[0].skill_id).toBe(rust.id)
+  })
+
+  it('links two projects naming the same skill to ONE registry entry', () => {
+    const store = importFromCVPartner({
+      project_experiences: [
+        { _id: 'p1', customer: { en: 'One' }, project_experience_skills: [{ _id: 'a', tags: { en: 'Kubernetes' } }] },
+        { _id: 'p2', customer: { en: 'Two' }, project_experience_skills: [{ _id: 'b', tags: { en: 'kubernetes' } }] },
+      ],
+    })
+    expect(store.skills).toHaveLength(1)
+    expect(store.projects[0].skills[0].skill_id).toBe(store.projects[1].skills[0].skill_id)
+  })
+
+  it('adds the project\u2019s own offset to the duration it inherits', () => {
+    const store = importFromCVPartner({
+      project_experiences: [{
+        _id: 'p1', customer: { en: 'AcmeCo' },
+        year_from: '2020', month_from: '1', year_to: '2022', month_to: '1',
+        project_experience_skills: [{ _id: 'ps1', tags: { en: 'Go' }, offset_duration_in_years: 3 }],
+      }],
+    })
+    const link = store.projects[0].skills[0]
+    expect(link.offset_in_years).toBe(3)
+    expect(link.total_duration_in_years).toBe(link.duration_in_years + 3)
+  })
+
+  it('defaults a missing offset to nothing rather than to the duration', () => {
+    const store = importFromCVPartner({
+      project_experiences: [{
+        _id: 'p1', customer: { en: 'AcmeCo' },
+        project_experience_skills: [{ _id: 'ps1', tags: { en: 'Go' } }],
+      }],
+    })
+    const link = store.projects[0].skills[0]
+    expect(link.offset_in_years).toBe(0)
+    expect(link.total_duration_in_years).toBe(link.duration_in_years)
+  })
+
+  it('numbers a project\u2019s roles by their own order, falling back to their position', () => {
+    const store = importFromCVPartner({
+      project_experiences: [{
+        _id: 'p1', customer: { en: 'AcmeCo' },
+        roles: [
+          { _id: 'a', name: { en: 'Lead' }, order: 9 },
+          { _id: 'b', name: { en: 'Dev' } },
+        ],
+      }],
+    })
+    expect(store.projects[0].roles.map((r) => r.sort_order)).toEqual([9, 1])
+  })
+})
+
+describe('importFromCVPartner — the awkward skill rows', () => {
+  it('links a repeated project skill to the registry entry it NAMES, not the first one', () => {
+    const store = importFromCVPartner({
+      technologies: [{
+        _id: 'cat1', category: { en: 'Languages' },
+        technology_skills: [
+          { _id: 'reg-go', tags: { en: 'Go' } },
+          { _id: 'reg-rust', tags: { en: 'Rust' } },
+        ],
+      }],
+      project_experiences: [{
+        _id: 'p1', customer: { en: 'AcmeCo' },
+        project_experience_skills: [{ _id: 'ps1', tags: { en: 'rust' } }],
+      }],
+    })
+    const rust = store.skills.find((sk) => Object.values(sk.name)[0] === 'Rust')!
+    expect(store.projects[0].skills[0].skill_id).toBe(rust.id)
+  })
+
+  it('survives a project skill with no name at all', () => {
+    // A row with empty tags carries no name to match on; it must not throw and
+    // must not be silently linked to whichever skill happens to be first.
+    const store = importFromCVPartner({
+      technologies: [{
+        _id: 'cat1', category: { en: 'Languages' },
+        technology_skills: [{ _id: 'reg-go', tags: { en: 'Go' } }],
+      }],
+      project_experiences: [{
+        _id: 'p1', customer: { en: 'AcmeCo' },
+        project_experience_skills: [{ _id: 'ps1', tags: {} }],
+      }],
+    })
+    expect(store.skills).toHaveLength(1)
+    const go = store.skills[0]
+    expect(store.projects[0].skills[0].skill_id).not.toBe(go.id)
+  })
+
+  it('survives a REGISTRY skill with no name at all', () => {
+    // Reading a name off every registry entry to compare it is what makes an
+    // unnamed one dangerous.
+    const store = importFromCVPartner({
+      technologies: [{
+        _id: 'cat1', category: { en: 'Languages' },
+        technology_skills: [{ _id: 'reg-blank', tags: {} }, { _id: 'reg-go', tags: { en: 'Go' } }],
+      }],
+      project_experiences: [{
+        _id: 'p1', customer: { en: 'AcmeCo' },
+        project_experience_skills: [{ _id: 'ps1', tags: { en: 'go' } }],
+      }],
+    })
+    const go = store.skills.find((sk) => Object.values(sk.name)[0] === 'Go')!
+    expect(store.projects[0].skills[0].skill_id).toBe(go.id)
+  })
+})
+
+describe('importFromCVPartner — profile and project-role flags', () => {
+  it('carries a profile’s flags, and defaults them when absent', () => {
+    const store = importFromCVPartner({
+      key_qualifications: [
+        { label: { en: 'Lead' }, tag_line: { en: 'Architect' }, starred: true, disabled: true },
+        { label: { en: 'Plain' } },
+      ],
+    })
+    expect(store.key_qualifications[0]).toMatchObject({ starred: true, disabled: true })
+    expect(store.key_qualifications[1]).toMatchObject({ starred: false, disabled: false })
+  })
+
+  it('carries a key point’s disabled flag onto the competency it becomes', () => {
+    const store = importFromCVPartner({
+      key_qualifications: [{
+        label: { en: 'Lead' },
+        key_points: [
+          { name: { en: 'Cloud' }, long_description: { en: 'Ran it' }, disabled: true },
+          { name: { en: 'Data' }, long_description: { en: 'Ran that too' } },
+        ],
+      }],
+    })
+    expect(store.key_competencies[0]).toMatchObject({ disabled: true })
+    expect(store.key_competencies[1]).toMatchObject({ disabled: false })
+  })
+
+  it('carries a project role’s disabled flag, and defaults it when absent', () => {
+    const store = importFromCVPartner({
+      project_experiences: [{
+        _id: 'p1', customer: { en: 'AcmeCo' },
+        roles: [
+          { _id: 'a', name: { en: 'Lead' }, disabled: true },
+          { _id: 'b', name: { en: 'Dev' } },
+        ],
+      }],
+    })
+    expect(store.projects[0].roles.map((r) => r.disabled)).toEqual([true, false])
+  })
+})
