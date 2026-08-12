@@ -576,3 +576,188 @@ describe('validateJobFit — weight, order and evidence', () => {
     expect(r.dropped.join(' ')).toMatch(/Requirement 1/)
   })
 })
+
+/**
+ * `tidyBody` exists because the model writes a greeting and a sign-off however
+ * firmly the prompt forbids them — and the body field sits between a greeting and
+ * a sign-off the user already wrote, so a duplicate is what ships.
+ */
+describe('validateLetterAngles — the body the model actually returns', () => {
+  const bodyOf = (body: string) =>
+    validateLetterAngles({ angles: [{ name: 'Angle', body }] })[0]?.body
+
+  it('strips a fenced block, opening and closing', () => {
+    expect(bodyOf('```\nThe letter body.\n```')).toBe('The letter body.')
+    expect(bodyOf('```markdown\nThe letter body.\n```')).toBe('The letter body.')
+  })
+
+  it('strips an English or Norwegian greeting line', () => {
+    for (const greeting of ['Dear Hiring Manager,', 'Hi there,', 'Hello,', 'Hei,', 'Kjære leser,']) {
+      expect(bodyOf(`${greeting}\n\nThe letter body.`), greeting).toBe('The letter body.')
+    }
+  })
+
+  it('strips a greeting whatever its case', () => {
+    expect(bodyOf('DEAR HIRING MANAGER,\n\nThe letter body.')).toBe('The letter body.')
+  })
+
+  it('keeps a line that merely BEGINS with a greeting word mid-sentence', () => {
+    // "Dearth of candidates…" is prose, not a salutation: the word boundary is
+    // what separates them.
+    expect(bodyOf('Dearth of good candidates is the problem.\n\nMore body.'))
+      .toBe('Dearth of good candidates is the problem.\n\nMore body.')
+  })
+
+  it('strips a sign-off block at the end, in either language', () => {
+    for (const signoff of [
+      'Kind regards,\nAda', 'Best regards,\nAda', 'Sincerely,\nAda',
+      'Yours sincerely,\nAda', 'Regards,\nAda', 'Mvh\nAda', 'Med vennlig hilsen\nAda',
+    ]) {
+      expect(bodyOf(`The letter body.\n\n${signoff}`), signoff).toBe('The letter body.')
+    }
+  })
+
+  it('keeps a sign-off-like phrase that is not at the end', () => {
+    expect(bodyOf('I send my regards to the team.\n\nThe rest of the body.'))
+      .toBe('I send my regards to the team.\n\nThe rest of the body.')
+  })
+
+  it('refuses a reply whose only angle tidies away to nothing', () => {
+    // An empty body is not an angle, and a reply of nothing but empties is not a
+    // result — the panel says so rather than showing an empty list.
+    expect(() => validateLetterAngles({ angles: [{ name: 'a', body: '```\n\n```' }] }))
+      .toThrow(/no usable letters/)
+    expect(() => validateLetterAngles({ angles: [{ name: 'a', body: '   ' }] }))
+      .toThrow(/no usable letters/)
+  })
+
+  it('drops the empty angle but keeps the usable one beside it', () => {
+    const angles = validateLetterAngles({ angles: [
+      { name: 'empty', body: '   ' },
+      { name: 'real', body: 'The letter body.' },
+    ] })
+    expect(angles.map((a) => a.name)).toEqual(['real'])
+  })
+
+  it('keeps a greeting that is the whole body — there is nothing else to keep', () => {
+    // The strip needs a line AFTER the greeting; a one-line reply is all the
+    // model gave us, and dropping it would report no angles at all.
+    expect(validateLetterAngles({ angles: [{ name: 'a', body: 'Dear Sir,' }] })[0].body)
+      .toBe('Dear Sir,')
+  })
+
+  it('refuses a reply that is not an object at all', () => {
+    for (const bad of [null, undefined, 'text', 42, true]) {
+      expect(() => validateLetterAngles(bad), String(bad)).toThrow(/not a JSON object/)
+    }
+  })
+
+  it('skips a non-object angle among good ones', () => {
+    const angles = validateLetterAngles({ angles: [
+      null, 'text', 42, { name: 'real', body: 'The letter body.' },
+    ] })
+    expect(angles.map((a) => a.name)).toEqual(['real'])
+  })
+
+  it('caps the NUMBER of angles it will take from one reply', () => {
+    const many = Array.from({ length: 12 }, (_, i) => ({ name: `A${i}`, body: `Body ${i}.` }))
+    expect(validateLetterAngles({ angles: many }).length).toBeLessThan(12)
+  })
+
+  it('trims a body before deciding it is empty, and after tidying', () => {
+    expect(validateLetterAngles({ angles: [{ name: 'a', body: '  The letter body.  ' }] })[0].body)
+      .toBe('The letter body.')
+    const fenced = ['```', 'The body.', '```   '].join(String.fromCharCode(10))
+    expect(validateLetterAngles({ angles: [{ name: 'a', body: fenced }] })[0].body)
+      .toBe('The body.')
+  })
+
+  it('strips a bare fence with no newline after it', () => {
+    // The tag pattern is letters, so a body starting with a digit shows the
+    // no-newline path without the first word being read as a language tag.
+    expect(bodyOf('```2 reasons to hire me.```')).toBe('2 reasons to hire me.')
+  })
+
+  it('strips the fence only at the EDGES', () => {
+    // A fence in the middle is the model quoting something.
+    expect(bodyOf('Before ``` after')).toBe('Before ``` after')
+  })
+
+  it('caps a runaway body rather than storing an essay', () => {
+    const huge = 'word '.repeat(3000)
+    const body = bodyOf(huge)!
+    expect(body.length).toBeLessThanOrEqual(6000)
+  })
+
+  it('strips a sign-off only at the END of the body', () => {
+    // "Kind regards" mid-letter is prose; only a closing block is a sign-off.
+    const middle = ['Body one.', '', 'Kind regards for the help,', 'Ada', '', 'Body two.']
+      .join(String.fromCharCode(10))
+    expect(bodyOf(middle)).toBe(middle)
+  })
+})
+
+describe('validateLetterCritique — the notes and their wording', () => {
+  it('refuses a reply that is not an object', () => {
+    for (const bad of [null, 'text', 42]) {
+      expect(() => validateLetterCritique(bad)).toThrow(InvalidLetterAdviceError)
+    }
+  })
+
+  it('refuses a reply with neither an overall read nor a single note', () => {
+    // "Nothing to flag" is a useful answer; an empty reply is not the same thing.
+    for (const empty of [{}, { notes: [] }, { notes: 'none' }]) {
+      expect(() => validateLetterCritique(empty), JSON.stringify(empty))
+        .toThrow(/no critique/)
+    }
+  })
+
+  it('accepts an overall read with no notes at all', () => {
+    const out = validateLetterCritique({ overall: 'Reads well.', notes: [] })
+    expect(out.notes).toEqual([])
+    expect(out.overall).toBe('Reads well.')
+  })
+
+  it('keys each note and defaults an unstated severity to medium', () => {
+    const { notes } = validateLetterCritique({ notes: [
+      { title: 'Too long', detail: 'Three pages.' },
+      { title: 'Weak open', detail: 'Starts with a cliché.', severity: 'high' },
+      { title: 'Nit', detail: 'A comma.', severity: 'nonsense' },
+    ] })
+    // Keyed by the reply's own order, then sorted most severe first.
+    expect(notes.map((n) => n.key).sort()).toEqual(['note:0', 'note:1', 'note:2'])
+    expect(notes[0]).toMatchObject({ key: 'note:1', severity: 'high' })
+    expect(notes.slice(1).map((n) => n.severity)).toEqual(['medium', 'medium'])
+  })
+
+  it('falls back to a truncated detail when a note has no title', () => {
+    const long = 'x'.repeat(200)
+    const { notes } = validateLetterCritique({ notes: [{ detail: long }] })
+    expect(notes[0].title).toHaveLength(80)
+    expect(notes[0].detail).toBe(long)
+  })
+
+  it('caps the NUMBER of notes it will take from one reply', () => {
+    const many = Array.from({ length: 40 }, (_, i) => ({ title: `T${i}`, detail: 'x' }))
+    expect(validateLetterCritique({ notes: many }).notes.length).toBeLessThan(40)
+  })
+
+  it('drops a note with neither title nor detail, and a non-object entry', () => {
+    const { notes } = validateLetterCritique({ notes: [
+      {}, null, 'text', { title: '   ' }, { title: 'Real', detail: 'Yes.' },
+    ] })
+    expect(notes.map((n) => n.title)).toEqual(['Real'])
+  })
+
+  it('carries an ask only when there is one', () => {
+    const { notes } = validateLetterCritique({ notes: [
+      { title: 'A', detail: 'x', ask: 'Which outcome mattered most?' },
+      { title: 'B', detail: 'y' },
+      { title: 'C', detail: 'z', ask: '   ' },
+    ] })
+    expect(notes[0].ask).toBe('Which outcome mattered most?')
+    expect('ask' in notes[1]).toBe(false)
+    expect('ask' in notes[2]).toBe(false)
+  })
+})
+
