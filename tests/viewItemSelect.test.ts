@@ -137,6 +137,8 @@ describe('typeGroups() — enum facets', () => {
     const g = facet(sets, 'Type')!.groups
     expect(g.map((x) => x.value)).toEqual(['article', 'book'])
     expect(g[0].ids).toEqual(['b', 'c'])
+    // Labelled, not just keyed: the dropdown shows these words.
+    expect(g.map((x) => x.label)).toEqual(['Article', 'Book'])
   })
 })
 
@@ -249,5 +251,20 @@ describe('itemsMatchingTypeFilter()', () => {
   it('returns an empty set for a stale key that no longer matches', () => {
     const match = itemsMatchingTypeFilter('courses', items, 'en', { roles: [] }, 'Category\u001Fnope')
     expect(match && match.size).toBe(0)
+  })
+})
+
+describe('typeGroups() — the registry context is optional', () => {
+  it('groups a role facet with no context supplied instead of throwing', () => {
+    // Callers that only want the enum facets omit ctx; a role facet then has no
+    // registry to order by and every item lands in "No type".
+    const items: SelectableItem[] = [{ id: 'p1', roles: [{ role_id: 'r1' }] }]
+    const sets = typeGroups('projects', items, 'en')
+    expect(sets.every((s) => s.groups.every((g) => g.value !== 'r1'))).toBe(true)
+  })
+
+  it('labels publication groups in the editing locale', () => {
+    const sets = typeGroups('publications', [pub('a', 'book')], 'no')
+    expect(facet(sets, 'Type')!.groups.map((g) => g.label)).toEqual(['Bok'])
   })
 })
