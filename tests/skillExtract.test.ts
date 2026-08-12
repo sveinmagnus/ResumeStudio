@@ -167,3 +167,95 @@ describe('registryVocabulary()', () => {
     expect(registryVocabulary(dup, 'en').filter((n) => /react/i.test(n))).toHaveLength(1)
   })
 })
+
+/**
+ * The three buckets a suggested skill lands in.
+ *
+ * The panel's whole value is telling them apart: already on this item, in the
+ * registry but not linked here, or genuinely new. Collapsing any two of them
+ * either hides work the user still has to do or offers to add what is already
+ * there.
+ */
+describe('resolveSuggestions — the three buckets', () => {
+  const REGISTRY = [
+    makeSkill({ id: 'go', name: { en: 'Go' } }),
+    makeSkill({ id: 'k8s', name: { en: 'Kubernetes' } }),
+  ]
+  /** A project linked to the given registry skill ids. */
+  const proj = (skillIds: string[]) => makeProject({
+    id: 'p1',
+    skills: skillIds.map((skill_id, i) => ({
+      id: `ps${i}`, skill_id, name: {},
+      duration_in_years: 0, offset_in_years: 0, total_duration_in_years: 0, sort_order: i,
+    })),
+  })
+
+  it('reports a skill already linked to the item as alreadyLinked', () => {
+    const out = resolveSuggestions(['Go'], proj(['go']), REGISTRY, 'en')
+    expect(out.alreadyLinked.map((x) => x.label)).toEqual(['Go'])
+    expect(out.existing).toEqual([])
+    expect(out.novel).toEqual([])
+  })
+
+  it('reports a registry skill NOT linked here as existing, with its id', () => {
+    const out = resolveSuggestions(['Kubernetes'], proj(['go']), REGISTRY, 'en')
+    expect(out.existing.map((x) => x.label)).toEqual(['Kubernetes'])
+    expect(out.existing[0].skillId).toBe('k8s')
+    expect(out.alreadyLinked).toEqual([])
+  })
+
+  it('reports an unknown name as novel, with no id', () => {
+    const out = resolveSuggestions(['Rust'], proj([]), REGISTRY, 'en')
+    expect(out.novel.map((x) => x.label)).toEqual(['Rust'])
+    expect(out.novel[0].skillId).toBeNull()
+  })
+
+  it('matches the registry case- and space-insensitively', () => {
+    const out = resolveSuggestions(['  kubernetes  '], proj([]), REGISTRY, 'en')
+    expect(out.existing).toHaveLength(1)
+    expect(out.novel).toEqual([])
+  })
+
+  it('shows the REGISTRY’s spelling for an existing skill, not the model’s', () => {
+    // The registry name is the curated one; echoing the model's casing would
+    // make the row look like a new skill.
+    const out = resolveSuggestions(['kubernetes'], proj([]), REGISTRY, 'en')
+    expect(out.existing[0].label).toBe('Kubernetes')
+  })
+
+  it('keeps the model’s RAW spelling for a novel skill — there is nothing else', () => {
+    // Deliberately unnormalised: the label is what the user is asked to accept,
+    // and trimming it here would hide that the model sent padding.
+    const out = resolveSuggestions(['  rust  '], proj([]), REGISTRY, 'en')
+    expect(out.novel[0].label).toBe('  rust  ')
+  })
+
+  it('matches a registry name in ANY locale', () => {
+    const s = [makeSkill({ id: 'sky', name: { no: 'Skytjenester' } })]
+    const out = resolveSuggestions(['Skytjenester'], proj([]), s, 'en')
+    expect(out.existing).toHaveLength(1)
+  })
+
+  it('keeps the FIRST registry entry when two normalise the same', () => {
+    const s = [
+      makeSkill({ id: 'first', name: { en: 'Go' } }),
+      makeSkill({ id: 'second', name: { en: ' go ' } }),
+    ]
+    expect(resolveSuggestions(['Go'], proj([]), s, 'en').existing[0].skillId).toBe('first')
+  })
+
+  it('ignores a registry entry with no usable name', () => {
+    const s = [makeSkill({ id: 'blank', name: { en: '   ' } })]
+    expect(resolveSuggestions(['Go'], proj([]), s, 'en').novel).toHaveLength(1)
+  })
+
+  it('drops blank suggestions rather than offering an empty row', () => {
+    const out = resolveSuggestions(['', '   ', 'Rust'], proj([]), REGISTRY, 'en')
+    expect(out.novel).toHaveLength(1)
+  })
+
+  it('de-duplicates a name suggested twice', () => {
+    const out = resolveSuggestions(['Rust', 'rust'], proj([]), REGISTRY, 'en')
+    expect(out.novel).toHaveLength(1)
+  })
+})
