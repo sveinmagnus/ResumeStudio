@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { cefrSummary, cefrGrouped, hasCefr, cefrLines } from '../src/lib/cefr'
+import {
+  cefrSummary, cefrGrouped, hasCefr, cefrLines,
+  CEFR_CATEGORIES, CEFR_GROUPS, CEFR_LEVELS, CEFR_LEVEL_DESC,
+} from '../src/lib/cefr'
+import { LOCALE_CODES } from '../src/lib/locales'
 
 describe('cefrSummary()', () => {
   it('collapses to a single level when all five categories match', () => {
@@ -75,5 +79,78 @@ describe('cefrLines()', () => {
   it('collapses to one value even when only some categories are set', () => {
     // Two categories, same level — still nothing to distinguish.
     expect(cefrLines({ listening: 'A2', writing: 'A2' })).toEqual(['A2'])
+  })
+})
+
+describe('the CEFR label tables cover every offered locale', () => {
+  /**
+   * A missing label renders as a blank column heading in the Europass export,
+   * which is why the locale set is asserted against LOCALE_CODES rather than a
+   * copy of the list.
+   */
+  it('names each of the five assessed categories in every locale', () => {
+    expect(CEFR_CATEGORIES).toHaveLength(5)
+    for (const c of CEFR_CATEGORIES) {
+      expect(c.key).toBeTruthy()
+      expect(c.label).toBeTruthy()
+      for (const code of LOCALE_CODES) expect(c.labels[code], `${c.key}/${code}`).toBeTruthy()
+    }
+  })
+
+  it('names each of the three Europass groups in every locale', () => {
+    expect(CEFR_GROUPS.map((g) => g.keys.flat())).toEqual([
+      ['listening', 'reading'],
+      ['spoken_interaction', 'spoken_production'],
+      ['writing'],
+    ])
+    for (const g of CEFR_GROUPS) {
+      expect(g.label).toBeTruthy()
+      for (const code of LOCALE_CODES) expect(g.labels[code], `${g.label}/${code}`).toBeTruthy()
+    }
+  })
+
+  it('covers all five categories across the three groups, without overlap', () => {
+    const keys = CEFR_GROUPS.flatMap((g) => g.keys)
+    expect(new Set(keys).size).toBe(keys.length)
+    expect(keys.sort()).toEqual(CEFR_CATEGORIES.map((c) => c.key).sort())
+  })
+
+  it('describes every level', () => {
+    for (const level of CEFR_LEVELS) expect(CEFR_LEVEL_DESC[level], level).toBeTruthy()
+  })
+})
+
+describe('cefrSummary — the collapse rule', () => {
+  const all = (level: string) => Object.fromEntries(CEFR_CATEGORIES.map((c) => [c.key, level]))
+
+  it('collapses to a bare level only when EVERY category is set to it', () => {
+    expect(cefrSummary(all('B2') as never)).toBe('B2')
+  })
+
+  it('keeps the category list when one level covers only some categories', () => {
+    // Same single level, but two of five set: the reader must not read it as
+    // "B2 in everything".
+    expect(cefrSummary({ listening: 'B2', reading: 'B2' } as never)).toBe('B2 (Listening, Reading)')
+  })
+
+  it('joins several levels in level order', () => {
+    const out = cefrSummary({ listening: 'C1', reading: 'B2', writing: 'B2' } as never)
+    expect(out).toBe('B2 (Reading, Writing) · C1 (Listening)')
+  })
+
+  it('is empty for nothing set at all', () => {
+    expect(cefrSummary(undefined)).toBe('')
+    expect(cefrSummary({} as never)).toBe('')
+  })
+})
+
+describe('cefrSummary — a full grid at mixed levels', () => {
+  it('does not collapse to one level just because every category is set', () => {
+    // All five set, but at two levels: reporting the first level alone would
+    // claim a competence the CV does not.
+    expect(cefrSummary({
+      listening: 'C1', reading: 'C1', spoken_interaction: 'B2',
+      spoken_production: 'B2', writing: 'B2',
+    })).toBe('B2 (Spoken interaction, Spoken production, Writing) \u00b7 C1 (Listening, Reading)')
   })
 })
