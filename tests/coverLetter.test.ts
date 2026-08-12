@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   bodyParagraphs, resolveLetterParts, buildCoverLetterText, buildCoverLetterPrompt,
 } from '../src/lib/coverLetter'
-import { emptyStore, makeResume, makeCoverLetter, makeView, makeProject } from './fixtures'
+import { emptyStore, makeResume, makeCoverLetter, makeView, makeProject, makeSkill } from './fixtures'
 import type { ResumeStore } from '../src/types'
 
 function storeWith(over: Partial<ResumeStore> = {}): ResumeStore {
@@ -216,3 +216,101 @@ describe('buildCoverLetterText — which blocks appear', () => {
   })
 })
 
+
+/**
+ * The letter prompt's inputs.
+ *
+ * Everything the model knows about the letter comes from here, and each slot has
+ * an explicit "(none)" fallback rather than being left blank — a blank slot is
+ * where a model invents a company, a job title, or a body of experience.
+ */
+describe('buildCoverLetterPrompt — its inputs', () => {
+  const store = (over: Record<string, unknown> = {}): ResumeStore => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'Kari Nordmann', title: { en: 'Architect' }, ...over })
+    return s
+  }
+  const letter = (over: Record<string, unknown> = {}) => makeCoverLetter(over as never)
+
+  it('states the company and role, trimmed', () => {
+    const p = buildCoverLetterPrompt(store(), letter({
+      company: { en: '  Equinor  ' }, role_applied: { en: '  Lead Architect  ' },
+    }), 'en')
+    expect(p).toContain('Equinor')
+    expect(p).toContain('Lead Architect')
+    expect(p).not.toContain('  Equinor')
+  })
+
+  it('states the applicant name and title, trimmed', () => {
+    const p = buildCoverLetterPrompt(store({ full_name: '  Kari Nordmann  ' }), letter(), 'en')
+    expect(p).toContain('Kari Nordmann')
+    expect(p).not.toContain('  Kari Nordmann')
+  })
+
+  it('says so explicitly when there is no posting text', () => {
+    // A blank slot invites the model to imagine the advert.
+    expect(buildCoverLetterPrompt(store(), letter({ posting: '' }), 'en'))
+      .toMatch(/no posting text/i)
+    expect(buildCoverLetterPrompt(store(), letter({ posting: '   ' }), 'en'))
+      .toMatch(/no posting text/i)
+  })
+
+  it('carries real posting text through instead of the placeholder', () => {
+    const p = buildCoverLetterPrompt(store(), letter({ posting: 'We need a platform lead.' }), 'en')
+    expect(p).toContain('We need a platform lead.')
+    expect(p).not.toMatch(/no posting text/i)
+  })
+
+  it('says so when the CV has no content to draw on', () => {
+    expect(buildCoverLetterPrompt(store(), letter(), 'en')).toMatch(/no CV content/i)
+  })
+
+  it('says so when no skills are listed', () => {
+    expect(buildCoverLetterPrompt(store(), letter(), 'en')).toMatch(/none listed/i)
+  })
+
+  it('lists the registry skills when there are some', () => {
+    const s = store()
+    s.skills = [makeSkill({ id: 'go', name: { en: 'Go' } })]
+    const p = buildCoverLetterPrompt(s, letter(), 'en')
+    expect(p).toContain('Go')
+    expect(p).not.toMatch(/none listed/i)
+  })
+
+  it('survives a store with no resume at all', () => {
+    const s = { ...emptyStore(), resume: null }
+    expect(() => buildCoverLetterPrompt(s, letter(), 'en')).not.toThrow()
+  })
+
+  it('survives a resume with no title', () => {
+    const s = store({ title: {} })
+    expect(() => buildCoverLetterPrompt(s, letter(), 'en')).not.toThrow()
+  })
+})
+
+describe('buildCoverLetterText — the closing block', () => {
+  it('puts the sender name under the closing, as one block', () => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'Kari Nordmann', email: '', phone: '', website_url: '' })
+    const out = buildCoverLetterText(s, makeCoverLetter({
+      closing: { en: 'Yours sincerely,' }, place_dated: 'Oslo',
+    } as never), 'en')
+    expect(out).toContain('Yours sincerely,\nKari Nordmann')
+  })
+
+  it('emits the closing alone when there is no sender name', () => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: '', email: '', phone: '', website_url: '' })
+    const out = buildCoverLetterText(s, makeCoverLetter({
+      closing: { en: 'Yours sincerely,' }, place_dated: 'Oslo',
+    } as never), 'en')
+    expect(out.trimEnd().endsWith('Yours sincerely,')).toBe(true)
+  })
+
+  it('omits the dateline block when the letter has none and none is generated', () => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'Kari', email: '', phone: '', website_url: '' })
+    const out = buildCoverLetterText(s, makeCoverLetter({ place_dated: 'Oslo' } as never), 'en')
+    expect(out).toContain('Oslo')
+  })
+})
