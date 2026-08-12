@@ -177,3 +177,110 @@ describe('contentSearch — the snippet', () => {
     expect(s).toBe('a short NEEDLE here')
   })
 })
+
+/**
+ * The query gate, the resume-header hit and the result ordering.
+ *
+ * Ctrl+K is how the consultant finds anything in a long CV. A gate that is too
+ * loose returns the whole document on one keystroke; ordering that is not stable
+ * makes the list jump under the cursor.
+ */
+describe('searchStore — gate, header and order', () => {
+  const store = (): ResumeStore => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'Kari Nordmann' })
+    s.projects = [makeProject({ id: 'p1', customer: { en: 'Nordmann Consulting' } })]
+    return s
+  }
+
+  it('needs at least two characters', () => {
+    // One character matches most of a CV; the gate is what keeps the palette
+    // usable while typing.
+    expect(searchStore(store(), 'N', 'en')).toEqual([])
+    expect(searchStore(store(), 'No', 'en').length).toBeGreaterThan(0)
+  })
+
+  it('measures the query AFTER trimming', () => {
+    expect(searchStore(store(), ' N ', 'en')).toEqual([])
+    expect(searchStore(store(), ' No ', 'en').length).toBeGreaterThan(0)
+  })
+
+  it('matches case-insensitively', () => {
+    expect(searchStore(store(), 'NORDMANN', 'en').length).toBeGreaterThan(0)
+    expect(searchStore(store(), 'nordmann', 'en').length).toBeGreaterThan(0)
+  })
+
+  it('finds the resume header itself, as its own pseudo-section', () => {
+    // titleMatch is internal to the scoring; what the caller sees is a hit in
+    // the 'header' section, which is how the palette can jump to Personal
+    // Details rather than to a content row.
+    const hits = searchStore(store(), 'Kari', 'en')
+    const header = hits.find((h) => h.section === 'header')!
+    expect(header).toBeDefined()
+    expect(header.title).toBe('Kari Nordmann')
+  })
+
+  it('ranks the header hit FIRST — a name match is what you meant', () => {
+    const hits = searchStore(store(), 'Nordmann', 'en')
+    expect(hits[0].section).toBe('header')
+  })
+
+  it('does not look for a header on a store with no resume', () => {
+    const s = store()
+    s.resume = null
+    expect(() => searchStore(s, 'Nordmann', 'en')).not.toThrow()
+  })
+
+  it('survives a resume with no name', () => {
+    const s = store()
+    s.resume = makeResume({ full_name: '' })
+    expect(() => searchStore(s, 'Nordmann', 'en')).not.toThrow()
+  })
+
+  it('orders hits deterministically for equal relevance', () => {
+    // Two identical matches must not swap places between renders.
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    s.projects = [
+      makeProject({ id: 'a', customer: { en: 'Match Alpha' } }),
+      makeProject({ id: 'b', customer: { en: 'Match Beta' } }),
+    ]
+    const once = searchStore(s, 'Match', 'en').map((h) => h.id)
+    const twice = searchStore(s, 'Match', 'en').map((h) => h.id)
+    expect(once).toEqual(twice)
+    expect(once).toHaveLength(2)
+  })
+
+  it('honours the result limit', () => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    s.projects = Array.from({ length: 40 }, (_, i) =>
+      makeProject({ id: `p${i}`, customer: { en: `Match ${i}` } }))
+    expect(searchStore(s, 'Match', 'en', 5)).toHaveLength(5)
+  })
+
+  it('trims a long snippet on BOTH sides of a mid-text match', () => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    s.projects = [makeProject({
+      id: 'p1', customer: {},
+      long_description: { en: `${'a'.repeat(300)} NEEDLE ${'b'.repeat(300)}` },
+    })]
+    const snippet = searchStore(s, 'needle', 'en')[0].snippet
+    expect(snippet.length).toBeLessThan(200)
+    expect(snippet).toContain('NEEDLE')
+  })
+
+  it('caps a long value that does NOT contain the query', () => {
+    // A field can match on one locale and be shown from another; the shown text
+    // still has to be short enough to read.
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    s.projects = [makeProject({
+      id: 'p1', customer: { en: 'NEEDLE', no: 'x'.repeat(500) },
+    })]
+    for (const hit of searchStore(s, 'needle', 'en')) {
+      expect(hit.snippet.length).toBeLessThan(200)
+    }
+  })
+})

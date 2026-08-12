@@ -3,7 +3,7 @@ import type { ResumeStore } from '../src/types'
 import { computeCompleteness, computeSectionCoverage, collectTrackedFields } from '../src/lib/completeness'
 import {
   emptyStore, makeProject, makeWork, makeEducation, makeKQ, makeCourse, makeSkill, makeRole,
-  makeSkillCategory, makeCertification, makeResume,
+  makeSkillCategory, makeCertification, makeResume, makeIndustry, makeCoverLetter,
 } from './fixtures'
 
 describe('collectTrackedFields()', () => {
@@ -478,5 +478,123 @@ describe('computeSectionCoverage — the per-section content probe', () => {
       const rows = computeSectionCoverage(s, 'en').filter((r) => r.total > 0)
       expect(rows.map((r) => r.label)).toEqual([...rows.map((r) => r.label)].sort((a, b) => a.localeCompare(b)))
     })
+  })
+})
+
+describe('collectTrackedFields — the registries', () => {
+  /**
+   * A registry entry is only tracked when the CV actually REFERENCES it: the
+   * shared registries outlive any one resume (they propagate across resumes and
+   * ride the desktop sync), so an untranslated entry this CV never uses is not
+   * this CV's incompleteness.
+   */
+  const linked = (): ResumeStore => {
+    const s = emptyStore()
+    s.skills = [makeSkill({ id: 'used', name: { en: 'Go' } }), makeSkill({ id: 'idle', name: { en: 'Rust' } })]
+    s.roles = [makeRole({ id: 'r-used', name: { en: 'Architect' } }), makeRole({ id: 'r-idle', name: { en: 'Scribe' } })]
+    s.industries = [makeIndustry({ id: 'i-used', name: { en: 'Energy' } }), makeIndustry({ id: 'i-idle', name: { en: 'Retail' } })]
+    s.projects = [makeProject({
+      skills: [{ skill_id: 'used', name: { en: 'Go' }, proficiency: 0 }],
+      roles: [{ role_id: 'r-used', name: { en: 'Architect' }, description: {} }],
+      industries: [{ industry_id: 'i-used', name: { en: 'Energy' } }],
+    })]
+    return s
+  }
+  const labels = (s: ResumeStore) => collectTrackedFields(s).map((f) => f.meta.itemLabel)
+
+  it('tracks a referenced registry entry and ignores an unreferenced one', () => {
+    const out = labels(linked())
+    expect(out).toContain('Go')
+    expect(out).toContain('Architect')
+    expect(out).toContain('Energy')
+    expect(out).not.toContain('Rust')
+    expect(out).not.toContain('Scribe')
+    expect(out).not.toContain('Retail')
+  })
+
+  it('drops a referenced role or industry that is itself disabled', () => {
+    // Disabled means "ships in no export", so it cannot be incomplete either —
+    // even though a live project still links it.
+    const s = linked()
+    s.roles[0].disabled = true
+    s.industries[0].disabled = true
+    const out = labels(s)
+    expect(out).not.toContain('Architect')
+    expect(out).not.toContain('Energy')
+    expect(out).toContain('Go')
+  })
+
+  it('picks up a role referenced only from a work experience', () => {
+    const s = emptyStore()
+    s.roles = [makeRole({ id: 'r1', name: { en: 'Team lead' } })]
+    s.work_experiences = [makeWork({ role_ids: ['r1'] })]
+    expect(labels(s)).toContain('Team lead')
+  })
+
+  it('ignores a role referenced only from a DISABLED work experience', () => {
+    const s = emptyStore()
+    s.roles = [makeRole({ id: 'r1', name: { en: 'Team lead' } })]
+    s.work_experiences = [makeWork({ role_ids: ['r1'], disabled: true })]
+    expect(labels(s)).not.toContain('Team lead')
+  })
+
+  it('tracks a skill CATEGORY once a skill links it, and not before', () => {
+    const s = emptyStore()
+    s.skill_categories = [makeSkillCategory({ id: 'c1', name: { en: 'Languages' } })]
+    s.skills = [makeSkill({ id: 's1', name: { en: 'Go' }, category_id: null })]
+    s.projects = [makeProject({ skills: [{ skill_id: 's1', name: { en: 'Go' }, proficiency: 0 }] })]
+    expect(labels(s)).not.toContain('Languages')
+    s.skills[0].category_id = 'c1'
+    expect(labels(s)).toContain('Languages')
+  })
+
+  it('falls back to a generic label when a registry name has no text', () => {
+    // The label is what the report row reads as; an empty one would be a blank row.
+    const s = emptyStore()
+    s.skills = [makeSkill({ id: 's1', name: { no: 'Go' } })]
+    s.roles = [makeRole({ id: 'r1', name: { no: 'Arkitekt' } })]
+    s.industries = [makeIndustry({ id: 'i1', name: { no: 'Energi' } })]
+    s.skill_categories = [makeSkillCategory({ id: 'c1', name: { no: 'Språk' } })]
+    s.skills[0].category_id = 'c1'
+    s.projects = [makeProject({
+      skills: [{ skill_id: 's1', name: { no: 'Go' }, proficiency: 0 }],
+      roles: [{ role_id: 'r1', name: { no: 'Arkitekt' }, description: {} }],
+      industries: [{ industry_id: 'i1', name: { no: 'Energi' } }],
+    })]
+    const out = labels(s)
+    // Names exist, just not in the label locale, so each keeps its own text.
+    expect(out).toContain('Go')
+    expect(out).toContain('Arkitekt')
+    expect(out).toContain('Energi')
+    expect(out).toContain('Språk')
+  })
+
+  it('names every field it tracks — no unnamed rows', () => {
+    for (const f of collectTrackedFields(linked())) {
+      expect(f.meta.fieldLabel).toBeTruthy()
+      expect(f.meta.itemLabel).toBeTruthy()
+    }
+  })
+})
+
+describe('computeSectionCoverage — what it declines to measure', () => {
+  it('leaves out the three registries and the view configs', () => {
+    const s = emptyStore()
+    s.skills = [makeSkill({ name: { en: 'Go' } })]
+    s.roles = [makeRole({ name: { en: 'Architect' } })]
+    s.industries = [makeIndustry({ name: { en: 'Energy' } })]
+    const keys = computeSectionCoverage(s, 'en').map((c) => c.key)
+    for (const k of ['skills', 'roles', 'industries', 'views']) expect(keys).not.toContain(k)
+  })
+
+  it('measures cover letters on their substance, not their internal name', () => {
+    const s = emptyStore()
+    s.cover_letters = [
+      makeCoverLetter({ name: 'Acme', body: { en: 'Dear…' } }),
+      makeCoverLetter({ name: 'Beta', body: {}, role_applied: {} }),
+    ]
+    const cl = computeSectionCoverage(s, 'en').find((c) => c.key === 'cover_letters')!
+    expect(cl.total).toBe(2)
+    expect(cl.populated).toBe(1)
   })
 })

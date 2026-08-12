@@ -152,3 +152,38 @@ describe('normalizeImportedSkills', () => {
     expect(out.skills[0].name).toEqual({ no: 'TypeScript' })
   })
 })
+
+describe('normalizeImportedSkills touches only what it must', () => {
+  const CLASS = { TypeScript: 'Technical' }
+
+  it('returns an untouched skill BY REFERENCE, not as a rebuilt copy', () => {
+    // A no-op rebuild would make every import look like a change to the
+    // auto-save layer and push a save for nothing.
+    const store = emptyStore()
+    store.skills.push(makeSkill({ id: 'x', name: { en: 'Bespoke Thing' }, classification: 'Custom' }))
+    const { store: out, changed } = normalizeImportedSkills(store, TAXONOMY, CLASS)
+    expect(changed).toBe(0)
+    expect(out.skills[0]).toBe(store.skills[0])
+  })
+
+  it('rebuilds a skill whose CLASSIFICATION is the only thing that lands', () => {
+    const store = emptyStore()
+    store.skills.push(makeSkill({ id: 'ts', name: { en: 'TypeScript' } }))
+    const { store: out } = normalizeImportedSkills(store, TAXONOMY, CLASS)
+    expect(out.skills[0]).not.toBe(store.skills[0])
+    expect(out.skills[0].classification).toBe('Technical')
+    expect(out.skills[0].name).toEqual({ en: 'TypeScript' })
+  })
+
+  it('gives a linked project copy the REGISTRY name, not a re-canonicalized stale one', () => {
+    // The denormalized copy can hold an old spelling the library has never
+    // heard of; the link is what makes it fixable at all.
+    const store = emptyStore()
+    store.skills.push(makeSkill({ id: 'ts', name: { en: 'typescript' } }))
+    store.projects.push(makeProject({
+      skills: [{ skill_id: 'ts', name: { en: 'TS' }, proficiency: 2 } as ProjectSkill],
+    }))
+    const { store: out } = normalizeImportedSkills(store, TAXONOMY, CLASS)
+    expect(out.projects[0].skills[0].name).toEqual({ en: 'TypeScript' })
+  })
+})

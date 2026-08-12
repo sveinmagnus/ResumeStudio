@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { emptyStore, makeProject, makeRole, makeSkill, makeResume, makeView } from './fixtures'
+import { emptyStore, makeProject, makeRole, makeSkill, makeResume, makeView, makeSkillCategory,
+} from './fixtures'
 import type { ResumeStore, ResumeView } from '../src/types'
 import { buildViewSections } from '../src/lib/viewFilter'
 import {
@@ -11,8 +12,9 @@ import {
   validateHygiene, InvalidHygieneError,
 } from '../src/lib/registryHygiene'
 import { countSkillReferences } from '../src/lib/merge'
+import { resolve } from '../src/lib/locales'
 import {
-  buildGlossary, scopeGlossary, glossaryFor, mentions, toPayload,
+  buildGlossary, scopeGlossary, glossaryFor, mentions, toPayload, MAX_SCOPED_TERMS,
 } from '../src/lib/glossary'
 
 // ── B4: ATS audit ────────────────────────────────────────────────────────────
@@ -995,3 +997,219 @@ describe('glossary — derivation and scoping', () => {
   })
 })
 
+
+/**
+ * The ATS validator's downgrade rules, and the glossary's scoping cap.
+ */
+describe('validateAtsResponse — the downgrade rules', () => {
+  const asked = ['Kubernetes', 'Fortran']
+  const reply = (equivalences: unknown[]) => ({ $schema: 'resumestudio-ats/v1', equivalences })
+
+  it('drops a verdict about a term nobody asked about', () => {
+    // The model invented it, so it is not in the posting — reporting it would
+    // put a requirement on screen that the employer never stated.
+    const out = validateAtsResponse(reply([
+      { term: 'Kubernetes', verdict: 'covered', quote: 'Ran Kubernetes.' },
+      { term: 'Nonesuch', verdict: 'covered', quote: 'x' },
+    ]), asked)
+    expect(out.equivalences.map((e) => e.term)).toEqual(['Kubernetes'])
+  })
+
+  it('matches the asked term case-insensitively', () => {
+    const out = validateAtsResponse(reply([
+      { term: 'kubernetes', verdict: 'covered', quote: 'Ran Kubernetes.' },
+    ]), asked)
+    expect(out.equivalences).toHaveLength(1)
+  })
+
+  it('downgrades a COVERED verdict with no quote', () => {
+    // The quote IS the evidence; an unquoted claim of coverage is the false
+    // reassurance that lets someone send a CV believing it says something it
+    // does not.
+    const out = validateAtsResponse(reply([
+      { term: 'Kubernetes', verdict: 'covered', quote: '' },
+    ]), asked)
+    expect(out.equivalences[0].verdict).not.toBe('covered')
+  })
+
+  it('keeps a covered verdict that carries a quote', () => {
+    const out = validateAtsResponse(reply([
+      { term: 'Kubernetes', verdict: 'covered', quote: 'Ran Kubernetes in production.' },
+    ]), asked)
+    expect(out.equivalences[0].verdict).toBe('covered')
+  })
+
+  it('does not require a quote for the other verdicts', () => {
+    const out = validateAtsResponse(reply([
+      { term: 'Kubernetes', verdict: 'missing' },
+      { term: 'Fortran', verdict: 'phrasing', suggestion: 'Name it in the Acme project.' },
+    ]), asked)
+    expect(out.equivalences.map((e) => e.verdict)).toEqual(['missing', 'phrasing'])
+  })
+
+  it('treats an unknown verdict as missing rather than guessing upward', () => {
+    const out = validateAtsResponse(reply([
+      { term: 'Kubernetes', verdict: 'probably', quote: 'x' },
+    ]), asked)
+    expect(out.equivalences[0].verdict).toBe('missing')
+  })
+
+  it('rejects a reply that is not an object or has no equivalences array', () => {
+    expect(() => validateAtsResponse(null, asked)).toThrow(InvalidAtsResponseError)
+    expect(() => validateAtsResponse({ $schema: 'resumestudio-ats/v1' }, asked))
+      .toThrow(InvalidAtsResponseError)
+  })
+
+  it('skips an entry that is not an object', () => {
+    const out = validateAtsResponse(reply(['nonsense', null, { term: 'Kubernetes', verdict: 'missing' }]), asked)
+    expect(out.equivalences).toHaveLength(1)
+  })
+})
+
+describe('scopeGlossary — the cap', () => {
+  const store = (n: number): ResumeStore => {
+    const s = emptyStore()
+    s.skills = Array.from({ length: n }, (_, i) =>
+      makeSkill({ id: `s${i}`, name: { en: `Term${i}`, no: `Uttrykk${i}` } }))
+    return s
+  }
+
+  it('caps how many terms reach the prompt', () => {
+    // A 300-entry glossary is not something a 3B model can obey; the cap is what
+    // makes the mechanism usable at all.
+    const g = buildGlossary(store(60), 'en', 'no')
+    expect(g.terms.length).toBeGreaterThan(MAX_SCOPED_TERMS)
+    const text = Array.from({ length: 60 }, (_, i) => `Term${i}`).join(' ')
+    expect(scopeGlossary(g, text).terms.length).toBe(MAX_SCOPED_TERMS)
+  })
+
+  it('keeps the longest matches when it caps', () => {
+    const s = emptyStore()
+    s.skills = [
+      makeSkill({ id: 'a', name: { en: 'Cloud', no: 'Sky' } }),
+      makeSkill({ id: 'b', name: { en: 'Cloud architecture', no: 'Skyarkitektur' } }),
+    ]
+    const scoped = scopeGlossary(buildGlossary(s, 'en', 'no'), 'Our Cloud architecture works.')
+    expect(scoped.terms[0].from).toBe('Cloud architecture')
+  })
+
+  it('matches a term only on a word boundary', () => {
+    // 'Go' must not match inside 'Google', or every CV mentioning Google gets a
+    // do-not-translate instruction for the wrong term.
+    const s = emptyStore()
+    // A DIFFERENT translation, so the pair lands in `terms` rather than in the
+    // do-not-translate list (identical names go there instead).
+    s.skills = [makeSkill({ id: 'go', name: { en: 'Go', no: 'Golang' } })]
+    const g = buildGlossary(s, 'en', 'no')
+    expect(scopeGlossary(g, 'We used Google Cloud.').terms).toEqual([])
+    expect(scopeGlossary(g, 'We used Go.').terms.map((t) => t.from)).toEqual(['Go'])
+  })
+})
+
+/**
+ * C4's apply step and its blast-radius summary.
+ *
+ * applyHygiene is the one place this feature mutates anything, and a registry
+ * merge is the most destructive act in the app (§15). The confirm dialog names
+ * totals that come from hygieneImpact, so those numbers have to be the ones the
+ * apply actually produces.
+ */
+describe('applyHygiene and hygieneImpact', () => {
+  const store = (): ResumeStore => {
+    const s = emptyStore()
+    s.resume = makeResume({ id: 'r1', full_name: 'X' })
+    s.skills = [
+      makeSkill({ id: 'keep', name: { en: 'Kubernetes' } }),
+      makeSkill({ id: 'drop', name: { en: 'K8s' } }),
+      makeSkill({ id: 'other', name: { en: 'Go' } }),
+    ]
+    s.projects = [makeProject({
+      id: 'p1', customer: { en: 'Acme' },
+      skills: [
+        { id: 'ps1', skill_id: 'drop', name: { en: 'K8s' }, duration_in_years: 0, offset_in_years: 0, total_duration_in_years: 0, sort_order: 0 },
+        { id: 'ps2', skill_id: 'other', name: { en: 'Go' }, duration_in_years: 0, offset_in_years: 0, total_duration_in_years: 0, sort_order: 1 },
+      ],
+    })]
+    return s
+  }
+  const merge = () => ({
+    key: 'merge:skills:drop', kind: 'skills' as const,
+    keepId: 'keep', keepName: 'Kubernetes', dropId: 'drop', dropName: 'K8s',
+    dropRefs: 1, keepRefs: 0, reason: '',
+  })
+
+  it('applies ONLY what is handed in', () => {
+    // Nothing is pre-ticked in the UI, so an empty selection must be a no-op.
+    const s = store()
+    const out = applyHygiene(s, [], [], 'en').data
+    expect(out.skills.map((x) => x.id).sort()).toEqual(['drop', 'keep', 'other'])
+  })
+
+  it('deletes the dropped entry and rewrites its references', () => {
+    const out = applyHygiene(store(), [merge()], [], 'en').data
+    expect(out.skills.map((x) => x.id).sort()).toEqual(['keep', 'other'])
+    expect(out.projects[0].skills.map((ps) => ps.skill_id).sort()).toEqual(['keep', 'other'])
+  })
+
+  it('updates the denormalised snapshot name on a rewritten link', () => {
+    // The link carries a copy of the name at link time; leaving it stale shows
+    // the deleted spelling in every export.
+    const out = applyHygiene(store(), [merge()], [], 'en').data
+    const link = out.projects[0].skills.find((ps) => ps.skill_id === 'keep')!
+    expect(resolve(link.name, 'en')).toBe('Kubernetes')
+  })
+
+  it('leaves an unrelated reference alone', () => {
+    const out = applyHygiene(store(), [merge()], [], 'en').data
+    expect(out.projects[0].skills.some((ps) => ps.skill_id === 'other')).toBe(true)
+  })
+
+  it('skips a merge whose entry has disappeared since the run', () => {
+    // The panel is non-blocking, so the registry may have changed underneath it.
+    const s = store()
+    s.skills = s.skills.filter((x) => x.id !== 'drop')
+    expect(() => applyHygiene(s, [merge()], [], 'en').data).not.toThrow()
+    expect(applyHygiene(s, [merge()], [], 'en').data.skills.map((x) => x.id).sort())
+      .toEqual(['keep', 'other'])
+  })
+
+  it('assigns a category, creating it when it does not exist yet', () => {
+    const out = applyHygiene(store(), [], [{
+      key: 'cat:other', skillId: 'other', skillName: 'Go',
+      categoryId: null, categoryName: 'Languages',
+    }], 'en').data
+    const cat = out.skill_categories!.find((c) => resolve(c.name, 'en') === 'Languages')!
+    expect(cat).toBeDefined()
+    expect(out.skills.find((x) => x.id === 'other')!.category_id).toBe(cat.id)
+  })
+
+  it('reuses an existing category rather than creating a second', () => {
+    const s = store()
+    s.skill_categories = [makeSkillCategory({ id: 'c1', name: { en: 'Languages' } })]
+    const out = applyHygiene(s, [], [{
+      key: 'cat:other', skillId: 'other', skillName: 'Go',
+      categoryId: 'c1', categoryName: 'Languages',
+    }], 'en').data
+    expect(out.skill_categories).toHaveLength(1)
+    expect(out.skills.find((x) => x.id === 'other')!.category_id).toBe('c1')
+  })
+
+  it('counts exactly what the confirm dialog promises', () => {
+    // The dialog names these totals before anything is applied; they have to
+    // match what the apply then does.
+    const impact = hygieneImpact([merge()], [{
+      key: 'cat:other', skillId: 'other', skillName: 'Go',
+      categoryId: null, categoryName: 'Languages',
+    }])
+    expect(impact).toMatchObject({
+      entriesDeleted: 1, referencesRewritten: 1, skillsCategorised: 1,
+    })
+    expect(impact.newCategories).toBeGreaterThanOrEqual(0)
+  })
+
+  it('counts nothing for an empty selection', () => {
+    expect(hygieneImpact([], [])).toMatchObject({
+      entriesDeleted: 0, referencesRewritten: 0, skillsCategorised: 0, newCategories: 0,
+    })
+  })
+})

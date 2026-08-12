@@ -8,6 +8,7 @@ import {
   WRITING_COACH_SCHEMA, buildCoachPrompt, validateCoachResponse, hasCoachableSource,
   hasDraftableFacts,
   InvalidCoachResponseError,
+  buildDraftPrompt,
 } from '../src/lib/writingCoach'
 
 describe('hasCoachableSource', () => {
@@ -115,5 +116,56 @@ describe('hasDraftableFacts()', () => {
     // thing every assist is forbidden to do (§15).
     expect(hasDraftableFacts([])).toBe(false)
     expect(hasDraftableFacts(['Customer: Acme'])).toBe(true)
+  })
+})
+
+describe('buildDraftPrompt — the empty-entry starting point', () => {
+  const prompt = () => buildDraftPrompt(['Customer: Statoil', 'Project: Platform rebuild'], 'Projects', 'en')
+
+  it('names the section and frames the answer as a starting point, not a finished entry', () => {
+    expect(prompt()).toContain('"Projects"')
+    expect(prompt()).toMatch(/STARTING POINT/)
+  })
+
+  it('sends the identity facts it was given', () => {
+    expect(prompt()).toContain('Customer: Statoil')
+    expect(prompt()).toContain('Project: Platform rebuild')
+  })
+
+  it('asks for both halves of the answer', () => {
+    const p = prompt()
+    expect(p).toContain('"rewrite"')
+    expect(p).toContain('"asks"')
+    expect(p).toContain(WRITING_COACH_SCHEMA)
+  })
+
+  it('draws the line at describing what THIS PERSON did', () => {
+    // The failure this prompt exists to prevent: a fluent paragraph about work
+    // the model has no knowledge of, which reads as true.
+    const p = prompt()
+    expect(p).toMatch(/MUST NOT CROSS/)
+    expect(p).toMatch(/do not state what THIS PERSON did/i)
+    expect(p).toMatch(/keep the draft generic/i)
+  })
+
+  it('names the language to write in', () => {
+    expect(buildDraftPrompt(['Customer: Statoil'], 'Projects', 'no')).toContain('"no"')
+  })
+
+  it('says so plainly when there is nothing filled in yet', () => {
+    expect(buildDraftPrompt([], 'Projects', 'en')).toContain('(nothing filled in yet)')
+  })
+
+  it('is a multi-line instruction, not a single sentence', () => {
+    expect(prompt().split('\n').length).toBeGreaterThan(5)
+  })
+})
+
+describe('validateCoachResponse names what was wrong', () => {
+  it('distinguishes "not an object" from a missing rewrite', () => {
+    expect(() => validateCoachResponse('a string')).toThrow(/not a JSON object/i)
+    expect(() => validateCoachResponse(null)).toThrow(/not a JSON object/i)
+    expect(() => validateCoachResponse(42)).toThrow(InvalidCoachResponseError)
+    expect(() => validateCoachResponse({ asks: ['What was your role?'] })).toThrow(/rewrite/i)
   })
 })

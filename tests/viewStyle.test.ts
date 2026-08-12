@@ -3,9 +3,11 @@ import {
   DEFAULT_VIEW_STYLE, withDefaults, deriveTokens, sanitizeHexColor,
   resolveFontCss, resolveFontDocx, resolveFontPdf, withResolvedFonts,
   resolveSectionStyle, sectionHeadingText,
-  normalizeFullLayout, kqVisibility, bulletGlyph,
+  normalizeFullLayout, kqVisibility, bulletGlyph, DEFAULT_SUMMARY_LAYOUT,
 } from '../src/lib/viewStyle'
+import { PARA_GAP_LINES } from '../src/lib/richText'
 import type { ViewStyle } from '../src/types'
+import type { ResolvedSectionStyle } from '../src/lib/viewStyle'
 
 // ─── Item bullets (resolve + glyph) ──────────────────────────────────────────
 
@@ -325,5 +327,212 @@ describe('sectionHeadingText()', () => {
     expect(sectionHeadingText(r({ en: 'Selected engagements' }), 'Projects', 'no')).toBe('Selected engagements')
     expect(sectionHeadingText(r(), 'Projects', 'en')).toBe('Projects')
     expect(sectionHeadingText(r({ en: '  ' }), 'Projects', 'en')).toBe('Projects')
+  })
+})
+
+describe('resolveSectionStyle — section override, then view, then base', () => {
+  /**
+   * Three layers, resolved per field. Getting one field's chain wrong is
+   * invisible until an export comes out styled like a different section, so each
+   * field is checked at all three layers rather than in aggregate.
+   */
+  const view = (over: Partial<ViewStyle> = {}): ViewStyle => ({ ...DEFAULT_VIEW_STYLE, ...over })
+
+  const CHAINS: Array<{
+    field: keyof ResolvedSectionStyle
+    section: unknown
+    viewValue: unknown
+    viewKey?: string
+    base: unknown
+  }> = [
+    { field: 'density', section: 'compact', viewValue: 'spacious', base: undefined },
+    { field: 'tag_style', section: 'plain', viewValue: 'chips', base: undefined },
+    { field: 'item_divider', section: false, viewValue: false, base: true },
+    { field: 'divider_style', section: 'dots', viewValue: 'rule', base: 'line' },
+    { field: 'item_bullets', section: true, viewValue: true, base: false },
+    { field: 'bullet_style', section: 'dash', viewValue: 'circle', base: 'disc' },
+    { field: 'summary_layout', section: 'inline', viewValue: 'stacked', base: DEFAULT_SUMMARY_LAYOUT },
+    { field: 'tabulate', section: true, viewValue: true, base: false },
+    { field: 'date_format', section: 'year', viewValue: 'full', base: 'month-year' },
+    { field: 'show_icon', section: true, viewValue: true, viewKey: 'section_icons', base: false },
+  ]
+
+  for (const c of CHAINS) {
+    it(`resolves ${String(c.field)}: section wins over view, view over the base default`, () => {
+      const viewKey = c.viewKey ?? String(c.field)
+      const withView = view({ [viewKey]: c.viewValue } as Partial<ViewStyle>)
+
+      // 1. The section override wins even when the view says otherwise.
+      expect(resolveSectionStyle(withView, { [String(c.field)]: c.section } as never)[c.field])
+        .toEqual(c.section)
+      // 2. With no section override, the view's own value is used.
+      expect(resolveSectionStyle(withView, undefined)[c.field]).toEqual(c.viewValue)
+      // 3. With neither, the base default.
+      if (c.base !== undefined) {
+        expect(resolveSectionStyle(view({ [viewKey]: undefined } as Partial<ViewStyle>), {} as never)[c.field])
+          .toEqual(c.base)
+      }
+    })
+  }
+
+  it('takes no section at all — every field still resolves', () => {
+    // The section argument is optional; reading through it unguarded would throw.
+    const r = resolveSectionStyle(DEFAULT_VIEW_STYLE, undefined)
+    expect(r.item_divider).toBe(true)
+    expect(r.hide_heading).toBe(false)
+    expect(r.hide_dates).toBe(false)
+    expect(r.heading_text).toBeUndefined()
+    expect(r.short_desc_line).toBe('below')
+  })
+
+  it('hides a heading or dates only when the SECTION asks — never view-wide', () => {
+    expect(resolveSectionStyle(DEFAULT_VIEW_STYLE, { hide_heading: true } as never).hide_heading).toBe(true)
+    expect(resolveSectionStyle(DEFAULT_VIEW_STYLE, { hide_dates: true } as never).hide_dates).toBe(true)
+    expect(resolveSectionStyle(DEFAULT_VIEW_STYLE, {} as never).hide_heading).toBe(false)
+    expect(resolveSectionStyle(DEFAULT_VIEW_STYLE, {} as never).hide_dates).toBe(false)
+  })
+
+  it('keeps the view in charge of the page-wide choices a section cannot override', () => {
+    // Font, size, colour and margin are page properties: one section rendering
+    // in another font would look like a bug, not a style.
+    const v = view({ body_size: 'large', accent_color: '#123456', page_margin: 'tight' })
+    const r = resolveSectionStyle(v, { density: 'compact' } as never)
+    expect([r.body_size, r.accent_color, r.page_margin, r.heading_font, r.body_font])
+      .toEqual(['large', '#123456', 'tight', v.heading_font, v.body_font])
+  })
+
+  it('carries the section heading text and tag-line flag through untouched', () => {
+    const r = resolveSectionStyle(DEFAULT_VIEW_STYLE, { heading_text: { en: 'Selected work' }, kq_show_tagline: false } as never)
+    expect(r.heading_text).toEqual({ en: 'Selected work' })
+    expect(r.kq_show_tagline).toBe(false)
+  })
+})
+
+describe('deriveTokens — the numbers renderers consume', () => {
+  const style = (over: Partial<ViewStyle> = {}): ViewStyle => ({ ...DEFAULT_VIEW_STYLE, ...over })
+
+  it('scales body, small and meta sizes off one body size', () => {
+    const t = deriveTokens(style({ body_size: 'normal' }))
+    expect([t.bodyFontSizePt, t.smallFontSizePt, t.metaFontSizePt]).toEqual([11, 10, 9])
+    const large = deriveTokens(style({ body_size: 'large' }))
+    expect([large.bodyFontSizePt, large.smallFontSizePt, large.metaFontSizePt]).toEqual([12, 11, 10])
+  })
+
+  it('never lets the derived sizes fall below the 7pt floor', () => {
+    // 'small' is 9pt, so meta would be 7 — the floor has to hold, not subtract.
+    const t = deriveTokens(style({ body_size: 'small' }))
+    expect([t.bodyFontSizePt, t.smallFontSizePt, t.metaFontSizePt]).toEqual([9, 8, 7])
+    expect(t.metaFontSizePt).toBeGreaterThanOrEqual(7)
+  })
+
+  it('gives each body size its own heading scale', () => {
+    const at = (body_size: ViewStyle['body_size']) => {
+      const t = deriveTokens(style({ body_size }))
+      return [t.h1Pt, t.h2Pt, t.h3Pt]
+    }
+    expect(at('small')).toEqual([24, 13, 10])
+    expect(at('normal')).toEqual([30, 15, 11])
+    expect(at('large')).toEqual([34, 17, 12])
+  })
+
+  it('gives each density its own line height and gaps', () => {
+    const at = (density: ViewStyle['density']) => {
+      const t = deriveTokens(style({ density }))
+      return [t.lineHeight, t.itemGapPx, t.itemGapTwips, t.sectionHeadingAfterPx, t.sectionHeadingAfterTwips]
+    }
+    expect(at('compact')).toEqual([1.35, 9, 90, 6, 80])
+    expect(at('normal')).toEqual([1.55, 14, 140, 10, 120])
+    expect(at('spacious')).toEqual([1.75, 20, 200, 16, 180])
+  })
+
+  it('derives the paragraph gap from line height AND body size, one number in three units', () => {
+    // PARA_GAP_LINES is 0.5 of a line box: 0.5 * 1.55 * 11pt = 8.525 → 8.5pt.
+    const t = deriveTokens(style({ density: 'normal', body_size: 'normal' }))
+    expect(t.paraGapPt).toBeCloseTo(PARA_GAP_LINES * 1.55 * 11, 1)
+    expect(t.paraGapPt).toBe(8.5)
+    expect(t.paraGapTwips).toBe(Math.round(8.5 * 20))
+    expect(t.paraGapEm).toBeCloseTo(PARA_GAP_LINES * 1.55, 3)
+  })
+
+  it('grows the paragraph gap with density and with body size, independently', () => {
+    const base = deriveTokens(style({ density: 'normal', body_size: 'normal' })).paraGapPt
+    expect(deriveTokens(style({ density: 'spacious', body_size: 'normal' })).paraGapPt).toBeGreaterThan(base)
+    expect(deriveTokens(style({ density: 'normal', body_size: 'large' })).paraGapPt).toBeGreaterThan(base)
+    expect(deriveTokens(style({ density: 'compact', body_size: 'small' })).paraGapPt).toBeLessThan(base)
+  })
+
+  it('gives each page margin its own CSS padding and DOCX twips', () => {
+    const at = (page_margin: ViewStyle['page_margin']) => {
+      const t = deriveTokens(style({ page_margin }))
+      return [t.pagePadCss, t.pageMarginTwips]
+    }
+    expect(at('tight')).toEqual(['20px 36px', { top: 720, bottom: 720, left: 864, right: 864 }])
+    expect(at('normal')).toEqual(['32px 48px', { top: 1080, bottom: 1080, left: 1224, right: 1224 }])
+    expect(at('generous')).toEqual(['48px 72px', { top: 1440, bottom: 1440, left: 1584, right: 1584 }])
+  })
+
+  it('falls back to the heading colour on the accent, and to the accent hex when both are junk', () => {
+    expect(deriveTokens(style({ accent_color: '#112233' })).headingHex).toBe('112233')
+    expect(deriveTokens(style({ accent_color: '#112233', heading_color: '#445566' })).headingHex).toBe('445566')
+    expect(deriveTokens(style({ accent_color: '#112233', heading_color: 'javascript:x' })).headingHex).toBe('112233')
+  })
+
+  it('carries the brand defaults a fresh view inherits', () => {
+    expect(DEFAULT_VIEW_STYLE.accent_color).toBe('#002E6E')
+    expect([DEFAULT_VIEW_STYLE.density, DEFAULT_VIEW_STYLE.body_size, DEFAULT_VIEW_STYLE.page_margin])
+      .toEqual(['normal', 'normal', 'normal'])
+    // Fonts stay on the 'inherit' sentinel so the app-wide default flows through.
+    expect([DEFAULT_VIEW_STYLE.heading_font, DEFAULT_VIEW_STYLE.body_font]).toEqual(['inherit', 'inherit'])
+    expect(DEFAULT_VIEW_STYLE.item_divider).toBe(true)
+    expect(DEFAULT_VIEW_STYLE.item_bullets).toBe(false)
+    expect([DEFAULT_VIEW_STYLE.tag_style, DEFAULT_VIEW_STYLE.divider_style, DEFAULT_VIEW_STYLE.bullet_style])
+      .toEqual(['chips', 'line', 'disc'])
+  })
+})
+
+describe('font resolution at the render boundary', () => {
+  it('maps the "body" sentinel onto the view body font, in all three targets', () => {
+    const body = 'sans'
+    expect(resolveFontCss('body', body)).toBe(resolveFontCss(body, body))
+    expect(resolveFontDocx('body', body)).toBe(resolveFontDocx(body, body))
+    expect(resolveFontPdf('body', body)).toBe(resolveFontPdf(body, body))
+  })
+
+  it('uses the named font when it is not the sentinel', () => {
+    expect(resolveFontDocx('times', 'sans')).not.toBe(resolveFontDocx('sans', 'sans'))
+  })
+
+  it('replaces the inherit sentinel with the caller\u2019s global defaults', () => {
+    const out = withResolvedFonts({ ...DEFAULT_VIEW_STYLE }, { heading: 'times', body: 'courier' })
+    expect([out.heading_font, out.body_font]).toEqual(['times', 'courier'])
+  })
+
+  it('leaves a view\u2019s own font choice alone', () => {
+    const out = withResolvedFonts({ ...DEFAULT_VIEW_STYLE, heading_font: 'serif', body_font: 'serif' },
+      { heading: 'times', body: 'courier' })
+    expect([out.heading_font, out.body_font]).toEqual(['serif', 'serif'])
+  })
+})
+
+describe('sectionHeadingText — fallbacks', () => {
+  const resolved = (heading_text: Record<string, string> | undefined) =>
+    resolveSectionStyle(DEFAULT_VIEW_STYLE, { heading_text } as never)
+
+  it('uses the requested locale when it has text', () => {
+    expect(sectionHeadingText(resolved({ en: 'Selected work', no: 'Utvalgt' }), 'Projects', 'en'))
+      .toBe('Selected work')
+  })
+
+  it('skips an EMPTY locale slot and takes the next language that has text', () => {
+    // An empty string is a filled key with nothing in it — taking it would blank
+    // the heading rather than fall back.
+    expect(sectionHeadingText(resolved({ en: '', no: 'Utvalgt' }), 'Projects', 'en')).toBe('Utvalgt')
+    expect(sectionHeadingText(resolved({ en: '   ', no: 'Utvalgt' }), 'Projects', 'en')).toBe('Utvalgt')
+  })
+
+  it('falls back to the section label when there is no override at all', () => {
+    expect(sectionHeadingText(resolved(undefined), 'Projects', 'en')).toBe('Projects')
+    expect(sectionHeadingText(resolved({}), 'Projects', 'en')).toBe('Projects')
+    expect(sectionHeadingText(resolved({ en: '  ' }), 'Projects', 'en')).toBe('Projects')
   })
 })

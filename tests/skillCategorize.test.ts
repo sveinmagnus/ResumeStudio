@@ -4,7 +4,7 @@ import {
   skillCategoryList, categoryNameIndex, assignSkillCategory, deleteSkillCategory,
   renameSkillCategory, moveSkillCategory,
 } from '../src/lib/skillCategorize'
-import { emptyStore, makeSkill, makeSkillCategory } from './fixtures'
+import { emptyStore, makeSkill, makeSkillCategory, makeResume } from './fixtures'
 import type { SkillDomains, SkillRelations } from '../src/lib/skillTaxonomy'
 
 describe('effectiveSkillCategory', () => {
@@ -482,5 +482,109 @@ describe('moveSkillCategory', () => {
     const s = store()
     moveSkillCategory(s, 'b', 'up')
     expect(s.skill_categories.map((c) => c.id)).toEqual(['a', 'b', 'c'])
+  })
+})
+
+/**
+ * The matcher's tier preference and the graph vote.
+ *
+ * autoCategorizeSkills tries every locale of a skill's name and keeps the
+ * HIGHEST-confidence match, then falls back to a vote among graph neighbours.
+ * Getting the preference wrong files a skill under a fuzzy guess when an exact
+ * answer was available two locales later.
+ */
+describe('autoCategorizeSkills — tier preference across locales', () => {
+  const store = (name: Record<string, string>): ResumeStore => ({
+    ...emptyStore(),
+    resume: makeResume({ id: 'r1', full_name: 'X' }),
+    skills: [makeSkill({ id: 's1', name })],
+  })
+
+  it('prefers an EXACT match found in a later locale over an earlier fuzzy one', () => {
+    // 'Pythom' fuzzy-matches Python; 'Python' is exact. The exact answer wins
+    // whichever locale it turns up in.
+    const out = autoCategorizeSkills(store({ en: 'Pythom', no: 'Python' }), { Python: 'Languages', Pythom: 'Wrong' })
+    expect(out.assignments[0]).toMatchObject({ tier: 'exact' })
+  })
+
+  it('stops at the first exact match rather than scanning on', () => {
+    const out = autoCategorizeSkills(store({ en: 'Python', no: 'Go' }), { Python: 'Languages', Go: 'Other' })
+    expect(out.assignments[0].category).toBe('Languages')
+  })
+
+  it('skips a locale slot that is empty or whitespace', () => {
+    const out = autoCategorizeSkills(store({ en: '   ', no: 'Python' }), { Python: 'Languages' })
+    expect(out.assignments[0].category).toBe('Languages')
+  })
+
+  it('leaves a skill alone when no locale matches anything', () => {
+    const out = autoCategorizeSkills(store({ en: 'Nonesuch' }), { Python: 'Languages' })
+    expect(out.assignments).toEqual([])
+    expect(out.changed).toBe(0)
+  })
+
+  it('matches the library case- and space-insensitively', () => {
+    const out = autoCategorizeSkills(store({ en: '  python  ' }), { Python: 'Languages' })
+    expect(out.assignments[0]).toMatchObject({ category: 'Languages', tier: 'exact' })
+  })
+
+  it('keeps the FIRST library entry when two names normalise the same', () => {
+    // A library with 'Python' and 'python ' must not depend on iteration order.
+    const out = autoCategorizeSkills(store({ en: 'Python' }), { Python: 'Languages', 'python ': 'Second' })
+    expect(out.assignments[0].category).toBe('Languages')
+  })
+
+  it('reports the resolved NAME alongside the assignment, for the preview', () => {
+    const out = autoCategorizeSkills(store({ no: 'Python' }), { Python: 'Languages' })
+    expect(out.assignments[0]).toMatchObject({ skill_id: 's1', name: 'Python' })
+  })
+
+  it('stamps a created category with the resume id', () => {
+    const out = autoCategorizeSkills(store({ en: 'Python' }), { Python: 'Languages' })
+    const cat = out.store.skill_categories!.find((c) => c.name.en === 'Languages')!
+    expect(cat.resume_id).toBe('r1')
+  })
+})
+
+describe('autoCategorizeSkills — the graph vote', () => {
+  const store = (name: string): ResumeStore => ({
+    ...emptyStore(),
+    resume: makeResume({ id: 'r1', full_name: 'X' }),
+    skills: [makeSkill({ id: 's1', name: { en: name } })],
+  })
+
+  it('inherits the majority domain among neighbours', () => {
+    const out = autoCategorizeSkills(store('Helm'), { Kubernetes: 'Platforms', Docker: 'Platforms', Rust: 'Languages' }, { relations: { helm: ['Kubernetes', 'Docker', 'Rust'] } })
+    expect(out.assignments[0].category).toBe('Platforms')
+  })
+
+  it('breaks a tie alphabetically, so the answer is stable', () => {
+    const out = autoCategorizeSkills(store('Helm'), { Kubernetes: 'Platforms', Rust: 'Languages' }, { relations: { helm: ['Kubernetes', 'Rust'] } })
+    expect(out.assignments[0].category).toBe('Languages')
+  })
+
+  it('finds the neighbour list under ANY locale of the name', () => {
+    const s: ResumeStore = {
+      ...emptyStore(),
+      resume: makeResume({ id: 'r1', full_name: 'X' }),
+      skills: [makeSkill({ id: 's1', name: { en: 'Nonesuch', no: 'Helm' } })],
+    }
+    const out = autoCategorizeSkills(s, { Kubernetes: 'Platforms' }, { relations: { helm: ['Kubernetes'] } })
+    expect(out.assignments[0].category).toBe('Platforms')
+  })
+
+  it('assigns nothing when no neighbour has a domain', () => {
+    const out = autoCategorizeSkills(store('Helm'), {}, { relations: { helm: ['Kubernetes'] } })
+    expect(out.assignments).toEqual([])
+  })
+
+  it('assigns nothing for an empty neighbour list', () => {
+    const out = autoCategorizeSkills(store('Helm'), { Kubernetes: 'Platforms' }, { relations: { helm: [] } })
+    expect(out.assignments).toEqual([])
+  })
+
+  it('matches neighbour names case- and space-insensitively', () => {
+    const out = autoCategorizeSkills(store('Helm'), { '  kubernetes ': 'Platforms' }, { relations: { helm: ['Kubernetes'] } })
+    expect(out.assignments[0].category).toBe('Platforms')
   })
 })

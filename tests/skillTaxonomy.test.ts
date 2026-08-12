@@ -3,6 +3,8 @@ import {
   matchTaxonomy, loadSkillTaxonomy, suggestSkillNames, setSkillTaxonomyForTest,
   loadSkillRelations, relatedSkillSuggestions, setSkillRelationsForTest,
   loadSkillClassifications, setSkillClassificationsForTest,
+  loadSkillDomains, setSkillDomainsForTest,
+  loadSkillDomainModel, setSkillDomainModelForTest,
 } from '../src/lib/skillTaxonomy'
 import taxonomy from '../src/generated/skillTaxonomy.json'
 import relations from '../src/generated/skillRelations.json'
@@ -12,6 +14,8 @@ afterEach(() => {
   setSkillTaxonomyForTest(null)
   setSkillRelationsForTest(null)
   setSkillClassificationsForTest(null)
+  setSkillDomainsForTest(null)
+  setSkillDomainModelForTest(null)
 })
 
 describe('generated taxonomy file', () => {
@@ -169,5 +173,90 @@ describe('generated classifications file', () => {
     const first = await loadSkillClassifications()
     expect(first).toBe(await loadSkillClassifications())
     expect(Object.keys(first).length).toBe(Object.keys(classifications).length)
+  })
+})
+
+describe('lazy loaders memoize the generated chunk', () => {
+  /**
+   * Each loader is the only thing standing between an autocomplete keystroke and
+   * a repeated import of a large JSON chunk, so the memo is the feature. Identity
+   * (toBe) is the assertion: an equal-but-fresh object means the cache is dead.
+   */
+  const loaders: Array<[string, () => Promise<unknown>]> = [
+    ['taxonomy', loadSkillTaxonomy],
+    ['relations', loadSkillRelations],
+    ['classifications', loadSkillClassifications],
+    ['domains', loadSkillDomains],
+    ['domain model', loadSkillDomainModel],
+  ]
+  for (const [name, load] of loaders) {
+    it(`returns the same ${name} object on a second call`, async () => {
+      const first = await load()
+      expect(first).toBeTruthy()
+      expect(await load()).toBe(first)
+    })
+  }
+})
+
+describe('suggestSkillNames — the two-character floor', () => {
+  it('returns nothing for a one-character query, and something for two', async () => {
+    setSkillTaxonomyForTest(['Java', 'JavaScript'])
+    const suggest = suggestSkillNames(() => [])
+    expect(await suggest('J')).toEqual([])
+    expect(await suggest('Ja')).toContain('Java')
+  })
+
+  it('measures the length AFTER trimming, so a padded single letter is still too short', async () => {
+    setSkillTaxonomyForTest(['Java'])
+    const suggest = suggestSkillNames(() => [])
+    expect(await suggest('  J  ')).toEqual([])
+  })
+
+  it('reads the existing names at call time, not when the suggester was built', async () => {
+    setSkillTaxonomyForTest(['Java'])
+    let have: string[] = []
+    const suggest = suggestSkillNames(() => have)
+    expect(await suggest('Java')).toEqual(['Java'])
+    have = ['Java']
+    expect(await suggest('Java')).toEqual([])
+  })
+})
+
+describe('relatedSkillSuggestions — weighting and case', () => {
+  const rel = {
+    Go: ['Kubernetes', 'Docker'],
+    Rust: ['Kubernetes', 'WebAssembly'],
+  }
+
+  it('ranks by how many held skills point at a suggestion', () => {
+    expect(relatedSkillSuggestions(['Go', 'Rust'], rel)).toEqual([
+      { name: 'Kubernetes', weight: 2 },
+      { name: 'Docker', weight: 1 },
+      { name: 'WebAssembly', weight: 1 },
+    ])
+  })
+
+  it('breaks a weight tie alphabetically, not by discovery order', () => {
+    // 'Docker' is discovered before 'WebAssembly'; both weigh 1.
+    const out = relatedSkillSuggestions(['Rust', 'Go'], rel).filter((s) => s.weight === 1)
+    expect(out.map((s) => s.name)).toEqual(['Docker', 'WebAssembly'])
+  })
+
+  it('looks the graph up case- and whitespace-insensitively', () => {
+    expect(relatedSkillSuggestions(['  go  '], rel).map((s) => s.name))
+      .toEqual(['Docker', 'Kubernetes'])
+  })
+
+  it('excludes a skill already held even when its spelling is padded or recased', () => {
+    const out = relatedSkillSuggestions(['Go', ' kubernetes '], rel)
+    expect(out.map((s) => s.name)).toEqual(['Docker'])
+  })
+
+  it('honours the limit after ranking, keeping the heaviest', () => {
+    expect(relatedSkillSuggestions(['Go', 'Rust'], rel, 1)).toEqual([{ name: 'Kubernetes', weight: 2 }])
+  })
+
+  it('returns nothing when no held skill appears in the graph', () => {
+    expect(relatedSkillSuggestions(['COBOL'], rel)).toEqual([])
   })
 })

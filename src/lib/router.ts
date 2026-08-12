@@ -44,8 +44,8 @@ export function parseRoute(pathname: string): Route {
       if (m[2] === 'views' && m[3]) {
         return { name: 'editor', id, section: 'views', viewId: decodeURIComponent(m[3]) }
       }
-  // A third segment is only meaningful under /views/.
-  if (m[3]) return { name: 'not-found', path: pathname }
+      // A third segment is only meaningful under /views/.
+      if (m[3]) return { name: 'not-found', path: pathname }
       if (m[2]) return { name: 'editor', id, section: decodeURIComponent(m[2]) }
       return { name: 'editor', id }
     } catch {

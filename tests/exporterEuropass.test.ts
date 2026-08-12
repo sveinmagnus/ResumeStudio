@@ -12,7 +12,8 @@
 import { describe, it, expect } from 'vitest'
 import { exportEuropassXml } from '../src/lib/exporterEuropass'
 import { importFromEuropassXml, isEuropassXml } from '../src/lib/importerEuropass'
-import { emptyStore, makeResume, makeWork, makeView } from './fixtures'
+import { emptyStore, makeResume, makeWork, makeView, makeSpokenLanguage,
+} from './fixtures'
 import { buildViewSections } from '../src/lib/viewFilter'
 import type { Education, ResumeStore, SpokenLanguage } from '../src/types'
 
@@ -282,5 +283,164 @@ describe('exportEuropassXml — per-entry fallbacks', () => {
   it('emits the employer website only when there is one', () => {
     expect(xmlFor({ company_url: 'https://acme.test' }).getElementsByTagName('Website')).toHaveLength(1)
     expect(xmlFor({ company_url: null }).getElementsByTagName('Website')).toHaveLength(0)
+  })
+})
+
+/**
+ * The per-element guards.
+ *
+ * Europass is a schema: an element that appears with nothing in it, or is absent
+ * when the schema wants it, is a document a reader rejects rather than a document
+ * that looks slightly wrong. Every one of these decides whether an element is
+ * written at all, and the round-trip tests above cannot see them because they
+ * only assert what came BACK.
+ */
+describe('exportEuropassXml — element presence', () => {
+  const parse = (xml: string) => new DOMParser().parseFromString(xml, 'application/xml')
+  const build = (build: (s: ResumeStore) => void, locale = 'en') => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'Kari Nordmann' })
+    build(s)
+    return parse(exportEuropassXml(s, makeView({ sections: buildViewSections() }), locale))
+  }
+  const count = (doc: Document, tag: string) => doc.getElementsByTagName(tag).length
+  const text = (doc: Document, tag: string) =>
+    Array.from(doc.getElementsByTagName(tag)).map((e) => e.textContent)
+
+  describe('periods', () => {
+    it('writes only the ends it has', () => {
+      const startOnly = build((s) => {
+        s.work_experiences = [makeWork({ id: 'w1', employer: { en: 'Acme' }, start: { year: 2020, month: 1 }, end: null })]
+      })
+      expect(count(startOnly, 'From')).toBe(1)
+      expect(count(startOnly, 'To')).toBe(0)
+    })
+
+    it('omits the month attribute when only a year is known', () => {
+      const doc = build((s) => {
+        s.work_experiences = [makeWork({ id: 'w1', employer: { en: 'Acme' }, start: { year: 2020, month: null }, end: null })]
+      })
+      const from = doc.getElementsByTagName('From')[0]
+      expect(from.getAttribute('year')).toBe('2020')
+      expect(from.hasAttribute('month')).toBe(false)
+    })
+
+    it('never marks an education as ongoing', () => {
+      // Europass has no Current for education in this exporter; an open range
+      // simply has no To.
+      const doc = build((s) => {
+        s.educations = [makeEducation({ id: 'e1', school: { en: 'NTNU' }, start: { year: 2014, month: 8 }, end: null })]
+      })
+      expect(count(doc, 'Current')).toBe(0)
+      expect(count(doc, 'To')).toBe(0)
+    })
+  })
+
+  describe('work experience', () => {
+    it('omits the Position element when there is no role title', () => {
+      const doc = build((s) => {
+        s.work_experiences = [makeWork({ id: 'w1', employer: { en: 'Acme' }, role_title: {} })]
+      })
+      expect(count(doc, 'Position')).toBe(0)
+    })
+
+    it('flattens the activities text out of its markup', () => {
+      const doc = build((s) => {
+        s.work_experiences = [makeWork({
+          id: 'w1', employer: { en: 'Acme' },
+          long_description: { en: '<p>Ran <b>the</b> migration.</p>' },
+        })]
+      })
+      expect(text(doc, 'Activities')).toEqual(['Ran the migration.'])
+    })
+
+    it('writes the Employer block for a URL alone, and omits Name then', () => {
+      const doc = build((s) => {
+        s.work_experiences = [makeWork({ id: 'w1', employer: {}, company_url: 'https://acme.test' })]
+      })
+      expect(count(doc, 'Website')).toBe(1)
+      expect(count(doc, 'Name')).toBe(0)
+    })
+
+    it('omits the Employer block entirely with neither a name nor a URL', () => {
+      const doc = build((s) => {
+        s.work_experiences = [makeWork({ id: 'w1', employer: {}, role_title: { en: 'Architect' }, company_url: null })]
+      })
+      expect(count(doc, 'Employer')).toBe(0)
+    })
+  })
+
+  describe('education', () => {
+    it('omits Title and Organisation when the fields are empty', () => {
+      const doc = build((s) => {
+        s.educations = [makeEducation({ id: 'e1', school: {}, degree: {}, description: { en: 'Studied.' } })]
+      })
+      expect(count(doc, 'Title')).toBe(0)
+      expect(count(doc, 'Organisation')).toBe(0)
+    })
+
+    it('flattens the education description too', () => {
+      const doc = build((s) => {
+        s.educations = [makeEducation({ id: 'e1', school: { en: 'NTNU' }, description: { en: '<p>Studied <i>hard</i>.</p>' } })]
+      })
+      expect(text(doc, 'Activities')).toEqual(['Studied hard.'])
+    })
+  })
+
+  describe('languages', () => {
+    it('writes a free-text level as a Listening proficiency, and omits it when blank', () => {
+      const withLevel = build((s) => {
+        s.spoken_languages = [makeSpokenLanguage({ id: 'l1', name: { en: 'German' }, level: { en: 'B2' } })]
+      })
+      expect(text(withLevel, 'Listening')).toEqual(['B2'])
+
+      const without = build((s) => {
+        s.spoken_languages = [makeSpokenLanguage({ id: 'l1', name: { en: 'German' }, level: {} })]
+      })
+      expect(count(without, 'ProficiencyLevel')).toBe(0)
+    })
+
+    it('recognises a native level case- and space-insensitively', () => {
+      for (const level of ['Native', ' native ', 'NATIVE']) {
+        const doc = build((s) => {
+          s.spoken_languages = [makeSpokenLanguage({ id: 'l1', name: { en: 'Norwegian' }, level: { en: level } })]
+        })
+        expect(count(doc, 'MotherTongue'), level).toBe(1)
+      }
+    })
+  })
+
+  describe('personal information', () => {
+    it('splits the full name into FirstName and Surname on the LAST space', () => {
+      const doc = build((s) => { s.resume = makeResume({ full_name: 'Kari Anne Nordmann' }) })
+      expect(text(doc, 'FirstName')).toEqual(['Kari Anne'])
+      expect(text(doc, 'Surname')).toEqual(['Nordmann'])
+    })
+
+    it('carries a single-word name as the first name, with no surname', () => {
+      const doc = build((s) => { s.resume = makeResume({ full_name: 'Kari' }) })
+      // No Surname element at all — a single-word name has no surname to write.
+      expect(text(doc, 'FirstName')).toEqual(['Kari'])
+      expect(text(doc, 'Surname')).toEqual([])
+    })
+
+    it('omits the name block for a blank or whitespace-only name', () => {
+      const doc = build((s) => { s.resume = makeResume({ full_name: '   ' }) })
+      expect(count(doc, 'FirstName')).toBe(0)
+    })
+
+    it('writes each contact route only when present', () => {
+      const both = build((s) => {
+        s.resume = makeResume({ full_name: 'Kari', email: 'k@x.io', phone: '+47 900' })
+      })
+      expect(count(both, 'Email')).toBe(1)
+      expect(count(both, 'Telephone')).toBe(1)
+
+      const neither = build((s) => {
+        s.resume = makeResume({ full_name: 'Kari', email: '', phone: null })
+      })
+      expect(count(neither, 'Email')).toBe(0)
+      expect(count(neither, 'Telephone')).toBe(0)
+    })
   })
 })

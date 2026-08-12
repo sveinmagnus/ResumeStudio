@@ -790,3 +790,39 @@ describe('importFromCVPartner — date of birth', () => {
     expect(dob({ born_month: '6', born_day: '15' })).toBeNull()
   })
 })
+
+/**
+ * The resume-root scalar mappings.
+ *
+ * Each is a `|| null` or a ternary that nothing exercised. They are small, but
+ * an undefined reaching the store is not the same as a null: it round-trips
+ * through JSON as a MISSING key, and the editor then renders an uncontrolled
+ * input instead of an empty one.
+ */
+describe('importFromCVPartner — resume-root scalars', () => {
+  const imp = (raw: Record<string, unknown>) => importFromCVPartner(raw as never)
+
+  it('nulls an absent phone rather than leaving it undefined', () => {
+    expect(imp({ telefon: '+47 900' }).resume!.phone).toBe('+47 900')
+    expect(imp({}).resume!.phone).toBeNull()
+  })
+
+  it('nulls an absent profile image URL', () => {
+    expect(imp({ image: 'https://x.test/p.png' }).resume!.profile_image_url)
+      .toBe('https://x.test/p.png')
+    expect(imp({}).resume!.profile_image_url).toBeNull()
+  })
+
+  it('nulls an absent twitter handle', () => {
+    expect(imp({ twitter: '@kari' }).resume!.twitter).toBe('@kari')
+    expect(imp({}).resume!.twitter).toBeNull()
+  })
+
+  it('maps the default locale, treating anything but "no" as English', () => {
+    // Both directions: a constant here would set every imported CV to one
+    // language, and the editor opens on the default locale.
+    expect(imp({ language_code: 'no' }).resume!.default_locale).toBe('no')
+    expect(imp({ language_code: 'int' }).resume!.default_locale).toBe('en')
+    expect(imp({}).resume!.default_locale).toBe('en')
+  })
+})

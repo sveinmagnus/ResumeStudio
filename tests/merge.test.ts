@@ -6,6 +6,7 @@ import {
 import {
   emptyStore, makeSkill, makeRole, makeIndustry, makeProject, makeWork, makePosition,
 } from './fixtures'
+import type { ResumeStore } from '../src/types'
 
 // ─── mergeSkills ────────────────────────────────────────────────────────────
 
@@ -253,5 +254,169 @@ describe('mergeRegistry() generic engine', () => {
     expect(viaGeneric).toEqual(viaWrapper)
     expect(viaGeneric.skills.map((s) => s.id)).toEqual(['s2'])
     expect(viaGeneric.projects[0].skills[0].skill_id).toBe('s2')
+  })
+})
+
+describe('mergeRegistryEntries — industries', () => {
+  const store = (): ResumeStore => {
+    const s = emptyStore()
+    s.industries = [
+      makeIndustry({ id: 'src', name: { en: 'Oil & Gas' } }),
+      makeIndustry({ id: 'dst', name: { en: 'Energy', no: 'Energi' } }),
+    ]
+    s.projects = [
+      makeProject({ id: 'p1', industries: [{ industry_id: 'src', name: { en: 'Oil & Gas' } }] }),
+      makeProject({
+        id: 'both',
+        industries: [
+          { industry_id: 'dst', name: { en: 'Energy' } },
+          { industry_id: 'src', name: { en: 'Oil & Gas' } },
+        ],
+      }),
+      makeProject({ id: 'untouched', industries: [{ industry_id: 'other', name: { en: 'Retail' } }] }),
+    ]
+    return s
+  }
+
+  it('repoints the link and refreshes the denormalized name snapshot', () => {
+    const out = mergeIndustries(store(), 'src', 'dst')
+    const p1 = out.projects.find((p) => p.id === 'p1')!
+    expect(p1.industries).toEqual([{ industry_id: 'dst', name: { en: 'Energy', no: 'Energi' } }])
+  })
+
+  it('collapses a project that already listed the target — no double link', () => {
+    const out = mergeIndustries(store(), 'src', 'dst')
+    expect(out.projects.find((p) => p.id === 'both')!.industries.map((pi) => pi.industry_id))
+      .toEqual(['dst'])
+  })
+
+  it('leaves a project that references neither entry alone', () => {
+    const before = store()
+    const out = mergeIndustries(before, 'src', 'dst')
+    const p = out.projects.find((p) => p.id === 'untouched')!
+    expect(p.industries).toEqual([{ industry_id: 'other', name: { en: 'Retail' } }])
+    expect(p).toBe(before.projects[2])
+  })
+
+  it('deletes the source entry and keeps the target', () => {
+    const out = mergeIndustries(store(), 'src', 'dst')
+    expect(out.industries.map((i) => i.id)).toEqual(['dst'])
+  })
+
+  it('counts industry references per link', () => {
+    expect(countIndustryReferences(store(), 'src')).toBe(2)
+    expect(countIndustryReferences(store(), 'dst')).toBe(1)
+  })
+})
+
+describe('mergeRegistryEntries — role links beyond projects', () => {
+  const store = (): ResumeStore => {
+    const s = emptyStore()
+    s.roles = [makeRole({ id: 'src', name: { en: 'Dev' } }), makeRole({ id: 'dst', name: { en: 'Engineer' } })]
+    s.projects = [makeProject({ id: 'p1', roles: [{ role_id: 'src', name: { en: 'Dev' }, description: {} }] })]
+    s.work_experiences = [
+      makeWork({ id: 'w1', role_ids: ['src'] }),
+      makeWork({ id: 'w2', role_ids: ['dst', 'src'] }),
+      makeWork({ id: 'w3', role_ids: ['unrelated'] }),
+    ]
+    s.positions = [
+      makePosition({ id: 'pos1', role_ids: ['src'] }),
+      makePosition({ id: 'pos2', role_ids: ['dst', 'src'] }),
+      makePosition({ id: 'pos3', role_ids: undefined }),
+    ]
+    return s
+  }
+
+  it('remaps an employment role link and dedupes one that held both', () => {
+    const out = mergeRoles(store(), 'src', 'dst')
+    expect(out.work_experiences.find((w) => w.id === 'w1')!.role_ids).toEqual(['dst'])
+    expect(out.work_experiences.find((w) => w.id === 'w2')!.role_ids).toEqual(['dst'])
+    expect(out.work_experiences.find((w) => w.id === 'w3')!.role_ids).toEqual(['unrelated'])
+  })
+
+  it('remaps a position role link and dedupes one that held both', () => {
+    const out = mergeRoles(store(), 'src', 'dst')
+    expect(out.positions.find((p) => p.id === 'pos1')!.role_ids).toEqual(['dst'])
+    expect(out.positions.find((p) => p.id === 'pos2')!.role_ids).toEqual(['dst'])
+    expect(out.positions.find((p) => p.id === 'pos3')!.role_ids).toBeUndefined()
+  })
+
+  it('counts a project link, an employment link and a position link alike', () => {
+    // 1 project + 2 employments + 2 positions.
+    expect(countRoleReferences(store(), 'src')).toBe(5)
+    expect(countRoleReferences(store(), 'dst')).toBe(2)
+  })
+})
+
+describe('mergeRegistryEntries — skills', () => {
+  it('rewrites only the merged skill link, refreshing its snapshot name', () => {
+    const s = emptyStore()
+    s.skills = [makeSkill({ id: 'src', name: { en: 'React.js' } }), makeSkill({ id: 'dst', name: { en: 'React' } })]
+    s.projects = [makeProject({
+      skills: [
+        { skill_id: 'src', name: { en: 'React.js' }, proficiency: 3 },
+        { skill_id: 'keep', name: { en: 'Go' }, proficiency: 1 },
+      ],
+    })]
+    const out = mergeSkills(s, 'src', 'dst')
+    expect(out.projects[0].skills).toEqual([
+      { skill_id: 'dst', name: { en: 'React' }, proficiency: 3 },
+      { skill_id: 'keep', name: { en: 'Go' }, proficiency: 1 },
+    ])
+    expect(countSkillReferences(s, 'src')).toBe(1)
+  })
+})
+
+describe('mergeRegistry — a merge touches the merged link and nothing beside it', () => {
+  it('leaves a project\u2019s OTHER role links alone', () => {
+    const s = emptyStore()
+    s.roles = [makeRole({ id: 'src', name: { en: 'Dev' } }), makeRole({ id: 'dst', name: { en: 'Engineer' } })]
+    s.projects = [makeProject({
+      roles: [
+        { role_id: 'src', name: { en: 'Dev' }, description: {} },
+        { role_id: 'keep', name: { en: 'Tester' }, description: {} },
+      ],
+    })]
+    expect(mergeRoles(s, 'src', 'dst').projects[0].roles).toEqual([
+      { role_id: 'dst', name: { en: 'Engineer' }, description: {} },
+      { role_id: 'keep', name: { en: 'Tester' }, description: {} },
+    ])
+  })
+
+  it('leaves an employment\u2019s and a position\u2019s other role ids alone', () => {
+    const s = emptyStore()
+    s.roles = [makeRole({ id: 'src', name: { en: 'Dev' } }), makeRole({ id: 'dst', name: { en: 'Engineer' } })]
+    s.work_experiences = [makeWork({ role_ids: ['src', 'keep'] })]
+    s.positions = [makePosition({ role_ids: ['keep', 'src'] })]
+    const out = mergeRoles(s, 'src', 'dst')
+    expect(out.work_experiences[0].role_ids).toEqual(['dst', 'keep'])
+    expect(out.positions[0].role_ids).toEqual(['keep', 'dst'])
+  })
+
+  it('leaves a project\u2019s other industry links alone', () => {
+    const s = emptyStore()
+    s.industries = [makeIndustry({ id: 'src', name: { en: 'Oil' } }), makeIndustry({ id: 'dst', name: { en: 'Energy' } })]
+    s.projects = [makeProject({
+      industries: [
+        { industry_id: 'src', name: { en: 'Oil' } },
+        { industry_id: 'keep', name: { en: 'Retail' } },
+      ],
+    })]
+    expect(mergeIndustries(s, 'src', 'dst').projects[0].industries).toEqual([
+      { industry_id: 'dst', name: { en: 'Energy' } },
+      { industry_id: 'keep', name: { en: 'Retail' } },
+    ])
+  })
+
+  it('leaves a project\u2019s other skill links alone', () => {
+    const s = emptyStore()
+    s.skills = [makeSkill({ id: 'src', name: { en: 'React.js' } }), makeSkill({ id: 'dst', name: { en: 'React' } })]
+    s.projects = [makeProject({
+      skills: [
+        { skill_id: 'src', name: { en: 'React.js' }, proficiency: 2 },
+        { skill_id: 'keep', name: { en: 'Go' }, proficiency: 1 },
+      ],
+    })]
+    expect(mergeSkills(s, 'src', 'dst').projects[0].skills.map((ps) => ps.skill_id)).toEqual(['dst', 'keep'])
   })
 })

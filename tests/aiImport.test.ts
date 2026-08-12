@@ -459,3 +459,119 @@ describe('summarizeImportedStore', () => {
   })
 })
 
+
+/**
+ * Date validation per section, and the defaults an AI import lands with.
+ *
+ * The date fields differ by section — a course has `completed`, a certification
+ * has `issued`/`expires`, the ranged sections have `start`/`end`. A section whose
+ * dates go unchecked accepts whatever the model wrote, and a two-digit year sorts
+ * an entry to the beginning of the CV.
+ */
+describe('validateAIImport — per-section date fields', () => {
+  const withSection = (key: string, item: Record<string, unknown>) => () =>
+    validateAIImport({ $schema: AI_IMPORT_SCHEMA, [key]: [item] } as never)
+  const pathsOf = (fn: () => unknown): string[] => {
+    try { fn(); return [] } catch (e) {
+      return (e as InvalidAIImportError).issues.map((i) => i.path)
+    }
+  }
+
+  it('checks start AND end on each of the three ranged sections', () => {
+    for (const key of ['work_experiences', 'projects', 'educations']) {
+      const paths = pathsOf(withSection(key, { start: 19, end: 19 }))
+      expect(paths.some((p) => p.endsWith('.start')), key).toBe(true)
+      expect(paths.some((p) => p.endsWith('.end')), key).toBe(true)
+    }
+  })
+
+  it('checks a course’s completed date', () => {
+    expect(pathsOf(withSection('courses', { name: 'X', completed: 19 })))
+      .toContain('courses[0].completed')
+  })
+
+  it('checks BOTH a certification’s issued and expires dates', () => {
+    const paths = pathsOf(withSection('certifications', { name: 'X', issued: 19, expires: 19 }))
+    expect(paths).toContain('certifications[0].issued')
+    expect(paths).toContain('certifications[0].expires')
+  })
+
+  it('accepts a well-formed date on every one of those fields', () => {
+    expect(withSection('work_experiences', { employer: 'A', start: 2020, end: 2021 })).not.toThrow()
+    expect(withSection('courses', { name: 'X', completed: { year: 2020, month: 6 } })).not.toThrow()
+    expect(withSection('certifications', { name: 'X', issued: 2020, expires: 2025 })).not.toThrow()
+  })
+})
+
+describe('importFromAIDraft — the imported defaults', () => {
+  const draft = (over: Record<string, unknown>) =>
+    importFromAIDraft({ $schema: AI_IMPORT_SCHEMA, ...over } as never)
+
+  it('skips a profile with no label, no summary and no bullets', () => {
+    // An empty profile would become the view's default title.
+    expect(draft({ key_qualifications: [{}] }).key_qualifications).toEqual([])
+    expect(draft({ key_qualifications: [{ label: 'Architect' }] }).key_qualifications).toHaveLength(1)
+    expect(draft({ key_qualifications: [{ bullets: ['One'] }] }).key_qualifications).toHaveLength(1)
+  })
+
+  it('drops blank bullets rather than creating empty competencies', () => {
+    const store = draft({ key_qualifications: [{ label: 'A', bullets: ['One', '', '   '] }] })
+    expect(store.key_competencies).toHaveLength(1)
+  })
+
+  it('imports a project with anonymization off and a work experience unstarred', () => {
+    const store = draft({
+      projects: [{ customer: 'Acme' }],
+      work_experiences: [{ employer: 'Acme' }],
+    })
+    expect(store.projects[0].use_anonymized).toBe(false)
+    expect(store.work_experiences[0].starred).toBe(false)
+  })
+
+  it('imports an education claiming neither a grade nor an exchange term', () => {
+    const store = draft({ educations: [{ school: 'NTNU' }] })
+    expect(store.educations[0]).toMatchObject({ exchange: false })
+  })
+
+  it('links a project to a work experience by EMPLOYER name', () => {
+    // The link is what puts a project under the right job; matching is
+    // normalised so casing and spacing do not break it.
+    const store = draft({
+      work_experiences: [{ employer: 'Acme AS' }],
+      projects: [{ customer: 'Bank', employer: '  acme as  ' }],
+    })
+    expect(store.projects[0].work_experience_id).toBe(store.work_experiences[0].id)
+  })
+
+  it('keeps the FIRST employer when two jobs share a name', () => {
+    const store = draft({
+      work_experiences: [{ employer: 'Acme' }, { employer: 'Acme' }],
+      projects: [{ customer: 'Bank', employer: 'Acme' }],
+    })
+    expect(store.projects[0].work_experience_id).toBe(store.work_experiences[0].id)
+  })
+
+  it('leaves a project unlinked when no employer matches', () => {
+    const store = draft({
+      work_experiences: [{ employer: 'Acme' }],
+      projects: [{ customer: 'Bank', employer: 'Nonesuch' }],
+    })
+    expect(store.projects[0].work_experience_id).toBeNull()
+  })
+
+  it('marks a showcase category’s skills highlighted, without overwriting a category', () => {
+    // The showcase drives the Skills Showcase section, so its members are
+    // highlighted — but a skill already filed elsewhere keeps its category.
+    const store = draft({
+      technology_categories: [{ name: 'Languages', skills: ['Go'] }],
+    })
+    const go = store.skills.find((s) => s.name.en === 'Go')!
+    expect(go.is_highlighted).toBe(true)
+    expect(go.category_id).toBe(store.skill_categories![0].id)
+  })
+
+  it('imports a skill that is not in a showcase category unhighlighted', () => {
+    const store = draft({ projects: [{ customer: 'Acme', skills: ['Go'] }] })
+    expect(store.skills.find((s) => s.name.en === 'Go')!.is_highlighted).toBe(false)
+  })
+})

@@ -509,6 +509,8 @@ export async function downloadBackup(store: ResumeStore): Promise<void> {
   const canonical = await api.listRegistry().catch(() => undefined)
   const backup = exportToBackup(store, canonical)
   const json = JSON.stringify(backup, null, 2)
-  const name = store.resume?.full_name?.replace(/\s+/g, '_') ?? 'resume'
+  // `||`, not `??`: an unnamed resume has an empty full_name, and that would
+  // download as "_backup.json".
+  const name = store.resume?.full_name?.replace(/\s+/g, '_') || 'resume'
   downloadText(json, `${name}_backup.json`, 'application/json')
 }

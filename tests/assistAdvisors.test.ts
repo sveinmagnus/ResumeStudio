@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
-  emptyStore, makeCertification, makeCourse, makeEducation, makeKQ, makeProject, makeView,
-  makeWork, makeKeyCompetency,
+  emptyStore, makeCertification, makeCourse, makeEducation, makeKQ, makeProject, makeView, makeSkill,
+  makeWork, makeKeyCompetency, makeResume,
 } from './fixtures'
 import type { KeyCompetency, ResumeStore } from '../src/types'
 import { buildCvDigest, buildBilingualDigest, itemLabel, itemFacts } from '../src/lib/cvDigest'
@@ -9,6 +9,7 @@ import { CV_SECTIONS, fieldOf, fieldsOf, isAdvisorSection, itemsOf } from '../sr
 import { validateFindings, InvalidFindingsError, FINDINGS_SCHEMA } from '../src/lib/assistFindings'
 import {
   validateProposals, applyProposals, InvalidProposalsError,
+  proposalsResponseSpec, PROPOSALS_SCHEMA,
 } from '../src/lib/assistProposals'
 import {
   validateMining, applyAchievements, buildMiningPrompt, InvalidMiningError,
@@ -1174,3 +1175,595 @@ describe('cvDigest — itemFacts', () => {
   })
 })
 
+
+/**
+ * The digest's shape and the profile generator's apply step.
+ *
+ * buildCvDigest is the ONE rendering every advisor's prompt shares (§15), so an
+ * item id it emits must resolve in any other advisor's validator. That contract
+ * is what lets a finding from one run be acted on by another panel.
+ */
+describe('buildCvDigest — the shared rendering', () => {
+  const store = (): ResumeStore => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'Kari' })
+    s.projects = [
+      makeProject({ id: 'p1', customer: { en: 'Acme' }, long_description: { en: 'Ran it.' } }),
+      makeProject({ id: 'p2', customer: { en: 'Gone' }, disabled: true }),
+    ]
+    return s
+  }
+
+  it('names the section by its STORE KEY, which a reply must quote back', () => {
+    expect(buildCvDigest(store(), { locale: 'en' })).toContain('projects')
+  })
+
+  it('carries each item’s real id', () => {
+    expect(buildCvDigest(store(), { locale: 'en' })).toContain('p1')
+  })
+
+  it('leaves a disabled item out entirely', () => {
+    // It is out of every export, so an advisor must not suggest editing it.
+    const out = buildCvDigest(store(), { locale: 'en' })
+    expect(out).not.toContain('Gone')
+    expect(out).not.toContain('p2')
+  })
+
+  it('caps a long field rather than sending the whole CV', () => {
+    const s = store()
+    s.projects[0].long_description = { en: 'x'.repeat(5000) }
+    const short = buildCvDigest(s, { locale: 'en', maxFieldChars: 100 })
+    const long = buildCvDigest(s, { locale: 'en', maxFieldChars: 500 })
+    expect(short.length).toBeLessThan(long.length)
+  })
+
+  it('omits the short-description fields when asked to', () => {
+    const s = store()
+    s.projects[0].short_description = { en: 'A short line.' }
+    expect(buildCvDigest(s, { locale: 'en', includeShort: true })).toContain('A short line.')
+    expect(buildCvDigest(s, { locale: 'en', includeShort: false })).not.toContain('A short line.')
+  })
+
+  it('renders in the requested locale', () => {
+    const s = store()
+    s.projects[0].customer = { en: 'Acme', no: 'Akme' }
+    expect(buildCvDigest(s, { locale: 'no' })).toContain('Akme')
+  })
+
+  it('emits nothing for a section with no items', () => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'Kari' })
+    expect(buildCvDigest(s, { locale: 'en' })).not.toContain('projects')
+  })
+})
+
+describe('applyProfileDraft', () => {
+  const base = (): ResumeStore => {
+    const s = emptyStore()
+    s.resume = makeResume({ id: 'r1', full_name: 'Kari' })
+    s.key_qualifications = [makeKQ({ id: 'existing', tag_line: { en: 'Existing profile' } })]
+    s.key_competencies = [makeKeyCompetency({ id: 'c1', title: { en: 'Architecture' } })]
+    return s
+  }
+  const draft = (over: Record<string, unknown> = {}) => ({
+    key: 'profile:0', tagLine: 'Board Adviser', summary: 'Long summary.',
+    summaryShort: 'Short.', rationale: '', evidence: [],
+    bundle: [{ id: 'c1', title: 'Architecture', description: 'x', isNew: false }],
+    ...over,
+  })
+
+  it('ADDS the profile without touching the existing ones', () => {
+    const out = applyProfileDraft(base(), draft() as never, 'en')
+    expect(out.key_qualifications.map((k) => k.id)).toContain('existing')
+    expect(out.key_qualifications).toHaveLength(2)
+  })
+
+  it('puts the new profile LAST, so no view silently changes', () => {
+    // A view presents the first non-disabled profile (§4); inserting at the top
+    // would change what every existing view shows.
+    const out = applyProfileDraft(base(), draft() as never, 'en')
+    expect(out.key_qualifications[0].id).toBe('existing')
+    expect(out.key_qualifications[1].tag_line.en).toBe('Board Adviser')
+  })
+
+  it('lands enabled but NOT starred', () => {
+    const out = applyProfileDraft(base(), draft() as never, 'en')
+    const added = out.key_qualifications[1]
+    expect(added).toMatchObject({ disabled: false, starred: false })
+  })
+
+  it('links an existing competency by id rather than duplicating it', () => {
+    const out = applyProfileDraft(base(), draft() as never, 'en')
+    expect(out.key_competencies).toHaveLength(1)
+    expect(out.key_qualifications[1].competency_ids).toEqual(['c1'])
+  })
+
+  it('creates a NEW competency and links it in bundle order', () => {
+    const out = applyProfileDraft(base(), draft({
+      bundle: [
+        { id: null, title: 'Platform engineering', description: 'Builds platforms.', isNew: true },
+        { id: 'c1', title: 'Architecture', description: 'x', isNew: false },
+      ],
+    }) as never, 'en')
+    expect(out.key_competencies).toHaveLength(2)
+    const ids = out.key_qualifications[1].competency_ids
+    expect(ids).toHaveLength(2)
+    expect(ids[1]).toBe('c1')
+  })
+
+  it('falls back to the title when a new competency has no description', () => {
+    const out = applyProfileDraft(base(), draft({
+      bundle: [{ id: null, title: 'Platform engineering', description: '', isNew: true }],
+    }) as never, 'en')
+    const added = out.key_competencies.find((c) => c.title.en === 'Platform engineering')!
+    expect(added.description.en).toBe('Platform engineering')
+  })
+
+  it('stamps everything with the resume id, even with no resume', () => {
+    const out = applyProfileDraft(base(), draft() as never, 'en')
+    expect(out.key_qualifications[1].resume_id).toBe('r1')
+    const noResume = { ...base(), resume: null }
+    expect(() => applyProfileDraft(noResume, draft() as never, 'en')).not.toThrow()
+  })
+
+  it('writes the drafted text into the requested locale', () => {
+    const out = applyProfileDraft(base(), draft() as never, 'no')
+    expect(out.key_qualifications[1].tag_line.no).toBe('Board Adviser')
+    expect(out.key_qualifications[1].tag_line.en).toBeUndefined()
+  })
+})
+
+describe('CV_FIELDS is the advisors\u2019 contract, field by field', () => {
+  /**
+   * This table decides three things at once: what a digest SHOWS, what a model
+   * may name in a reply, and what applyProposals is allowed to overwrite. A
+   * `prose` flag flipped the wrong way either hides a writable field from the
+   * assists or lets one rewrite an employer\u2019s name, so the whole table is
+   * pinned rather than spot-checked.
+   */
+  const EXPECTED: Record<string, Array<[string, string, boolean, boolean?]>> = {
+    key_qualifications: [
+      ['tag_line', 'Tag line', false],
+      ['summary', 'Full profile', true],
+      ['summary_short', 'Short summary', true],
+    ],
+    key_competencies: [
+      ['title', 'Title', false],
+      ['description', 'Description', true],
+      ['short_description', 'Short description', true],
+    ],
+    projects: [
+      ['customer', 'Customer', false],
+      ['description', 'Project name', false],
+      ['long_description', 'Description', true],
+      ['short_description', 'Short description', true],
+      ['highlights', 'Highlights', true, true],
+    ],
+    work_experiences: [
+      ['employer', 'Employer', false],
+      ['role_title', 'Role', false],
+      ['long_description', 'Description', true],
+      ['short_description', 'Short description', true],
+    ],
+    positions: [
+      ['name', 'Position', false],
+      ['organisation', 'Organisation', false],
+      ['description', 'Description', true],
+      ['short_description', 'Short description', true],
+    ],
+    educations: [
+      ['school', 'School', false],
+      ['degree', 'Degree', false],
+      ['description', 'Description', true],
+      ['short_description', 'Short description', true],
+    ],
+    courses: [
+      ['name', 'Course', false],
+      ['program', 'Programme', false],
+      ['description', 'Description', true],
+      ['short_description', 'Short description', true],
+    ],
+    certifications: [
+      ['name', 'Certification', false],
+      ['organiser', 'Issuer', false],
+      ['description', 'Description', true],
+      ['short_description', 'Short description', true],
+    ],
+    presentations: [
+      ['title', 'Title', false],
+      ['event', 'Event', false],
+      ['description', 'Description', true],
+      ['short_description', 'Short description', true],
+    ],
+    publications: [
+      ['title', 'Title', false],
+      ['publisher', 'Publisher', false],
+      ['abstract', 'Abstract', true],
+      ['short_description', 'Short description', true],
+    ],
+    honor_awards: [
+      ['name', 'Award', false],
+      ['issuer', 'Issuer', false],
+      ['for_work', 'For', false],
+      ['description', 'Description', true],
+      ['short_description', 'Short description', true],
+    ],
+    recommendations: [
+      ['recommender_title', 'Recommender', false],
+      ['relationship', 'Relationship', false],
+      ['text', 'Recommendation', true],
+      ['short_description', 'Short description', true],
+    ],
+  }
+
+  it('covers exactly these sections, in this order', () => {
+    expect(CV_SECTIONS).toEqual(Object.keys(EXPECTED))
+  })
+
+  for (const [section, fields] of Object.entries(EXPECTED)) {
+    it(`describes ${section} field for field`, () => {
+      expect(fieldsOf(section).map((f) => [f.key, f.label, f.prose, f.list].filter((v) => v !== undefined)))
+        .toEqual(fields.map((row) => row.filter((v) => v !== undefined)))
+    })
+  }
+
+  it('marks the LIST fields, and only those', () => {
+    const lists = CV_SECTIONS.flatMap((s) => fieldsOf(s).filter((f) => f.list).map((f) => `${s}.${f.key}`))
+    expect(lists).toEqual(['projects.highlights'])
+  })
+
+  it('gives every section at least one prose field to work on', () => {
+    for (const s of CV_SECTIONS) expect(fieldsOf(s).some((f) => f.prose), s).toBe(true)
+  })
+
+  it('names each section\u2019s identity field first — the digest leads with what an item IS', () => {
+    for (const s of CV_SECTIONS) expect(fieldsOf(s)[0].prose, s).toBe(false)
+  })
+
+  it('offers a short_description everywhere the summarize assist can write one', () => {
+    // Every section but the profile itself uses that key; the profile\u2019s
+    // equivalent is summary_short.
+    for (const s of CV_SECTIONS) {
+      const keys = fieldsOf(s).map((f) => f.key)
+      expect(keys.includes('short_description') || keys.includes('summary_short'), s).toBe(true)
+    }
+  })
+
+  it('knows nothing about the registries or Languages', () => {
+    // Names, not prose; and CEFR levels are not writing.
+    for (const s of ['skills', 'roles', 'industries', 'spoken_languages', 'views']) {
+      expect(fieldsOf(s), s).toEqual([])
+      expect(fieldOf(s, 'name'), s).toBeNull()
+    }
+  })
+
+  it('resolves one field by section and key, and null for an unknown key', () => {
+    expect(fieldOf('projects', 'long_description')).toEqual({ key: 'long_description', label: 'Description', prose: true })
+    expect(fieldOf('projects', 'nope')).toBeNull()
+    expect(fieldOf('nope', 'long_description')).toBeNull()
+  })
+})
+
+describe('itemsOf / isAdvisorSection guard a model-supplied section name', () => {
+  it('refuses a section the advisors do not cover, and one that is not an array', () => {
+    const data = emptyStore()
+    expect(isAdvisorSection('projects', data)).toBe(true)
+    expect(isAdvisorSection('skills', data)).toBe(false)
+    expect(isAdvisorSection('resume', data)).toBe(false)
+    expect(isAdvisorSection('__proto__', data)).toBe(false)
+  })
+
+  it('returns an empty array — never throws — for a bad section name', () => {
+    expect(itemsOf(emptyStore(), 'made_up')).toEqual([])
+    expect(itemsOf(emptyStore(), 'resume')).toEqual([])
+  })
+
+  it('drops disabled items, and only those', () => {
+    const data = emptyStore()
+    data.projects = [
+      makeProject({ id: 'live' }),
+      makeProject({ id: 'hidden', disabled: true }),
+      makeProject({ id: 'explicit', disabled: false }),
+    ]
+    expect(itemsOf(data, 'projects').map((it) => it.id)).toEqual(['live', 'explicit'])
+  })
+})
+
+describe('validateFindings — the keys, the numbering and the fallbacks', () => {
+  const ok = (findings: unknown[]) => ({ findings })
+
+  it('keys a section-level finding as "section", not as a null id', () => {
+    // The key is the react list key AND the resolution key; "projects:null:0"
+    // would read as an item called null.
+    const s = storeWithProject()
+    const { findings } = validateFindings(ok([
+      { section: 'projects', item_id: null, title: 'Whole section', detail: 'x' },
+    ]), s, 'en')
+    expect(findings[0].key).toBe('projects:section:0')
+    expect(findings[0].itemId).toBeNull()
+    expect(findings[0].itemLabel).toBe('')
+  })
+
+  it('keys an item finding by its item id', () => {
+    const s = storeWithProject()
+    const { findings } = validateFindings(ok([
+      { section: 'projects', item_id: pid(s), title: 'This one', detail: 'x' },
+    ]), s, 'en')
+    expect(findings[0].key).toBe(`projects:${pid(s)}:0`)
+    expect(findings[0].itemLabel).toBeTruthy()
+  })
+
+  it('resolves an item id the model padded with whitespace', () => {
+    const s = storeWithProject()
+    const { findings, dropped } = validateFindings(ok([
+      { section: 'projects', item_id: `  ${pid(s)}  `, title: 'Padded', detail: 'x' },
+    ]), s, 'en')
+    expect(dropped).toHaveLength(0)
+    expect(findings[0].itemId).toBe(pid(s))
+  })
+
+  it('treats a whitespace-only item id as "about the section"', () => {
+    // Trimming before the emptiness test is what separates "no item" from "an
+    // item id I cannot resolve" — the second drops the finding entirely.
+    const s = storeWithProject()
+    const { findings, dropped } = validateFindings(ok([
+      { section: 'projects', item_id: '   ', title: 'Section-wide', detail: 'x' },
+    ]), s, 'en')
+    expect(dropped).toHaveLength(0)
+    expect(findings[0].itemId).toBeNull()
+    expect(findings[0].key).toBe('projects:section:0')
+  })
+
+  it('reads a padded literal "null" item id as "about the section"', () => {
+    // Small models write the word rather than the JSON value, sometimes with
+    // whitespace around it; both have to mean the same thing.
+    const s = storeWithProject()
+    for (const item_id of ['null', ' null ', 'NULL']) {
+      const { findings, dropped } = validateFindings(ok([
+        { section: 'projects', item_id, title: 'Section-wide', detail: 'x' },
+      ]), s, 'en')
+      expect(dropped, item_id).toHaveLength(0)
+      expect(findings[0].itemId, item_id).toBeNull()
+    }
+  })
+
+  it('counts findings from ONE when reporting what it dropped', () => {
+    // "Finding 0" reads as a bug; the number is what the user matches against
+    // the model's own reply.
+    const s = storeWithProject()
+    const { dropped } = validateFindings(ok([
+      { section: 'projects', item_id: 'no-such-item', title: 'Bad', detail: 'x' },
+    ]), s, 'en')
+    expect(dropped[0]).toMatch(/^Finding 1 /)
+  })
+
+  it('falls back to a TRUNCATED detail when a finding has no title', () => {
+    const s = storeWithProject()
+    const long = 'x'.repeat(200)
+    const { findings } = validateFindings(ok([
+      { section: 'projects', item_id: null, detail: long },
+    ]), s, 'en')
+    expect(findings[0].title).toHaveLength(80)
+    expect(findings[0].detail).toBe(long)
+  })
+})
+
+describe('applyProposals — which item gets written', () => {
+  const twoProjects = (): ResumeStore => {
+    const s = emptyStore()
+    s.projects = [
+      makeProject({ id: 'p1', customer: { en: 'Acme' }, long_description: { en: 'First description.' } }),
+      makeProject({ id: 'p2', customer: { en: 'Beta' }, long_description: { en: 'Second description.' } }),
+    ]
+    return s
+  }
+
+  it('writes the proposal to the item it names, not the first one', () => {
+    const s = twoProjects()
+    const { proposals } = validateProposals({ edits: [{
+      section: 'projects', item_id: 'p2', field: 'long_description', proposed: 'Rewritten.',
+    }] }, s, 'en')
+    const { data, applied } = applyProposals(s, proposals)
+    expect(applied).toBe(1)
+    expect(data.projects[1].long_description.en).toBe('Rewritten.')
+    expect(data.projects[0].long_description.en).toBe('First description.')
+  })
+
+  it('skips a proposal whose item has been deleted since the run', () => {
+    const s = twoProjects()
+    const { proposals } = validateProposals({ edits: [{
+      section: 'projects', item_id: 'p2', field: 'long_description', proposed: 'Rewritten.',
+    }] }, s, 'en')
+    const without = { ...s, projects: [s.projects[0]] }
+    const { applied, skipped } = applyProposals(without, proposals)
+    expect(applied).toBe(0)
+    expect(skipped).toHaveLength(1)
+  })
+
+  it('skips a proposal whose field was edited after the run', () => {
+    // The panel is non-blocking, so the text can move under it; overwriting the
+    // newer edit would lose work the user just did.
+    const s = twoProjects()
+    const { proposals } = validateProposals({ edits: [{
+      section: 'projects', item_id: 'p1', field: 'long_description', proposed: 'Rewritten.',
+    }] }, s, 'en')
+    const moved = {
+      ...s,
+      projects: [{ ...s.projects[0], long_description: { en: 'Changed by hand.' } }, s.projects[1]],
+    }
+    const { applied, skipped } = applyProposals(moved, proposals)
+    expect(applied).toBe(0)
+    expect(skipped).toHaveLength(1)
+  })
+
+  it('applies to an item whose target field does not exist yet', () => {
+    // An empty short description is an absent key, not an empty object, and
+    // reading through it must not throw.
+    const s = emptyStore()
+    s.projects = [makeProject({ id: 'p1', customer: { en: 'Acme' }, long_description: { en: 'Text.' } })]
+    delete (s.projects[0] as unknown as Record<string, unknown>).short_description
+    const proposal = {
+      key: 'k', section: 'projects', itemId: 'p1', field: 'short_description',
+      fieldLabel: 'Short description', itemLabel: 'Acme', locale: 'en',
+      current: '', proposed: 'One line.', why: 'Filled it.',
+    }
+    const { data, applied } = applyProposals(s, [proposal])
+    expect(applied).toBe(1)
+    expect((data.projects[0] as unknown as Record<string, Record<string, string>>).short_description.en)
+      .toBe('One line.')
+  })
+
+  it('skips a whole section that is not an array in the store', () => {
+    const s = emptyStore()
+    s.projects = [makeProject({ id: 'p1', long_description: { en: 'Text.' } })]
+    const { proposals } = validateProposals({ edits: [{
+      section: 'projects', item_id: 'p1', field: 'long_description', proposed: 'Rewritten.',
+    }] }, s, 'en')
+    const broken = { ...s, projects: 'not an array' } as unknown as ResumeStore
+    const { applied, skipped } = applyProposals(broken, proposals)
+    expect(applied).toBe(0)
+    expect(skipped).toHaveLength(1)
+  })
+})
+
+describe('the two response contracts are spelled out for the model', () => {
+  it('proposalsResponseSpec names the schema and the JSON-only rule', () => {
+    const spec = proposalsResponseSpec()
+    expect(spec).toContain(PROPOSALS_SCHEMA)
+    expect(spec).toMatch(/ONLY this JSON|no prose/i)
+    expect(spec.split('\n').length).toBeGreaterThan(2)
+  })
+})
+
+describe('the two whole-CV prompts describe their own scope', () => {
+  it('voicePass spells out the prose fields a rewrite may touch, per section', () => {
+    // "Guess which fields you may edit" is how an identity field gets rewritten.
+    const prompt = buildVoicePassPrompt(emptyStore(), 'en')
+    expect(prompt).toContain('projects: long_description')
+    // Identity and list fields are not offered.
+    expect(prompt).not.toMatch(/projects:[^\n]*customer/)
+    expect(prompt).not.toMatch(/projects:[^\n]*highlights/)
+  })
+
+  it('voicePass can be narrowed to one section', () => {
+    const prompt = buildVoicePassPrompt(emptyStore(), 'en', { sections: ['educations'] })
+    expect(prompt).toContain('educations: ')
+    expect(prompt).not.toContain('projects: ')
+  })
+
+  it('cvReview lists the registry skills so the model can spot prose naming others', () => {
+    const s = emptyStore()
+    s.skills = [makeSkill({ id: 's1', name: { en: 'Kubernetes' } }), makeSkill({ id: 's2', name: {} })]
+    const line = buildCvReviewPrompt(s, 'en')
+      .split(/\r?\n/).find((l) => l.startsWith('Skills currently in the registry:'))!
+    // A nameless registry entry must not become an empty item in the list.
+    expect(line).toBe('Skills currently in the registry: Kubernetes')
+  })
+
+  it('cvReview reads the CV in the requested locale and leaves the short lines out', () => {
+    // A4/A2 work on the long text; the one-line summaries are derived from it,
+    // so reviewing them is reviewing the same words twice.
+    const s = emptyStore()
+    s.projects = [makeProject({
+      customer: { en: 'Acme' },
+      long_description: { en: 'English body text.', no: 'Norsk brødtekst.' },
+      short_description: { en: 'Short English line.', no: 'Kort norsk linje.' },
+    })]
+    const no = buildCvReviewPrompt(s, 'no')
+    expect(no).toContain('Norsk brødtekst.')
+    expect(no).not.toContain('English body text.')
+    expect(no).not.toContain('Kort norsk linje.')
+  })
+
+  it('voicePass reads the CV in the locale it was given', () => {
+    // A rewrite pass that reads the English column and proposes edits to the
+    // Norwegian one would replace text with a translation.
+    const s = emptyStore()
+    s.projects = [makeProject({
+      customer: { en: 'Acme' },
+      long_description: { en: 'English body text.', no: 'Norsk brødtekst.' },
+    })]
+    const prompt = buildVoicePassPrompt(s, 'no')
+    expect(prompt).toContain('Norsk brødtekst.')
+    expect(prompt).not.toContain('English body text.')
+  })
+
+  it('voicePass DOES send the short lines — they are prose it may rewrite', () => {
+    const s = emptyStore()
+    s.projects = [makeProject({
+      customer: { en: 'Acme' },
+      long_description: { en: 'English body text.' },
+      short_description: { en: 'Short English line.' },
+    })]
+    const prompt = buildVoicePassPrompt(s, 'en')
+    expect(prompt).toContain('Short English line.')
+  })
+
+  it('cvReview says so plainly when the registry is empty', () => {
+    expect(buildCvReviewPrompt(emptyStore(), 'en')).toContain('(none yet)')
+  })
+})
+
+describe('tidyIntro strips what a model wraps around prose', () => {
+  it('strips a fence only at the START and only at the END', () => {
+    expect(tidyIntro('```\nAn introduction.\n```')).toBe('An introduction.')
+    expect(tidyIntro('```markdown\nAn introduction.\n```')).toBe('An introduction.')
+    // A fence in the middle is the model\u2019s own text, not a wrapper.
+    expect(tidyIntro('Before ``` after')).toBe('Before ``` after')
+  })
+
+  it('strips a fence tag written in capitals', () => {
+    expect(tidyIntro('```TEXT\nAn introduction.\n```')).toBe('An introduction.')
+  })
+
+  it('strips a leading label line, at the start only', () => {
+    expect(tidyIntro("Here's the introduction: An introduction.")).toBe('An introduction.')
+    expect(tidyIntro('Here is the intro: An introduction.')).toBe('An introduction.')
+    expect(tidyIntro('Introduction: An introduction.')).toBe('An introduction.')
+    // The same words mid-sentence are content.
+    expect(tidyIntro('She wrote an introduction: it was short.'))
+      .toBe('She wrote an introduction: it was short.')
+  })
+
+  it('keeps paragraph breaks — an intro may be more than one line', () => {
+    expect(tidyIntro('First line.\n\nSecond line.')).toBe('First line.\n\nSecond line.')
+  })
+
+  it('trims the surrounding whitespace at every stage', () => {
+    expect(tidyIntro('   ```\n  An introduction.  \n```   ')).toBe('An introduction.')
+    expect(tidyIntro('  Introduction:   An introduction.  ')).toBe('An introduction.')
+  })
+
+  it('unwraps quotes only when they wrap the whole thing', () => {
+    expect(tidyIntro('"An introduction."')).toBe('An introduction.')
+    expect(tidyIntro('She said "hello" to them.')).toBe('She said "hello" to them.')
+  })
+})
+
+
+describe('tidyIntro — the anchors and the cap', () => {
+  it('strips a fence tag only when the tag is letters, and with or without a newline', () => {
+    expect(tidyIntro('```123 words```')).toBe('123 words')
+    expect(tidyIntro(['```', '123 words', '```'].join(String.fromCharCode(10)))).toBe('123 words')
+  })
+
+  it('unwraps quotes ONLY when they open and close the whole thing', () => {
+    // Both anchors matter: a sentence that merely ENDS in a quote, or merely
+    // starts with one, must come back untouched.
+    expect(tidyIntro('She said "hello"')).toBe('She said "hello"')
+    expect(tidyIntro('"Quoted" and then more.')).toBe('"Quoted" and then more.')
+    expect(tidyIntro('"The whole thing."')).toBe('The whole thing.')
+    expect(tidyIntro('“Smart quotes too.”')).toBe('Smart quotes too.')
+  })
+
+  it('trims the padding that unwrapping leaves behind', () => {
+    expect(tidyIntro('"  An introduction.  "')).toBe('An introduction.')
+  })
+
+  it('caps a runaway reply rather than pasting an essay into the field', () => {
+    const huge = 'word '.repeat(2000).trim()
+    const out = tidyIntro(huge)
+    expect(out.length).toBeLessThan(huge.length)
+    expect(out.length).toBeGreaterThan(100)
+  })
+})

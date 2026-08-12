@@ -57,3 +57,34 @@ describe('COURSE_CATEGORIES', () => {
     expect(courseCategoryLabel('unknown')).toBe('')
   })
 })
+
+describe('the category vocabulary is complete and self-consistent', () => {
+  /**
+   * The vocabulary is editor-only (it never reaches an export) but it IS stored
+   * on the item, so a value losing its label leaves a card subtitle and a Filter
+   * entry blank with nothing to click.
+   */
+  it('gives every entry a stored value and a human label', () => {
+    expect(COURSE_CATEGORIES.length).toBeGreaterThan(15)
+    for (const c of COURSE_CATEGORIES) {
+      expect(c.value, JSON.stringify(c)).toMatch(/^[a-z_]+$/)
+      expect(c.label, c.value).toBeTruthy()
+    }
+  })
+
+  it('has no duplicate value and no duplicate label', () => {
+    expect(new Set(COURSE_CATEGORIES.map((c) => c.value)).size).toBe(COURSE_CATEGORIES.length)
+    expect(new Set(COURSE_CATEGORIES.map((c) => c.label)).size).toBe(COURSE_CATEGORIES.length)
+  })
+
+  it('labels every one of its own values, and nothing else', () => {
+    for (const c of COURSE_CATEGORIES) expect(courseCategoryLabel(c.value)).toBe(c.label)
+    expect(courseCategoryLabel('not_a_category')).toBe('')
+  })
+
+  it('treats a missing category as no category rather than throwing', () => {
+    expect(courseCategoryLabel(null)).toBe('')
+    expect(courseCategoryLabel(undefined)).toBe('')
+    expect(courseCategoryLabel('')).toBe('')
+  })
+})

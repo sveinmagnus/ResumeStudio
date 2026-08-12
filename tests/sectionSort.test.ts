@@ -176,3 +176,136 @@ describe('sortItems()', () => {
     expect(out.map((x) => x.id)).toEqual(['b', 'a'])
   })
 })
+
+describe('the date key and its edges', () => {
+  const ids = (items: ReturnType<typeof makeProject>[], mode: SortMode) =>
+    sortItems('projects', items, mode, 'en').map((p) => p.id)
+  const p = (id: string, start: unknown) => makeProject({ id, start: start as never })
+
+  it('orders by year AND month, not year alone', () => {
+    const items = [p('mar', { year: 2024, month: 3 }), p('jan', { year: 2024, month: 1 })]
+    expect(ids(items, 'start')).toEqual(['mar', 'jan'])
+    expect(ids(items, 'start_asc')).toEqual(['jan', 'mar'])
+  })
+
+  it('treats a year-only date as the start of that year, ahead of its own February', () => {
+    const items = [p('feb', { year: 2024, month: 2 }), p('yearonly', { year: 2024, month: null })]
+    expect(ids(items, 'start_asc')).toEqual(['yearonly', 'feb'])
+  })
+
+  it('lifts an undated item above a dated one whichever order they arrive in', () => {
+    const dated = p('dated', { year: 2020, month: 1 })
+    const none = p('none', null)
+    expect(ids([dated, none], 'start')).toEqual(['none', 'dated'])
+    expect(ids([none, dated], 'start')).toEqual(['none', 'dated'])
+    expect(ids([dated, none], 'start_asc')).toEqual(['none', 'dated'])
+    expect(ids([none, dated], 'start_asc')).toEqual(['none', 'dated'])
+  })
+
+  it('floats an undated item to the top in BOTH directions', () => {
+    const items = [p('old', { year: 2019, month: 1 }), p('none', null), p('new', { year: 2025, month: 1 })]
+    expect(ids(items, 'start')[0]).toBe('none')
+    expect(ids(items, 'start_asc')[0]).toBe('none')
+  })
+
+  it('treats a malformed date as undated rather than sorting on junk', () => {
+    const items = [p('good', { year: 2020, month: 1 }), p('junk', { year: '2020', month: 1 })]
+    expect(ids(items, 'start')[0]).toBe('junk')
+  })
+
+  it('keeps two items with the SAME date in their input order', () => {
+    const items = [p('first', { year: 2020, month: 5 }), p('second', { year: 2020, month: 5 })]
+    expect(ids(items, 'start')).toEqual(['first', 'second'])
+    expect(ids(items, 'start_asc')).toEqual(['first', 'second'])
+  })
+
+  it('keeps two undated items in their input order', () => {
+    const items = [p('first', null), p('second', null)]
+    expect(ids(items, 'start')).toEqual(['first', 'second'])
+  })
+})
+
+describe('end-date sort — ongoing items tie, then break on start', () => {
+  const w = (id: string, start: unknown, end: unknown) =>
+    makeWork({ id, start: start as never, end: end as never })
+  const ids = (items: ReturnType<typeof makeWork>[], mode: SortMode) =>
+    sortItems('work_experiences', items, mode, 'en').map((x) => x.id)
+
+  it('ranks every ongoing item above every finished one', () => {
+    const items = [w('done', { year: 2024, month: 1 }, { year: 2025, month: 1 }), w('open', { year: 2019, month: 1 }, null)]
+    expect(ids(items, 'end')).toEqual(['open', 'done'])
+    expect(ids(items, 'end_asc')).toEqual(['open', 'done'])
+  })
+
+  it('breaks a tie between two ongoing items by start date, in the same direction', () => {
+    // Without the secondary key the input order wins and a newly added ongoing
+    // role hides below an older one.
+    const items = [w('older', { year: 2015, month: 1 }, null), w('newer', { year: 2023, month: 1 }, null)]
+    expect(ids(items, 'end')).toEqual(['newer', 'older'])
+    expect(ids(items, 'end_asc')).toEqual(['older', 'newer'])
+  })
+
+  it('does NOT re-order two items that share a real end date', () => {
+    // Only the ongoing tie gets a secondary key; a shared end date keeps the
+    // entry order, so the list does not shuffle under the user.
+    const end = { year: 2025, month: 6 }
+    const items = [w('a', { year: 2010, month: 1 }, end), w('b', { year: 2020, month: 1 }, end)]
+    expect(ids(items, 'end')).toEqual(['a', 'b'])
+  })
+})
+
+describe('single-date sort reads each section’s own date field', () => {
+  it('sorts certifications on their ISSUED date, not a generic one', () => {
+    const c = (id: string, issued: unknown) => makeCertification({ id, issued: issued as never })
+    const items = [c('old', { year: 2019, month: 1 }), c('new', { year: 2024, month: 1 })]
+    expect(sortItems('certifications', items, 'date', 'en').map((x) => x.id)).toEqual(['new', 'old'])
+    expect(sortItems('certifications', items, 'date_asc', 'en').map((x) => x.id)).toEqual(['old', 'new'])
+  })
+
+  it('leaves a section with no single-date capability in input order', () => {
+    // 'date' is not an offered mode there, so nothing is read and nothing moves.
+    const items = [makeRole({ id: 'b' }), makeRole({ id: 'a' })]
+    expect(sortItems('roles', items, 'date', 'en').map((x) => x.id)).toEqual(['b', 'a'])
+  })
+})
+
+describe('alphabetical sort', () => {
+  it('orders titles A–Z', () => {
+    const items = [
+      makeProject({ id: 'z', customer: { en: 'zebra' } }),
+      makeProject({ id: 'b', customer: { en: 'beta' } }),
+      makeProject({ id: 'a', customer: { en: 'alfa' } }),
+    ]
+    expect(sortItems('projects', items, 'alpha', 'en').map((x) => x.id)).toEqual(['a', 'b', 'z'])
+  })
+
+  it('ignores CASE, so two titles differing only in case keep their order', () => {
+    // Case-sensitive collation would shuffle "Beta" and "beta" past each other.
+    const items = [
+      makeProject({ id: 'upper', customer: { en: 'Beta' } }),
+      makeProject({ id: 'lower', customer: { en: 'beta' } }),
+    ]
+    expect(sortItems('projects', items, 'alpha', 'en').map((x) => x.id)).toEqual(['upper', 'lower'])
+  })
+
+  it('compares the title in the requested locale', () => {
+    const items = [
+      makeProject({ id: 'one', customer: { en: 'Zebra', no: 'Alfa' } }),
+      makeProject({ id: 'two', customer: { en: 'Alpha', no: 'Beta' } }),
+    ]
+    expect(sortItems('projects', items, 'alpha', 'en').map((x) => x.id)).toEqual(['two', 'one'])
+    expect(sortItems('projects', items, 'alpha', 'no').map((x) => x.id)).toEqual(['one', 'two'])
+  })
+})
+
+describe('a section the catalog does not describe', () => {
+  it('falls back to the item id for the alphabetical sort', () => {
+    // No descriptor means no title function; ordering by id at least keeps the
+    // sort deterministic instead of collapsing every row onto one key.
+    const items = [
+      { id: 'beta', sort_order: 0 },
+      { id: 'alfa', sort_order: 1 },
+    ]
+    expect(sortItems('made_up_section', items, 'alpha', 'en').map((x) => x.id)).toEqual(['alfa', 'beta'])
+  })
+})

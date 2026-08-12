@@ -229,3 +229,200 @@ describe('parseLinkedInDate — the month table and the edges', () => {
     expect(parseLinkedInDate('  Mar   2020 ')).toEqual({ year: 2020, month: 3 })
   })
 })
+
+/**
+ * The LinkedIn zip's per-file mapping.
+ *
+ * A LinkedIn export is a folder of CSVs whose columns are named for LinkedIn's
+ * own UI, not ours, and several sections are skipped or joined conditionally.
+ * A wrong condition here imports a row that should have been dropped, or drops
+ * one that mattered — neither of which fails, both of which the consultant only
+ * finds by reading the imported CV.
+ */
+describe('importFromLinkedIn — the file mappings', () => {
+  /** A zip-like map of filename → CSV text. */
+  const zip = (files: Record<string, string>) => importFromLinkedIn(files)
+  const csv = (header: string, ...rows: string[]) => [header, ...rows].join('\n')
+
+  it('skips blank CSV lines rather than importing empty rows', () => {
+    const store = zip({
+      'Positions.csv': csv('Company Name,Title', 'Acme,Architect', '   ,   ', ',', 'Beta,Dev'),
+    })
+    expect(store.work_experiences.map((w) => w.employer.en)).toEqual(['Acme', 'Beta'])
+  })
+
+  it('joins the profile name from its two parts, skipping an absent half', () => {
+    expect(zip({ 'Profile.csv': csv('First Name,Last Name', 'Kari,Nordmann') }).resume!.full_name)
+      .toBe('Kari Nordmann')
+    expect(zip({ 'Profile.csv': csv('First Name,Last Name', 'Kari,') }).resume!.full_name)
+      .toBe('Kari')
+  })
+
+  it('prefers the email marked PRIMARY over the first one listed', () => {
+    // LinkedIn lists every address ever added; taking the first would put a
+    // long-dead university address on the CV.
+    const store = zip({
+      'Email Addresses.csv': csv(
+        'Email Address,Primary',
+        'old@uni.test,No',
+        'kari@work.test,Yes',
+      ),
+    })
+    expect(store.resume!.email).toBe('kari@work.test')
+  })
+
+  it('reads the primary flag case-insensitively', () => {
+    expect(zip({
+      'Email Addresses.csv': csv('Email Address,Primary', 'old@uni.test,No', 'kari@work.test,YES'),
+    }).resume!.email).toBe('kari@work.test')
+  })
+
+  it('falls back to the first email when none is marked primary', () => {
+    expect(zip({
+      'Email Addresses.csv': csv('Email Address,Primary', 'kari@work.test,No'),
+    }).resume!.email).toBe('kari@work.test')
+  })
+
+  it('turns the profile Summary into a profile, and adds none without one', () => {
+    expect(zip({ 'Profile.csv': csv('Summary', 'I build systems.') })
+      .key_qualifications[0].summary.en).toBe('I build systems.')
+    expect(zip({ 'Profile.csv': csv('Summary', '') }).key_qualifications).toEqual([])
+  })
+
+  it('trims every value it reads, and drops one that is only whitespace', () => {
+    const store = zip({ 'Positions.csv': csv('Company Name,Title', '"  Acme  ","   "') })
+    expect(store.work_experiences[0].employer).toEqual({ en: 'Acme' })
+    expect(store.work_experiences[0].role_title).toEqual({})
+  })
+
+  it('skips a position with neither a company nor a title', () => {
+    const store = zip({
+      'Positions.csv': csv('Company Name,Title,Description', 'Acme,,x', ',,orphan', ',Dev,y'),
+    })
+    expect(store.work_experiences).toHaveLength(2)
+  })
+
+  it('takes an education description from Notes, falling back to Activities', () => {
+    const notes = zip({ 'Education.csv': csv('School Name,Notes,Activities', 'NTNU,From notes,From activities') })
+    expect(notes.educations[0].description.en).toBe('From notes')
+    const activities = zip({ 'Education.csv': csv('School Name,Notes,Activities', 'NTNU,,From activities') })
+    expect(activities.educations[0].description.en).toBe('From activities')
+  })
+
+  it('skips a project with neither a title nor a description', () => {
+    const store = zip({
+      'Projects.csv': csv('Title,Description', 'Payments,x', ',', ',Only a description'),
+    })
+    expect(store.projects).toHaveLength(2)
+  })
+
+  it('joins a recommender’s name and keeps the company as a plain string', () => {
+    const store = zip({
+      'Recommendations_Received.csv': csv(
+        'First Name,Last Name,Job Title,Company,Text',
+        'Jane,Boss,CTO,BigCo,Excellent.',
+      ),
+    })
+    expect(store.recommendations[0]).toMatchObject({
+      recommender_name: 'Jane Boss', recommender_company: 'BigCo',
+    })
+  })
+
+  it('nulls an absent recommender company rather than leaving an empty string', () => {
+    const store = zip({
+      'Recommendations_Received.csv': csv('First Name,Last Name,Company,Text', 'Jane,Boss,,Excellent.'),
+    })
+    expect(store.recommendations[0].recommender_company).toBeNull()
+  })
+
+  it('skips a recommendation with no text — there is nothing to quote', () => {
+    const store = zip({
+      'Recommendations_Received.csv': csv('First Name,Last Name,Text', 'Jane,Boss,'),
+    })
+    expect(store.recommendations).toEqual([])
+  })
+
+  it('imports an item as enabled and unstarred, not disabled', () => {
+    // A row arriving disabled would be invisible in every export, so the
+    // consultant would never see what they imported.
+    const store = zip({ 'Positions.csv': csv('Company Name,Title', 'Acme,Architect') })
+    expect(store.work_experiences[0]).toMatchObject({ disabled: false, starred: false })
+  })
+})
+
+describe('parseLinkedInDate — the year bound', () => {
+  it('accepts a year ABOVE 1000 and rejects 1000 itself', () => {
+    // The bound is strict here (> 1000), unlike Europass's >= 1000. Neither
+    // matters for real CVs; what matters is that three digits — a page number
+    // or a truncated field — is not read as a date.
+    expect(parseLinkedInDate('1001')).toEqual({ year: 1001, month: null })
+    expect(parseLinkedInDate('1000')).toBeNull()
+    expect(parseLinkedInDate('999')).toBeNull()
+    expect(parseLinkedInDate('Jan 1001')).toEqual({ year: 1001, month: 1 })
+    expect(parseLinkedInDate('Jan 1000')).toBeNull()
+  })
+
+  it('rejects a fractional year', () => {
+    expect(parseLinkedInDate('2020.5')).toBeNull()
+  })
+
+  it('needs exactly two parts for the month form', () => {
+    // "Mar 12 2020" is not a LinkedIn date; taking the first two words would
+    // read the day as a year.
+    expect(parseLinkedInDate('Mar 12 2020')).toBeNull()
+  })
+})
+
+describe('importFromLinkedIn — imported defaults and absent columns', () => {
+  const zip = (files: Record<string, string>) => importFromLinkedIn(files)
+  const csv = (header: string, ...rows: string[]) => [header, ...rows].join('\n')
+
+  it('survives an Email Addresses file with no Primary column at all', () => {
+    // Older exports omit it; reading .toLowerCase() off undefined would throw
+    // and take the whole import down.
+    expect(() => zip({ 'Email Addresses.csv': csv('Email Address', 'kari@work.test') })).not.toThrow()
+    expect(zip({ 'Email Addresses.csv': csv('Email Address', 'kari@work.test') }).resume!.email)
+      .toBe('kari@work.test')
+  })
+
+  it('imports an education as neither graded nor an exchange term', () => {
+    // LinkedIn carries neither field; guessing either would state something the
+    // source never said.
+    const e = zip({ 'Education.csv': csv('School Name', 'NTNU') }).educations[0]
+    expect(e).toMatchObject({ grade: null, exchange: false })
+  })
+
+  it('imports a skill as not highlighted', () => {
+    // Highlighting drives the Skills Showcase; importing everything highlighted
+    // would fill it with the whole registry.
+    const s = zip({ 'Skills.csv': csv('Name', 'Go') }).skills[0]
+    expect(s.is_highlighted).toBe(false)
+  })
+
+  it('imports a language as enabled', () => {
+    const l = zip({ 'Languages.csv': csv('Name,Proficiency', 'Norwegian,Native') }).spoken_languages[0]
+    expect(l.disabled).toBe(false)
+  })
+
+  it('imports a project with anonymization OFF', () => {
+    // use_anonymized:true would export the alias — and the alias is empty on an
+    // imported project, so the customer would vanish from the CV.
+    const p = zip({ 'Projects.csv': csv('Title,Description', 'Payments,Did it') }).projects[0]
+    expect(p).toMatchObject({ use_anonymized: false, customer: {}, customer_anonymized: {} })
+  })
+
+  it('joins a recommender name without a leading or trailing space', () => {
+    const only = (row: string) => zip({
+      'Recommendations_Received.csv': csv('First Name,Last Name,Text', row),
+    }).recommendations[0].recommender_name
+    expect(only('Jane,Boss,Excellent.')).toBe('Jane Boss')
+    expect(only(',Boss,Excellent.')).toBe('Boss')
+    expect(only('Jane,,Excellent.')).toBe('Jane')
+  })
+
+  it('trims an unquoted padded value', () => {
+    const store = zip({ 'Positions.csv': csv('Company Name,Title', '  Acme  ,  Architect  ') })
+    expect(store.work_experiences[0].employer).toEqual({ en: 'Acme' })
+    expect(store.work_experiences[0].role_title).toEqual({ en: 'Architect' })
+  })
+})

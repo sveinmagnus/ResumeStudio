@@ -28,8 +28,9 @@ export default defineConfig({
    * only Chromium tests the one engine least likely to surprise us — and the
    * desktop build opens the user's default browser, which on macOS is Safari.
    *
-   * The same seven specs run on each: they are thin happy paths, so triple is
-   * still under a minute and a half.
+   * Both suites run on each engine — smoke's thin happy paths plus the axe and
+   * keyboard pass in `a11y.spec.ts` — so fourteen specs, roughly three minutes
+   * for the triple.
    *
    * WINDOWS: keep the browsers OUT of %LOCALAPPDATA% — set
    * PLAYWRIGHT_BROWSERS_PATH to a plain path and install there. Firefox alone

@@ -5,6 +5,7 @@ import {
 import {
   emptyStore, makeSkill, makeRole, makeIndustry, makeProject, makeWork, makePosition,
 } from './fixtures'
+import type { ResumeStore } from '../src/types'
 
 describe('usageOfSkill()', () => {
   it('lists every project that references the skill, deduped per project', () => {
@@ -140,5 +141,78 @@ describe('usageOfIndustry()', () => {
     store.industries.push(makeIndustry({ id: 'orphan' }))
     expect(usageOfIndustry(store, 'orphan').projects).toEqual([])
     expect(usageOfIndustry(store, 'no-such-id').projects).toEqual([])
+  })
+})
+
+describe('usageOfIndustry / industry references', () => {
+  const store = (): ResumeStore => {
+    const s = emptyStore()
+    s.projects = [
+      makeProject({ id: 'p1', industries: [{ industry_id: 'i1', name: { en: 'Energy' } }] }),
+      makeProject({
+        id: 'p2',
+        industries: [
+          { industry_id: 'i2', name: { en: 'Retail' } },
+          { industry_id: 'i1', name: { en: 'Energy' } },
+        ],
+      }),
+      makeProject({ id: 'p3', industries: [] }),
+    ]
+    return s
+  }
+
+  it('returns every project linking the industry, in store order', () => {
+    expect(usageOfIndustry(store(), 'i1').projects.map((p) => p.id)).toEqual(['p1', 'p2'])
+  })
+
+  it('matches the industry asked for, not merely any link', () => {
+    expect(usageOfIndustry(store(), 'i2').projects.map((p) => p.id)).toEqual(['p2'])
+    expect(usageOfIndustry(store(), 'nope').projects).toEqual([])
+  })
+
+  it('lists a project once even when the same industry is linked twice', () => {
+    const s = store()
+    s.projects[0].industries.push({ industry_id: 'i1', name: { en: 'Energy' } })
+    expect(usageOfIndustry(s, 'i1').projects.map((p) => p.id)).toEqual(['p1', 'p2'])
+  })
+})
+
+describe('isRoleUnused — every reference kind holds a role back', () => {
+  const withRole = (over: Partial<ResumeStore>): ResumeStore => ({ ...emptyStore(), ...over })
+
+  it('is unused only when no project, employment or position links it', () => {
+    expect(isRoleUnused(emptyStore(), 'r1')).toBe(true)
+  })
+
+  it('is held by a project role link', () => {
+    const s = withRole({ projects: [makeProject({ roles: [{ role_id: 'r1', name: { en: 'Dev' }, description: {} }] })] })
+    expect(isRoleUnused(s, 'r1')).toBe(false)
+    expect(isRoleUnused(s, 'other')).toBe(true)
+  })
+
+  it('is held by an employment role link', () => {
+    const s = withRole({ work_experiences: [makeWork({ role_ids: ['r1'] })] })
+    expect(isRoleUnused(s, 'r1')).toBe(false)
+    expect(isRoleUnused(s, 'other')).toBe(true)
+  })
+
+  it('is held by a position ("other roles") link', () => {
+    const s = withRole({ positions: [makePosition({ role_ids: ['r1'] })] })
+    expect(isRoleUnused(s, 'r1')).toBe(false)
+    expect(isRoleUnused(s, 'other')).toBe(true)
+  })
+
+  it('is unused when a position carries no role_ids at all', () => {
+    const s = withRole({ positions: [makePosition({ role_ids: undefined })] })
+    expect(isRoleUnused(s, 'r1')).toBe(true)
+  })
+})
+
+describe('isSkillUnused', () => {
+  it('is held by exactly the skill linked, not by a sibling link', () => {
+    const s = emptyStore()
+    s.projects = [makeProject({ skills: [{ skill_id: 's1', name: { en: 'Go' }, proficiency: 0 }] })]
+    expect(isSkillUnused(s, 's1')).toBe(false)
+    expect(isSkillUnused(s, 's2')).toBe(true)
   })
 })
