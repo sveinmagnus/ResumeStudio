@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { mergeStores, deepEqual } from '../src/lib/threeWayMerge'
-import { emptyStore, makeProject, makeSkill, makeResume, makeView, makeKQ } from './fixtures'
+import { emptyStore, makeProject, makeSkill, makeResume, makeView, makeKQ, makeCoverLetter, makeSkillCategory } from './fixtures'
 import { buildViewSections } from '../src/lib/viewFilter'
 import type { ResumeStore, Project } from '../src/types'
 
@@ -582,5 +582,194 @@ describe('threeWayMerge — one-sided adds and removes', () => {
     const mine = withProjects([p('a', 'Acme')])
     const theirs = withProjects([p('a', 'Acme')])
     expect(mergeStores(base, mine, theirs).merged.projects.map((x) => x.id)).toEqual(['a'])
+  })
+})
+
+/**
+ * `deepEqual` decides whether a 409 becomes a silent merge or a modal, so a false
+ * "changed" manufactures exactly the spurious conflict this module exists to
+ * remove — and a false "same" silently discards an edit. Both directions are
+ * asserted per value shape.
+ */
+describe('deepEqual — same and not-same, per shape', () => {
+  it('is true for identical primitives and false across types', () => {
+    expect(deepEqual('a', 'a')).toBe(true)
+    expect(deepEqual(1, 1)).toBe(true)
+    expect(deepEqual(true, true)).toBe(true)
+    expect(deepEqual('1', 1)).toBe(false)
+    expect(deepEqual(0, false)).toBe(false)
+    expect(deepEqual('a', 'b')).toBe(false)
+  })
+
+  it('treats null and undefined as equal to themselves only', () => {
+    expect(deepEqual(null, null)).toBe(true)
+    expect(deepEqual(undefined, undefined)).toBe(true)
+    expect(deepEqual(null, undefined)).toBe(false)
+    expect(deepEqual(null, '')).toBe(false)
+    expect(deepEqual(undefined, '')).toBe(false)
+    expect(deepEqual(null, {})).toBe(false)
+    expect(deepEqual({}, null)).toBe(false)
+  })
+
+  it('compares arrays element by element, and length first', () => {
+    expect(deepEqual([1, 2], [1, 2])).toBe(true)
+    expect(deepEqual([1, 2], [2, 1])).toBe(false)
+    expect(deepEqual([1, 2], [1, 2, 3])).toBe(false)
+    expect(deepEqual([1, 2, 3], [1, 2])).toBe(false)
+    expect(deepEqual([{ a: 1 }], [{ a: 1 }])).toBe(true)
+    expect(deepEqual([{ a: 1 }], [{ a: 2 }])).toBe(false)
+  })
+
+  it('refuses an array against a non-array, either way round', () => {
+    // Without the pair check, an array would fall through to the object branch
+    // and compare by index keys.
+    expect(deepEqual([1], { 0: 1 })).toBe(false)
+    expect(deepEqual({ 0: 1 }, [1])).toBe(false)
+    expect(deepEqual([], {})).toBe(false)
+    expect(deepEqual([1], 'x')).toBe(false)
+  })
+
+  it('ignores key ORDER — a JSON round trip is not an edit', () => {
+    expect(deepEqual({ a: 1, b: 2 }, { b: 2, a: 1 })).toBe(true)
+  })
+
+  it('treats an absent key and an explicitly-undefined one as the same', () => {
+    // A JSON round trip drops undefined-valued keys; calling that a change would
+    // conflict every save made by a build that did not write the key.
+    expect(deepEqual({ a: 1 }, { a: 1, b: undefined })).toBe(true)
+    expect(deepEqual({ a: 1, b: undefined }, { a: 1 })).toBe(true)
+    // A key with a real value is still a difference.
+    expect(deepEqual({ a: 1 }, { a: 1, b: null })).toBe(false)
+    expect(deepEqual({ a: 1 }, { a: 1, b: 0 })).toBe(false)
+  })
+
+  it('compares nested values, not just the top level', () => {
+    expect(deepEqual({ a: { b: [1, { c: 'x' }] } }, { a: { b: [1, { c: 'x' }] } })).toBe(true)
+    expect(deepEqual({ a: { b: [1, { c: 'x' }] } }, { a: { b: [1, { c: 'y' }] } })).toBe(false)
+  })
+})
+
+describe('threeWayMerge — an absent optional section equals an empty one', () => {
+  const store = (over: Record<string, unknown> = {}) => ({ ...emptyStore(), ...over }) as ResumeStore
+
+  it('keeps a row added on one side when the other two never had the section', () => {
+    // The commonest upgrade shape: this machine writes a section the server has
+    // never seen. Treating "absent" as a different TYPE from "[]" would conflict
+    // on the whole section, which the user cannot act on.
+    const base = store()
+    delete (base as unknown as Record<string, unknown>).skill_categories
+    const mine = store({ skill_categories: [makeSkillCategory({ id: 'c1', name: { en: 'Languages' } })] })
+    const theirs = store()
+    delete (theirs as unknown as Record<string, unknown>).skill_categories
+
+    const out = mergeStores(base, mine, theirs)
+    expect(out.conflicts).toEqual([])
+    expect(out.merged.skill_categories!.map((c) => c.id)).toEqual(['c1'])
+  })
+
+  it('takes a row the SERVER added in a section this build never wrote', () => {
+    const base = store()
+    delete (base as unknown as Record<string, unknown>).skill_categories
+    const mine = store()
+    delete (mine as unknown as Record<string, unknown>).skill_categories
+    const theirs = store({ skill_categories: [makeSkillCategory({ id: 'c2', name: { en: 'Platforms' } })] })
+
+    const out = mergeStores(base, mine, theirs)
+    expect(out.conflicts).toEqual([])
+    expect(out.merged.skill_categories!.map((c) => c.id)).toEqual(['c2'])
+  })
+
+  it('does not conflict when one side predates a section entirely', () => {
+    // `skill_categories` is absent in older data and `[]` in newer; a type
+    // mismatch here would raise a conflict the user cannot act on.
+    const base = store()
+    delete (base as unknown as Record<string, unknown>).skill_categories
+    const mine = store({ skill_categories: [] })
+    const theirs = store()
+    delete (theirs as unknown as Record<string, unknown>).skill_categories
+
+    const out = mergeStores(base, mine, theirs)
+    expect(out.conflicts).toEqual([])
+  })
+
+  it('still merges an added row against a side that never had the section', () => {
+    const base = store()
+    delete (base as unknown as Record<string, unknown>).cover_letters
+    const mine = store({ cover_letters: [makeCoverLetter({ id: 'cl1', name: 'Acme' })] })
+    const theirs = store()
+    delete (theirs as unknown as Record<string, unknown>).cover_letters
+
+    const out = mergeStores(base, mine, theirs)
+    expect(out.conflicts).toEqual([])
+    expect(out.merged.cover_letters.map((c) => c.id)).toEqual(['cl1'])
+  })
+})
+
+/**
+ * How each side of a conflict READS in the modal.
+ *
+ * The panel lists "mine" against "theirs" per field, and the user decides from
+ * those two strings alone. A value rendered as "[object Object]" or as an empty
+ * cell is a choice made blind, so each value shape gets its own rendering.
+ */
+describe('mergeStores — the strings the conflict panel shows', () => {
+  /** Force a conflict on one project field and return how both sides render. */
+  const conflictOn = (field: string, mineValue: unknown, theirsValue: unknown) => {
+    const project = (value: unknown) => ({
+      ...makeProject({ id: 'p1', customer: { en: 'Acme' } }),
+      [field]: value,
+    })
+    const store = (value: unknown) => ({ ...emptyStore(), projects: [project(value)] }) as ResumeStore
+    const out = mergeStores(store('base value'), store(mineValue), store(theirsValue))
+    const conflict = out.conflicts.find((c) => c.field.startsWith(field))
+    return conflict ? { mine: conflict.mine, theirs: conflict.theirs } : null
+  }
+
+  it('shows a string as itself', () => {
+    expect(conflictOn('project_url', 'https://mine', 'https://theirs'))
+      .toEqual({ mine: 'https://mine', theirs: 'https://theirs' })
+  })
+
+  it('shows a number and a boolean as their value, not as blank', () => {
+    expect(conflictOn('percent_allocated', 50, 80)).toEqual({ mine: '50', theirs: '80' })
+    expect(conflictOn('starred', true, false)).toEqual({ mine: 'true', theirs: 'false' })
+  })
+
+  it('shows an absent value as a dash', () => {
+    expect(conflictOn('project_url', null, 'https://theirs')?.mine).toBe('—')
+    expect(conflictOn('project_url', undefined, 'https://theirs')?.mine).toBe('—')
+  })
+
+  it('counts the items in a list, with the singular spelled correctly', () => {
+    const one = conflictOn('highlights', [{ en: 'a' }], [{ en: 'a' }, { en: 'b' }])
+    expect(one).toEqual({ mine: '1 item', theirs: '2 items' })
+  })
+
+  it('conflicts per language slot when both sides are localized', () => {
+    // The recursion descends into a localized value, so the panel asks about the
+    // Norwegian column rather than about "the customer".
+    const store = (customer: unknown) => ({
+      ...emptyStore(),
+      projects: [{ ...makeProject({ id: 'p1' }), customer }],
+    }) as ResumeStore
+    const out = mergeStores(
+      store({ en: 'Base', no: 'Base' }),
+      store({ en: 'Base', no: 'Mitt navn' }),
+      store({ en: 'Base', no: 'Deira navn' }),
+    )
+    expect(out.conflicts.map((c) => c.field)).toEqual(['customer.no'])
+    expect(out.conflicts[0]).toMatchObject({ mine: 'Mitt navn', theirs: 'Deira navn' })
+  })
+
+  it('shows an object against a primitive as its first readable string', () => {
+    // A type mismatch is the one case the panel renders a whole object, and a
+    // localized value is what that object usually is.
+    expect(conflictOn('customer', { en: '', no: 'Mitt navn' }, 'their plain string'))
+      .toEqual({ mine: 'Mitt navn', theirs: 'their plain string' })
+  })
+
+  it('says "(changed)" for an object with nothing readable in it', () => {
+    expect(conflictOn('customer', { year: 2020 }, 'their plain string')?.mine).toBe('(changed)')
+    expect(conflictOn('customer', { en: '   ' }, 'their plain string')?.mine).toBe('(changed)')
   })
 })
