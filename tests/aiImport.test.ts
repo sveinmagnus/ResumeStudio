@@ -704,3 +704,202 @@ describe('validateAIImport — the guards in front of the mapping', () => {
     expect(paths({ courses: [{ name: 'C', issued: 'soon', expires: 'later' }] })).toEqual([])
   })
 })
+
+describe('normalizeImportLocale — the three-step resolution', () => {
+  it('resolves a three-letter alias by the WHOLE code, not its first two letters', () => {
+    // "swe" truncated to "sw" is Swahili, not Swedish: the full-code lookup has
+    // to happen before the two-letter one.
+    expect(normalizeImportLocale('swe')).toBe('se')
+    expect(normalizeImportLocale('nob')).toBe('no')
+  })
+
+  it('falls back to the two-letter prefix of a regional tag', () => {
+    // "de-AT" is not in the alias table; the language is.
+    expect(normalizeImportLocale('de-AT')).toBe('de')
+    expect(normalizeImportLocale('fr-CA')).toBe('fr')
+  })
+
+  it('resolves a regional tag whose LANGUAGE is an alias', () => {
+    // "nb-NO" is not listed, but "nb" is — and it means Norwegian, not English.
+    expect(normalizeImportLocale('nb-NO')).toBe('no')
+    expect(normalizeImportLocale('sv-SE')).toBe('se')
+    expect(normalizeImportLocale('da-DK')).toBe('dk')
+  })
+})
+
+/**
+ * The store an AI draft becomes.
+ *
+ * The mapper writes every row by hand, so the parts nobody looks at are exactly
+ * the parts that rot: the enabled/starred flags that decide whether an import is
+ * visible at all, and the empty link lists that a seeded value would fill with
+ * ids pointing nowhere.
+ */
+describe('importFromAIDraft — the shape it hands over', () => {
+  const draft = (over: Record<string, unknown> = {}) =>
+    importFromAIDraft({ $schema: AI_IMPORT_SCHEMA, ...over } as never)
+
+  const full = () => draft({
+    profile: { full_name: 'Kari Nordmann', summary: 'I build systems.' },
+    key_qualifications: [{ label: 'Architect', summary: 'Cloud.', bullets: ['Owns delivery'] }],
+    projects: [{ customer: 'Acme', roles: ['Architect'], skills: ['Go'] }],
+    work_experiences: [{ employer: 'Cartavio' }],
+    educations: [{ school: 'NTNU' }],
+    courses: [{ name: 'Kubernetes' }],
+    certifications: [{ name: 'AWS SA' }],
+    spoken_languages: [{ name: 'Norwegian', level: 'Native' }],
+    technology_categories: [{ name: 'Cloud', skills: ['Go'] }],
+    recommendations: [{ recommender_name: 'Jane Boss', text: 'Excellent.' }],
+  })
+
+  it('imports every entity enabled and unstarred', () => {
+    // Disabled is a soft delete: an import that lands disabled is invisible in
+    // every export, so the consultant never sees what arrived.
+    const s = full()
+    const rows: Array<[string, { starred?: boolean; disabled?: boolean }]> = [
+      ['summary profile', s.key_qualifications[0]],
+      ['profile', s.key_qualifications[1]],
+      ['competency', s.key_competencies[0]],
+      ['project', s.projects[0]],
+      ['employment', s.work_experiences[0]],
+      ['education', s.educations[0]],
+      ['course', s.courses[0]],
+      ['certification', s.certifications[0]],
+      ['recommendation', s.recommendations[0]],
+    ]
+    for (const [what, row] of rows) expect(row, what).toMatchObject({ starred: false, disabled: false })
+    expect(s.spoken_languages[0].disabled).toBe(false)
+    expect(s.projects[0].roles[0].disabled).toBe(false)
+  })
+
+  it('leaves every section the format does not carry EMPTY', () => {
+    // A seeded row here is a phantom the user never wrote and cannot explain.
+    const s = full()
+    expect({
+      industries: s.industries, positions: s.positions, presentations: s.presentations,
+      honor_awards: s.honor_awards, publications: s.publications, references: s.references,
+      views: s.views, cover_letters: s.cover_letters,
+    }).toEqual({
+      industries: [], positions: [], presentations: [],
+      honor_awards: [], publications: [], references: [],
+      views: [], cover_letters: [],
+    })
+  })
+
+  it('leaves the per-item link lists empty', () => {
+    const s = full()
+    expect(s.key_qualifications[0].key_points).toEqual([])
+    expect(s.key_qualifications[0].competency_ids).toEqual([])
+    expect(s.work_experiences[0].role_ids).toEqual([])
+    expect(s.certifications[0].skill_ids).toEqual([])
+    expect(s.projects[0].industries).toEqual([])
+    expect(s.projects[0].highlights).toEqual([])
+  })
+
+  it('creates no registry entry for a project that lists none', () => {
+    // The roles/skills arrays are optional in the format; a fallback that is not
+    // empty would mint a registry entry out of nothing on every import.
+    const s = draft({ projects: [{ customer: 'Acme' }] })
+    expect(s.skills).toEqual([])
+    expect(s.roles).toEqual([])
+    expect(s.projects[0].roles).toEqual([])
+    expect(s.projects[0].skills).toEqual([])
+  })
+
+  it('drops a blank role or skill name instead of interning it', () => {
+    const s = draft({ projects: [{ customer: 'Acme', roles: ['', '  '], skills: ['   '] }] })
+    expect(s.skills).toEqual([])
+    expect(s.roles).toEqual([])
+  })
+
+  it('trims the name it interns, and reuses the entry for a padded repeat', () => {
+    const s = draft({
+      projects: [
+        { customer: 'One', roles: ['  Architect  '], skills: ['  Go  '] },
+        { customer: 'Two', roles: ['Architect'], skills: ['Go'] },
+      ],
+    })
+    expect(s.skills).toHaveLength(1)
+    expect(s.roles).toHaveLength(1)
+    expect(resolve(s.skills[0].name, 'en')).toBe('Go')
+    expect(resolve(s.roles[0].name, 'en')).toBe('Architect')
+  })
+
+  it('carries the role name onto the project link, not just the registry id', () => {
+    // The link keeps a snapshot of the name at link time (CLAUDE.md §4); an
+    // empty one renders as a blank chip on the project card.
+    const s = draft({ projects: [{ customer: 'Acme', roles: ['Architect'] }] })
+    expect(resolve(s.projects[0].roles[0].name, 'en')).toBe('Architect')
+    expect(s.projects[0].roles[0].role_id).toBe(s.roles[0].id)
+  })
+
+  it('numbers the imported competencies upward across profiles', () => {
+    const s = draft({
+      key_qualifications: [
+        { label: 'A', bullets: ['One', 'Two'] },
+        { label: 'B', bullets: ['Three'] },
+      ],
+    })
+    expect(s.key_competencies.map((c) => c.sort_order)).toEqual([0, 1, 2])
+  })
+
+  it('ignores a blank skill name inside a skill category', () => {
+    const s = draft({ technology_categories: [{ name: 'Cloud', skills: ['Go', '', '  '] }] })
+    expect(s.skills).toHaveLength(1)
+    expect(s.skills[0].is_highlighted).toBe(true)
+  })
+})
+
+describe('importFromAIDraft — the registry rows and the bundles', () => {
+  const draft = (over: Record<string, unknown> = {}) =>
+    importFromAIDraft({ $schema: AI_IMPORT_SCHEMA, ...over } as never)
+
+  it('creates a role registry entry enabled and unstarred', () => {
+    // The registries are shared across resumes; a starred or disabled entry
+    // arriving from one import shows up everywhere the registry is read.
+    const s = draft({ projects: [{ customer: 'Acme', roles: ['Architect'] }] })
+    expect(s.roles[0]).toMatchObject({ starred: false, disabled: false })
+  })
+
+  it('creates no competency for a profile with no bullets', () => {
+    const s = draft({ key_qualifications: [{ label: 'Architect', summary: 'Cloud.' }] })
+    expect(s.key_competencies).toEqual([])
+    expect(s.key_qualifications[0].competency_ids).toEqual([])
+  })
+
+  it('bundles exactly the competencies it created for that profile', () => {
+    // The bundle IS the view's competency list (CLAUDE.md §4): an extra id in it
+    // resolves to nothing and silently shortens the rendered bundle.
+    const s = draft({
+      key_qualifications: [
+        { label: 'A', bullets: ['One', 'Two'] },
+        { label: 'B', bullets: ['Three'] },
+      ],
+    })
+    const ids = s.key_competencies.map((c) => c.id)
+    expect(s.key_qualifications[0].competency_ids).toEqual([ids[0], ids[1]])
+    expect(s.key_qualifications[1].competency_ids).toEqual([ids[2]])
+  })
+
+  it('leaves a skill in the FIRST category that claimed it', () => {
+    // A skill belongs to at most one category; letting a later group overwrite
+    // the link would make the Showcase order depend on the reply's order.
+    const s = draft({
+      technology_categories: [
+        { name: 'Languages', skills: ['Go'] },
+        { name: 'Cloud', skills: ['Go'] },
+      ],
+    })
+    expect(s.skills).toHaveLength(1)
+    expect(s.skills[0].category_id).toBe(s.skill_categories![0].id)
+  })
+})
+
+describe('summarizeImportedStore — a store with no skill categories', () => {
+  it('counts none rather than inventing a line for them', () => {
+    const store = { ...emptyStore(), skills: [makeSkill({ id: 's1', name: { en: 'Go' } })] }
+    delete (store as { skill_categories?: unknown }).skill_categories
+    const summary = summarizeImportedStore(store as never)
+    expect(summary.lines.some((l) => l.label === 'skill categories')).toBe(false)
+  })
+})
