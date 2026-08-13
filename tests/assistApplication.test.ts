@@ -761,3 +761,52 @@ describe('validateLetterCritique — the notes and their wording', () => {
   })
 })
 
+
+describe('buildJobFitPrompt — the skills and the posting it carries', () => {
+  const store = (): ResumeStore => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'Kari' })
+    s.skills = [
+      makeSkill({ id: 'a', name: { en: 'Kubernetes' } }),
+      makeSkill({ id: 'blank', name: {} }),
+    ]
+    s.projects = [makeProject({ id: 'p1', customer: { en: 'Acme' }, short_description: { en: 'Short line.' } })]
+    return s
+  }
+
+  it('lists the named skills and leaves a nameless one out', () => {
+    // An empty entry in the list reads as a blank requirement the model then
+    // tries to judge.
+    const prompt = buildJobFitPrompt(store(), 'en', 'We need Kubernetes.')
+    expect(prompt).toContain('Kubernetes')
+    expect(prompt).not.toMatch(/,\\s*,/)
+  })
+
+  it('digests the CV without the short descriptions', () => {
+    // They are an earlier assist's output; feeding them back has the model
+    // judge its own summary rather than the evidence.
+    expect(buildJobFitPrompt(store(), 'en', 'x')).not.toContain('Short line.')
+  })
+
+  it('trims and caps the posting', () => {
+    const prompt = buildJobFitPrompt(store(), 'en', `  START ${'padding '.repeat(4000)}END  `)
+    expect(prompt).toContain('START')
+    expect(prompt).not.toContain('END')
+  })
+})
+
+describe('validateJobFit — the refusals', () => {
+  it('names a non-object reply as such', () => {
+    for (const bad of [null, undefined, 'text', 42]) {
+      expect(() => validateJobFit(bad, ['Kubernetes']), String(bad)).toThrow(/not a JSON object/)
+    }
+  })
+
+  it('numbers a dropped requirement from ONE', () => {
+    const { dropped } = validateJobFit({ requirements: [
+      { requirement: 'Kubernetes', status: 'evidenced', citation: 'p1' },
+      'not an object',
+    ] }, ['Kubernetes'])
+    expect(dropped.some((d) => d.startsWith('Requirement 2'))).toBe(true)
+  })
+})

@@ -4,9 +4,9 @@
  * jsdom: the prompt flattens the profile's rich text via richToPlain (DOMParser).
  */
 import { describe, it, expect } from 'vitest'
-import { buildIntroPrompt, DEFAULT_INTRO_FOCUS } from '../src/lib/introDraft'
+import { buildIntroPrompt, tidyIntro, DEFAULT_INTRO_FOCUS } from '../src/lib/introDraft'
 import { buildViewSections } from '../src/lib/viewFilter'
-import { emptyStore, makeKQ, makeProject, makeView } from './fixtures'
+import { emptyStore, makeKQ, makeProject, makeView, makeResume } from './fixtures'
 import type { ResumeStore } from '../src/types'
 
 describe('buildIntroPrompt — what it puts in front of the model', () => {
@@ -97,5 +97,51 @@ describe('buildIntroPrompt — what it puts in front of the model', () => {
     const prompt = buildIntroPrompt(s, view, 'en', DEFAULT_INTRO_FOCUS)
     expect(prompt).toContain('Kept Client')
     expect(prompt).not.toContain('Cut Client')
+  })
+})
+
+describe('tidyIntro — unwrapping what the model actually returns', () => {
+  it('strips a fence and the blank line it leaves behind', () => {
+    const nl = String.fromCharCode(10)
+    expect(tidyIntro(`\`\`\`${nl}The introduction.${nl}\`\`\``)).toBe('The introduction.')
+    expect(tidyIntro(`\`\`\`markdown${nl}The introduction.${nl}\`\`\``)).toBe('The introduction.')
+  })
+
+  it('strips a leading label line, however it is worded', () => {
+    for (const prefix of ['Introduction:', "Here's the introduction:", 'Here is your introduction:']) {
+      expect(tidyIntro(`${prefix} The introduction.`), prefix).toBe('The introduction.')
+    }
+  })
+
+  it('leaves the padding off the result in every case', () => {
+    // The value is written straight into the view's intro field, where a
+    // leading space shows up as an indent in the export.
+    expect(tidyIntro('   The introduction.   ')).toBe('The introduction.')
+    const nl = String.fromCharCode(10)
+    expect(tidyIntro(`\`\`\`${nl}   The introduction.   ${nl}\`\`\``)).toBe('The introduction.')
+    expect(tidyIntro('Introduction:    The introduction.  ')).toBe('The introduction.')
+  })
+
+  it('keeps a colon that belongs to the sentence', () => {
+    expect(tidyIntro('My focus: public sector platforms.')).toBe('My focus: public sector platforms.')
+  })
+
+  it('unwraps quotes only when they wrap the whole thing', () => {
+    expect(tidyIntro('"The introduction."')).toBe('The introduction.')
+    expect(tidyIntro('He said "hello" to the room.')).toBe('He said "hello" to the room.')
+  })
+})
+
+describe('buildIntroPrompt — the profile text it quotes', () => {
+  it('flattens the profile to one line, collapsing runs of space', () => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    s.key_qualifications = [makeKQ({
+      id: 'kq1', tag_line: { en: 'Architect' },
+      summary: { en: 'First  line.   Second line.  ' },
+    })]
+    const prompt = buildIntroPrompt(s, makeView({ sections: buildViewSections() }), 'en', DEFAULT_INTRO_FOCUS)
+    expect(prompt).toContain('First line. Second line.')
+    expect(prompt).not.toContain('First  line.')
   })
 })
