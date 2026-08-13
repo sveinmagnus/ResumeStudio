@@ -1257,3 +1257,142 @@ describe('importFromCVPartner — the created_at it records', () => {
     expect(Number.isNaN(Date.parse(store.resume!.created_at))).toBe(false)
   })
 })
+
+/**
+ * The flags and orders each imported row lands with.
+ *
+ * CVpartner marks items disabled and starred, and orders them by an explicit
+ * `order` field that is missing on plenty of real exports. Reading either one
+ * wrongly is invisible in a diff and obvious in the editor: rows in the wrong
+ * sequence, or a whole section that renders as empty because everything arrived
+ * soft-deleted.
+ */
+describe('importFromCVPartner — flags and ordering', () => {
+  const imported = (raw: Record<string, unknown>) => importFromCVPartner({ navn: 'Kari', ...raw } as never)
+
+  it('honours an explicit order and falls back to the listed position', () => {
+    const store = imported({
+      project_experiences: [
+        { _id: 'p1', customer: 'A', year_from: '2020', order: 5 },
+        { _id: 'p2', customer: 'B', year_from: '2020' },
+      ],
+    })
+    expect(store.projects.map((p) => p.sort_order)).toEqual([5, 0])
+  })
+
+  it('numbers project SKILLS by their listed position when none carries an order', () => {
+    // `order: 0` and "no order" are the same thing in this format, so the
+    // position is what separates two unordered rows.
+    const store = imported({
+      project_experiences: [{
+        _id: 'p1', customer: 'A', year_from: '2020',
+        project_experience_skills: [
+          { _id: 's1', tags: 'Go' },
+          { _id: 's2', tags: 'Rust' },
+        ],
+      }],
+    })
+    expect(store.projects[0].skills.map((s) => s.sort_order)).toEqual([0, 1])
+  })
+
+  it('imports every row enabled and unstarred unless the export says otherwise', () => {
+    const store = imported({
+      project_experiences: [{ _id: 'p1', customer: 'A', year_from: '2020' }],
+      key_qualifications: [{ label: 'Profile', key_points: [{ name: 'A point' }] }],
+    })
+    expect(store.projects[0]).toMatchObject({ starred: false, disabled: false })
+    expect(store.key_qualifications[0]).toMatchObject({ starred: false, disabled: false })
+    expect(store.key_competencies[0]).toMatchObject({ starred: false, disabled: false })
+  })
+
+  it('carries a disabled or starred flag through when it is set', () => {
+    const store = imported({
+      project_experiences: [{ _id: 'p1', customer: 'A', year_from: '2020', disabled: true, starred: true }],
+      key_qualifications: [{ label: 'P', starred: true, key_points: [{ name: 'A point', disabled: true }] }],
+    })
+    expect(store.projects[0]).toMatchObject({ starred: true, disabled: true })
+    expect(store.key_qualifications[0].starred).toBe(true)
+    expect(store.key_competencies[0].disabled).toBe(true)
+  })
+
+  it('reads a missing or blank end year as ONGOING', () => {
+    const store = imported({
+      project_experiences: [
+        { _id: 'p1', customer: 'A', year_from: '2020' },
+        { _id: 'p2', customer: 'B', year_from: '2020', year_to: '' },
+        { _id: 'p3', customer: 'C', year_from: '2018', year_to: '2020', month_to: '06' },
+      ],
+    })
+    expect(store.projects.map((p) => p.end)).toEqual([null, null, { year: 2020, month: 6 }])
+  })
+})
+
+describe('importFromCVPartner — the sub-collections it leaves empty', () => {
+  const imported = (raw: Record<string, unknown>) => importFromCVPartner({ navn: 'Kari', ...raw } as never)
+
+  it('gives a project with no sub-rows empty lists, not seeded ones', () => {
+    const p = imported({ project_experiences: [{ _id: 'p1', customer: 'A', year_from: '2020' }] }).projects[0]
+    expect(p).toMatchObject({ roles: [], skills: [], industries: [], highlights: [] })
+  })
+
+  it('imports a profile with an empty bundle and no key points', () => {
+    // Key points became the shared competency library (shape v12); the profile
+    // keeps neither its own list nor a bundle until the user builds one.
+    const kq = imported({ key_qualifications: [{ label: 'Profile' }] }).key_qualifications[0]
+    expect(kq).toMatchObject({ key_points: [], competency_ids: [] })
+  })
+
+  it('keeps a key point that has a title but no description', () => {
+    // Only an ENTIRELY empty point is skipped; dropping one that has a heading
+    // loses a competency the consultant wrote.
+    const store = imported({
+      key_qualifications: [{
+        label: 'P',
+        key_points: [
+          { name: 'Has a title only' },
+          { long_description: 'Has a description only' },
+          {},
+        ],
+      }],
+    })
+    expect(store.key_competencies).toHaveLength(2)
+  })
+
+  it('numbers the competencies upward across profiles', () => {
+    const store = imported({
+      key_qualifications: [
+        { label: 'A', key_points: [{ name: 'One' }, { name: 'Two' }] },
+        { label: 'B', key_points: [{ name: 'Three' }] },
+      ],
+    })
+    expect(store.key_competencies.map((c) => c.sort_order)).toEqual([0, 1, 2])
+  })
+})
+
+describe('importFromCVPartner — profiles and per-project details', () => {
+  const imported = (raw: Record<string, unknown>) => importFromCVPartner({ navn: 'Kari', ...raw } as never)
+
+  it('imports no profiles at all from an export that has none', () => {
+    const store = imported({})
+    expect(store.key_qualifications).toEqual([])
+    expect(store.key_competencies).toEqual([])
+  })
+
+  it('honours the profile order, defaulting to zero', () => {
+    const ordered = imported({ key_qualifications: [{ label: 'A', order: 5 }, { label: 'B', order: 3 }] })
+    expect(ordered.key_qualifications.map((k) => k.sort_order)).toEqual([5, 3])
+
+    const unordered = imported({ key_qualifications: [{ label: 'A' }] })
+    expect(unordered.key_qualifications[0].sort_order).toBe(0)
+  })
+
+  it('carries the project country code, and nulls it when absent', () => {
+    const store = imported({
+      project_experiences: [
+        { _id: 'p1', customer: 'A', year_from: '2020', location_country_code: 'NO' },
+        { _id: 'p2', customer: 'B', year_from: '2020' },
+      ],
+    })
+    expect(store.projects.map((p) => p.location_country_code)).toEqual(['NO', null])
+  })
+})
