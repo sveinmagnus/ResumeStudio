@@ -714,3 +714,22 @@ describe('resolveHeaderFieldValue', () => {
     expect(resolveHeaderFieldValue('phone', makeResume({ phone: undefined }), emptyStore(), 'en')).toBe('')
   })
 })
+
+describe('safeTextStyle — a size that is not a number', () => {
+  it('drops a non-numeric size rather than writing it into the CSS', () => {
+    // The value lands in a style attribute at the render boundary; a string
+    // from an imported view config would emit `font-size:12ptpt`.
+    const h = withHeaderDefaults({ name_style: { size_pt: '12', font: 'heading' } } as never)
+    expect(h.name_style.size_pt).toBeNull()
+
+    const num = withHeaderDefaults({ name_style: { size_pt: 12, font: 'heading' } } as never)
+    expect(num.name_style.size_pt).toBe(12)
+  })
+
+  it('drops a non-finite size too', () => {
+    for (const bad of [NaN, Infinity, -Infinity]) {
+      expect(withHeaderDefaults({ name_style: { size_pt: bad, font: 'heading' } } as never).name_style.size_pt, String(bad))
+        .toBeNull()
+    }
+  })
+})

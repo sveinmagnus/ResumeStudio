@@ -114,3 +114,20 @@ describe('uuidv4 without a platform randomUUID', () => {
     })
   })
 })
+
+describe('the fallback generator writes exactly sixteen bytes', () => {
+  it('produces a well-formed v4 id with no Web Crypto at all', () => {
+    // Sixteen bytes is the whole format: one byte more or fewer and the
+    // hyphens land in the wrong places, which every id comparison then fails.
+    vi.stubGlobal('crypto', undefined)
+    try {
+      for (let i = 0; i < 20; i++) {
+        const id = uuidv4()
+        expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
+        expect(id).toHaveLength(36)
+      }
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+})
