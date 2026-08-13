@@ -232,3 +232,137 @@ describe('buildBilingualDigest — both columns, raw', () => {
     expect(out).toContain('title: Acme')
   })
 })
+
+describe('buildCvDigest — what is left OUT of the prompt', () => {
+  const store = (over: Record<string, unknown> = {}): ResumeStore => ({
+    ...emptyStore(),
+    projects: [makeProject({ id: 'p1', customer: { en: 'Acme' }, description: { en: 'Payments' }, ...over } as never)],
+  })
+
+  it('names the identity fields only in the title, never as their own lines', () => {
+    // `prose: false` fields are readable but not rewritable (CLAUDE.md §15).
+    // Emitting them as `customer: Acme` invites a proposal to rewrite the
+    // customer's name.
+    const out = buildCvDigest(store({ long_description: { en: 'Did the work.' } }), { locale: 'en' })
+    expect(out).toContain('title: Acme')
+    expect(out).not.toMatch(/^\s*customer:/m)
+    expect(out).not.toMatch(/^\s*description:/m)
+  })
+
+  it('collapses a run of spaces inside a plain value', () => {
+    // One field is one line, so any run of whitespace has to become a single
+    // space — including in a value with no markup at all.
+    const out = buildCvDigest(store({ long_description: { en: 'First  line   here.' } }), { locale: 'en' })
+    expect(out).toContain('long_description: First line here.')
+  })
+
+  it('ends without a trailing blank line', () => {
+    // Each section pushes a spacer; the prompt is concatenated with more blocks
+    // after it, and a trailing run of newlines pushes the instructions apart.
+    const out = buildCvDigest(store({ long_description: { en: 'Did the work.' } }), { locale: 'en' })
+    expect(out.endsWith(String.fromCharCode(10))).toBe(false)
+    expect(out.trimEnd()).toBe(out)
+  })
+
+  it('skips an item whose id is not a string, rather than listing it unnamed', () => {
+    // A finding can only refer to an item by id; an entry with no usable id is
+    // an invitation to a reference that resolves to nothing.
+    const data = { ...emptyStore(), projects: [{ ...makeProject({ id: 'p1', customer: { en: 'Acme' } }), id: 42 } as never] }
+    const out = buildCvDigest(data as ResumeStore, { locale: 'en' })
+    expect(out).not.toContain('Acme')
+    expect(out).not.toMatch(/- id:/)
+  })
+})
+
+/**
+ * The bilingual digest behind A3 (cross-language MEANING).
+ *
+ * It reads RAW locale slots rather than `resolve()` on purpose: the fallback
+ * chain would paper over the very gap this pass exists to find, showing the
+ * English text in the Norwegian column and reporting perfect agreement.
+ */
+describe('buildBilingualDigest — one column per locale, no fallback', () => {
+  const store = (fields: Record<string, unknown>): ResumeStore => ({
+    ...emptyStore(),
+    projects: [makeProject({ id: 'p1', customer: { en: 'Acme', no: 'Acme' }, ...fields } as never)],
+  })
+
+  it('prints both locales for a field, labelled by locale code', () => {
+    const out = buildBilingualDigest(
+      store({ long_description: { en: 'Ran the rebuild.', no: 'Kjørte ombyggingen.' } }), 'en', 'no')
+    expect(out).toContain('    en: Ran the rebuild.')
+    expect(out).toContain('    no: Kjørte ombyggingen.')
+  })
+
+  it('says (empty) for a missing slot instead of borrowing the other language', () => {
+    const out = buildBilingualDigest(store({ long_description: { en: 'Ran the rebuild.' } }), 'en', 'no')
+    expect(out).toContain('    en: Ran the rebuild.')
+    expect(out).toContain('    no: (empty)')
+    expect(out).not.toMatch(/no: Ran the rebuild/)
+  })
+
+  it('leaves out a field neither language fills', () => {
+    const out = buildBilingualDigest(store({ long_description: { en: 'Ran it.' }, short_description: {} }), 'en', 'no')
+    expect(out).not.toContain('short_description')
+  })
+
+  it('leaves out an item with nothing to compare, and its section with it', () => {
+    const out = buildBilingualDigest(store({ long_description: {} }), 'en', 'no')
+    expect(out).toBe('')
+  })
+
+  it('collapses whitespace and caps a long slot', () => {
+    const long = 'word '.repeat(300)
+    const out = buildBilingualDigest(
+      store({ long_description: { en: `First  line   here. ${long}`, no: 'Kort.' } }), 'en', 'no', { maxFieldChars: 60 })
+    const line = out.split(String.fromCharCode(10)).find((l) => l.trim().startsWith('en:'))!
+    expect(line).toContain('First line here.')
+    expect(line.endsWith('\u2026')).toBe(true)
+    expect(line.length).toBeLessThan(80)
+  })
+
+  it('ignores a value that is not a localized map at all', () => {
+    const data = {
+      ...emptyStore(),
+      projects: [{ ...makeProject({ id: 'p1', customer: { en: 'Acme', no: 'Acme' } }), long_description: 'plain string' } as never],
+    }
+    expect(buildBilingualDigest(data as ResumeStore, 'en', 'no')).toBe('')
+  })
+
+  it('ends without a trailing blank line', () => {
+    const out = buildBilingualDigest(
+      store({ long_description: { en: 'Ran it.', no: 'Kjørte det.' } }), 'en', 'no')
+    expect(out.trimEnd()).toBe(out)
+  })
+})
+
+describe('buildBilingualDigest — the slot reader, exactly', () => {
+  const withDesc = (en: string, no: string, id: unknown = 'p1'): ResumeStore => ({
+    ...emptyStore(),
+    projects: [{
+      ...makeProject({ id: 'p1', customer: { en: 'Acme', no: 'Acme' } }),
+      id, long_description: { en, no },
+    } as never],
+  })
+
+  it('trims each slot rather than printing the padding it found', () => {
+    const out = buildBilingualDigest(withDesc('  Ran it.  ', 'Kjørte det.'), 'en', 'no')
+    expect(out).toContain('    en: Ran it.' + String.fromCharCode(10))
+  })
+
+  it('marks a cut slot and leaves an exactly-capped one whole', () => {
+    // The ellipsis says "there is more"; adding one to text that fits reports a
+    // truncation that did not happen, and the reviewer looks for missing words.
+    const exact = 'x'.repeat(40)
+    const whole = buildBilingualDigest(withDesc(exact, 'Kort.'), 'en', 'no', { maxFieldChars: 40 })
+    expect(whole).toContain(`    en: ${exact}` + String.fromCharCode(10))
+
+    const cut = buildBilingualDigest(withDesc('x'.repeat(41), 'Kort.'), 'en', 'no', { maxFieldChars: 40 })
+    expect(cut).toContain(`    en: ${exact}…`)
+  })
+
+  it('skips an item whose id is not a string', () => {
+    const out = buildBilingualDigest(withDesc('Ran it.', 'Kjørte det.', 42), 'en', 'no')
+    expect(out).toBe('')
+  })
+})
