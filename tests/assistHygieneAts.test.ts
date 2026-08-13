@@ -1746,3 +1746,169 @@ describe('buildAtsPrompt — the posting it carries', () => {
     expect(prompt).not.toContain('END')
   })
 })
+
+/**
+ * The glossary's size limits and its wire shape (C3).
+ *
+ * It rides the ordinary Draft button with no UI of its own, so nothing here is
+ * visible until a translation comes back wrong — which makes the caps and the
+ * payload shape exactly the kind of thing that rots unnoticed.
+ */
+describe('glossary — the limits and the payload', () => {
+  const pairStore = (n: number): ResumeStore => {
+    const s = emptyStore()
+    s.skills = Array.from({ length: n }, (_, i) =>
+      makeSkill({ id: `s${i}`, name: { no: `Term${i}`, en: `Word${i}` } }))
+    return s
+  }
+
+  it('takes a term of exactly the maximum length, and drops the one past it', () => {
+    const s = emptyStore()
+    s.skills = [
+      makeSkill({ id: 'ok', name: { no: 'a'.repeat(60), en: 'b'.repeat(60) } }),
+      makeSkill({ id: 'too-long', name: { no: 'c'.repeat(61), en: 'd'.repeat(61) } }),
+    ]
+    const g = buildGlossary(s, 'no', 'en')
+    expect(g.terms.map((t) => t.from)).toEqual(['a'.repeat(60)])
+  })
+
+  it('drops a term shorter than two characters, and one with no letters', () => {
+    const s = emptyStore()
+    s.skills = [
+      makeSkill({ id: 'short', name: { no: 'K', en: 'C' } }),
+      makeSkill({ id: 'digits', name: { no: '123', en: '456' } }),
+      makeSkill({ id: 'real', name: { no: 'Sky', en: 'Cloud' } }),
+    ]
+    expect(buildGlossary(s, 'no', 'en').terms.map((t) => t.from)).toEqual(['Sky'])
+  })
+
+  it('caps the harvested pairs rather than carrying a whole large registry', () => {
+    expect(buildGlossary(pairStore(500), 'no', 'en').terms.length).toBe(400)
+  })
+
+  it('scopes to at most the scoped cap, longest term first', () => {
+    // Longest first so "Cloud operations" wins over "Cloud" when both match:
+    // the model applies the first instruction it can.
+    const s = emptyStore()
+    s.skills = [
+      makeSkill({ id: 'a', name: { no: 'Sky', en: 'Cloud' } }),
+      makeSkill({ id: 'b', name: { no: 'Skydrift', en: 'Cloud operations' } }),
+    ]
+    const scoped = scopeGlossary(buildGlossary(s, 'no', 'en'), 'Vi driver Sky og Skydrift daglig.')
+    expect(scoped.terms.map((t) => t.from)).toEqual(['Skydrift', 'Sky'])
+
+    const many = scopeGlossary(
+      buildGlossary(pairStore(60), 'no', 'en'),
+      Array.from({ length: 60 }, (_, i) => `Term${i}`).join(' '))
+    expect(many.terms).toHaveLength(MAX_SCOPED_TERMS)
+  })
+
+  it('sorts the do-not-translate list longest-first and caps it too', () => {
+    const s = emptyStore()
+    s.work_experiences = Array.from({ length: 60 }, (_, i) => ({
+      id: `w${i}`, resume_id: 'r', employer: { no: `Navn${i}xxx`, en: `Navn${i}xxx` },
+      role_title: {}, description: {}, long_description: {}, role_ids: [],
+      start: null, end: null, sort_order: i, starred: false, disabled: false,
+    })) as never
+    const text = Array.from({ length: 60 }, (_, i) => `Navn${i}xxx`).join(' ')
+    const scoped = scopeGlossary(buildGlossary(s, 'no', 'en'), text)
+    expect(scoped.keep).toHaveLength(MAX_SCOPED_TERMS)
+    const lengths = scoped.keep.map((k) => k.length)
+    expect(lengths).toEqual([...lengths].sort((a, b) => b - a))
+  })
+
+  it('returns nothing at all for blank text', () => {
+    const g = buildGlossary(pairStore(3), 'no', 'en')
+    expect(scopeGlossary(g, '   ')).toEqual({ terms: [], keep: [] })
+    expect(scopeGlossary(g, '')).toEqual({ terms: [], keep: [] })
+  })
+
+  it('sends terms and names only — never the origin or anything else', () => {
+    // The server should receive terms, not a slice of the CV.
+    const s = emptyStore()
+    s.skills = [makeSkill({ id: 'a', name: { no: 'Skydrift', en: 'Cloud operations' } })]
+    const payload = toPayload(scopeGlossary(buildGlossary(s, 'no', 'en'), 'Vi bruker Skydrift.'))!
+    expect(payload).toEqual({ terms: [{ from: 'Skydrift', to: 'Cloud operations' }], keep: [] })
+    expect(toPayload({ terms: [], keep: [] })).toBeUndefined()
+  })
+
+  it('matches a term case-insensitively but never inside a longer word', () => {
+    expect(mentions('vi bruker SKYDRIFT daglig', 'Skydrift')).toBe(true)
+    expect(mentions('Skydriften er ny', 'Skydrift')).toBe(false)
+    expect(mentions('drift av sky', 'Sky')).toBe(true)
+  })
+})
+
+describe('glossary — the guards around a harvested pair', () => {
+  it('never matches a term too short to be one', () => {
+    // A single character matches somewhere in almost any sentence, and every
+    // match costs a line of prompt on a small model.
+    expect(mentions('a b c', 'a')).toBe(false)
+    expect(mentions('sky og hav', 'Sky')).toBe(true)
+  })
+
+  it('drops a pair that differs only in CASE', () => {
+    // "Sky" ⇄ "sky" is not a translation instruction; carrying it teaches the
+    // model to re-case words at random.
+    const s = emptyStore()
+    s.skills = [
+      makeSkill({ id: 'a', name: { no: 'Sky', en: 'sky' } }),
+      makeSkill({ id: 'b', name: { no: 'Skydrift', en: 'Cloud operations' } }),
+    ]
+    expect(buildGlossary(s, 'no', 'en').terms.map((t) => t.from)).toEqual(['Skydrift'])
+  })
+
+  it('keeps one do-not-translate entry for a name written in two cases', () => {
+    const s = emptyStore()
+    s.work_experiences = [
+      { id: 'w1', resume_id: 'r', employer: { no: 'NAV', en: 'NAV' }, role_title: {}, description: {}, long_description: {}, role_ids: [], start: null, end: null, sort_order: 0, starred: false, disabled: false },
+      { id: 'w2', resume_id: 'r', employer: { no: 'nav', en: 'nav' }, role_title: {}, description: {}, long_description: {}, role_ids: [], start: null, end: null, sort_order: 1, starred: false, disabled: false },
+    ] as never
+    expect(buildGlossary(s, 'no', 'en').keep).toHaveLength(1)
+  })
+
+  it('survives a registry entry and an item field with no value at all', () => {
+    const s = emptyStore()
+    s.skills = [{ ...makeSkill({ id: 'a', name: { no: 'Sky', en: 'Cloud' } }), name: undefined } as never]
+    s.work_experiences = [{
+      id: 'w1', resume_id: 'r', role_title: {}, description: {}, long_description: {},
+      role_ids: [], start: null, end: null, sort_order: 0, starred: false, disabled: false,
+    } as never]
+    expect(() => buildGlossary(s, 'no', 'en')).not.toThrow()
+    expect(buildGlossary(s, 'no', 'en').terms).toEqual([])
+  })
+
+  it('scopes the do-not-translate list to the text as well as the pairs', () => {
+    // The list is sent verbatim; an unmentioned name is prompt spend with no
+    // possible effect on the sentence being translated.
+    const s = emptyStore()
+    s.work_experiences = [
+      { id: 'w1', resume_id: 'r', employer: { no: 'Cartavio', en: 'Cartavio' }, role_title: {}, description: {}, long_description: {}, role_ids: [], start: null, end: null, sort_order: 0, starred: false, disabled: false },
+      { id: 'w2', resume_id: 'r', employer: { no: 'Statens vegvesen', en: 'Statens vegvesen' }, role_title: {}, description: {}, long_description: {}, role_ids: [], start: null, end: null, sort_order: 1, starred: false, disabled: false },
+    ] as never
+    const scoped = scopeGlossary(buildGlossary(s, 'no', 'en'), 'Jobbet for Cartavio i fjor.')
+    expect(scoped.keep).toEqual(['Cartavio'])
+  })
+
+  it('counts a do-not-translate list ALONE as a glossary worth sending', () => {
+    // Names the model must not translate are the half that matters most on a
+    // small model; a payload built only when there are PAIRS drops them.
+    const s = emptyStore()
+    s.work_experiences = [{
+      id: 'w1', resume_id: 'r', employer: { no: 'Cartavio', en: 'Cartavio' },
+      role_title: {}, description: {}, long_description: {}, role_ids: [],
+      start: null, end: null, sort_order: 0, starred: false, disabled: false,
+    } as never]
+    const scoped = scopeGlossary(buildGlossary(s, 'no', 'en'), 'Jobbet for Cartavio.')
+    expect(scoped.terms).toEqual([])
+    expect(toPayload(scoped)).toEqual({ terms: [], keep: ['Cartavio'] })
+  })
+
+  it('glossaryFor builds and scopes in one call', () => {
+    const s = emptyStore()
+    s.skills = [makeSkill({ id: 'a', name: { no: 'Skydrift', en: 'Cloud operations' } })]
+    expect(glossaryFor(s, 'no', 'en', 'Vi bruker Skydrift.'))
+      .toEqual({ terms: [{ from: 'Skydrift', to: 'Cloud operations' }], keep: [] })
+    expect(glossaryFor(s, 'no', 'en', 'Ingenting her.')).toBeUndefined()
+  })
+})
