@@ -172,6 +172,34 @@ describe('imageUrlToResizedDataUrl — the same geometry, from a URL', () => {
     }
   })
 
+  it('requires the link to START with the scheme, not merely contain it', async () => {
+    // "javascript:void('https://x')" contains the scheme; anchoring is what
+    // stops a hostile string being handed to the loader.
+    await expect(imageUrlToResizedDataUrl('javascript:void("https://x/y.png")'))
+      .rejects.toThrow(/http\(s\) link/i)
+  })
+
+  it('accepts plain http as well as https, and tolerates padding', async () => {
+    await expect(imageUrlToResizedDataUrl('http://example.test/p.png')).resolves.toContain('image/jpeg')
+    await expect(imageUrlToResizedDataUrl('   https://example.test/p.png   ')).resolves.toContain('image/jpeg')
+  })
+
+  it('defaults to JPEG and rejects clearly when the canvas is unusable', async () => {
+    await imageUrlToResizedDataUrl('https://example.test/p.png')
+    expect(drawn?.mime).toBe('image/jpeg')
+
+    getContextReturns = null
+    await expect(imageUrlToResizedDataUrl('https://example.test/p.png')).rejects.toThrow(/Canvas not supported/i)
+  })
+
+  it('explains a cross-origin failure rather than surfacing the raw error', async () => {
+    // A tainted canvas throws a SecurityError with no useful wording; the user
+    // needs to be told to download the file instead.
+    HTMLCanvasElement.prototype.toDataURL = vi.fn(() => { throw new Error('SecurityError') }) as never
+    await expect(imageUrlToResizedDataUrl('https://example.test/p.png'))
+      .rejects.toThrow(/cross-origin reads/i)
+  })
+
   it('downscales a remote image the same way, without tainting the canvas', async () => {
     natural = { w: 1200, h: 600 }
     await expect(imageUrlToResizedDataUrl('https://example.test/p.png', { maxDim: 300, format: 'png' }))
@@ -298,5 +326,18 @@ describe('fileToImage — decoding for the cropper', () => {
     const svg = new File(['<svg/>'], 'a.svg', { type: 'image/svg+xml' })
     await expect(fileToImage(svg)).rejects.toThrow(/SVG is not supported/i)
     expect(URL.createObjectURL).not.toHaveBeenCalled()
+  })
+})
+
+describe('applyShapeMaskToDataUrl — the failure arms', () => {
+  it('rejects with a clear message when there is no 2d context', async () => {
+    getContextReturns = null
+    await expect(applyShapeMaskToDataUrl('data:image/png;base64,AAA', 'circle'))
+      .rejects.toThrow(/Canvas not supported/i)
+  })
+
+  it('turns a throwing encoder into a rejection rather than a hang', async () => {
+    HTMLCanvasElement.prototype.toDataURL = vi.fn(() => { throw new Error('tainted') }) as never
+    await expect(applyShapeMaskToDataUrl('data:image/png;base64,AAA', 'circle')).rejects.toThrow(/tainted/)
   })
 })

@@ -598,3 +598,41 @@ describe('imageInfoFromDataUrl — the scan is only for real JPEGs', () => {
     expect(imageInfoFromDataUrl(`javascript:alert(1)//${url}`)).toBeNull()
   })
 })
+
+describe('the cropper arithmetic, to the pixel', () => {
+  const im = (w: number, h: number) => ({ naturalWidth: w, naturalHeight: h }) as HTMLImageElement
+
+  it('clamps a rect that would run past the right or bottom edge', () => {
+    // The crop is read straight into drawImage; a rect past the edge reads
+    // transparent pixels and the stored photo gains a blank band.
+    expect(clampCropRect(im(400, 300), { sx: 999, sy: 999, size: 100 }))
+      .toEqual({ sx: 300, sy: 200, size: 100 })
+  })
+
+  it('clamps a rect that would start before the origin', () => {
+    expect(clampCropRect(im(400, 300), { sx: -50, sy: -50, size: 100 }))
+      .toEqual({ sx: 0, sy: 0, size: 100 })
+  })
+
+  it('caps the square at the shorter edge and floors it at one pixel', () => {
+    expect(clampCropRect(im(400, 300), { sx: 0, sy: 0, size: 9999 }).size).toBe(300)
+    expect(clampCropRect(im(400, 300), { sx: 0, sy: 0, size: 0 }).size).toBe(1)
+  })
+
+  it('converts pan into source pixels by DIVIDING by the effective scale', () => {
+    // Pan is measured in on-screen pixels; the source rect moves by pan/scale.
+    // Multiplying instead moves it the right way by the wrong amount, which
+    // reads as a cropper that drifts under the cursor.
+    const r = computeCropRect(im(400, 300), 1 / 3, 1, { x: 30, y: 15 }, 100)
+    // centre = (200 - 90, 150 - 45) = (110, 105); size 300 ⇒ sx = 110 - 150.
+    expect(r.sx).toBeCloseTo(-40, 6)
+    expect(r.sy).toBeCloseTo(-45, 6)
+  })
+
+  it('moves the source rect OPPOSITE to the pan on both axes', () => {
+    const centred = computeCropRect(im(400, 300), 1 / 3, 1, { x: 0, y: 0 }, 100)
+    const panned = computeCropRect(im(400, 300), 1 / 3, 1, { x: 30, y: 15 }, 100)
+    expect(panned.sx).toBeLessThan(centred.sx)
+    expect(panned.sy).toBeLessThan(centred.sy)
+  })
+})
