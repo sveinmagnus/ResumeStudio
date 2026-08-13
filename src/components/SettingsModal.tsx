@@ -20,6 +20,7 @@ import { VersionTab } from './settings/VersionTab'
 import { TranslationTab } from './settings/TranslationTab'
 import { AiAssistTab } from './settings/AiAssistTab'
 import { SyncTab } from './settings/SyncTab'
+import { AddressTab } from './settings/AddressTab'
 import { DefaultFontsSection } from './settings/sections'
 
 /**
@@ -32,6 +33,7 @@ const TABS: TabDef[] = [
   { id: 'translation', label: 'Translation' },
   { id: 'ai', label: 'AI assist' },
   { id: 'sync', label: 'Sync & backup' },
+  { id: 'address', label: 'Local address' },
   { id: 'appearance', label: 'Appearance' },
 ]
 
@@ -40,7 +42,7 @@ const TABS: TabDef[] = [
  * and Appearance is a client preference that persists as you change it, so a
  * Save button on either would be a no-op that implies unsaved work.
  */
-const SAVEABLE_TABS = new Set(['translation', 'ai', 'sync'])
+const SAVEABLE_TABS = new Set(['translation', 'ai', 'sync', 'address'])
 
 interface SettingsModalProps {
   /** Which tab to land on. Used when something deep-links into a setting. */
@@ -68,6 +70,9 @@ export function SettingsModal({ initialTab, onClose, onChanged, onUnauthorized }
   const [libreUrl, setLibreUrl] = useState('')
   const [azureRegion, setAzureRegion] = useState('')
   const [backupDir, setBackupDir] = useState('')
+  // Local address: the name this machine answers on, and the port to prefer.
+  const [localHostname, setLocalHostname] = useState('')
+  const [localPort, setLocalPort] = useState(0)
   // API keys — empty means "unchanged" (the stored key is masked). `*Set` tracks
   // whether a key is already saved, to show a "(saved)" placeholder.
   const [keys, setKeys] = useState({ libre: '', deepl: '', google: '', azure: '' })
@@ -128,6 +133,8 @@ export function SettingsModal({ initialTab, onClose, onChanged, onUnauthorized }
     setAzureRegion(v.azure_region)
     setTransLangs(v.translate_languages?.length ? v.translate_languages : DEFAULT_TRANSLATE_LANGUAGES)
     setBackupDir(v.backup_dir)
+    setLocalHostname(v.local_hostname ?? '')
+    setLocalPort(typeof v.local_port === 'number' ? v.local_port : 0)
     setKeys({ libre: '', deepl: '', google: '', azure: '' })
     setKeySet({
       libre: v.libretranslate_api_key_set, deepl: v.deepl_api_key_set,
@@ -196,7 +203,11 @@ export function SettingsModal({ initialTab, onClose, onChanged, onUnauthorized }
   // Map the form to a settings update. Keys are only included when (re)typed, so
   // a masked-but-saved key is preserved server-side.
   const buildUpdate = useCallback((): SettingsUpdate => {
-    const u: SettingsUpdate = { backup_dir: backupDir.trim() }
+    const u: SettingsUpdate = {
+      backup_dir: backupDir.trim(),
+      local_hostname: localHostname.trim().toLowerCase(),
+      local_port: localPort,
+    }
     switch (provider) {
       case 'off': u.translate_provider = 'off'; break
       // Carries no config of its own — it borrows the summarize settings below.
@@ -252,7 +263,7 @@ export function SettingsModal({ initialTab, onClose, onChanged, onUnauthorized }
     }
     return u
   }, [provider, libreUrl, azureRegion, backupDir, keys, llmProvider, llmOllamaUrl, llmCompatUrl, llmModel, llmKeys,
-      llmHighEnd, transLangs, primaryLocale, secondaryLocale])
+      llmHighEnd, transLangs, primaryLocale, secondaryLocale, localHostname, localPort])
 
   /**
    * Setting the model also SUGGESTS whether it's high-end, until the user
@@ -383,6 +394,7 @@ export function SettingsModal({ initialTab, onClose, onChanged, onUnauthorized }
     llmKeys, setLlmKeys, llmKeySet, llmTest, onTestLlm,
     llmDocker, onOllamaDocker, isOllama, modelOpts, modelsBusy, refreshModels,
     backupDir, setBackupDir,
+    localHostname, setLocalHostname, localPort, setLocalPort,
     upd, updBusy, onCheckUpdate, onInstallUpdate,
   }
 
@@ -415,6 +427,7 @@ export function SettingsModal({ initialTab, onClose, onChanged, onUnauthorized }
                 {tab === 'translation' && <TranslationTab />}
                 {tab === 'ai' && <AiAssistTab />}
                 {tab === 'sync' && <SyncTab />}
+                {tab === 'address' && <AddressTab />}
                 {tab === 'appearance' && <DefaultFontsSection />}
               </SettingsFormProvider>
 

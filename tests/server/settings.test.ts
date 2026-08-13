@@ -185,6 +185,31 @@ describe('validateSettingsPatch', () => {
     expect(validateSettingsPatch({ llm_model: 42 })).toHaveProperty('error')
   })
 
+  /**
+   * `local_hostname` is written onto the desktop Host guard's allow-list AND
+   * into the system hosts file, so the validator is the gate on both. Empty is
+   * a real value ("go back to the IP"), and anything outside the two reserved
+   * suffixes is refused — a name like mail.company.com would otherwise be
+   * pointed at this machine for as long as the entry survived.
+   */
+  it('constrains local_hostname to the reserved local suffixes', () => {
+    expect(validateSettingsPatch({ local_hostname: 'resumestudio.local' }))
+      .toEqual({ patch: { local_hostname: 'resumestudio.local' } })
+    expect(validateSettingsPatch({ local_hostname: 'ResumeStudio.LOCALHOST' }))
+      .toEqual({ patch: { local_hostname: 'resumestudio.localhost' } })
+    expect(validateSettingsPatch({ local_hostname: '' })).toEqual({ patch: { local_hostname: '' } })
+    for (const bad of ['mail.company.com', 'localhost', '-x.local', 42]) {
+      expect(validateSettingsPatch({ local_hostname: bad }), String(bad)).toHaveProperty('error')
+    }
+  })
+
+  it('bounds local_port to a real port number', () => {
+    expect(validateSettingsPatch({ local_port: 0 })).toEqual({ patch: { local_port: 0 } })
+    expect(validateSettingsPatch({ local_port: 1923 })).toEqual({ patch: { local_port: 1923 } })
+    expect(validateSettingsPatch({ local_port: -1 })).toHaveProperty('error')
+    expect(validateSettingsPatch({ local_port: 70000 })).toHaveProperty('error')
+  })
+
   it('constrains translate_languages to locale-shaped codes', () => {
     // These reach `docker compose` as LT_LOAD_ONLY.
     expect(validateSettingsPatch({ translate_languages: ['en', 'NO'] }))

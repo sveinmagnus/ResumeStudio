@@ -231,6 +231,10 @@ export interface SettingsView {
   azure_region: string
   /** App locale codes installed in the Docker LibreTranslate (LT_LOAD_ONLY). */
   translate_languages: string[]
+  /** Name this machine reaches the app at instead of 127.0.0.1 (empty = the IP). */
+  local_hostname: string
+  /** Preferred port; 0 = the automatic 80-then-1923 ladder. */
+  local_port: number
   backup_dir: string
   backup_interval_ms: number
   llm_provider: LlmProvider
@@ -277,6 +281,8 @@ export interface SettingsUpdate {
   azure_api_key?: string
   azure_region?: string
   translate_languages?: string[]
+  local_hostname?: string
+  local_port?: number
   backup_dir?: string
   backup_interval_ms?: number
   llm_provider?: LlmProvider
@@ -294,6 +300,23 @@ export interface SettingsUpdate {
 
 export interface TranslateTestResult { reachable: boolean; languages?: number; message: string }
 export interface DockerActionResult { ok?: boolean; available: boolean; reachable?: boolean; message: string }
+
+/** What the server knows about one candidate local name for this machine. */
+export interface HostnameStatus {
+  hostname: string
+  /** Path of the system hosts file, shown so the user can edit it themselves. */
+  file: string
+  /** Resolves with no setup at all (any `.localhost` name). */
+  automatic: boolean
+  installed: boolean
+  /** The entry sits in this app's own block, so we can offer to remove it. */
+  managed: boolean
+  writable: boolean
+  manualCommand: string
+  note: string | null
+}
+
+export interface HostnameActionResult { ok: boolean; message: string; status: HostnameStatus }
 
 export type UpdateState =
   | 'idle' | 'checking' | 'available' | 'uptodate' | 'downloading' | 'staged' | 'applying' | 'error'
@@ -691,6 +714,32 @@ export const api = {
       }
       return await res.json() as DockerActionResult
     }, { available: false, message: `Docker ${action} request failed.` })
+  },
+
+  /**
+   * Inspect a candidate local name (`.local` / `.localhost`). Never throws — an
+   * error reads as "not installed", which shows the Set-up button rather than a
+   * broken panel.
+   */
+  async hostnameStatus(hostname: string): Promise<HostnameStatus | null> {
+    return safe(async () => {
+      const res = await request('POST', '/api/settings/hostname', { action: 'status', hostname })
+      if (!res.ok) return null
+      return await res.json() as HostnameStatus
+    }, null)
+  },
+
+  /**
+   * Add or remove the hosts-file entry for a `.local` name. The server asks the
+   * OS for elevation, so this can take as long as the user takes to answer the
+   * prompt — and reports honestly when they decline. Never throws.
+   */
+  async hostnameSetup(action: 'install' | 'uninstall', hostname: string): Promise<HostnameActionResult | null> {
+    return safe(async () => {
+      const res = await request('POST', '/api/settings/hostname', { action, hostname })
+      if (!res.ok) return null
+      return await res.json() as HostnameActionResult
+    }, null)
   },
 
   // ── The AI model behind every assist ──────────────────────────────────────

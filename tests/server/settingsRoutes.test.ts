@@ -29,7 +29,7 @@ beforeAll(async () => {
 afterAll(async () => {
   const { stopBackup } = await import('../../server/backupRuntime')
   stopBackup()
-  for (const k of ['RESUME_DB_PATH', 'RESUME_RATE_LIMIT_MAX', 'RESUME_DESKTOP', 'RESUME_DATA_DIR', 'LIBRETRANSLATE_URL', 'LIBRETRANSLATE_API_KEY', 'RESUME_BACKUP_DIR', 'RESUME_BACKUP_INTERVAL_MS', 'TRANSLATE_PROVIDER', 'DEEPL_API_KEY', 'GOOGLE_TRANSLATE_API_KEY', 'AZURE_TRANSLATOR_KEY', 'AZURE_TRANSLATOR_REGION']) {
+  for (const k of ['RESUME_DB_PATH', 'RESUME_RATE_LIMIT_MAX', 'RESUME_DESKTOP', 'RESUME_DATA_DIR', 'LIBRETRANSLATE_URL', 'LIBRETRANSLATE_API_KEY', 'RESUME_BACKUP_DIR', 'RESUME_BACKUP_INTERVAL_MS', 'TRANSLATE_PROVIDER', 'DEEPL_API_KEY', 'GOOGLE_TRANSLATE_API_KEY', 'AZURE_TRANSLATOR_KEY', 'AZURE_TRANSLATOR_REGION', 'RESUME_LOCAL_HOSTNAME', 'RESUME_LOCAL_PORT']) {
     delete process.env[k]
   }
   try { fs.rmSync(dataDir, { recursive: true, force: true }) } catch { /* ignore */ }
@@ -179,6 +179,76 @@ describe('PUT /api/settings — hosted LLM providers', () => {
   it('rejects an unknown LLM provider', async () => {
     const res = await request(app).put('/api/settings').send({ llm_provider: 'bogus' })
     expect(res.status).toBe(400)
+  })
+})
+
+describe('POST /api/settings/hostname', () => {
+  it('reports a .localhost name as needing no setup at all', async () => {
+    const res = await request(app).post('/api/settings/hostname')
+      .send({ action: 'status', hostname: 'resumestudio.localhost' })
+    expect(res.status).toBe(200)
+    expect(res.body).toMatchObject({ automatic: true, installed: true })
+  })
+
+  it('reports a .local name with the hosts file path and a manual command', async () => {
+    const res = await request(app).post('/api/settings/hostname')
+      .send({ action: 'status', hostname: 'resumestudio.local' })
+    expect(res.status).toBe(200)
+    expect(res.body.automatic).toBe(false)
+    expect(String(res.body.file)).toMatch(/hosts$/)
+    expect(res.body.manualCommand).toContain('resumestudio.local')
+  })
+
+  // The hostname reaches a system file, so the route validates it before
+  // localHost.ts is ever called — the same rule the PUT validator enforces.
+  it('rejects a hostname outside the reserved suffixes', async () => {
+    for (const hostname of ['mail.company.com', '', 'localhost']) {
+      const res = await request(app).post('/api/settings/hostname').send({ action: 'status', hostname })
+      expect(res.status).toBe(400)
+    }
+  })
+
+  it('rejects an unknown action', async () => {
+    const res = await request(app).post('/api/settings/hostname')
+      .send({ action: 'destroy', hostname: 'resumestudio.local' })
+    expect(res.status).toBe(400)
+  })
+
+  // Editing the hosts file is a reasonable thing to do to your own computer and
+  // an absurd one to do to a shared server.
+  it('403s when not running the desktop build', async () => {
+    delete process.env.RESUME_DESKTOP
+    try {
+      const res = await request(app).post('/api/settings/hostname')
+        .send({ action: 'install', hostname: 'resumestudio.local' })
+      expect(res.status).toBe(403)
+    } finally {
+      process.env.RESUME_DESKTOP = '1'
+    }
+  })
+})
+
+describe('PUT /api/settings — local address', () => {
+  it('round-trips a hostname and port, and projects the name onto env', async () => {
+    const res = await request(app).put('/api/settings')
+      .send({ local_hostname: 'resumestudio.local', local_port: 1923 })
+    expect(res.status).toBe(200)
+    expect(res.body.settings.local_hostname).toBe('resumestudio.local')
+    expect(res.body.settings.local_port).toBe(1923)
+    // app.ts's Host guard reads this variable, not the settings file.
+    expect(process.env.RESUME_LOCAL_HOSTNAME).toBe('resumestudio.local')
+  })
+
+  it('refuses a name that could shadow a real site', async () => {
+    const res = await request(app).put('/api/settings').send({ local_hostname: 'mail.company.com' })
+    expect(res.status).toBe(400)
+  })
+
+  it('clears back to the IP', async () => {
+    const res = await request(app).put('/api/settings').send({ local_hostname: '' })
+    expect(res.status).toBe(200)
+    expect(res.body.settings.local_hostname).toBe('')
+    expect(process.env.RESUME_LOCAL_HOSTNAME).toBeUndefined()
   })
 })
 

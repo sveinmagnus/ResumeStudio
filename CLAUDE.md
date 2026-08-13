@@ -805,6 +805,23 @@ Full end-user + build docs in **`DESKTOP.md`**. Load-bearing invariants for work
 
 - **Two server entries, one app.** `server/index.ts` (VPS/dev, `tsx`) and `server/desktop/launcher.ts` (desktop) both call `createApp()`. Don't fork app logic per entry — differences are env/wiring only.
 - **The launcher is bundled to CJS** (esbuild; only `systray2` is external — there is no native addon left to keep out). So **launcher code must not use `import.meta`/`__dirname`** — it uses env + `process.cwd()`. `app.ts`/`db.ts` guard `import.meta.url` (`import.meta.url ? … : process.cwd()`) because esbuild emits `""` for it; don't "simplify" that back or the bundle crashes at boot.
+- **The local address is a NAME, and the guard knows two kinds** (`server/localHost.ts`).
+  `resumestudio.localhost` needs no setup — RFC 6761 reserves the whole
+  `.localhost` TLD for loopback, browsers resolve it internally, and it is not
+  delegated in the DNS root, so `app.ts`'s rebinding guard accepts **any**
+  `.localhost` name unconditionally. `resumestudio.local` needs a hosts-file
+  line, so it is accepted only when the user configured it
+  (`RESUME_LOCAL_HOSTNAME`). Names are constrained to those two suffixes: an
+  arbitrary one written into a hosts file could shadow a real site on the user's
+  machine. The hosts rewrite is a PURE text transform over a delimited managed
+  block (nothing outside it is ever touched) plus a per-platform elevated COPY
+  of a staged temp file — no user-supplied text ever reaches a command line, and
+  success is confirmed by re-reading the file, never by a helper's exit code
+  (a cancelled prompt exits 0). Port preference is **80, then 1923**, because
+  a developer machine running IIS is the normal case; an explicitly pinned port
+  is the only candidate tried. The launcher only opens a configured name after
+  `resolvesToLoopback()` confirms it reaches this machine — otherwise a removed
+  hosts entry would present as "the app won't start".
 - **Paths come from `server/config.ts`** (pure). The launcher sets `RESUME_DB_PATH` + `RESUME_CLIENT_DIR` before `createApp()`/first DB use. **Data dir** is per-user OS-standard (`%APPDATA%\ResumeStudio`, `~/Library/Application Support/ResumeStudio`, `~/.local/share/resume-studio`), overridable via `RESUME_DATA_DIR` — matches Electron's `app.getPath('userData')`.
 - **Sync model = ONE FILE PER RESUME, NOT the live DB in the cloud folder.** `RESUME_BACKUP_DIR` holds `<slug>__<resume-id>.json` per resume (`resumestudio-resume/v1`), plus `resume-studio-registry.json` (`resumestudio-registry/v1`) and `resume-studio-deleted-resumes.json` (`resumestudio-tombstones/v1`), each written atomically — see `server/backupFiles.ts`. **One file per person because erasure has to be actionable per person:** a resume is one identified individual's data, and with a monolith "remove this person from the backups" meant rewriting a file containing everybody else. Merge is **newest-wins per resume by `saved_at`, union** (`db.restoreResumes`, `merge` mode). Live SQLite in a sync folder is intentionally avoided (corruption); `RESUME_DB_JOURNAL=TRUNCATE` is the documented escape hatch.
 - **Identity is the id INSIDE the file; the filename is a hint.** `scanBackupDir` keys on `resume.id`, so two machines converge on one resume even mid-rename, and `writeResumeFiles` deletes the stale-named file afterwards. The slug is ASCII-folded (Nordic letters transliterated, combining marks stripped) so Windows/macOS/Linux derive byte-identical names from the same resume. A write pass **never deletes a file for an id it doesn't hold** — another machine may have just published a resume this one hasn't merged, and treating "not in my DB" as "delete" would make two machines erase each other's new work every round.
