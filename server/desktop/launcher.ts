@@ -34,6 +34,7 @@ import { applyTombstoneRules } from '../backupWatcher.js'
 import { initBackupRuntime, reconfigureBackup, flushBackup, stopBackup } from '../backupRuntime.js'
 import { startTranslate } from '../translateDocker.js'
 import { findFreePort } from './freePort.js'
+import { resolvesToLoopback } from '../localHost.js'
 import { openBrowser } from './openBrowser.js'
 import { startTray, type TrayHandle } from './tray.js'
 import { notify, confirmInstall } from './notify.js'
@@ -45,7 +46,25 @@ import {
 
 // Loopback only — a personal CV store must never be reachable from the LAN.
 const HOST = '127.0.0.1'
-const PREFERRED_PORT = parseInt(process.env.PORT ?? '3001', 10)
+
+/**
+ * Port preference, in order: 80 first so a configured name is reachable with no
+ * `:port` suffix at all, then 1923 as the documented fallback for the many
+ * machines where 80 is already spoken for (IIS, another local server, an OS
+ * reservation). `PORT` or the in-app `local_port` setting overrides both, and is
+ * then the ONLY candidate — an explicit choice that silently lands somewhere
+ * else is worse than a startup that says the port is taken.
+ */
+const DEFAULT_PORT_LADDER = [80, 1923]
+
+function portCandidates(): { ports: number[]; span: number } {
+  const explicit = process.env.RESUME_LOCAL_PORT?.trim() || process.env.PORT?.trim()
+  const n = explicit ? parseInt(explicit, 10) : 0
+  // span 0 for an explicit port: don't creep to n+1 behind the user's back.
+  // If it's taken we still start (on an OS-assigned port) and say so, rather
+  // than refusing to open at all.
+  return Number.isFinite(n) && n > 0 ? { ports: [n], span: 0 } : { ports: DEFAULT_PORT_LADDER, span: 20 }
+}
 
 async function main(): Promise<void> {
   const paths = resolvePaths()
@@ -188,11 +207,28 @@ async function main(): Promise<void> {
 
   // ── HTTP server ──────────────────────────────────────────────────────────
   const app = createApp()
-  const port = await findFreePort(PREFERRED_PORT, HOST)
-  const url = `http://${HOST}:${port}`
+  const { ports, span } = portCandidates()
+  const port = await findFreePort(ports, HOST, span)
+  const ipUrl = `http://${HOST}${port === 80 ? '' : `:${port}`}`
+
+  // ── The address we hand the user ─────────────────────────────────────────
+  // A configured name is only used once we've confirmed it reaches THIS machine
+  // (`.localhost` by definition; a `.local` name has to actually resolve to
+  // loopback). A name whose hosts entry was never installed — or was removed by
+  // a system cleanup — would otherwise open a browser tab that cannot connect,
+  // with the app running perfectly behind it.
+  const configuredName = settings.local_hostname.trim()
+  const nameWorks = configuredName ? await resolvesToLoopback(configuredName) : false
+  const url = nameWorks
+    ? `http://${configuredName}${port === 80 ? '' : `:${port}`}`
+    : ipUrl
+  if (configuredName && !nameWorks) {
+    log(`  address    : ${configuredName} does not resolve to this computer — using ${ipUrl}`)
+  }
 
   const server = app.listen(port, HOST, () => {
-    log(`  server     : ${url}`)
+    log(`  server     : ${ipUrl}`)
+    if (url !== ipUrl) log(`  address    : ${url}`)
     log('────────────────────────────────────────────────')
     log(`Resume Studio is running. Opening ${url} …`)
     log('Close this window (or press Ctrl-C) to stop the app.')

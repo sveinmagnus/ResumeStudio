@@ -4,6 +4,7 @@ import { fileURLToPath } from 'url'
 import rateLimit from 'express-rate-limit'
 import { authMiddleware } from './auth.js'
 import { isDesktop } from './settings.js'
+import { isLoopbackHostname } from './localHost.js'
 import authRouter from './routes/auth.js'
 import resumeRouter from './routes/resume.js'
 import registryRouter from './routes/registry.js'
@@ -24,19 +25,42 @@ const __dirname = import.meta.url
   : process.cwd()
 
 /**
- * True when the HTTP `Host` header names a loopback address (any/no port).
+ * True when the HTTP `Host` header names an address that is loopback by
+ * definition — a literal, `localhost`, or any name under the reserved
+ * `.localhost` TLD (RFC 6761: browsers resolve those internally, and the TLD is
+ * not delegated in the DNS root, so nothing an attacker controls can point one
+ * elsewhere).
+ *
  * Powers the desktop DNS-rebinding guard: a request whose Host is an attacker's
  * own hostname — even one that has rebound its DNS to 127.0.0.1 — is rejected,
- * while the app's own `http://127.0.0.1:<port>` / `http://localhost:<port>`
+ * while the app's own `http://127.0.0.1:<port>` / `http://resumestudio.localhost:<port>`
  * requests pass. Exported for unit testing.
  */
 export function isLoopbackHost(host: string | undefined): boolean {
   if (!host) return false
-  // Strip the port. IPv6 literals are bracketed in a Host header: `[::1]:3001`.
-  const hostname = host.startsWith('[')
-    ? host.slice(1, host.indexOf(']'))
-    : host.split(':')[0]
-  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1'
+  return isLoopbackHostname(hostnameOf(host))
+}
+
+/** Strip the port. IPv6 literals are bracketed in a Host header: `[::1]:3001`. */
+function hostnameOf(host: string): string {
+  return host.startsWith('[') ? host.slice(1, host.indexOf(']')) : host.split(':')[0]
+}
+
+/**
+ * The desktop build's accepted Host set: everything loopback-by-definition,
+ * plus the ONE name the user configured for this machine.
+ *
+ * A configured `.local` name is reached through the system hosts file, so it
+ * genuinely does resolve to 127.0.0.1 here — but it resolves through DNS
+ * machinery, which is what the rebinding guard exists to distrust. It is
+ * accepted because the user installed it deliberately on their own machine, and
+ * because an attacker who could make a browser send this Host would already
+ * have had to control that machine's hosts file.
+ */
+function isAllowedHost(host: string | undefined): boolean {
+  if (isLoopbackHost(host)) return true
+  const configured = process.env.RESUME_LOCAL_HOSTNAME?.trim().toLowerCase()
+  return !!configured && !!host && hostnameOf(host).toLowerCase() === configured
 }
 
 /**
@@ -127,9 +151,13 @@ export function createApp(): Express {
   // reads too (a rebind could otherwise exfiltrate the CV), hence it runs on
   // every method. Armed only on the desktop build; the VPS is served on a real
   // domain and reads Host legitimately (and requires auth regardless).
+  //
+  // The accepted set widens to the user's own configured local name — see
+  // isAllowedHost, and server/localHost.ts for why `.localhost` is safe to
+  // accept unconditionally while a `.local` name has to be configured first.
   if (isDesktop()) {
     app.use((req, res, next) => {
-      if (!isLoopbackHost(req.headers.host)) {
+      if (!isAllowedHost(req.headers.host)) {
         res.status(403).json({ error: 'Invalid host' })
         return
       }

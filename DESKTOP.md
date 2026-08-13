@@ -86,8 +86,11 @@ the launcher file. (On Linux you can write a `~/.local/share/applications/
 resume-studio.desktop` entry whose `Exec=` is the absolute path to
 `resume-studio.sh`.)
 
-The launcher picks the first free port starting at 3001, so multiple things on
-3001 won't collide, and writes the chosen URL into the window + log.
+The launcher takes port **80** if it is free (so the address needs no `:port`
+suffix at all) and falls back to **1923** when something else already owns 80 —
+IIS, another local server, an OS reservation. Either way it writes the chosen
+URL into the window + log, and you can pin a port in **Settings → Local
+address** (§4a).
 
 ---
 
@@ -157,11 +160,55 @@ immediately.
     or is sent to the configured provider, based on where the endpoint
     actually is.
 - **Sync & backup** — the cloud-synced folder described in §5.
+- **Local address** — a readable name for this computer instead of the IP (§4a).
 - **Appearance** — the app-wide default heading/body fonts that views with
   fonts set to "inherit" pick up.
 
 > On a server (VPS) deployment the gear shows a read-only view instead: there,
 > these are controlled by environment variables, not the app.
+
+## 4a. A name instead of `127.0.0.1`
+
+**Settings → Local address** lets you reach the app at something you can
+remember and bookmark. Two kinds of name are offered, and they cost different
+amounts:
+
+- **`resumestudio.localhost`** — works immediately, in any browser, with
+  nothing installed. The whole `.localhost` domain is reserved for "this
+  computer" (RFC 6761) and browsers resolve it themselves without asking DNS.
+- **`resumestudio.local`** — needs **one line added to your system hosts file**,
+  which needs administrator approval. In exchange it works everywhere, not just
+  in browsers: `curl`, scripts, other tools.
+
+Pick one and press **Save**. For the `.local` name, **Set up** asks the OS for
+elevation (a UAC prompt on Windows, your password on macOS/Linux) and adds a
+clearly delimited block to the hosts file:
+
+```
+# >>> Resume Studio (managed) >>>
+127.0.0.1	resumestudio.local
+# <<< Resume Studio (managed) <<<
+```
+
+Nothing outside that block is touched, **Remove the entry** takes it back out
+again, and the panel always shows the equivalent one-line command if you would
+rather do it yourself than approve a prompt from a downloaded app. Only
+`.local` and `.localhost` names are accepted — a typo must not be able to point
+`mail.yourcompany.com` at your own machine.
+
+Combined with the port rule (§2), the everyday address becomes
+`http://resumestudio.localhost` when port 80 is free, or
+`http://resumestudio.localhost:1923` when it is not.
+
+Two caveats worth knowing:
+
+- **macOS resolves `.local` through Bonjour/mDNS**, which can win over the hosts
+  file. If a `.local` name doesn't resolve there, use the `.localhost` one — it
+  needs no setup anyway. The Settings panel says this on macOS.
+- The name is **still loopback only**. It resolves on this computer and nowhere
+  else; nothing about it exposes your CVs to the network. The desktop build's
+  Host guard accepts loopback addresses, any `.localhost` name, and the one name
+  you configured — nothing else.
 
 ## 5. Backup & sync across computers
 
@@ -365,7 +412,8 @@ first run, then overrides them.
 | `RESUME_DB_JOURNAL` | SQLite journal mode | `WAL` |
 | `RESUME_CLIENT_DIR` | Where the built client lives | set by the launcher shim |
 | `RESUME_COMPOSE_FILE` | docker-compose file for managed translate | set by the launcher shim |
-| `PORT` | Preferred port (auto-advances if taken) | `3001` |
+| `PORT` / `RESUME_LOCAL_PORT` | Pin the port. Set explicitly, it is the ONLY candidate tried (an OS-assigned port is used if it's taken, and the log says so) | unset (try 80, then 1923) |
+| `RESUME_LOCAL_HOSTNAME` | The `.local`/`.localhost` name the app opens at and accepts as `Host` (usually set via Settings → Local address) | unset (use `127.0.0.1`) |
 | `RESUME_NO_BROWSER` | Don't auto-open a browser (headless/CI) | unset |
 | `RESUME_API_TOKEN` | Require a bearer token (not needed for loopback-only) | unset |
 | `RESUME_NO_UPDATE` | Disable the auto-updater (background check + install) | unset (updates on) |

@@ -22,6 +22,9 @@ import { startOllama, stopOllama, ollamaReachable, dockerAvailable as ollamaDock
 import { listProviderModels } from '../llmModels.js'
 import { reconfigureBackup } from '../backupRuntime.js'
 import { listFolders, FolderError } from '../folders.js'
+import {
+  hostnameStatus, installHostname, uninstallHostname, isValidLocalHostname,
+} from '../localHost.js'
 
 const router = Router()
 
@@ -130,6 +133,48 @@ router.post('/folders', (req: Request, res: Response): void => {
     if (err instanceof FolderError) { res.status(err.status).json({ error: err.message }); return }
     res.status(500).json({ error: 'Could not list that folder.' })
   }
+})
+
+/**
+ * POST /api/settings/hostname — inspect or install a local name for this
+ * machine (desktop only). Body: { action: 'status' | 'install' | 'uninstall',
+ * hostname }.
+ *
+ * DESKTOP-ONLY and deliberately so: 'install' edits the system hosts file
+ * behind an OS elevation prompt. That is a reasonable thing for a user to do to
+ * their own computer and an absurd one for an authed client to do to a shared
+ * VPS, which is served on a real domain anyway.
+ *
+ * The hostname is validated here (`.local` / `.localhost` only) before it goes
+ * anywhere near the file — see server/localHost.ts for why the suffixes are
+ * constrained.
+ */
+router.post('/hostname', (req: Request, res: Response): void => {
+  if (!isDesktop()) {
+    res.status(403).json({ error: 'The local address is managed by the server environment on this deployment.' })
+    return
+  }
+  void (async () => {
+    const body = (req.body ?? {}) as Record<string, unknown>
+    const action = body.action
+    const hostname = typeof body.hostname === 'string' ? body.hostname.trim().toLowerCase() : ''
+    if (!isValidLocalHostname(hostname)) {
+      res.status(400).json({ error: 'hostname must be a .local or .localhost name' })
+      return
+    }
+    if (action === 'status') { res.json(hostnameStatus(hostname)); return }
+    if (action === 'install') {
+      const r = await installHostname(hostname)
+      res.json({ ...r, status: hostnameStatus(hostname) })
+      return
+    }
+    if (action === 'uninstall') {
+      const r = await uninstallHostname(hostname)
+      res.json({ ...r, status: hostnameStatus(hostname) })
+      return
+    }
+    res.status(400).json({ error: "action must be 'status', 'install' or 'uninstall'" })
+  })()
 })
 
 /**
