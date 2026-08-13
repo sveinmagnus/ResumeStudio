@@ -37,3 +37,17 @@ describe('employmentTypeLabel()', () => {
     expect(employmentTypeLabel('not_a_type')).toBe('')
   })
 })
+
+describe('employmentTypeLabel — the lookup behind the label', () => {
+  it('resolves every stored value to its own label', () => {
+    // The label table is derived from the list; if the derivation breaks, every
+    // employment card and every view facet silently loses its type wording.
+    for (const t of EMPLOYMENT_TYPES) expect(employmentTypeLabel(t.value), t.value).toBe(t.label)
+  })
+
+  it('is empty for an unknown value and for none', () => {
+    expect(employmentTypeLabel('freelanceish')).toBe('')
+    expect(employmentTypeLabel(null)).toBe('')
+    expect(employmentTypeLabel(undefined)).toBe('')
+  })
+})
