@@ -110,9 +110,14 @@ function allTestFiles() {
  *
  * A flat six-file ceiling under-measured exactly the modules the whole suite
  * leans on: `viewFilter` is imported by 18 node test files and was measured
- * against 6 of them, so a third of its "survivors" were mutants another suite
- * kills. Same for `locales`, `viewStyle` and `viewHeader`, all of whose
- * importers are cheap.
+ * against 6 of them. Same for `locales`, `viewStyle` and `viewHeader`, all of
+ * whose importers are cheap.
+ *
+ * Measured, so nobody has to guess at the payoff: widening viewFilter from 6 to
+ * 19 files moved its score to 84.8% and removed ONE actionable survivor (28 →
+ * 27). Most of what the extra suites killed was StringLiteral wording, which a
+ * reader filters out anyway. The value here is that the number now means what it
+ * says — not that it moves a lot.
  *
  * What made the ceiling necessary was never the number of files — it was the
  * jsdom ones. Stryker re-runs the covering tests per surviving mutant, and a
