@@ -131,3 +131,26 @@ describe('validateKeyPoints — the shapes a model actually returns', () => {
     expect(() => validateKeyPoints({ points: [{ body: '   ' }] })).toThrow(/no points/)
   })
 })
+
+describe('key points — the source text and the reply shapes', () => {
+  it('trims the flattened source before quoting it in the prompt', () => {
+    const prompt = buildKeyPointsPrompt({ en: '<p>  Ran the rebuild.  </p>' }, 'en', 'plain')
+    expect(prompt).toContain('Ran the rebuild.')
+    expect(prompt).not.toContain(' Ran the rebuild. ')
+  })
+
+  it('reads a bare string entry as a point with no label', () => {
+    // Small models answer with a list of strings however the shape is asked
+    // for; refusing them would throw away a usable reply.
+    const out = validateKeyPoints({ points: ['One line.', { body: 'Another.' }] })
+    expect(out).toEqual([
+      { label: '', body: 'One line.' },
+      { label: '', body: 'Another.' },
+    ])
+  })
+
+  it('drops an entry that is neither a string nor an object', () => {
+    const out = validateKeyPoints({ points: [42, null, true, { body: 'Kept.' }] })
+    expect(out).toEqual([{ label: '', body: 'Kept.' }])
+  })
+})

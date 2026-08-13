@@ -761,3 +761,101 @@ describe('validateLetterCritique — the notes and their wording', () => {
   })
 })
 
+
+describe('buildJobFitPrompt — the skills and the posting it carries', () => {
+  const store = (): ResumeStore => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'Kari' })
+    s.skills = [
+      makeSkill({ id: 'a', name: { en: 'Kubernetes' } }),
+      makeSkill({ id: 'blank', name: {} }),
+    ]
+    s.projects = [makeProject({ id: 'p1', customer: { en: 'Acme' }, short_description: { en: 'Short line.' } })]
+    return s
+  }
+
+  it('lists the named skills and leaves a nameless one out', () => {
+    // An empty entry in the list reads as a blank requirement the model then
+    // tries to judge.
+    const prompt = buildJobFitPrompt(store(), 'en', 'We need Kubernetes.')
+    expect(prompt).toContain('Kubernetes')
+    expect(prompt).not.toMatch(/,\\s*,/)
+  })
+
+  it('digests the CV without the short descriptions', () => {
+    // They are an earlier assist's output; feeding them back has the model
+    // judge its own summary rather than the evidence.
+    expect(buildJobFitPrompt(store(), 'en', 'x')).not.toContain('Short line.')
+  })
+
+  it('trims and caps the posting', () => {
+    const prompt = buildJobFitPrompt(store(), 'en', `  START ${'padding '.repeat(4000)}END  `)
+    expect(prompt).toContain('START')
+    expect(prompt).not.toContain('END')
+  })
+})
+
+describe('validateJobFit — the refusals', () => {
+  it('names a non-object reply as such', () => {
+    for (const bad of [null, undefined, 'text', 42]) {
+      expect(() => validateJobFit(bad, ['Kubernetes']), String(bad)).toThrow(/not a JSON object/)
+    }
+  })
+
+  it('numbers a dropped requirement from ONE', () => {
+    const { dropped } = validateJobFit({ requirements: [
+      { requirement: 'Kubernetes', status: 'evidenced', citation: 'p1' },
+      'not an object',
+    ] }, ['Kubernetes'])
+    expect(dropped.some((d) => d.startsWith('Requirement 2'))).toBe(true)
+  })
+})
+
+describe('tidyBody — the greeting and sign-off, in detail', () => {
+  const NL = String.fromCharCode(10)
+  const bodyOf = (body: string) =>
+    validateLetterAngles({ angles: [{ name: 'Angle', body }] })[0]?.body
+
+  it('strips a greeting followed by ONE newline as well as a blank line', () => {
+    // Models write both; only the blank-line form was covered.
+    expect(bodyOf(`Dear Hiring Manager,${NL}The letter body.`)).toBe('The letter body.')
+    expect(bodyOf(`Dear Hiring Manager,${NL}${NL}${NL}The letter body.`)).toBe('The letter body.')
+  })
+
+  it('strips a sign-off separated by a single newline too', () => {
+    expect(bodyOf(`The letter body.${NL}Kind regards,${NL}Ada`)).toBe('The letter body.')
+    expect(bodyOf(`The letter body.${NL}${NL}Yours faithfully,${NL}Ada`)).toBe('The letter body.')
+  })
+
+  it('strips a sign-off with no name under it', () => {
+    // "Regards," on its own is the whole sign-off when the model omits the name.
+    expect(bodyOf(`The letter body.${NL}${NL}Regards,`)).toBe('The letter body.')
+  })
+
+  it('leaves the body with no padding, fenced or not', () => {
+    expect(bodyOf('   The letter body.   ')).toBe('The letter body.')
+    expect(bodyOf(`\`\`\`${NL}   The letter body.   ${NL}\`\`\``)).toBe('The letter body.')
+  })
+
+  it('needs a full word for the sign-off, not a bare initial', () => {
+    // "Yours s" is not a sign-off; requiring at least one word character run
+    // after "Yours " is what separates it from prose that begins that way.
+    expect(bodyOf(`The letter body.${NL}${NL}Yours sincerely,${NL}Ada`)).toBe('The letter body.')
+  })
+})
+
+describe('validateLetterAngles / validateLetterCritique — the refusals', () => {
+  it('drops an angle that is not an object', () => {
+    const angles = validateLetterAngles({ angles: ['nope', 42, null, { name: 'A', body: 'Real body.' }] })
+    expect(angles).toHaveLength(1)
+    expect(angles[0].body).toBe('Real body.')
+  })
+
+  it('refuses a reply with no angles array, and a non-object reply', () => {
+    expect(() => validateLetterAngles({ angles: 'one' })).toThrow(/no "angles" array/)
+    expect(() => validateLetterAngles({})).toThrow(/no "angles" array/)
+    for (const bad of [null, undefined, 'text', 42]) {
+      expect(() => validateLetterAngles(bad), String(bad)).toThrow(InvalidLetterAdviceError)
+    }
+  })
+})
