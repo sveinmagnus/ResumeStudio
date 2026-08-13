@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   BULK_IMPORT_SCHEMA, BULK_SPECS, bulkSpec, isBulkSection, isBulkImportFormat,
   validateBulkImport, mapBulkItems, appendBulkItems, findDuplicates,
-  bulkInstructions, toLocalized, toYearMonth, InvalidBulkImportError,
+  bulkInstructions, intakeInstructions, toLocalized, toYearMonth, InvalidBulkImportError,
   type BulkSectionSpec, type BulkFileV1,
 } from '../src/lib/bulkImport'
 import { emptyStore, makeResume, makeProject, makeCourse, makeSkill, makeRole, makeWork } from './fixtures'
@@ -937,5 +937,221 @@ describe('the registry lookup ignores an unnamed entry', () => {
     )
     const out = appendBulkItems(store, bulkSpec('projects' as never)!, mapped.items, mapped.additions)
     expect(out.projects[0].skills).toEqual([])
+  })
+})
+
+/**
+ * Interning a bulk add against the registries the resume already has.
+ *
+ * This is the whole reason a bulk add is safe to run twice: the names in the
+ * file are matched against every locale of every existing entry, first writer
+ * wins, and only genuinely new names become registry rows.
+ */
+describe('mapBulkItems — interning against the existing registry', () => {
+  const bulkFile = (items: unknown[], section: string) =>
+    ({ $schema: BULK_IMPORT_SCHEMA, section, items }) as unknown as BulkFileV1
+  const spec = (key: string) => bulkSpec(key as never)!
+  const run = (store: ResumeStore, items: unknown[], key = 'projects') => {
+    const mapped = mapBulkItems(bulkFile(items, key), spec(key), store, 'en')
+    return { out: appendBulkItems(store, spec(key), mapped.items, mapped.additions), mapped }
+  }
+
+  it('keeps the FIRST registry entry when two normalise to the same name', () => {
+    // Registries accumulate near-duplicates over years of imports; the entry the
+    // user curated first is the one the CV already renders.
+    const store = storeWithResume({
+      skills: [makeSkill({ id: 'first', name: { en: 'Go' } }), makeSkill({ id: 'second', name: { en: ' go ' } })],
+    })
+    const { out } = run(store, [{ customer: 'Acme', skills: ['Go'] }])
+    expect(out.projects[0].skills[0].skill_id).toBe('first')
+    expect(out.skills).toHaveLength(2)
+  })
+
+  it('keeps the first EMPLOYMENT when two share an employer name', () => {
+    const store = storeWithResume({
+      work_experiences: [
+        makeWork({ id: 'w-first', employer: { en: 'Acme' } }),
+        makeWork({ id: 'w-second', employer: { en: 'acme' } }),
+      ],
+    })
+    const { out } = run(store, [{ customer: 'Client', employer: 'ACME' }])
+    expect(out.projects[0].work_experience_id).toBe('w-first')
+  })
+
+  it('trims the name of a registry entry it creates', () => {
+    const store = storeWithResume()
+    const { out } = run(store, [{ customer: 'Acme', skills: ['  Rust  '], roles: ['  Architect  '] }])
+    expect(out.skills[0].name).toEqual({ en: 'Rust' })
+    expect(out.roles[0].name).toEqual({ en: 'Architect' })
+  })
+
+  it('names a created role in the resume\u2019s own locale', () => {
+    const store = storeWithResume()
+    const mapped = mapBulkItems(
+      bulkFile([{ customer: 'Acme', roles: ['Arkitekt'] }], 'projects'), spec('projects'), store, 'no')
+    const out = appendBulkItems(store, spec('projects'), mapped.items, mapped.additions)
+    expect(out.roles[0].name).toEqual({ no: 'Arkitekt' })
+  })
+
+  it('leaves a NON-project section with no employment link at all', () => {
+    // The employer carrier is a Projects-only field; running that resolution for
+    // another section would stamp a work_experience_id onto rows that have no
+    // such column.
+    const store = storeWithResume({ work_experiences: [makeWork({ id: 'w1', employer: { en: 'Acme' } })] })
+    const { out } = run(store, [{ school: 'NTNU' }], 'educations')
+    expect('work_experience_id' in out.educations[0]).toBe(false)
+    expect('_employer' in out.educations[0]).toBe(false)
+  })
+
+  it('drops the employer carrier field from the stored project', () => {
+    const store = storeWithResume()
+    const { out } = run(store, [{ customer: 'Acme', employer: 'Nowhere Ltd' }])
+    expect('_employer' in out.projects[0]).toBe(false)
+    expect(out.projects[0].work_experience_id).toBeNull()
+  })
+})
+
+describe('appendBulkItems — where the new rows land', () => {
+  const spec = (key: string) => bulkSpec(key as never)!
+
+  it('continues the sort_order past the highest one already stored', () => {
+    const store = storeWithResume({
+      projects: [makeProject({ id: 'p1', sort_order: 4 }), makeProject({ id: 'p2', sort_order: 9 })],
+    })
+    const out = appendBulkItems(store, spec('projects'), [
+      { customer: { en: 'A' }, sort_order: 0 } as never,
+      { customer: { en: 'B' }, sort_order: 0 } as never,
+    ], { skills: [], roles: [] })
+    expect(out.projects.slice(2).map((p) => p.sort_order)).toEqual([10, 11])
+  })
+
+  it('starts at zero when the section is empty', () => {
+    const out = appendBulkItems(storeWithResume(), spec('projects'),
+      [{ customer: { en: 'A' }, sort_order: 0 } as never], { skills: [], roles: [] })
+    expect(out.projects[0].sort_order).toBe(0)
+  })
+
+  it('adds no registry rows when called with no additions', () => {
+    // The default is what a caller gets wrong; a non-empty one would append a
+    // phantom skill to the shared registry on every bulk add.
+    const store = storeWithResume({ skills: [makeSkill({ id: 's1', name: { en: 'Go' } })] })
+    const out = appendBulkItems(store, spec('projects'), [{ customer: { en: 'A' }, sort_order: 0 } as never])
+    expect(out.skills).toHaveLength(1)
+    expect(out.roles).toEqual([])
+  })
+})
+
+describe('the duplicate key a bulk row is matched on', () => {
+  const spec = (key: string) => bulkSpec(key as never)!
+
+  it('keys a project on EVERY locale of its name, plus the start date', () => {
+    // CLAUDE.md §9: one key per locale, and a match on ANY of them flags a
+    // duplicate — an incoming NO+EN row must match an existing NO-only one.
+    const keys = spec('projects').dupKeys({
+      customer: { en: 'Acme', no: 'Acme AS' }, start: { year: 2020, month: 6 },
+    })
+    expect(keys).toHaveLength(2)
+    expect(keys.every((k) => k.includes('2020'))).toBe(true)
+  })
+
+  it('keys a plain-string name too, not only a localized map', () => {
+    expect(spec('projects').dupKeys({ customer: 'Acme', start: null })).toEqual(['acme'])
+  })
+
+  it('ignores a blank locale slot rather than keying on it', () => {
+    // A blank key would match every other row that also has a blank slot.
+    expect(spec('projects').dupKeys({ customer: { en: 'Acme', no: '   ' }, start: null }))
+      .toEqual(['acme'])
+    expect(spec('projects').dupKeys({ customer: { en: '   ' }, start: null })).toEqual([])
+    expect(spec('projects').dupKeys({ customer: '', start: null })).toEqual([])
+  })
+
+  it('distinguishes a year-only start from the same year with a month', () => {
+    // Two engagements at the same customer, one dated 2020 and one 2020-06, are
+    // different rows; collapsing them would silently drop the second.
+    const yearOnly = spec('projects').dupKeys({ customer: 'Acme', start: { year: 2020, month: null } })
+    const withMonth = spec('projects').dupKeys({ customer: 'Acme', start: { year: 2020, month: 6 } })
+    expect(yearOnly).not.toEqual(withMonth)
+    expect(yearOnly[0]).toBe('acme|2020-')
+  })
+})
+
+describe('InvalidBulkImportError — the message the modal shows', () => {
+  it('quotes the ONE problem when there is only one', () => {
+    // A single mistake is fixable from the message alone; "found 1 problems"
+    // sends the user hunting for a list that has one line in it.
+    const one = new InvalidBulkImportError([{ path: 'items[0].start', reason: 'expected a date' }])
+    expect(one.message).toBe('items[0].start: expected a date')
+  })
+
+  it('counts them when there are several', () => {
+    const many = new InvalidBulkImportError([
+      { path: 'items[0]', reason: 'a' }, { path: 'items[1]', reason: 'b' },
+    ])
+    expect(many.message).toMatch(/2 problems/)
+  })
+})
+
+describe('bulkInstructions — the example row', () => {
+  it('shows an enum example from the vocabulary, not a placeholder', () => {
+    const out = bulkInstructions(bulkSpec('work_experiences' as never)!, ['en'])
+    expect(out).toMatch(/"employment_type": "[a-z_]+"/)
+    expect(out).not.toMatch(/"employment_type": "…"/)
+  })
+
+  it('shows a date example in the object shape the validator accepts', () => {
+    const out = bulkInstructions(bulkSpec('projects' as never)!, ['en'])
+    expect(out).toContain('{ "year": 2024, "month": 6 }')
+  })
+
+  it('documents an enum field by listing its values', () => {
+    const out = bulkInstructions(bulkSpec('work_experiences' as never)!, ['en'])
+    expect(out).toMatch(/one of: [a-z_]+ \| /)
+  })
+})
+
+describe('bulkInstructions — the shared field groups', () => {
+  it('offers short_description on the sections that carry one', () => {
+    // The one-line summary field is shared across specs; losing it from the
+    // sheet means every bulk add arrives with summary mode empty.
+    for (const key of ['projects', 'work_experiences', 'educations']) {
+      const out = bulkInstructions(bulkSpec(key as never)!, ['en'])
+      expect(out, key).toContain('short_description')
+      expect(out, key).toMatch(/concise line/i)
+    }
+  })
+
+  it('documents a non-enum field by its KIND, not as a vocabulary', () => {
+    const out = bulkInstructions(bulkSpec('projects' as never)!, ['en'])
+    const customerRow = out.split(String.fromCharCode(10)).find((l) => l.includes('`customer`'))!
+    expect(customerRow).not.toContain('one of:')
+  })
+
+  it('shows a DATE example in the object shape, distinct from a list', () => {
+    const out = bulkInstructions(bulkSpec('projects' as never)!, ['en'])
+    const startRow = out.split(String.fromCharCode(10)).find((l) => l.includes('"start"'))!
+    expect(startRow).toContain('{ "year": 2024, "month": 6 }')
+  })
+})
+
+describe('intakeInstructions — the messy source it wraps', () => {
+  it('trims the pasted source rather than carrying its padding', () => {
+    const out = intakeInstructions(bulkSpec('projects' as never)!, ['en'], '   Ran a platform rebuild.   ')
+    expect(out).toContain('Ran a platform rebuild.')
+    expect(out.endsWith('Ran a platform rebuild.')).toBe(true)
+  })
+})
+
+describe('mapBulkItems — the role registry, like the skill one', () => {
+  it('keeps the FIRST role entry when two normalise to the same name', () => {
+    const store = storeWithResume({
+      roles: [makeRole({ id: 'r-first', name: { en: 'Architect' } }), makeRole({ id: 'r-second', name: { en: ' architect ' } })],
+    })
+    const spec = bulkSpec('projects' as never)!
+    const file = { $schema: BULK_IMPORT_SCHEMA, section: 'projects', items: [{ customer: 'Acme', roles: ['ARCHITECT'] }] }
+    const mapped = mapBulkItems(file as never, spec, store, 'en')
+    const out = appendBulkItems(store, spec, mapped.items, mapped.additions)
+    expect(out.projects[0].roles[0].role_id).toBe('r-first')
+    expect(out.roles).toHaveLength(2)
   })
 })
