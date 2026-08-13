@@ -445,3 +445,36 @@ describe('a section outside the summarize map is left entirely alone', () => {
     expect((out.courses[0] as unknown as Record<string, unknown>).short_description).toEqual({})
   })
 })
+
+describe('emptySummaryTargets — the work list', () => {
+  it('deduplicates the locales it was asked about, ignoring blanks', () => {
+    // The caller passes primary + secondary, which are often the same and
+    // sometimes null; one target per locale is what the progress count means.
+    const s = store({ courses: [makeCourse({ id: 'c1', description: { en: 'Long English text', no: 'Lang norsk tekst' } })] })
+    const targets = emptySummaryTargets(s, 'courses', ['en', 'en', '', 'no'])
+    expect(targets.map((t) => t.locale)).toEqual(['en', 'no'])
+  })
+
+  it('skips a disabled item and one with no id', () => {
+    const s = store({ courses: [
+      makeCourse({ id: 'c1', disabled: true, description: { en: 'Long English text' } }),
+      { ...makeCourse({ id: 'c2', description: { en: 'Long English text' } }), id: 42 } as never,
+    ] })
+    expect(emptySummaryTargets(s, 'courses', ['en'])).toEqual([])
+  })
+
+  it('reads a section that is not an array as no work at all', () => {
+    const s = { ...store({}), courses: 'not an array' } as never
+    expect(emptySummaryTargets(s, 'courses', ['en'])).toEqual([])
+  })
+})
+
+describe('summarizableSource — what counts as something to condense', () => {
+  it('needs a letter or a digit, not just punctuation', () => {
+    expect(summarizableSource('<p>Ran the rebuild.</p>')).toBe('Ran the rebuild.')
+    expect(summarizableSource('<p>   </p>')).toBe('')
+    expect(summarizableSource('<p>— …</p>')).toBe('')
+    expect(summarizableSource('<p>2019</p>')).toBe('2019')
+    expect(summarizableSource(undefined)).toBe('')
+  })
+})

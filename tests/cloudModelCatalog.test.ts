@@ -111,3 +111,21 @@ describe('buildModelOptions()', () => {
     expect(buildModelOptions('ollama_remote', [{ id: 'g' }])[0].label).toBe('Installed')
   })
 })
+
+describe('modelPicker — the meta line under each model', () => {
+  it('omits the size for an installed model that reports none', () => {
+    // The label is built from a list of optional parts joined by a middot; an
+    // empty part leaves a trailing separator under the model name.
+    expect(fromInstalled([{ name: 'my-custom:7b' } as never])[0].label).toBe('Installed')
+    expect(fromInstalled([{ name: 'm', size: 4_200_000_000 }])[0].label).toMatch(/^Installed · /)
+  })
+
+  it('omits the parameter count for a catalog entry without one', () => {
+    const opts = buildModelOptions('ollama_docker', [])
+    for (const o of opts) {
+      expect(o.label.startsWith(' '), o.label).toBe(false)
+      expect(o.label.includes('·  '), o.label).toBe(false)
+      expect(o.label.startsWith('·'), o.label).toBe(false)
+    }
+  })
+})

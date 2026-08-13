@@ -10,9 +10,9 @@
  *
  * The fix is to stop making it read the whole suite. This runs Stryker once per
  * source file against ONLY the tests that exercise it — its own
- * `tests/x.test.ts` where that exists, otherwise whichever test files import
- * it. The dry run drops from minutes to about a second, and the mutants that
- * survive are the ones those tests should have killed.
+ * `tests/x.test.ts` where that exists, plus whichever test files import it. The
+ * dry run drops from minutes to about a second, and the mutants that survive are
+ * the ones those tests should have killed.
  *
  * The module list is READ OFF DISK every run (`src/lib/*.ts`) — there is no
  * checked-in list to fall out of date — and anything no test touches is
@@ -105,19 +105,27 @@ function allTestFiles() {
 }
 
 /**
- * How many test files one module may be measured against.
+ * How many test files one module may be measured against — a budget on COST,
+ * not on count.
  *
- * The whole point of the scoped run is that the dry run loads a handful of
- * files rather than all 165. A census of the repo says the median module has
- * ONE importer besides its own test and only three (api, viewFilter,
- * viewHeader) have more than six, so this ceiling costs nothing for almost
- * every module and bounds the few that would otherwise pull in most of the
- * component suite. WHICH files fill the budget matters as much as how many —
- * see testCost below.
+ * A flat six-file ceiling under-measured exactly the modules the whole suite
+ * leans on: `viewFilter` is imported by 18 node test files and was measured
+ * against 6 of them, so a third of its "survivors" were mutants another suite
+ * kills. Same for `locales`, `viewStyle` and `viewHeader`, all of whose
+ * importers are cheap.
+ *
+ * What made the ceiling necessary was never the number of files — it was the
+ * jsdom ones. Stryker re-runs the covering tests per surviving mutant, and a
+ * component suite that mounts React costs one to two orders of magnitude more
+ * per run than a node suite. So: every cheap importer is included, and only the
+ * expensive ones are rationed. `coverageAnalysis: perTest` means the extra
+ * cheap files cost one dry run, not a re-run per mutant.
  */
-const MAX_TEST_FILES = 6
+const MAX_HEAVY_TEST_FILES = 2
+/** A backstop for a module half the suite imports, so a run still terminates. */
+const MAX_TEST_FILES = 24
 
-/** Modules whose importer list was truncated by MAX_TEST_FILES this run. */
+/** Modules whose importer list was truncated this run (see testsFor). */
 const capped = new Set()
 
 /**
@@ -171,8 +179,11 @@ function testsFor(base) {
     // Cheapest first, then by path so the choice is stable between runs.
     .sort((a, b) => testCost(a) - testCost(b) || a.localeCompare(b))
 
-  const all = [...own, ...importers]
-  if (all.length > MAX_TEST_FILES) capped.add(base)
+  // Every cheap importer, then as many expensive ones as the budget allows.
+  const cheap = importers.filter((p) => testCost(p) === 0)
+  const heavy = importers.filter((p) => testCost(p) > 0)
+  const all = [...own, ...cheap, ...heavy.slice(0, MAX_HEAVY_TEST_FILES)]
+  if (heavy.length > MAX_HEAVY_TEST_FILES || all.length > MAX_TEST_FILES) capped.add(base)
   return all.slice(0, MAX_TEST_FILES)
 }
 
@@ -327,9 +338,9 @@ function runOne(base, tests) {
  *
  * A module is measured against its own test file AND the other test files that
  * import it (see testsFor), so a mutant another suite kills is not reported
- * here as surviving. The exception is a module with more importers than
- * MAX_TEST_FILES: those are named in the run summary, and for them this list
- * can still overstate what is missing.
+ * here as surviving. The exception is a module whose EXPENSIVE importers were
+ * rationed (see testsFor): those are named in the run summary, and for them this
+ * list can still overstate what is missing.
  */
 function printSurvivors(base) {
   const file = detailPath(base)
@@ -421,8 +432,9 @@ function reportUnmeasurable() {
   // testsFor() fills `capped` as a side effect of the call above, so this runs
   // after it.
   if (capped.size) {
-    console.log(`\n${capped.size} module(s) have more importing tests than the ${MAX_TEST_FILES}-file`
-      + ` ceiling, so their survivors may include mutants another suite kills:\n  ${[...capped].sort().join(' ')}`)
+    console.log(`\n${capped.size} module(s) have more than ${MAX_HEAVY_TEST_FILES} component/server`
+      + ` suites importing them (or more than ${MAX_TEST_FILES} importers in total), so some of their`
+      + ` survivors may be mutants one of the excluded suites kills:\n  ${[...capped].sort().join(' ')}`)
   }
 }
 
