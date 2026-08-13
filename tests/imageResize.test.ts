@@ -9,7 +9,10 @@
  * between a resume and the 5 MB localStorage cap.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { fileToResizedDataUrl, imageUrlToResizedDataUrl } from '../src/lib/image'
+import {
+  fileToResizedDataUrl, imageUrlToResizedDataUrl, cropImageToDataUrl,
+  applyShapeMaskToDataUrl, fileToImage, revokeImageObjectUrl,
+} from '../src/lib/image'
 
 /** What the stubbed decoder will report for the next load. */
 let natural = { w: 1200, h: 600 }
@@ -18,6 +21,19 @@ let failLoad = false
 /** The last canvas the code under test drew into. */
 let drawn: { w: number; h: number; mime: string; quality: unknown } | null = null
 let getContextReturns: unknown = { drawImage: vi.fn() }
+/** Every 2d-context call the code under test made, in order. */
+let calls: Array<[string, ...unknown[]]> = []
+
+/** A recording 2d context: enough of the API for the mask + crop paths. */
+function recordingCtx() {
+  const rec = (name: string) => (...args: unknown[]) => { calls.push([name, ...args]) }
+  return {
+    drawImage: rec('drawImage'), save: rec('save'), restore: rec('restore'),
+    beginPath: rec('beginPath'), closePath: rec('closePath'), clip: rec('clip'),
+    moveTo: rec('moveTo'), lineTo: rec('lineTo'), arc: rec('arc'),
+    quadraticCurveTo: rec('quadraticCurveTo'),
+  }
+}
 const revoked: string[] = []
 
 class StubImage {
@@ -42,7 +58,8 @@ beforeEach(() => {
   natural = { w: 1200, h: 600 }
   failLoad = false
   drawn = null
-  getContextReturns = { drawImage: vi.fn() }
+  calls = []
+  getContextReturns = recordingCtx()
   revoked.length = 0
 
   vi.stubGlobal('Image', StubImage)
@@ -165,5 +182,121 @@ describe('imageUrlToResizedDataUrl — the same geometry, from a URL', () => {
   it('rejects when the host does not allow the load', async () => {
     failLoad = true
     await expect(imageUrlToResizedDataUrl('https://example.test/p.png')).rejects.toThrow()
+  })
+})
+
+describe('cropImageToDataUrl — the square crop the cropper produces', () => {
+  const img = (w: number, h: number) => ({ naturalWidth: w, naturalHeight: h }) as HTMLImageElement
+
+  it('draws the requested source square into a canvas of the same size', () => {
+    cropImageToDataUrl(img(1000, 800), { sx: 100, sy: 50, size: 400 }, { maxDim: 600 })
+    expect(drawn).toMatchObject({ w: 400, h: 400, mime: 'image/jpeg' })
+    expect(calls).toContainEqual(['drawImage', expect.anything(), 100, 50, 400, 400, 0, 0, 400, 400])
+  })
+
+  it('caps the OUTPUT square at maxDim while still reading the full source square', () => {
+    // The source rectangle is what the user framed; the output is what gets
+    // stored, and only the output should shrink.
+    cropImageToDataUrl(img(2000, 2000), { sx: 0, sy: 0, size: 1600 }, { maxDim: 600 })
+    expect(drawn).toMatchObject({ w: 600, h: 600 })
+    expect(calls).toContainEqual(['drawImage', expect.anything(), 0, 0, 1600, 1600, 0, 0, 600, 600])
+  })
+
+  it('never produces a zero-sized canvas', () => {
+    cropImageToDataUrl(img(10, 10), { sx: 0, sy: 0, size: 0 }, { maxDim: 600 })
+    expect(drawn).toMatchObject({ w: 1, h: 1 })
+  })
+
+  it('honours the PNG format for a crop too', () => {
+    cropImageToDataUrl(img(100, 100), { sx: 0, sy: 0, size: 50 }, { format: 'png' })
+    expect(drawn?.mime).toBe('image/png')
+  })
+
+  it('throws rather than returning a blank data URL with no context', () => {
+    getContextReturns = null
+    expect(() => cropImageToDataUrl(img(100, 100), { sx: 0, sy: 0, size: 50 })).toThrow(/Canvas not supported/i)
+  })
+})
+
+describe('applyShapeMaskToDataUrl — the mask paths', () => {
+  const src = 'data:image/png;base64,AAA'
+
+  it('returns a square image untouched, without decoding it', async () => {
+    await expect(applyShapeMaskToDataUrl(src, 'square')).resolves.toBe(src)
+    expect(calls).toEqual([])
+  })
+
+  it('clips a CIRCLE centred on the image, radius half the shorter edge', async () => {
+    natural = { w: 400, h: 200 }
+    await applyShapeMaskToDataUrl(src, 'circle')
+    expect(calls).toContainEqual(['arc', 200, 100, 100, 0, Math.PI * 2])
+    expect(calls.map((c) => c[0])).toContain('clip')
+  })
+
+  it('draws the rounded path from the corners it computed', async () => {
+    // 100x100 at 18% → radius 18. Every corner is one lineTo plus one curve,
+    // and each of those coordinates is a separate piece of arithmetic.
+    natural = { w: 100, h: 100 }
+    await applyShapeMaskToDataUrl(src, 'rounded')
+    expect(calls).toContainEqual(['moveTo', 18, 0])
+    expect(calls).toContainEqual(['lineTo', 82, 0])
+    expect(calls).toContainEqual(['quadraticCurveTo', 100, 0, 100, 18])
+    expect(calls).toContainEqual(['lineTo', 100, 82])
+    expect(calls).toContainEqual(['quadraticCurveTo', 100, 100, 82, 100])
+    expect(calls).toContainEqual(['lineTo', 18, 100])
+    expect(calls).toContainEqual(['quadraticCurveTo', 0, 100, 0, 82])
+    expect(calls).toContainEqual(['lineTo', 0, 18])
+    expect(calls).toContainEqual(['quadraticCurveTo', 0, 0, 18, 0])
+  })
+
+  it('scales the corner radius to the SHORTER edge', async () => {
+    natural = { w: 1000, h: 200 }
+    await applyShapeMaskToDataUrl(src, 'rounded')
+    // 200 * 0.18 = 36.
+    expect(calls).toContainEqual(['moveTo', 36, 0])
+  })
+
+  it('keeps a radius of at least one pixel on a tiny image', async () => {
+    natural = { w: 4, h: 4 }
+    await applyShapeMaskToDataUrl(src, 'rounded')
+    expect(calls).toContainEqual(['moveTo', 1, 0])
+  })
+
+  it('always encodes PNG, so the masked-out corners stay transparent', async () => {
+    // JPEG has no alpha and would fill the corners with a matte colour that
+    // clashes against any non-white page background.
+    natural = { w: 100, h: 100 }
+    await expect(applyShapeMaskToDataUrl(src, 'circle')).resolves.toBe('image/png;stub')
+    expect(drawn?.mime).toBe('image/png')
+  })
+
+  it('rejects when the stored image cannot be decoded', async () => {
+    failLoad = true
+    await expect(applyShapeMaskToDataUrl(src, 'circle')).rejects.toThrow(/could not decode/i)
+  })
+})
+
+describe('fileToImage — decoding for the cropper', () => {
+  it('resolves with the decoded image and the URL the caller must release', async () => {
+    const { image, objectUrl } = await fileToImage(png())
+    expect(objectUrl).toBe('blob:stub')
+    expect(image.naturalWidth).toBe(1200)
+    // Deliberately NOT revoked here: the cropper still needs to draw from it.
+    expect(revoked).toEqual([])
+
+    revokeImageObjectUrl(objectUrl)
+    expect(revoked).toEqual(['blob:stub'])
+  })
+
+  it('releases the URL when the decode fails', async () => {
+    failLoad = true
+    await expect(fileToImage(png())).rejects.toThrow(/could not load/i)
+    expect(revoked).toEqual(['blob:stub'])
+  })
+
+  it('refuses a non-raster file before creating a URL at all', async () => {
+    const svg = new File(['<svg/>'], 'a.svg', { type: 'image/svg+xml' })
+    await expect(fileToImage(svg)).rejects.toThrow(/SVG is not supported/i)
+    expect(URL.createObjectURL).not.toHaveBeenCalled()
   })
 })

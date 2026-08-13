@@ -608,3 +608,260 @@ describe('importFromEuropassXml — an entry needs a name of some kind', () => {
     expect(importFromEuropassXml(education('', '')).educations).toEqual([])
   })
 })
+
+/**
+ * The europa.eu JSON profile export.
+ *
+ * Its field names moved between versions, so every value is read from a list of
+ * candidate keys and coerced through three tiny helpers. A helper that stops
+ * guarding turns a nested object into "[object Object]" in the CV, or throws on
+ * a field the export happens to leave null.
+ */
+describe('importFromEuropassJson — the field-shape coercions', () => {
+  const imported = (profile: Record<string, unknown>) =>
+    importFromEuropassJson({ profile } as never)
+
+  it('reads an employer given as a string OR as a nested object', () => {
+    const flat = imported({ workExperiences: [{ employer: 'Cartavio', occupation: 'Architect' }] })
+    expect(flat.work_experiences[0].employer).toEqual({ en: 'Cartavio' })
+
+    const nested = imported({ workExperiences: [{ employer: { name: 'Cartavio' }, occupation: 'Architect' }] })
+    expect(nested.work_experiences[0].employer).toEqual({ en: 'Cartavio' })
+  })
+
+  it('reads an occupation from a label, and falls back to position', () => {
+    expect(imported({ workExperiences: [{ employer: 'A', occupation: { label: 'Architect' } }] })
+      .work_experiences[0].role_title).toEqual({ en: 'Architect' })
+    expect(imported({ workExperiences: [{ employer: 'A', position: 'Architect' }] })
+      .work_experiences[0].role_title).toEqual({ en: 'Architect' })
+  })
+
+  it('reads a number where a string was expected rather than dropping it', () => {
+    // Grades and years arrive as numbers in some exports.
+    expect(imported({ educationTrainings: [{ organisationName: 'NTNU', qualification: 2019 }] })
+      .educations[0].degree).toEqual({ en: '2019' })
+  })
+
+  it('ignores a value that is neither string nor number', () => {
+    expect(imported({ workExperiences: [{ employer: true, occupation: ['x'] }] }).work_experiences).toEqual([])
+  })
+
+  it('treats a non-object entry as an empty one instead of throwing', () => {
+    expect(() => imported({ workExperiences: ['not an object', null, 42] })).not.toThrow()
+    expect(imported({ workExperiences: ['not an object'] }).work_experiences).toEqual([])
+  })
+
+  it('treats a non-array collection as empty', () => {
+    expect(() => imported({ workExperiences: { employer: 'A' } })).not.toThrow()
+    expect(imported({ workExperiences: { employer: 'A' } }).work_experiences).toEqual([])
+  })
+
+  it('skips an entry with neither an employer nor a title', () => {
+    const store = imported({ workExperiences: [{ startDate: '2020-01' }, { employer: 'A' }] })
+    expect(store.work_experiences).toHaveLength(1)
+  })
+})
+
+describe('importFromEuropassJson — dates and the ongoing flag', () => {
+  const first = (over: Record<string, unknown>) =>
+    importFromEuropassJson({ profile: { workExperiences: [{ employer: 'A', ...over }] } } as never)
+      .work_experiences[0]
+
+  it('reads a year with a month, and a bare year', () => {
+    expect(first({ startDate: '2019-06' }).start).toEqual({ year: 2019, month: 6 })
+    expect(first({ startDate: '2019' }).start).toEqual({ year: 2019, month: null })
+  })
+
+  it('drops a month outside 1..12 but keeps the year', () => {
+    expect(first({ startDate: '2019-00' }).start).toEqual({ year: 2019, month: null })
+    expect(first({ startDate: '2019-13' }).start).toEqual({ year: 2019, month: null })
+    expect(first({ startDate: '2019-01' }).start).toEqual({ year: 2019, month: 1 })
+    expect(first({ startDate: '2019-12' }).start).toEqual({ year: 2019, month: 12 })
+  })
+
+  it('reads an ONGOING entry as an open end, whatever end date it also carries', () => {
+    expect(first({ startDate: '2019', ongoing: true, endDate: '2021' }).end).toBeNull()
+    expect(first({ startDate: '2019', endDate: '2021' }).end).toEqual({ year: 2021, month: null })
+  })
+
+  it('accepts the alternate from/to key names', () => {
+    expect(first({ from: '2019-03', to: '2020-04' })).toMatchObject({
+      start: { year: 2019, month: 3 }, end: { year: 2020, month: 4 },
+    })
+  })
+})
+
+describe('importFromEuropassJson — the imported defaults and the language list', () => {
+  const imported = (profile: Record<string, unknown>) => importFromEuropassJson({ profile } as never)
+
+  it('imports every row enabled and unstarred', () => {
+    const store = imported({
+      aboutMe: 'I build systems.',
+      workExperiences: [{ employer: 'A' }],
+      educationTrainings: [{ organisationName: 'NTNU' }],
+      languageSkills: { motherTongues: ['Norwegian'] },
+    })
+    expect(store.key_qualifications[0]).toMatchObject({ starred: false, disabled: false })
+    expect(store.work_experiences[0]).toMatchObject({ starred: false, disabled: false })
+    expect(store.educations[0]).toMatchObject({ starred: false, disabled: false, exchange: false })
+    expect(store.spoken_languages[0].disabled).toBe(false)
+  })
+
+  it('numbers the languages upward across the two lists', () => {
+    // Mother tongues and other languages are separate arrays that share one
+    // sequence; restarting or counting backwards puts them in the wrong order.
+    const store = imported({
+      languageSkills: {
+        motherTongues: ['Norwegian'],
+        otherLanguages: [{ language: 'English', listening: 'C2' }, { language: 'German', level: 'B1' }],
+      },
+    })
+    expect(store.spoken_languages.map((l) => l.sort_order)).toEqual([0, 1, 2])
+    expect(store.spoken_languages.map((l) => l.name.en)).toEqual(['Norwegian', 'English', 'German'])
+  })
+
+  it('marks a mother tongue Native and leaves an unlevelled language blank', () => {
+    const store = imported({
+      languageSkills: { motherTongues: ['Norwegian'], otherLanguages: [{ language: 'German' }] },
+    })
+    expect(store.spoken_languages[0].level).toEqual({ en: 'Native' })
+    expect(store.spoken_languages[1].level).toEqual({})
+  })
+
+  it('skips a language entry with no name', () => {
+    const store = imported({ languageSkills: { motherTongues: [{}, 'Norwegian'], otherLanguages: [{ level: 'B1' }] } })
+    expect(store.spoken_languages.map((l) => l.name.en)).toEqual(['Norwegian'])
+  })
+
+  it('reads the about-me text as the opening profile, and adds none without it', () => {
+    expect(imported({ aboutMe: { description: 'I build systems.' } }).key_qualifications[0].summary)
+      .toEqual({ en: 'I build systems.' })
+    expect(imported({}).key_qualifications).toEqual([])
+  })
+})
+
+/**
+ * The XML import path, read from a hand-written SkillsPassport.
+ *
+ * Real Europass files are pretty-printed, so EVERY text node arrives wrapped in
+ * whitespace — the trims are not defensive, they are the normal case. A value
+ * that keeps its padding lands in the CV with a leading space and sorts wrongly
+ * everywhere it is compared.
+ */
+describe('importFromEuropassXml — a pretty-printed document', () => {
+  const XML = `<?xml version="1.0" encoding="UTF-8"?>
+<SkillsPassport locale="en">
+  <Locale>en</Locale>
+  <LearnerInfo>
+    <Identification>
+      <PersonName>
+        <FirstName>  Kari  </FirstName>
+        <Surname>  Nordmann  </Surname>
+      </PersonName>
+      <ContactInfo>
+        <Email><Contact>  kari@work.test  </Contact></Email>
+        <Telephone><Contact>  +47 900 00 000  </Contact></Telephone>
+      </ContactInfo>
+    </Identification>
+    <WorkExperienceList>
+      <WorkExperience>
+        <Period>
+          <From year="2018" month="--06"/>
+          <To year="2020" month="--09"/>
+          <Current>  true  </Current>
+        </Period>
+        <Position><Label>  Principal Consultant  </Label></Position>
+        <Activities>  Led the rebuild.  </Activities>
+        <Employer><Name>  Cartavio AS  </Name></Employer>
+      </WorkExperience>
+      <WorkExperience>
+        <Period>
+          <From year="2014"/>
+          <To year="2018" month="--03"/>
+        </Period>
+        <Position><Label>Developer</Label></Position>
+        <Employer><Name>Old Co</Name></Employer>
+      </WorkExperience>
+    </WorkExperienceList>
+    <EducationList>
+      <Education>
+        <Period><From year="2010"/><To year="2014"/></Period>
+        <Title>  MSc Computer Science  </Title>
+        <Organisation><Name>  NTNU  </Name></Organisation>
+      </Education>
+    </EducationList>
+    <Skills>
+      <Linguistic>
+        <MotherTongueList>
+          <MotherTongue><Description><Label>  Norwegian  </Label></Description></MotherTongue>
+        </MotherTongueList>
+        <ForeignLanguageList>
+          <ForeignLanguage>
+            <Description><Label>  English  </Label></Description>
+            <ProficiencyLevel><Listening>  C2  </Listening></ProficiencyLevel>
+          </ForeignLanguage>
+          <ForeignLanguage>
+            <Description><Label>German</Label></Description>
+          </ForeignLanguage>
+          <ForeignLanguage>
+            <ProficiencyLevel><Listening>A1</Listening></ProficiencyLevel>
+          </ForeignLanguage>
+        </ForeignLanguageList>
+      </Linguistic>
+    </Skills>
+  </LearnerInfo>
+</SkillsPassport>`
+
+  const store = () => importFromEuropassXml(XML)
+
+  it('trims the identity fields it reads', () => {
+    const r = store().resume!
+    expect(r.full_name).toBe('Kari Nordmann')
+    expect(r.email).toBe('kari@work.test')
+    expect(r.phone).toBe('+47 900 00 000')
+  })
+
+  it('trims every text value on an entry', () => {
+    const w = store().work_experiences[0]
+    expect(w.employer).toEqual({ en: 'Cartavio AS' })
+    expect(w.role_title).toEqual({ en: 'Principal Consultant' })
+    expect(w.description).toEqual({ en: 'Led the rebuild.' })
+    expect(store().educations[0].school).toEqual({ en: 'NTNU' })
+    expect(store().educations[0].degree).toEqual({ en: 'MSc Computer Science' })
+  })
+
+  it('reads a padded <Current>true</Current> as an OPEN end, ignoring any To', () => {
+    // The importer keys `end: null` off exactly this element; a comparison that
+    // does not trim reads "  true  " as not-true and dates the row as finished
+    // from the To element it should have ignored.
+    expect(store().work_experiences[0].end).toBeNull()
+    expect(store().work_experiences[0].start).toEqual({ year: 2018, month: 6 })
+  })
+
+  it('reads a closed period from its two dates', () => {
+    expect(store().work_experiences[1]).toMatchObject({
+      start: { year: 2014, month: null }, end: { year: 2018, month: 3 },
+    })
+  })
+
+  it('imports every row enabled and unstarred', () => {
+    const s = store()
+    expect(s.work_experiences[0]).toMatchObject({ starred: false, disabled: false })
+    expect(s.educations[0]).toMatchObject({ starred: false, disabled: false, exchange: false })
+    for (const l of s.spoken_languages) expect(l.disabled, l.name.en).toBe(false)
+  })
+
+  it('leaves the per-item link lists empty', () => {
+    expect(store().work_experiences[0].role_ids).toEqual([])
+  })
+
+  it('numbers the languages upward across both lists, mother tongue first', () => {
+    const langs = store().spoken_languages
+    // The fourth entry has a level but no name at all, and is dropped.
+    expect(langs.map((l) => l.name.en)).toEqual(['Norwegian', 'English', 'German'])
+    expect(langs.map((l) => l.sort_order)).toEqual([0, 1, 2])
+    expect(langs[0].level).toEqual({ en: 'Native' })
+    expect(langs[1].level).toEqual({ en: 'C2' })
+    expect(langs[2].level).toEqual({})
+  })
+})
