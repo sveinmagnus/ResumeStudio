@@ -1611,3 +1611,138 @@ describe('validateHygiene — the category proposals', () => {
     expect(dropped[0]).toMatch(/isn't in the registry/)
   })
 })
+
+/**
+ * Term extraction is the free first pass of B4 — it runs with no model at all,
+ * so what it offers IS the feature on an install with no AI configured.
+ */
+describe('extractPostingTerms — the run scanner', () => {
+  const store = (): ResumeStore => emptyStore()
+
+  it('strips trailing punctuation from a term rather than reporting it', () => {
+    // "Kubernetes," and "Kubernetes" are the same requirement; reporting both
+    // fills the table with duplicates the reader has to reconcile.
+    const terms = extractPostingTerms('We run Kubernetes, Terraform and Azure.', store(), 'en')
+    expect(terms).toContain('Kubernetes')
+    expect(terms.some((t) => t.endsWith(','))).toBe(false)
+    expect(terms.some((t) => t.endsWith('.'))).toBe(false)
+  })
+
+  it('keeps only the part of a run BEFORE a sentence boundary', () => {
+    // A full stop is a word character to the run pattern (so "Node.js" survives),
+    // which means a run can swallow the start of the next sentence.
+    const terms = extractPostingTerms('You will use Kubernetes. Also Terraform daily.', store(), 'en')
+    expect(terms).toContain('Kubernetes')
+    expect(terms.every((t) => !t.includes('. '))).toBe(true)
+  })
+
+  it('resumes scanning AFTER the boundary, so the next sentence still offers terms', () => {
+    // Skipping past the boundary is what keeps "Azure DevOps" findable; resuming
+    // before it would rescan the same run forever or lose the sentence.
+    const terms = extractPostingTerms(
+      'Experience with Postgres. Azure DevOps is used for delivery.', store(), 'en')
+    expect(terms).toContain('Postgres')
+    expect(terms.join(' ')).toContain('Azure DevOps')
+  })
+
+  it('keeps "Node.js" whole — a dot inside a word is not a boundary', () => {
+    const terms = extractPostingTerms('The stack is Node.js on Linux.', store(), 'en')
+    expect(terms).toContain('Node.js')
+  })
+
+  it('caps the number of terms it offers', () => {
+    const many = Array.from({ length: 90 }, (_, i) => `Termnum${i}x`).join(' and ')
+    expect(extractPostingTerms(many, store(), 'en')).toHaveLength(60)
+  })
+
+  it('reads only the first stretch of a very long posting', () => {
+    const tail = 'Kubernetes'
+    const posting = `${'padding word '.repeat(2000)}${tail}`
+    expect(extractPostingTerms(posting, store(), 'en')).not.toContain(tail)
+  })
+})
+
+describe('validateAtsResponse — what the model is allowed to answer about', () => {
+  it('refuses a reply that is not an object, and one with no equivalences', () => {
+    for (const bad of [null, undefined, 'text', 42]) {
+      expect(() => validateAtsResponse(bad, ['Kubernetes']), String(bad)).toThrow(/not a JSON object/)
+    }
+    expect(() => validateAtsResponse({ terms: [] }, ['Kubernetes'])).toThrow(/no "equivalences" array/)
+  })
+
+  it('numbers a dropped entry from ONE', () => {
+    const { dropped } = validateAtsResponse(
+      { equivalences: [{ term: 'Kubernetes', verdict: 'covered', quote: 'ran k8s' }, 'nope'] },
+      ['Kubernetes'])
+    expect(dropped.some((d) => d.startsWith('Entry 2'))).toBe(true)
+  })
+
+  it('trims and caps the text it keeps from an entry', () => {
+    const { equivalences } = validateAtsResponse(
+      { equivalences: [{ term: '  Kubernetes  ', verdict: 'covered', quote: `  ${'q'.repeat(700)}  ` }] },
+      ['Kubernetes'])
+    expect(equivalences).toHaveLength(1)
+    expect(equivalences[0].quote.startsWith(' ')).toBe(false)
+    expect(equivalences[0].quote).toHaveLength(500)
+  })
+
+  it('caps how many entries it will read', () => {
+    const many = Array.from({ length: 90 }, () => 'not an object')
+    const { dropped } = validateAtsResponse({ equivalences: many }, ['Kubernetes'])
+    expect(dropped).toHaveLength(60)
+  })
+})
+
+describe('validateAtsResponse — the verdict and the suggestion', () => {
+  const asked = ['Kubernetes']
+  const one = (over: Record<string, unknown>) =>
+    validateAtsResponse({ equivalences: [{ term: 'Kubernetes', ...over }] }, asked)
+
+  it('says so with a dash when the entry names no term at all', () => {
+    // The note is shown verbatim; an empty pair of quotes reads as a bug rather
+    // than as "the model answered about nothing".
+    const { dropped } = validateAtsResponse({ equivalences: [{ verdict: 'covered' }] }, asked)
+    expect(dropped[0]).toContain('"—"')
+  })
+
+  it('keeps only the FIRST answer about a term', () => {
+    // A model that repeats itself would otherwise put the same row in the table
+    // twice, with two different verdicts.
+    const { equivalences } = validateAtsResponse({ equivalences: [
+      { term: 'Kubernetes', verdict: 'covered', quote: 'ran k8s' },
+      { term: 'kubernetes', verdict: 'missing' },
+    ] }, asked)
+    expect(equivalences).toHaveLength(1)
+    expect(equivalences[0].verdict).toBe('covered')
+  })
+
+  it('carries a suggestion for a PHRASING verdict and for nothing else', () => {
+    // A missing term gets no suggestion: that path is how keyword stuffing would
+    // get in.
+    expect(one({ verdict: 'phrasing', suggestion: 'Say container orchestration' }).equivalences[0].suggestion)
+      .toBe('Say container orchestration')
+    expect(one({ verdict: 'missing', suggestion: 'Just add it' }).equivalences[0].suggestion).toBe('')
+    expect(one({ verdict: 'covered', quote: 'ran k8s', suggestion: 'x' }).equivalences[0].suggestion).toBe('')
+  })
+
+  it('downgrades a COVERED verdict that brings no quote', () => {
+    // The quote is the evidence; without it "covered" is the model's word alone.
+    expect(one({ verdict: 'covered' }).equivalences[0].verdict).toBe('phrasing')
+    expect(one({ verdict: 'covered', quote: 'ran k8s' }).equivalences[0].verdict).toBe('covered')
+  })
+
+  it('reads an unknown verdict as missing', () => {
+    expect(one({ verdict: 'maybe' }).equivalences[0].verdict).toBe('missing')
+    expect(one({}).equivalences[0].verdict).toBe('missing')
+  })
+})
+
+describe('buildAtsPrompt — the posting it carries', () => {
+  it('trims and caps the posting rather than pasting an advert of any length', () => {
+    const posting = `  START ${'padding '.repeat(4000)}END  `
+    const coverage = { terms: [{ term: 'Kubernetes', status: 'missing' as const }] }
+    const prompt = buildAtsPrompt(coverage as never, 'the document text', posting, 'en')
+    expect(prompt).toContain('START')
+    expect(prompt).not.toContain('END')
+  })
+})

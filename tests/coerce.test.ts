@@ -218,3 +218,38 @@ describe('checkDate — what it complains about', () => {
     expect(issues(true)).toHaveLength(1)
   })
 })
+
+describe('toYearMonth — the shapes a model actually sends', () => {
+  it('reads null and undefined as no date, not as year zero', () => {
+    expect(toYearMonth(null)).toBeNull()
+    expect(toYearMonth(undefined)).toBeNull()
+  })
+
+  it('reads a bare year from a number or a string', () => {
+    expect(toYearMonth(2019)).toEqual({ year: 2019, month: null })
+    expect(toYearMonth('2019')).toEqual({ year: 2019, month: null })
+    expect(toYearMonth('not a year')).toBeNull()
+  })
+
+  it('reads an object, and treats a missing month as year-only', () => {
+    expect(toYearMonth({ year: 2019, month: 6 })).toEqual({ year: 2019, month: 6 })
+    expect(toYearMonth({ year: 2019 })).toEqual({ year: 2019, month: null })
+    expect(toYearMonth({ year: 2019, month: null })).toEqual({ year: 2019, month: null })
+  })
+
+  it('refuses a shape that is neither a scalar nor a plain object', () => {
+    // An array of numbers is a plausible model answer for a date, and reading
+    // `['2019','06'].year` would silently produce a NaN year.
+    expect(toYearMonth([2019, 6])).toBeNull()
+    expect(toYearMonth(new Date())).toBeNull()
+    expect(toYearMonth(true)).toBeNull()
+  })
+
+  it('drops an out-of-range or fractional month rather than the whole date', () => {
+    // The year is the part a CV reader needs; losing it over a bad month would
+    // drop the entry out of every date sort.
+    for (const month of [0, 13, 6.5, 'June']) {
+      expect(toYearMonth({ year: 2019, month }), String(month)).toEqual({ year: 2019, month: null })
+    }
+  })
+})

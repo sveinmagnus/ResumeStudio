@@ -427,3 +427,22 @@ describe('the leak report stays readable and complete', () => {
     expect(() => validateAnonCheck('a string')).toThrow(InvalidAnonCheckError)
   })
 })
+
+describe('findKnownLeaks — overlapping matches', () => {
+  const store = (): ResumeStore => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    s.projects = [makeProject({
+      id: 'p1', customer: { en: 'Nordic Bank' },
+      long_description: { en: 'Worked for Nordic Bank and for Bank of Oslo.' },
+    })]
+    return s
+  }
+
+  it('does not report a shorter name already covered by a longer one', () => {
+    const view = makeView({ sections: buildViewSections(), force_anonymized: true })
+    const found = findKnownLeaks(store(), view, 'en').map((f) => f.text)
+    // 'Nordic Bank' is the customer; a bare 'Bank' would be a substring of it.
+    expect(found.filter((t) => t === 'Nordic Bank').length).toBeGreaterThan(0)
+  })
+})

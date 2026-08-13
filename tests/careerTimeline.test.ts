@@ -485,3 +485,18 @@ describe('the gap threshold and the axis bounds', () => {
     expect(m.years).toContain(2022)
   })
 })
+
+describe('monthsToLabel — the axis ticks', () => {
+  it('names every month of a year, and never leaves a leading space', () => {
+    expect(monthsToLabel(2020 * 12 + 1)).toBe('Jan 2020')
+    expect(monthsToLabel(2020 * 12 + 12)).toBe('Dec 2020')
+  })
+
+  it('decodes the year boundary back to the month that encoded it', () => {
+    // December and the January after it are one month apart in the encoding;
+    // an off-by-one here relabels every tick on the axis by a year.
+    expect(monthsToLabel(2020 * 12 + 12)).toBe('Dec 2020')
+    expect(monthsToLabel(2021 * 12 + 1)).toBe('Jan 2021')
+    expect(monthsToLabel(2021 * 12)).toBe('Dec 2020')
+  })
+})
