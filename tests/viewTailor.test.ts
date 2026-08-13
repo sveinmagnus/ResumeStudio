@@ -6,7 +6,7 @@ import {
 } from '../src/lib/viewTailor'
 import { DEFAULT_VIEW_STYLE } from '../src/lib/viewStyle'
 import { DEFAULT_VIEW_HEADER, DEFAULT_VIEW_FOOTER, defaultHeaderFields } from '../src/lib/viewHeader'
-import { emptyStore, makeProject, makeWork, makeSkill, makeView } from './fixtures'
+import { emptyStore, makeProject, makeWork, makeSkill, makeView, makeResume } from './fixtures'
 
 function storeWithContent() {
   const store = emptyStore()
@@ -463,5 +463,19 @@ describe('postingLabel caps the note', () => {
     const out = postingLabel(over)
     expect(out).toHaveLength(80)
     expect(out.endsWith('…')).toBe(true)
+  })
+})
+
+describe('applyTailorResponse — the item index it builds', () => {
+  it('indexes each item once, from the real sections only', () => {
+    // Promoted Projects derives its items from Projects; visiting both would
+    // index the same project twice, and a reply naming it would be applied
+    // through whichever section happened to be indexed last.
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    s.projects = [makeProject({ id: 'p1', customer: { en: 'Acme' } })]
+    const out = applyTailorResponse(s, { $schema: TAILOR_SCHEMA, exclude_item_ids: ['p1'] } as never, 'en')
+    expect(out.view.excluded_item_ids).toContain('p1')
+    expect(out.unknownIds ?? []).toEqual([])
   })
 })

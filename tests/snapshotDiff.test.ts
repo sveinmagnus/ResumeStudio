@@ -470,3 +470,20 @@ describe('describeSnapshotChanges — malformed values never reach a renderer', 
     expect(describeSnapshotChanges(next, prev, 'en')[0].label).toBe('English name')
   })
 })
+
+describe('the item diff reports only what actually changed', () => {
+  it('says nothing about an item that is byte-identical', () => {
+    // Every restore compares two whole snapshots; reporting an unchanged item
+    // as edited makes the history list useless on a large CV.
+    const a = { ...emptyStore(), projects: [makeProject({ id: 'p1', customer: { en: 'Acme' } })] }
+    const b = { ...emptyStore(), projects: [makeProject({ id: 'p1', customer: { en: 'Acme' } })] }
+    const changes = describeSnapshotChanges(a as never, b as never, 'en')
+    expect(changes.filter((c) => c.kind === 'edited')).toEqual([])
+  })
+
+  it('reports an item whose text changed', () => {
+    const a = { ...emptyStore(), projects: [makeProject({ id: 'p1', customer: { en: 'Acme' } })] }
+    const b = { ...emptyStore(), projects: [makeProject({ id: 'p1', customer: { en: 'Beta' } })] }
+    expect(describeSnapshotChanges(a as never, b as never, 'en').some((c) => c.kind === 'edited')).toBe(true)
+  })
+})
