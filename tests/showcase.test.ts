@@ -99,3 +99,27 @@ describe('showcaseGroups — the empty cases', () => {
     expect(showcaseGroups(s, makeView(), 'en').map((g) => g.id)).toEqual(['c1'])
   })
 })
+
+describe('showcaseGroups — the two empty cases', () => {
+  it('returns nothing when every category is excluded', () => {
+    const s = emptyStore()
+    s.skill_categories = [makeSkillCategory({ id: 'c1', name: { en: 'Cloud' } })]
+    s.skills = [makeSkill({ id: 'go', name: { en: 'Go' }, category_id: 'c1', is_highlighted: true })]
+    expect(showcaseGroups(s, makeView({ excluded_item_ids: ['c1'] }), 'en')).toEqual([])
+  })
+
+  it('drops a category whose skills are all unhighlighted', () => {
+    // The Showcase shows the skills the consultant chose to feature; an empty
+    // heading is a promise the section does not keep.
+    const s = emptyStore()
+    s.skill_categories = [
+      makeSkillCategory({ id: 'c1', name: { en: 'Cloud' } }),
+      makeSkillCategory({ id: 'c2', name: { en: 'Languages' } }),
+    ]
+    s.skills = [
+      makeSkill({ id: 'go', name: { en: 'Go' }, category_id: 'c1', is_highlighted: false }),
+      makeSkill({ id: 'rs', name: { en: 'Rust' }, category_id: 'c2', is_highlighted: true }),
+    ]
+    expect(showcaseGroups(s, makeView(), 'en').map((g) => g.id)).toEqual(['c2'])
+  })
+})
