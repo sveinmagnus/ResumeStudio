@@ -598,3 +598,66 @@ describe('computeSectionCoverage — what it declines to measure', () => {
     expect(cl.populated).toBe(1)
   })
 })
+
+/**
+ * The per-section "does this item say anything" probe, and the ordering of the
+ * drill-down.
+ *
+ * The probe decides whether an item counts as populated at all, so a section
+ * dropping out of it reports every one of its items as empty — the panel then
+ * tells the user to fill in fields that are already filled.
+ */
+describe('completeness — each section counts its own fields', () => {
+  const store = (over: Partial<ResumeStore>): ResumeStore => ({ ...emptyStore(), ...over })
+  const sectionRow = (data: ResumeStore, key: string) =>
+    computeSectionCoverage(data, 'en').find((s) => s.key === key)
+
+  it('counts a course, certification, language and presentation as populated', () => {
+    // One field each, and a different field per section: a probe that fell
+    // through to "false" would report these as empty.
+    const rows = [
+      ['courses', store({ courses: [makeCourse({ id: 'c1', name: {}, program: { en: 'Cloud track' } })] })],
+      ['certifications', store({ certifications: [makeCertification({ id: 'ce1', name: {}, organiser: { en: 'Amazon' } })] })],
+      ['spoken_languages', store({ spoken_languages: [{ id: 'l1', resume_id: 'r', name: {}, level: { en: 'Native' }, sort_order: 0, disabled: false } as never] })],
+      ['presentations', store({ presentations: [{ ...makeCourse({ id: 'p1' }), event: { en: 'JavaZone' }, title: {}, description: {} } as never] })],
+    ] as const
+    for (const [key, data] of rows) {
+      expect(sectionRow(data, key)?.populated, key).toBeGreaterThan(0)
+    }
+  })
+})
+
+describe('completenessBySection — the order of the drill-down', () => {
+  it('sinks a section with no items below one that has a gap', () => {
+    // An empty section is not actionable; leaving it above the sections with
+    // real gaps buries the work the user came to do.
+    const s = { ...emptyStore(), projects: [makeProject({ id: 'p1', customer: { en: 'Acme' }, long_description: {} })] }
+    const rows = computeSectionCoverage(s as never, 'en')
+    const projects = rows.findIndex((r) => r.key === 'projects')
+    const empty = rows.findIndex((r) => r.total === 0)
+    expect(projects).toBeLessThan(empty)
+  })
+
+  it('orders two gapped sections by the SIZE of the gap', () => {
+    const s = {
+      ...emptyStore(),
+      projects: [
+        makeProject({ id: 'p1', customer: {}, description: {}, long_description: {} }),
+        makeProject({ id: 'p2', customer: {}, description: {}, long_description: {} }),
+      ],
+      educations: [makeEducation({ id: 'e1', school: {}, degree: {}, description: {} })],
+    }
+    const rows = computeSectionCoverage(s as never, 'en').filter((r) => r.total > 0)
+    const gaps = rows.map((r) => r.total - r.populated)
+    expect(gaps).toEqual([...gaps].sort((a, b) => b - a))
+  })
+
+  it('keeps the empty sections in a stable alphabetical order among themselves', () => {
+    // They all sink below the actionable rows, but the panel still lists them —
+    // and a comparator that reports an order for two equally-empty sections
+    // makes that list reshuffle on every render.
+    const rows = computeSectionCoverage(emptyStore(), 'en').filter((r) => r.total === 0)
+    expect(rows.length).toBeGreaterThan(3)
+    expect(rows.map((r) => r.label)).toEqual([...rows.map((r) => r.label)].sort((a, b) => a.localeCompare(b)))
+  })
+})
