@@ -892,7 +892,7 @@ describe('the registry interning a bulk add does', () => {
   })
 })
 
-describe('appendBulkItems — where the new rows land', () => {
+describe('appendBulkItems — the sort_order of the new rows', () => {
   const spec = (key: string) => bulkSpec(key as never)!
 
   it('numbers new rows after the highest sort_order already there', () => {
