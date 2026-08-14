@@ -277,6 +277,12 @@ export const SECTION_CATALOG: Record<string, SectionDescriptor> = {
           meta: [industry, roles].filter(Boolean),
           body: longDesc || shortDesc,
           tags: skillNames(it, locale),
+          // Carried on BOTH shapes even though the HTML renderer draws chips and
+          // ignores it: the label is a fact about the tags, and every renderer
+          // that writes them as text needs it. The ATS text adapter asks for this
+          // shape (target 'html'), so leaving it off printed the skills as a bare
+          // comma list with nothing saying what they were.
+          tagsLabel: `${xs('skills', locale)}: `,
         })
       }
       // DOCX renders more project facts (team size, allocation, highlights,
