@@ -905,3 +905,73 @@ describe('richToPlain — list markers', () => {
     expect(richToPlain('<p>Alpha</p><p>Beta</p>')).toBe('Alpha\nBeta')
   })
 })
+
+/**
+ * The ONE kind of line break (CLAUDE.md §4).
+ *
+ * A value can encode "new line" three ways — a `<br>`, a raw newline in a text
+ * node, a blank line — and each used to render differently per target. The
+ * sanitiser canonicalises all of them, so these assert the conversion itself
+ * rather than a downstream render.
+ */
+describe('sanitizeRich — raw newlines become real breaks', () => {
+  const NL = String.fromCharCode(10)
+
+  it('turns a newline inside a paragraph into a paragraph boundary', () => {
+    const out = sanitizeRich(`<p>First${NL}Second</p>`)
+    expect(out).toBe('<p>First</p><p>Second</p>')
+  })
+
+  it('normalises CRLF and a lone CR the same way', () => {
+    const CR = String.fromCharCode(13)
+    expect(sanitizeRich(`<p>First${CR}${NL}Second</p>`)).toBe('<p>First</p><p>Second</p>')
+    expect(sanitizeRich(`<p>First${CR}Second</p>`)).toBe('<p>First</p><p>Second</p>')
+  })
+
+  it('keeps a break inside a LIST ITEM as a break, not a new bullet', () => {
+    // Splitting there would invent a bullet nobody wrote.
+    const out = sanitizeRich(`<ul><li>First${NL}Second</li></ul>`)
+    expect(out).toContain('<br>')
+    expect(out.match(/<li>/g) ?? []).toHaveLength(1)
+  })
+
+  it('drops the layout whitespace BETWEEN list items', () => {
+    // Pretty-printed markup indents its <li>s; that whitespace renders as
+    // nothing, so carrying it into the canonical value is noise in every diff.
+    const out = sanitizeRich(`<ul>${NL}  <li>First</li>${NL}  <li>Second</li>${NL}</ul>`)
+    expect(out).toBe('<ul><li>First</li><li>Second</li></ul>')
+  })
+
+  it('leaves a text node that has no newline alone', () => {
+    expect(sanitizeRich('<p>First  Second</p>')).toBe('<p>First  Second</p>')
+  })
+
+  it('leaves whitespace-only text outside a list alone rather than breaking it up', () => {
+    expect(sanitizeRich(`<p>A</p>${NL}<p>B</p>`)).toBe('<p>A</p><p>B</p>')
+  })
+})
+
+describe('sanitizeRich — the tag allowlist', () => {
+  it('unwraps a disallowed element, keeping its children', () => {
+    // Unwrap rather than drop: the words the consultant typed are the point,
+    // and a <div> from a paste carries all of them.
+    expect(sanitizeRich('<p><span>Alpha</span> <font color="red">Beta</font></p>'))
+      .toBe('<p>Alpha Beta</p>')
+  })
+
+  it('strips every attribute from an allowed element', () => {
+    // Attributes are the injection surface: style, class, and above all href /
+    // on* handlers. None of them are needed by any renderer.
+    const out = sanitizeRich('<p class="x" style="color:red" onclick="alert(1)"><strong id="y">Alpha</strong></p>')
+    expect(out).toBe('<p><strong>Alpha</strong></p>')
+  })
+
+  it('drops a script or style element entirely, not just its tag', () => {
+    // SECURITY: unwrapping these would move their TEXT into the document, so a
+    // script body would render as visible prose.
+    const out = sanitizeRich('<p>Alpha</p><script>alert(1)</script><style>p{}</style>')
+    expect(out).not.toContain('alert(1)')
+    expect(out).not.toContain('p{}')
+    expect(out).toContain('Alpha')
+  })
+})

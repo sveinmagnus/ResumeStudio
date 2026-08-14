@@ -1529,3 +1529,52 @@ describe('exportDocx — the gap above the footer', () => {
     expect(paraWith(xml, 'Kari Nordmann')).not.toContain('w:before="280"')
   })
 })
+
+describe('exportDocx — the geometry around the header', () => {
+  const build = async (over: Record<string, unknown>, resume: Record<string, unknown> = {}) => {
+    const store = emptyStore()
+    store.resume = makeResume({
+      full_name: 'Kari Nordmann', email: 'k@x.io', phone: '+47 900', website_url: 'https://x.io',
+      profile_photo: PNG_1x1, ...resume,
+    })
+    await exportDocx(store, makeView({
+      sections: buildViewSections(),
+      header: withHeaderDefaults({ photo_shape: 'square', ...over } as never),
+    }), 'en')
+    return documentXml(lastBlob!)
+  }
+
+  it('puts the photo margin on the INSIDE edge, whichever side it sits on', async () => {
+    // The gap belongs between the photo and the text; on the outside it just
+    // indents the whole header.
+    const gapRight = '<w:right w:type="dxa" w:w="200"/>'
+    const gapLeft = '<w:left w:type="dxa" w:w="200"/>'
+
+    const left = await build({ photo_placement: 'left' })
+    expect(left).toContain(gapRight)
+    expect(left).not.toContain(gapLeft)
+
+    const right = await build({ photo_placement: 'right' })
+    expect(right).toContain(gapLeft)
+    expect(right).not.toContain(gapRight)
+  })
+
+  it('treats the _of_name variants as the same two sides', async () => {
+    const leftOf = await build({ photo_placement: 'left_of_name' })
+    expect(leftOf).toContain('<w:right w:type="dxa" w:w="200"/>')
+    const rightOf = await build({ photo_placement: 'right_of_name' })
+    expect(rightOf).toContain('<w:left w:type="dxa" w:w="200"/>')
+  })
+
+  it('gives the LAST contact line the big gap and the others the small one', async () => {
+    // The last line closes the header block; giving every line the closing gap
+    // spreads the contact details out like a list.
+    const xml = await build({ photo_placement: 'none' })
+    const paras = xml.split('</w:p>')
+    const contact = paras.filter((p) => /k@x\.io|\+47 900|https:/.test(p))
+    expect(contact.length).toBeGreaterThan(0)
+    const last = contact[contact.length - 1]
+    expect(last).toMatch(/w:after="200"/)
+    for (const p of contact.slice(0, -1)) expect(p).toMatch(/w:after="30"/)
+  })
+})

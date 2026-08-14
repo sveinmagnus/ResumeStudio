@@ -132,7 +132,7 @@ describe('tidyIntro — unwrapping what the model actually returns', () => {
   })
 })
 
-describe('buildIntroPrompt — the profile text it quotes', () => {
+describe('buildIntroPrompt — flattening the profile it quotes', () => {
   it('flattens the profile to one line, collapsing runs of space', () => {
     const s = emptyStore()
     s.resume = makeResume({ full_name: 'X' })
@@ -143,5 +143,72 @@ describe('buildIntroPrompt — the profile text it quotes', () => {
     const prompt = buildIntroPrompt(s, makeView({ sections: buildViewSections() }), 'en', DEFAULT_INTRO_FOCUS)
     expect(prompt).toContain('First line. Second line.')
     expect(prompt).not.toContain('First  line.')
+  })
+})
+
+/**
+ * `tidyIntro` cleans up what a model actually returns. Every rule here exists
+ * because a model did the thing: fenced the answer, prefixed it with a label,
+ * or wrapped it in quotes. Whatever survives lands straight in the view's
+ * introduction field, so a leftover fence marker ships in the export.
+ */
+describe('tidyIntro — the packaging a model wraps its answer in', () => {
+  const NL = String.fromCharCode(10)
+
+  it('strips a fence and the whitespace it leaves behind', () => {
+    expect(tidyIntro('```' + NL + 'The introduction.' + NL + '```')).toBe('The introduction.')
+    expect(tidyIntro('```markdown' + NL + 'The introduction.' + NL + '```')).toBe('The introduction.')
+  })
+
+  it('strips a leading label with or without a space after the colon', () => {
+    // Both spacings occur; requiring the space leaves "Introduction:" in the
+    // field, which then prints in the export.
+    expect(tidyIntro('Introduction: The text.')).toBe('The text.')
+    expect(tidyIntro('Introduction:The text.')).toBe('The text.')
+    expect(tidyIntro("Here's the introduction: The text.")).toBe('The text.')
+    expect(tidyIntro('Here is what I wrote: The text.')).toBe('The text.')
+  })
+
+  it('strips a label with a space BEFORE the colon too', () => {
+    // "Introduction : text" comes back from models that pad punctuation; the
+    // label is still a label.
+    expect(tidyIntro('Introduction : The text.')).toBe('The text.')
+  })
+
+  it('leaves a colon that is part of the sentence alone', () => {
+    // "Specialist in one thing: delivery" is the introduction, not a label.
+    expect(tidyIntro('Specialist in one thing: delivery.')).toBe('Specialist in one thing: delivery.')
+  })
+
+  it('trims what is left after each strip', () => {
+    expect(tidyIntro('   Introduction:   The text.   ')).toBe('The text.')
+  })
+
+  it('unwraps quotes only when they wrap the WHOLE thing', () => {
+    expect(tidyIntro('"The introduction."')).toBe('The introduction.')
+    expect(tidyIntro('He said "hello" to them.')).toBe('He said "hello" to them.')
+  })
+
+  it('keeps the paragraph breaks inside the introduction', () => {
+    // Unlike a one-line summary, an introduction may be several paragraphs.
+    expect(tidyIntro(`First.${NL}${NL}Second.`)).toBe(`First.${NL}${NL}Second.`)
+  })
+})
+
+describe('buildIntroPrompt — the profile text it quotes', () => {
+  it('flattens the profile summary to one trimmed line', () => {
+    // It is quoted into a labelled block; leading whitespace or an embedded
+    // newline turns one field into what reads as two.
+    const NL = String.fromCharCode(10)
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    s.key_qualifications = [makeKQ({
+      id: 'kq1', tag_line: { en: 'Architect' },
+      summary: { en: `  <p>First   line.</p><p>Second line.</p>  ` },
+    } as never)]
+    const prompt = buildIntroPrompt(s, makeView({ sections: buildViewSections() }), 'en', DEFAULT_INTRO_FOCUS)
+    expect(prompt).toContain('First line. Second line.')
+    expect(prompt).not.toContain('  First')
+    expect(prompt).not.toContain(`${NL}Second line.`)
   })
 })

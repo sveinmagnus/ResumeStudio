@@ -750,7 +750,17 @@ describe('viewText — no dangling separators or prefixes', () => {
     }, 'projects')
     // The label rides the same line as the values.
     const tagLine = lines.find((l) => l.includes('Go'))!
-    expect(tagLine).toBe('Go')
+    expect(tagLine).toBe('Skills: Go')
+  })
+
+  it('omits the tag line entirely when the item has no tags', () => {
+    // The label and the values are one line; an empty tag list would leave the
+    // label stranded above the next item.
+    const lines = one((s) => {
+      s.projects = [makeProject({ id: 'p1', customer: { en: 'Acme' }, skills: [] })]
+    }, 'projects')
+    expect(lines.some((l) => l.trim() === 'Skills:')).toBe(false)
+    expect(lines.some((l) => l.trim().endsWith(':'))).toBe(false)
   })
 
   it('does not open the introduction with a blank line', () => {
