@@ -1130,3 +1130,101 @@ describe('buildPdfDocDefinition — margins and rules from the tokens', () => {
     expect(marginOf(firstHidden)[1]).toBeCloseTo(marginOf(firstShown)[1] + t.itemGapTwips / 20, 3)
   })
 })
+
+/**
+ * SUMMARY detail in the PDF.
+ *
+ * A view set to summary renders one line per item instead of a block, and none of
+ * that path had a test — the whole branch was uncovered. It is also where the
+ * short description is placed, which is the one setting that changes how a
+ * one-line CV reads.
+ */
+describe('buildPdfDocDefinition — the summary line', () => {
+  const store = (over: Record<string, unknown> = {}) => ({
+    ...emptyStore(),
+    resume: makeResume({ full_name: 'Jane Doe' }),
+    work_experiences: [makeWork({
+      id: 'w1', employer: { en: 'Cartavio' }, role_title: { en: 'Architect' },
+      start: { year: 2020, month: 1 }, end: { year: 2021, month: 6 },
+      ...over,
+    })],
+  })
+  const summaryView = (style: Record<string, unknown> = {}) => makeView({
+    sections: [{ key: 'work_experiences', detail: 'summary', sort_order: 0, style } as never],
+  })
+
+  it('renders one line carrying the title and the meta', async () => {
+    const dd = await buildPdfDocDefinition(store(), summaryView(), 'en')
+    const text = collectText(dd.content).join(' | ')
+    expect(text).toContain('Architect')
+    expect(text).toContain('Cartavio')
+    // A summary line, not the full block: no separate description paragraph.
+    expect(text).not.toContain('Long desc')
+  })
+
+  it('joins several meta parts with a middot', async () => {
+    const dd = await buildPdfDocDefinition(store(), summaryView(), 'en')
+    expect(collectText(dd.content).join(' | ')).toMatch(/Cartavio[^|]*\u00b7/)
+  })
+
+  it('puts the short description on its own line by default', async () => {
+    const dd = await buildPdfDocDefinition(
+      store({ short_description: { en: 'Ran the platform.' } }), summaryView(), 'en')
+    const lines = collectText(dd.content)
+    // Its own text node, and NOT glued onto the one carrying the meta.
+    expect(lines).toContain('Ran the platform.')
+    expect(lines.some((l) => l.includes('Cartavio') && l.includes('Ran the platform.'))).toBe(false)
+  })
+
+  it('appends it to the same line when asked to', async () => {
+    const dd = await buildPdfDocDefinition(
+      store({ short_description: { en: 'Ran the platform.' } }),
+      summaryView({ short_desc_line: 'inline' }), 'en')
+    const lines = collectText(dd.content)
+    expect(lines.some((l) => l.includes('Cartavio') && l.includes('Ran the platform.'))).toBe(true)
+    expect(lines).not.toContain('Ran the platform.')
+  })
+
+  it('styles the below-line description as subtle, not as body text', async () => {
+    // It is a supporting line under the item; at body weight the summary list
+    // reads as two entries per item.
+    const dd = await buildPdfDocDefinition(
+      store({ short_description: { en: 'Ran the platform.' } }), summaryView(), 'en')
+    const found: Array<Record<string, unknown>> = []
+    const walk = (n: unknown): void => {
+      if (Array.isArray(n)) { n.forEach(walk); return }
+      if (!n || typeof n !== 'object') return
+      const rec = n as Record<string, unknown>
+      if (rec.text === 'Ran the platform.') found.push(rec)
+      for (const k of ['stack', 'columns', 'content', 'text']) if (k in rec) walk(rec[k])
+    }
+    walk(dd.content)
+    expect(found).toHaveLength(1)
+    expect(found[0].color).toBeTruthy()
+  })
+
+  it('emits no trailing separator when there is no short description', async () => {
+    const dd = await buildPdfDocDefinition(store({ short_description: {} }), summaryView({ short_desc_line: 'inline' }), 'en')
+    for (const line of collectText(dd.content)) {
+      expect(line.trimEnd().endsWith('\u2014'), line).toBe(false)
+    }
+  })
+
+  it('renders a PROFILE as prose even at summary detail', async () => {
+    // key_qualifications is alwaysFull: the detail level picks WHICH prose, not
+    // whether to collapse it to a line.
+    const s = {
+      ...emptyStore(),
+      resume: makeResume({ full_name: 'Jane Doe' }),
+      key_qualifications: [makeKQ({
+        id: 'kq1', tag_line: { en: 'Architect' },
+        summary: { en: 'The long profile.' }, summary_short: { en: 'The short line.' },
+      } as never)],
+    }
+    const dd = await buildPdfDocDefinition(
+      s, makeView({ sections: [{ key: 'key_qualifications', detail: 'summary', sort_order: 0 }] }), 'en')
+    const text = collectText(dd.content).join(' | ')
+    expect(text).toContain('The short line.')
+    expect(text).not.toContain('The long profile.')
+  })
+})
