@@ -859,3 +859,117 @@ describe('validateLetterAngles / validateLetterCritique — the refusals', () =>
     }
   })
 })
+
+describe('validateJobFit — the refusals and the numbering', () => {
+  const store = (): ResumeStore => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'Kari' })
+    s.projects = [makeProject({ id: 'p1', customer: { en: 'Acme' } })]
+    return s
+  }
+
+  it('names a non-object reply as such, whatever kind it is', () => {
+    for (const bad of [null, undefined, 'text', 42, true]) {
+      expect(() => validateJobFit(bad, store(), 'en'), String(bad))
+        .toThrow(/not a JSON object/)
+    }
+  })
+
+  it('distinguishes a missing requirements array from a bad reply', () => {
+    expect(() => validateJobFit({ findings: [] }, store(), 'en'))
+      .toThrow(/no "requirements" array/)
+  })
+
+  it('numbers a dropped requirement from ONE', () => {
+    // The note points the user at a row in the model's reply; an off-by-one
+    // sends them to the wrong one.
+    const { dropped } = validateJobFit({ requirements: [
+      { requirement: 'Kubernetes', status: 'evidenced' },
+      'not an object',
+      { status: 'missing' },
+    ] }, store(), 'en')
+    expect(dropped[0]).toBe('Requirement 2 was not an object.')
+    expect(dropped[1]).toBe('Requirement 3 had no text.')
+  })
+
+  it('caps how many requirements it will read', () => {
+    const many = Array.from({ length: 80 }, (_, i) => ({ requirement: `R${i}`, status: 'missing' }))
+    const { requirements, dropped } = validateJobFit({ requirements: many }, store(), 'en')
+    expect(requirements.length + dropped.length).toBeLessThan(80)
+  })
+})
+
+describe('buildJobFitPrompt — the skills it lists', () => {
+  it('drops a registry entry with no name in the working locale', () => {
+    // An empty name would show as a bare comma in the list of skills the model
+    // is told the CV has.
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'Kari' })
+    s.skills = [
+      makeSkill({ id: 's1', name: { en: 'Go' } }),
+      makeSkill({ id: 's2', name: { no: 'Kun norsk' } }),
+    ]
+    const prompt = buildJobFitPrompt(s, 'We need Go.', 'en')
+    expect(prompt).toContain('Go')
+    expect(prompt).not.toMatch(/,\s*,/)
+  })
+})
+
+describe('the letter prompts — what they carry, trimmed', () => {
+  const store = (over: Record<string, unknown> = {}): ResumeStore => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: '  Kari Nordmann  ', ...over })
+    s.projects = [makeProject({ id: 'p1', customer: { en: 'Acme' }, long_description: { en: 'Ran the rebuild.' } })]
+    return s
+  }
+  const letter = (over: Record<string, unknown> = {}) => makeCoverLetter(over as never)
+
+  it('trims the applicant name, the company and the role', () => {
+    const p = buildLetterAnglesPrompt(store(), letter({
+      company: { en: '  Equinor  ' }, role_applied: { en: '  Platform lead  ' },
+    }), 'en')
+    expect(p).toContain('APPLICANT: Kari Nordmann')
+    expect(p).toContain('Equinor')
+    expect(p).not.toContain('  Equinor')
+    expect(p).not.toContain('  Platform lead')
+  })
+
+  it('omits the role clause entirely when there is no role', () => {
+    // "Equinor — " with nothing after the dash reads as a truncated line.
+    const p = buildLetterAnglesPrompt(store(), letter({ company: { en: 'Equinor' }, role_applied: {} }), 'en')
+    expect(p).toContain('APPLYING TO: Equinor')
+    expect(p).not.toMatch(/APPLYING TO: Equinor\s+—/)
+  })
+
+  it('says which CV version is attached, or that it is the master', () => {
+    // The letter must pitch the same story the attached CV tells, so the model
+    // has to know whether it is seeing a filtered view or everything.
+    const s = store()
+    s.views = [makeView({ id: 'v1', name: 'Tender CV' })]
+    expect(buildLetterAnglesPrompt(s, letter({ view_id: 'v1' }), 'en')).toContain('"Tender CV"')
+    expect(buildLetterAnglesPrompt(s, letter({}), 'en')).toContain('full master CV')
+  })
+
+  it('leaves the short descriptions out of the CV evidence', () => {
+    // They are an earlier assist's output; feeding them back has the model
+    // rewrite its own summary instead of reading the evidence.
+    const s = store()
+    s.projects[0].short_description = { en: 'A short line.' }
+    const p = buildLetterAnglesPrompt(s, letter({}), 'en')
+    expect(p).toContain('Ran the rebuild.')
+    expect(p).not.toContain('A short line.')
+  })
+
+  it('trims the letter body before showing it for critique', () => {
+    const p = buildLetterCritiquePrompt(store(), letter({ body: { en: '   The letter body.   ' } }), 'en')
+    expect(p).toContain('The letter body.')
+    expect(p).not.toContain('   The letter body.')
+  })
+
+  it('reads the body from the WORKING locale only', () => {
+    // No resolution fallback here: critiquing the English draft while the user
+    // is editing the Norwegian one would comment on text they cannot see.
+    const p = buildLetterCritiquePrompt(store(), letter({ body: { en: 'English body.' } }), 'no')
+    expect(p).not.toContain('English body.')
+  })
+})

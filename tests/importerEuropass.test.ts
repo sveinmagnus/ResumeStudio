@@ -865,3 +865,102 @@ describe('importFromEuropassXml — a pretty-printed document', () => {
     expect(langs[2].level).toEqual({})
   })
 })
+
+/**
+ * The two coercions the Europass importer runs everything through, and the XML
+ * fields nothing asserted.
+ *
+ * Europass files come from a government portal and from third-party editors, so
+ * the shapes vary: dates arrive as "2019", "2019-06" or nonsense, and the JSON
+ * export nests objects where the XML nests elements. Both readers are total —
+ * a malformed value has to degrade to "nothing here" rather than throw.
+ */
+describe('importFromEuropassXml — the date parser', () => {
+  const xml = (period: string) => `<?xml version="1.0"?><SkillsPassport><LearnerInfo>
+    <WorkExperienceList><WorkExperience>
+      <Employer><Name>Acme</Name></Employer>${period}
+    </WorkExperience></WorkExperienceList>
+  </LearnerInfo></SkillsPassport>`
+  const work = (period: string) => importFromEuropassXml(xml(period)).work_experiences[0]
+
+  it('reads a year with a month, and a year on its own', () => {
+    expect(work('<Period><From year="2019" month="--06"/></Period>').start).toEqual({ year: 2019, month: 6 })
+    expect(work('<Period><From year="2019"/></Period>').start).toEqual({ year: 2019, month: null })
+  })
+
+  it('drops a month outside 1-12 rather than the whole date', () => {
+    // The year is the part a reader needs; losing it over a bad month drops the
+    // entry out of every date sort.
+    expect(work('<Period><From year="2019" month="--00"/></Period>').start).toEqual({ year: 2019, month: null })
+    expect(work('<Period><From year="2019" month="--13"/></Period>').start).toEqual({ year: 2019, month: null })
+  })
+
+  it('reads an open period from Current, not from an absent To', () => {
+    const open = work('<Period><From year="2019"/><Current>true</Current></Period>')
+    expect(open.end).toBeNull()
+    const closed = work('<Period><From year="2019"/><To year="2021" month="--03"/></Period>')
+    expect(closed.end).toEqual({ year: 2021, month: 3 })
+  })
+
+  it('reads no period at all as no dates', () => {
+    const none = work('')
+    expect(none.start).toBeNull()
+    expect(none.end).toBeNull()
+  })
+})
+
+describe('importFromEuropassXml — the identity block', () => {
+  const xml = (ident: string) => `<?xml version="1.0"?><SkillsPassport><LearnerInfo>
+    <Identification>${ident}</Identification>
+  </LearnerInfo></SkillsPassport>`
+  const resumeOf = (ident: string) => importFromEuropassXml(xml(ident)).resume!
+
+  it('joins the two name halves, and copes with only one', () => {
+    expect(resumeOf('<PersonName><FirstName>Kari</FirstName><Surname>Nordmann</Surname></PersonName>').full_name)
+      .toBe('Kari Nordmann')
+    expect(resumeOf('<PersonName><FirstName>Kari</FirstName></PersonName>').full_name).toBe('Kari')
+    expect(resumeOf('<PersonName><Surname>Nordmann</Surname></PersonName>').full_name).toBe('Nordmann')
+  })
+
+  it('reads the contact fields out of their nested Contact elements', () => {
+    const r = resumeOf(`<ContactInfo>
+      <Email><Contact>kari@work.test</Contact></Email>
+      <Telephone><Contact>+47 900</Contact></Telephone>
+      <Address><Contact><Municipality>Oslo</Municipality></Contact></Address>
+    </ContactInfo>`)
+    expect(r.email).toBe('kari@work.test')
+    expect(r.phone).toBe('+47 900')
+    expect(r.place_of_residence).toEqual({ en: 'Oslo' })
+  })
+
+  it('nulls an absent phone rather than storing an empty string', () => {
+    // The header renders a contact line per non-null field; an empty string
+    // prints a bare label with nothing after it.
+    expect(resumeOf('<ContactInfo><Email><Contact>k@x.io</Contact></Email></ContactInfo>').phone).toBeNull()
+  })
+
+  it('reads the nationality label', () => {
+    expect(resumeOf('<Demographics><Nationality><Label>Norwegian</Label></Nationality></Demographics>').nationality)
+      .toEqual({ en: 'Norwegian' })
+  })
+})
+
+describe('importFromEuropassXml — foreign language levels', () => {
+  const xml = (body: string) => `<?xml version="1.0"?><SkillsPassport><LearnerInfo><Skills><Linguistic>
+    <ForeignLanguageList><ForeignLanguage>
+      <Description><Label>German</Label></Description>${body}
+    </ForeignLanguage></ForeignLanguageList>
+  </Linguistic></Skills></LearnerInfo></SkillsPassport>`
+  const lang = (body: string) => importFromEuropassXml(xml(body)).spoken_languages[0]
+
+  it('prefers the Listening level, falling back to the block itself', () => {
+    expect(lang('<ProficiencyLevel><Listening>B2</Listening></ProficiencyLevel>').level).toEqual({ en: 'B2' })
+    expect(lang('<ProficiencyLevel>C1</ProficiencyLevel>').level).toEqual({ en: 'C1' })
+  })
+
+  it('leaves the level EMPTY rather than storing a blank string', () => {
+    // An empty localized map means "not stated"; a blank string renders as a
+    // dash with nothing after it in every export.
+    expect(lang('').level).toEqual({})
+  })
+})
