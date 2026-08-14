@@ -1408,3 +1408,124 @@ describe('exportDocx — the summary layout', () => {
       .toBeCloseTo(t.itemGapTwips / 3, 3)
   })
 })
+
+/**
+ * Where the header photo actually LANDS in the Word document.
+ *
+ * The existing test proves every placement produces a zip with media in it,
+ * which is true even if all six render identically. The placements differ in
+ * structure: the four side-by-side variants build a two-cell table, `above` and
+ * `below` are plain paragraphs around the identity block, and `none` embeds no
+ * image at all. Nothing asserted which one came out.
+ */
+describe('exportDocx — header photo placement', () => {
+  const withPhoto = (placement: string) => {
+    const store = emptyStore()
+    store.resume = makeResume({ full_name: 'Kari Nordmann', profile_photo: PNG_1x1 })
+    return exportDocx(store, makeView({
+      sections: buildViewSections(),
+      header: withHeaderDefaults({ photo_placement: placement as never, photo_shape: 'square' }),
+    }), 'en')
+  }
+
+  it('builds a side-by-side TABLE for the four inline placements', async () => {
+    for (const placement of ['left', 'right', 'left_of_name', 'right_of_name']) {
+      await withPhoto(placement)
+      const xml = await documentXml(lastBlob!)
+      expect(xml, placement).toContain('<w:tbl>')
+      expect(xml, placement).toContain('w:drawing')
+    }
+  })
+
+  it('uses NO table for the stacked placements', async () => {
+    for (const placement of ['above', 'below']) {
+      await withPhoto(placement)
+      const xml = await documentXml(lastBlob!)
+      expect(xml, placement).not.toContain('<w:tbl>')
+      expect(xml, placement).toContain('w:drawing')
+    }
+  })
+
+  it('embeds no image at all when the placement is none', async () => {
+    await withPhoto('none')
+    const xml = await documentXml(lastBlob!)
+    expect(xml).not.toContain('w:drawing')
+    expect(xml).toContain('Kari Nordmann')
+  })
+
+  it('puts the photo cell on the correct SIDE', async () => {
+    // The cell order in the row is the whole difference between left and right;
+    // the margin sits on the inside edge either way.
+    await withPhoto('left')
+    const left = await documentXml(lastBlob!)
+    await withPhoto('right')
+    const right = await documentXml(lastBlob!)
+
+    const photoAt = (xml: string) => xml.indexOf('w:drawing')
+    const nameAt = (xml: string) => xml.indexOf('Kari Nordmann')
+    expect(photoAt(left)).toBeLessThan(nameAt(left))
+    expect(photoAt(right)).toBeGreaterThan(nameAt(right))
+  })
+})
+
+describe('exportDocx — the footer note', () => {
+  const footerXml = async (footer: Record<string, unknown>) => {
+    const store = emptyStore()
+    store.resume = makeResume({ full_name: 'Kari Nordmann' })
+    await exportDocx(store, makeView({
+      sections: buildViewSections(),
+      footer: withFooterDefaults(footer as never),
+    }), 'en')
+    return documentXml(lastBlob!)
+  }
+
+  it('writes the note text', async () => {
+    const xml = await footerXml({ separator: 'line', copyright: 'none', note: { en: 'Confidential' } })
+    expect(xml).toContain('Confidential')
+  })
+
+  it('writes nothing for a footer with neither note nor copyright', async () => {
+    const xml = await footerXml({ separator: 'none', copyright: 'none', note: {} })
+    expect(xml).not.toContain('Confidential')
+    expect(xml).toContain('Kari Nordmann')
+  })
+})
+
+describe('exportDocx — the gap above the footer', () => {
+  const xmlFor = async (footer: Record<string, unknown>) => {
+    const store = emptyStore()
+    store.resume = makeResume({ full_name: 'Kari Nordmann' })
+    await exportDocx(store, makeView({
+      sections: buildViewSections(),
+      footer: withFooterDefaults(footer as never),
+    }), 'en')
+    return documentXml(lastBlob!)
+  }
+
+  /** The <w:p> element that carries the given text. */
+  const paraWith = (xml: string, text: string) => {
+    const at = xml.indexOf(text)
+    return xml.slice(xml.lastIndexOf('<w:p>', at), xml.indexOf('</w:p>', at))
+  }
+
+  it('adds a gap above the FIRST footer line only when there is no separator rule', async () => {
+    // The rule already provides the visual break; adding the gap as well leaves
+    // the footer floating, and omitting it without a rule glues the footer to
+    // the last section.
+    const noRule = await xmlFor({ separator: 'none', copyright: 'none', note: { en: 'Alpha' } })
+    expect(paraWith(noRule, 'Alpha')).toContain('w:before="280"')
+
+    const withRule = await xmlFor({ separator: 'line', copyright: 'none', note: { en: 'Alpha' } })
+    expect(paraWith(withRule, 'Alpha')).not.toContain('w:before="280"')
+  })
+
+  it('adds the gap to the first line only, not to every one', async () => {
+    // A note above a copyright line: two footer paragraphs, one gap.
+    const xml = await xmlFor({
+      separator: 'none', copyright: 'person', note: { en: 'Alpha' }, note_placement: 'above',
+    })
+    expect(xml.match(/w:before="280"/g) ?? []).toHaveLength(1)
+    expect(paraWith(xml, 'Alpha')).toContain('w:before="280"')
+    expect(paraWith(xml, 'Kari Nordmann')).not.toContain('w:before="280"')
+  })
+})
