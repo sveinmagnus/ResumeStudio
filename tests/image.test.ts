@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { imageInfoFromDataUrl, clampCropRect, computeCropRect, fileToResizedDataUrl, fileToImage, imageUrlToResizedDataUrl, applyShapeMaskToDataUrl, revokeImageObjectUrl } from '../src/lib/image'
 
 // Build a base64 data URL from raw bytes (Buffer is available in the node test env).
@@ -634,5 +634,246 @@ describe('the cropper arithmetic, to the pixel', () => {
     const panned = computeCropRect(im(400, 300), 1 / 3, 1, { x: 30, y: 15 }, 100)
     expect(panned.sx).toBeLessThan(centred.sx)
     expect(panned.sy).toBeLessThan(centred.sy)
+  })
+})
+
+/**
+ * The downscale arithmetic, with the browser bits stubbed.
+ *
+ * This is the only place an uploaded photo is resized, and it runs in the
+ * browser — so nothing exercised it and the whole block was uncovered. The
+ * numbers matter twice over: they decide how big the base64 string that goes
+ * into localStorage and every export is, and an inverted `Math.min` would
+ * ENLARGE a small image instead of leaving it alone.
+ */
+describe('fileToResizedDataUrl — the scaling', () => {
+  interface FakeCanvas {
+    width: number
+    height: number
+    getContext: (k: string) => unknown
+    toDataURL: (mime: string, quality?: number) => string
+  }
+
+  /** Stub Image + canvas; returns what the code asked the canvas to do. */
+  function withStubs(naturalWidth: number, naturalHeight: number, ctxAvailable = true) {
+    const drawn: Array<[number, number]> = []
+    const canvas: FakeCanvas = {
+      width: 0,
+      height: 0,
+      getContext: () => (ctxAvailable
+        ? { drawImage: (_i: unknown, _x: number, _y: number, w: number, h: number) => { drawn.push([w, h]) } }
+        : null),
+      toDataURL: (mime: string, quality?: number) => `data:${mime};q=${quality};base64,AAAA`,
+    }
+    const revoked: string[] = []
+    vi.stubGlobal('URL', {
+      createObjectURL: () => 'blob:stub',
+      revokeObjectURL: (u: string) => { revoked.push(u) },
+    })
+    vi.stubGlobal('Image', class {
+      onload: (() => void) | null = null
+      onerror: (() => void) | null = null
+      naturalWidth = naturalWidth
+      naturalHeight = naturalHeight
+      set src(_v: string) { queueMicrotask(() => this.onload?.()) }
+    })
+    // This suite runs in the node env: there is no document to spy on, so the
+    // whole browser surface the function touches is stubbed.
+    vi.stubGlobal('document', { createElement: (tag: string) => (tag === 'canvas' ? canvas : {}) })
+    return { canvas, drawn, revoked, restore: () => vi.unstubAllGlobals() }
+  }
+
+  const png = () => new File([Uint8Array.from([1, 2, 3])], 'p.png', { type: 'image/png' })
+
+  it('scales the LONGEST edge down to the cap, keeping the aspect ratio', async () => {
+    const s = withStubs(2000, 1000)
+    try {
+      await fileToResizedDataUrl(png(), { maxDim: 600 })
+      expect([s.canvas.width, s.canvas.height]).toEqual([600, 300])
+      expect(s.drawn).toEqual([[600, 300]])
+    } finally { s.restore() }
+  })
+
+  it('scales on the HEIGHT when that is the longer edge', async () => {
+    const s = withStubs(1000, 2000)
+    try {
+      await fileToResizedDataUrl(png(), { maxDim: 600 })
+      expect([s.canvas.width, s.canvas.height]).toEqual([300, 600])
+    } finally { s.restore() }
+  })
+
+  it('leaves an image smaller than the cap at its own size', async () => {
+    // The `Math.min(1, …)` is what stops an upscale: blowing a 100px logo up to
+    // 600px would quadruple the stored base64 for no added detail.
+    const s = withStubs(100, 80)
+    try {
+      await fileToResizedDataUrl(png(), { maxDim: 600 })
+      expect([s.canvas.width, s.canvas.height]).toEqual([100, 80])
+    } finally { s.restore() }
+  })
+
+  it('never produces a zero-width canvas for an extreme aspect ratio', async () => {
+    // 4000x1 at a 600 cap rounds the height to 0, and a zero-dimension canvas
+    // throws in the browser.
+    const s = withStubs(4000, 1)
+    try {
+      await fileToResizedDataUrl(png(), { maxDim: 600 })
+      expect(s.canvas.width).toBe(600)
+      expect(s.canvas.height).toBe(1)
+    } finally { s.restore() }
+  })
+
+  it('encodes as JPEG by default and PNG on request, passing the quality', async () => {
+    const s = withStubs(100, 100)
+    try {
+      expect(await fileToResizedDataUrl(png(), {})).toContain('data:image/jpeg;q=0.82')
+      expect(await fileToResizedDataUrl(png(), { format: 'png' })).toContain('data:image/png')
+      expect(await fileToResizedDataUrl(png(), { quality: 0.5 })).toContain('q=0.5')
+    } finally { s.restore() }
+  })
+
+  it('releases the object URL once the image has loaded', async () => {
+    const s = withStubs(100, 100)
+    try {
+      await fileToResizedDataUrl(png(), {})
+      expect(s.revoked).toEqual(['blob:stub'])
+    } finally { s.restore() }
+  })
+
+  it('rejects with a readable message when the canvas has no 2d context', async () => {
+    const s = withStubs(100, 100, false)
+    try {
+      await expect(fileToResizedDataUrl(png(), {})).rejects.toThrow(/Canvas not supported/)
+    } finally { s.restore() }
+  })
+})
+
+/**
+ * Turning a stored profile-image URL into an embeddable data URL.
+ *
+ * Every export is fully offline — the render boundary only ever sees a `data:`
+ * image — so this is the one path that gets a remote photo in. It runs in the
+ * browser, so nothing exercised it.
+ */
+describe('imageUrlToResizedDataUrl', () => {
+  interface Stubbed { canvas: { width: number, height: number }, lastSrc: () => string, crossOrigin: () => string }
+
+  function withStubs(opts: { w?: number, h?: number, ctx?: boolean, throwOnEncode?: boolean, fail?: boolean } = {}) {
+    const { w = 100, h = 100, ctx = true, throwOnEncode = false, fail = false } = opts
+    const canvas = {
+      width: 0,
+      height: 0,
+      getContext: () => (ctx ? { drawImage: () => {} } : null),
+      toDataURL: (mime: string, q?: number) => {
+        if (throwOnEncode) throw new Error('SecurityError')
+        return `data:${mime};q=${q};base64,AAAA`
+      },
+    }
+    let src = ''
+    let cross = ''
+    vi.stubGlobal('document', { createElement: () => canvas })
+    vi.stubGlobal('Image', class {
+      onload: (() => void) | null = null
+      onerror: (() => void) | null = null
+      naturalWidth = w
+      naturalHeight = h
+      set crossOrigin(v: string) { cross = v }
+      get crossOrigin() { return cross }
+      set src(v: string) {
+        src = v
+        queueMicrotask(() => (fail ? this.onerror?.() : this.onload?.()))
+      }
+    })
+    return { canvas, lastSrc: () => src, crossOrigin: () => cross } as Stubbed
+  }
+
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('refuses anything that is not an http(s) link', async () => {
+    // The guard is anchored on purpose: "javascript:…/http://x" contains "http"
+    // but is not one, and a data: URL here would be an odd way in.
+    for (const bad of ['', '   ', 'ftp://host/p.png', 'javascript:alert(1)//http://x', 'data:image/png;base64,AA']) {
+      await expect(imageUrlToResizedDataUrl(bad), bad).rejects.toThrow(/must be an http\(s\) link/)
+    }
+  })
+
+  it('accepts http and https, in any case, and trims the input', async () => {
+    const s = withStubs()
+    await expect(imageUrlToResizedDataUrl('  https://host/p.png  ')).resolves.toContain('data:image/jpeg')
+    expect(s.lastSrc()).toBe('https://host/p.png')
+    await expect(imageUrlToResizedDataUrl('HTTP://host/p.png')).resolves.toContain('data:image/jpeg')
+  })
+
+  it('requests the image with CORS so the canvas is not tainted', async () => {
+    const s = withStubs()
+    await imageUrlToResizedDataUrl('https://host/p.png')
+    expect(s.crossOrigin()).toBe('anonymous')
+  })
+
+  it('downscales the longest edge and honours the format', async () => {
+    const s = withStubs({ w: 1200, h: 600 })
+    expect(await imageUrlToResizedDataUrl('https://host/p.png', { maxDim: 300 })).toContain('image/jpeg')
+    expect([s.canvas.width, s.canvas.height]).toEqual([300, 150])
+    expect(await imageUrlToResizedDataUrl('https://host/p.png', { format: 'png' })).toContain('image/png')
+  })
+
+  it('explains a cross-origin refusal instead of surfacing a SecurityError', async () => {
+    // The host allowed the load but not the read; the message has to tell the
+    // user what to do instead, because nothing about it is their fault.
+    withStubs({ throwOnEncode: true })
+    await expect(imageUrlToResizedDataUrl('https://host/p.png'))
+      .rejects.toThrow(/may not allow cross-origin reads/)
+  })
+
+  it('reports an unreachable host', async () => {
+    withStubs({ fail: true })
+    await expect(imageUrlToResizedDataUrl('https://host/p.png')).rejects.toThrow(/unreachable/)
+  })
+
+  it('reports a canvas with no 2d context', async () => {
+    withStubs({ ctx: false })
+    await expect(imageUrlToResizedDataUrl('https://host/p.png')).rejects.toThrow(/Canvas not supported/)
+  })
+})
+
+describe('fileToImage — the decoded image and its object URL', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  function stub(fail = false) {
+    const revoked: string[] = []
+    vi.stubGlobal('URL', {
+      createObjectURL: () => 'blob:stub',
+      revokeObjectURL: (u: string) => { revoked.push(u) },
+    })
+    vi.stubGlobal('Image', class {
+      onload: (() => void) | null = null
+      onerror: (() => void) | null = null
+      naturalWidth = 10
+      naturalHeight = 10
+      set src(_v: string) { queueMicrotask(() => (fail ? this.onerror?.() : this.onload?.())) }
+    })
+    return revoked
+  }
+  const png = () => new File([Uint8Array.from([1])], 'p.png', { type: 'image/png' })
+
+  it('hands back BOTH the image and the url, so the caller can release it', async () => {
+    // The url is deliberately not revoked here: the cropper keeps drawing from
+    // the image, and revoking early blanks it in some browsers.
+    stub()
+    const out = await fileToImage(png())
+    expect(out.objectUrl).toBe('blob:stub')
+    expect(out.image.naturalWidth).toBe(10)
+  })
+
+  it('releases the url when the decode fails', async () => {
+    const revoked = stub(true)
+    await expect(fileToImage(png())).rejects.toThrow(/Could not load/)
+    expect(revoked).toEqual(['blob:stub'])
+  })
+
+  it('refuses a non-raster file before creating anything', async () => {
+    stub()
+    const svg = new File([Uint8Array.from([1])], 'p.svg', { type: 'image/svg+xml' })
+    await expect(fileToImage(svg)).rejects.toThrow(/SVG is not supported/)
   })
 })
