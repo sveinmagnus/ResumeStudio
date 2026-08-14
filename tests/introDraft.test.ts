@@ -132,7 +132,7 @@ describe('tidyIntro — unwrapping what the model actually returns', () => {
   })
 })
 
-describe('buildIntroPrompt — the profile text it quotes', () => {
+describe('buildIntroPrompt — flattening the profile it quotes', () => {
   it('flattens the profile to one line, collapsing runs of space', () => {
     const s = emptyStore()
     s.resume = makeResume({ full_name: 'X' })
