@@ -1396,3 +1396,117 @@ describe('importFromCVPartner — profiles and per-project details', () => {
     expect(store.projects.map((p) => p.location_country_code)).toEqual(['NO', null])
   })
 })
+
+/**
+ * The per-row flags every section carries, both ways round.
+ *
+ * `order`, `starred` and `disabled` are mapped identically in nine sections with
+ * `(x as T) || fallback`, and nothing asserted them: a CV imported with every row
+ * disabled is invisible in every export, and one imported with every row starred
+ * fills a starred-only view with the whole CV. The fallback needs asserting in
+ * both directions — the value when present, the default when not.
+ */
+describe('importFromCVPartner — the per-row flags in every section', () => {
+  const FLAGGED: Record<string, Array<Record<string, unknown>>> = {
+    project_experiences: [{ customer: 'Acme', order: 3, starred: true, disabled: true }],
+    work_experiences: [{ employer: 'Cartavio', order: 3, starred: true, disabled: true }],
+    educations: [{ school: 'NTNU', order: 3, starred: true, disabled: true }],
+    courses: [{ name: 'Kubernetes', order: 3, starred: true, disabled: true }],
+    certifications: [{ name: 'AWS SA', order: 3, starred: true, disabled: true }],
+    languages: [{ name: 'Norwegian', order: 3, disabled: true }],
+    positions: [{ name: 'Board member', order: 3, starred: true, disabled: true }],
+    presentations: [{ description: 'A talk', order: 3, starred: true, disabled: true }],
+    honors_awards: [{ name: 'Best paper', order: 3, starred: true, disabled: true }],
+  }
+  const bare = (rows: Array<Record<string, unknown>>) => rows.map((r) => {
+    const copy = { ...r }
+    delete copy.order
+    delete copy.starred
+    delete copy.disabled
+    return copy
+  })
+
+  const SECTIONS: Array<[string, string]> = [
+    ['project_experiences', 'projects'],
+    ['work_experiences', 'work_experiences'],
+    ['educations', 'educations'],
+    ['courses', 'courses'],
+    ['certifications', 'certifications'],
+    ['languages', 'spoken_languages'],
+    ['positions', 'positions'],
+    ['presentations', 'presentations'],
+    ['honors_awards', 'honor_awards'],
+  ]
+  const rows = (store: unknown, key: string) =>
+    (store as Record<string, Array<Record<string, unknown>>>)[key]
+
+  it.each(SECTIONS)('%s carries a set order/starred/disabled through', (rawKey, storeKey) => {
+    const store = importFromCVPartner({ [rawKey]: FLAGGED[rawKey] })
+    const row = rows(store, storeKey)[0]
+    expect(row, rawKey).toBeDefined()
+    expect(row.sort_order, `${rawKey}.sort_order`).toBe(3)
+    expect(row.disabled, `${rawKey}.disabled`).toBe(true)
+    if ('starred' in row) expect(row.starred, `${rawKey}.starred`).toBe(true)
+  })
+
+  it.each(SECTIONS)('%s defaults them when the export omits them', (rawKey, storeKey) => {
+    const store = importFromCVPartner({ [rawKey]: bare(FLAGGED[rawKey]) })
+    const row = rows(store, storeKey)[0]
+    expect(row, rawKey).toBeDefined()
+    expect(row.sort_order, `${rawKey}.sort_order`).toBe(0)
+    expect(row.disabled, `${rawKey}.disabled`).toBe(false)
+    if ('starred' in row) expect(row.starred, `${rawKey}.starred`).toBe(false)
+  })
+
+  it.each(SECTIONS)('%s imports nothing when the export omits the section', (rawKey, storeKey) => {
+    // Every section reads `(raw.x as T[]) || []`; a fallback that is not empty
+    // would invent a row out of an absent key.
+    const store = importFromCVPartner({ default_cv: true })
+    expect(rows(store, storeKey), rawKey).toEqual([])
+  })
+})
+
+describe('importFromCVPartner — the supported-locale list', () => {
+  it('reads the plural language_codes when present, mapping int to en', () => {
+    const store = importFromCVPartner({ language_codes: ['no', 'int'], default_cv: true })
+    expect([...store.resume!.supported_locales].sort()).toEqual(['en', 'no'])
+  })
+
+  it('falls back to the SINGULAR code when the plural list is absent', () => {
+    const store = importFromCVPartner({ language_code: 'se', default_cv: true })
+    expect(store.resume!.supported_locales).toContain('se')
+  })
+
+  it('falls back to Norwegian when neither is given', () => {
+    // The export this importer exists for is a Norwegian product; guessing
+    // English would mark every Norwegian field as an untranslated gap.
+    const store = importFromCVPartner({ default_cv: true })
+    expect(store.resume!.supported_locales).toContain('no')
+  })
+
+  it('always includes en, and merges in the locales found in the content', () => {
+    const store = importFromCVPartner({
+      language_codes: ['no'],
+      project_experiences: [{ _id: 'p1', customer: { se: 'Kunden', no: 'Kunde' } }],
+    })
+    expect(store.resume!.supported_locales).toContain('en')
+    expect(store.resume!.supported_locales).toContain('se')
+  })
+})
+
+describe('importFromCVPartner — the interleaved localized array', () => {
+  const first = (val: unknown) =>
+    importFromCVPartner({ project_experiences: [{ customer: val }] }).projects[0].customer
+
+  it('reads every PAIR, and ignores a dangling key at the end', () => {
+    // The format is [locale, value, locale, value]; a truncated export leaves a
+    // key with no value, and reading past it would key a locale on undefined.
+    expect(first(['no', 'Norsk', 'int', 'English'])).toEqual({ no: 'Norsk', en: 'English' })
+    expect(first(['no', 'Norsk', 'int'])).toEqual({ no: 'Norsk' })
+  })
+
+  it('drops a pair whose value is blank or not a string', () => {
+    expect(first(['no', '   ', 'int', 'English'])).toEqual({ en: 'English' })
+    expect(first(['no', 42, 'int', 'English'])).toEqual({ en: 'English' })
+  })
+})
