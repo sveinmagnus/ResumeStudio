@@ -806,3 +806,102 @@ describe('cleanPastedHtml — Word list detection', () => {
     expect(out).not.toContain('   ')
   })
 })
+
+/**
+ * Formatting read off PASTED markup.
+ *
+ * Word and Google Docs do not paste `<b>`; they paste `<span style="font-weight:700">`
+ * — and, worse, they wrap runs in `<b style="font-weight:normal">`, where the tag
+ * says bold and the style says otherwise. Whichever the paste says has to survive
+ * the allowlist, or the consultant loses the emphasis they already applied.
+ */
+describe('cleanPastedHtml — formatting carried by inline style', () => {
+  const clean = (html: string) => sanitizeRich(cleanPastedHtml(html))
+
+  it('reads bold from a numeric font-weight', () => {
+    for (const w of ['700', '600', '800', '900', 'bold', 'bolder']) {
+      expect(clean(`<p><span style="font-weight:${w}">X</span></p>`), w).toContain('<strong>X</strong>')
+    }
+  })
+
+  it('does NOT read bold from a normal or light weight', () => {
+    for (const w of ['400', '300', 'normal', '500'] as const) {
+      expect(clean(`<p><span style="font-weight:${w}">X</span></p>`), w).not.toContain('<strong>')
+    }
+  })
+
+  it('lets an explicit weight OVERRIDE the tag, in both directions', () => {
+    // The Google Docs case: <b style="font-weight:normal"> wraps everything.
+    expect(clean('<p><b style="font-weight:normal">X</b></p>')).not.toContain('<strong>')
+    expect(clean('<p><span style="font-weight:700">X</span></p>')).toContain('<strong>')
+  })
+
+  it('reads italic from font-style, and lets it override the tag', () => {
+    expect(clean('<p><span style="font-style:italic">X</span></p>')).toContain('<em>X</em>')
+    expect(clean('<p><span style="font-style:oblique">X</span></p>')).toContain('<em>X</em>')
+    expect(clean('<p><i style="font-style:normal">X</i></p>')).not.toContain('<em>')
+  })
+
+  it('reads underline from either text-decoration property', () => {
+    expect(clean('<p><span style="text-decoration-line:underline">X</span></p>')).toContain('<u>X</u>')
+    expect(clean('<p><span style="text-decoration:underline">X</span></p>')).toContain('<u>X</u>')
+    expect(clean('<p><span style="text-decoration:line-through">X</span></p>')).not.toContain('<u>')
+    expect(clean('<p><u style="text-decoration:none">X</u></p>')).not.toContain('<u>')
+  })
+
+  it('keeps the tag\u2019s own meaning when no style says otherwise', () => {
+    expect(clean('<p><b>X</b></p>')).toContain('<strong>X</strong>')
+    expect(clean('<p><strong>X</strong></p>')).toContain('<strong>X</strong>')
+    expect(clean('<p><i>X</i></p>')).toContain('<em>X</em>')
+    expect(clean('<p><em>X</em></p>')).toContain('<em>X</em>')
+    expect(clean('<p><u>X</u></p>')).toContain('<u>X</u>')
+  })
+})
+
+describe('cleanPastedHtml — wrapping loose content into paragraphs', () => {
+  const clean = (html: string) => sanitizeRich(cleanPastedHtml(html))
+
+  it('wraps loose text between blocks into its own paragraph', () => {
+    const out = clean('Alpha<div>Beta</div>Gamma')
+    expect(out).toContain('<p>Alpha</p>')
+    expect(out).toContain('<p>Gamma</p>')
+  })
+
+  it('drops a run that holds nothing but whitespace', () => {
+    // Word pastes newlines and non-breaking spaces between blocks; each would
+    // otherwise become an empty paragraph the user has to delete by hand.
+    const nbsp = String.fromCharCode(160)
+    const out = clean(`<div>Alpha</div>   ${nbsp} <div>Beta</div>`)
+    expect(out).not.toContain('<p></p>')
+    expect(out.match(/<p>/g) ?? []).toHaveLength(2)
+  })
+
+  it('keeps a run whose only content is a line BREAK', () => {
+    // A break is content: it is the blank line the author put between two
+    // paragraphs, and dropping it merges them.
+    const out = clean('<div>Alpha</div><br><div>Beta</div>')
+    expect(out).toContain('Alpha')
+    expect(out).toContain('Beta')
+  })
+})
+
+describe('richToPlain — list markers', () => {
+  it('numbers an ordered list from one, in document order', () => {
+    expect(richToPlain('<ol><li>Alpha</li><li>Beta</li><li>Gamma</li></ol>'))
+      .toBe('1. Alpha\n2. Beta\n3. Gamma')
+  })
+
+  it('bullets an unordered list', () => {
+    expect(richToPlain('<ul><li>Alpha</li><li>Beta</li></ul>')).toBe('\u2022 Alpha\n\u2022 Beta')
+  })
+
+  it('counts only the LIST ITEMS when numbering, not other children', () => {
+    // A pasted list can carry stray nodes between the items; counting those
+    // would renumber every item after the first.
+    expect(richToPlain('<ol><li>Alpha</li> <li>Beta</li></ol>')).toContain('2. Beta')
+  })
+
+  it('separates two paragraphs with a single newline, and trims the tail', () => {
+    expect(richToPlain('<p>Alpha</p><p>Beta</p>')).toBe('Alpha\nBeta')
+  })
+})
