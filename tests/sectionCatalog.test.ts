@@ -1048,3 +1048,286 @@ describe('SECTION_CATALOG — the HTML view carries its own facts', () => {
     expect(noOrg.meta).toEqual([])
   })
 })
+
+/**
+ * Every section's SUMMARY view, exercised once per section.
+ *
+ * The summary functions are the one-line form used by the ATS text, Markdown and
+ * tabulated renderers. Several of them had no test at all — the catalog's
+ * coverage check only asserted that `full` exists — so an emptied `summaryOf`
+ * call or an inverted title fallback went unnoticed.
+ */
+describe('SECTION_CATALOG — every summary line', () => {
+  const ctx: CatalogCtx = { locale: 'en', hideDates: false, target: 'text' }
+  const summary = (key: string, it: Record<string, unknown>) =>
+    SECTION_CATALOG[key].summary!(it as never, ctx)!
+  const values = (key: string, it: Record<string, unknown>) =>
+    summary(key, it).parts.map((p) => p.value)
+  const titleOf = (key: string, it: Record<string, unknown>) =>
+    summary(key, it).parts.find((p) => p.key === 'title')!.value
+
+  const POPULATED: Array<[string, Record<string, unknown>, string, string]> = [
+    // Projects put the ROLE in the title slot and the client in the org slot,
+    // falling back to the description when no role is linked.
+    ['projects', { customer: { en: 'Acme' }, description: { en: 'Payments' }, roles: [{ name: { en: 'Architect' } }] }, 'Architect', 'Acme'],
+    ['work_experiences', { employer: { en: 'Cartavio' }, role_title: { en: 'Architect' } }, 'Architect', 'Cartavio'],
+    ['educations', { school: { en: 'NTNU' }, degree: { en: 'MSc' } }, 'MSc', 'NTNU'],
+    ['courses', { name: { en: 'Kubernetes' }, program: { en: 'Cloud track' } }, 'Kubernetes', 'Cloud track'],
+    ['certifications', { name: { en: 'AWS SA' }, organiser: { en: 'Amazon' } }, 'AWS SA', 'Amazon'],
+    ['positions', { name: { en: 'Board member' }, organisation: { en: 'Rowing Club' } }, 'Board member', 'Rowing Club'],
+    ['presentations', { title: { en: 'Scaling up' }, event: { en: 'JavaZone' } }, 'Scaling up', 'JavaZone'],
+    ['publications', { title: { en: 'On merging' }, publisher: { en: 'IEEE' } }, 'On merging', 'IEEE'],
+    ['honor_awards', { name: { en: 'Best paper' }, issuer: { en: 'ACM' } }, 'Best paper', 'ACM'],
+    ['spoken_languages', { name: { en: 'Norwegian' }, level: { en: 'Native' } }, 'Norwegian', 'Native'],
+    ['key_competencies', { title: { en: 'Cloud architecture' } }, 'Cloud architecture', ''],
+    ['recommendations', { recommender_name: 'Jane Boss', recommender_title: { en: 'CTO' } }, 'Jane Boss', 'CTO'],
+    ['references', { name: 'Ola Hansen', title: 'CTO', include_in_exports: true }, 'Ola Hansen', 'CTO'],
+  ]
+
+  it.each(POPULATED)('%s puts its anchor in the title slot and its org beside it', (key, it, title, org) => {
+    const vals = values(key, it)
+    expect(titleOf(key, it)).toBe(title)
+    if (org) expect(vals.join(' | ')).toContain(org)
+  })
+
+  const FALLBACKS: Array<[string, Record<string, unknown>, string]> = [
+    ['projects', {}, 'Project'],
+    ['work_experiences', {}, 'Role'],
+    ['educations', {}, 'Education'],
+    ['courses', {}, 'Course'],
+    ['certifications', {}, 'Certification'],
+    ['positions', {}, 'Role'],
+    ['presentations', {}, 'Presentation'],
+    ['publications', {}, 'Publication'],
+    ['honor_awards', {}, 'Award'],
+    ['spoken_languages', {}, 'Language'],
+    ['key_competencies', {}, 'Competency'],
+    ['recommendations', {}, 'Recommendation'],
+    ['references', { include_in_exports: true }, 'Reference'],
+  ]
+
+  it.each(FALLBACKS)('%s names an empty item rather than showing a blank line', (key, it, fallback) => {
+    // A blank title slot renders as a bare dash or an empty bullet, which reads
+    // as a rendering fault rather than as an item nobody filled in.
+    expect(titleOf(key, it)).toBe(fallback)
+  })
+
+  it('carries the date range into the summary where the section has one', () => {
+    const vals = values('work_experiences', {
+      employer: { en: 'Cartavio' }, role_title: { en: 'Architect' },
+      start: { year: 2020, month: 1 }, end: { year: 2021, month: 6 },
+    })
+    expect(vals.join(' | ')).toMatch(/2020/)
+    expect(vals.join(' | ')).toMatch(/2021/)
+  })
+
+  it('gives the Skills Showcase a colon separator and its skills as the org slot', () => {
+    const s = summary('technology_categories', {
+      name: { en: 'Cloud' },
+      skills: [{ name: { en: 'Kubernetes' } }, { name: { en: 'Terraform' } }],
+    })
+    expect(s.sep).toBe(':')
+    expect(s.parts.find((p) => p.key === 'title')!.value).toBe('Cloud')
+    expect(s.parts.find((p) => p.key === 'org')!.value).toBe('Kubernetes, Terraform')
+  })
+
+  it('names an empty showcase group Category', () => {
+    expect(titleOf('technology_categories', {})).toBe('Category')
+  })
+})
+
+/**
+ * No descriptor may emit an EMPTY meta entry.
+ *
+ * `meta`, `extraLines` and `attributionMeta` are joined by the renderers with
+ * their own separators — " · " in the text and DOCX paths, a middot span in the
+ * HTML one. An empty entry therefore surfaces as a dangling separator: "Acme · "
+ * or " · 2020". Every descriptor filters its own array for that reason, and none
+ * of those filters was asserted.
+ */
+describe.each(['text', 'html', 'docx'] as const)(
+  'SECTION_CATALOG (%s) — no descriptor emits a blank meta entry', (target) => {
+  const ctx: CatalogCtx = { locale: 'en', hideDates: false, target }
+  const view = (key: string, it: Record<string, unknown>) => SECTION_CATALOG[key].full!(it as never, ctx)!
+
+  /** One item per section with SOME meta parts filled and others deliberately empty. */
+  const HALF_FILLED: Array<[string, Record<string, unknown>]> = [
+    ['projects', { customer: { en: 'Acme' }, roles: [{ name: { en: 'Architect' } }], industries: [], long_description: { en: 'Ran it.' } }],
+    ['projects', { customer: { en: 'Acme' }, roles: [], industries: [{ name: { en: 'Finance' } }] }],
+    ['work_experiences', { employer: { en: 'Cartavio' }, role_title: {} }],
+    ['educations', { school: { en: 'NTNU' }, degree: {} }],
+    ['courses', { name: { en: 'Kubernetes' }, program: {} }],
+    ['certifications', { name: { en: 'AWS SA' }, organiser: {} }],
+    ['positions', { organisation: { en: 'Rowing Club' }, name: {} }],
+    ['positions', { organisation: {}, name: { en: 'Board member' } }],
+    ['presentations', { title: { en: 'Scaling up' }, event: {} }],
+    ['publications', { title: { en: 'On merging' }, publisher: {}, authors: {} }],
+    ['honor_awards', { name: { en: 'Best paper' }, issuer: {} }],
+    ['spoken_languages', { name: { en: 'Norwegian' }, level: {} }],
+    ['key_qualifications', { tag_line: {}, summary: { en: 'Builds things.' }, key_points: [] }],
+    ['recommendations', { recommender_name: 'Jane Boss', recommender_title: {}, relationship: {}, text: { en: 'Great.' } }],
+    ['references', { name: 'Ola Hansen', title: '', company: 'BigCo', include_in_exports: true }],
+    ['references', { name: 'Ola Hansen', title: 'CTO', company: '', include_in_exports: true }],
+  ]
+
+  it.each(HALF_FILLED)('%s (#%#) leaves no empty entry behind', (key, it) => {
+    const v = view(key, it)
+    expect(v.meta.filter((m) => !m)).toEqual([])
+    expect(v.extraLines.filter((l) => !l)).toEqual([])
+    expect(v.attributionMeta.filter((m) => !m)).toEqual([])
+    expect(v.points.filter((pt) => !pt.body && !pt.label)).toEqual([])
+  })
+
+  it('still CARRIES the meta parts that are filled', () => {
+    // The other half of the same guard: filtering must not empty the array.
+    expect(view('educations', { school: { en: 'NTNU' }, degree: { en: 'MSc' } }).meta).toContain('MSc')
+    expect(view('courses', { name: { en: 'K8s' }, program: { en: 'Cloud track' } }).meta).toContain('Cloud track')
+    expect(view('certifications', { name: { en: 'AWS' }, organiser: { en: 'Amazon' } }).meta).toContain('Amazon')
+    expect(view('presentations', { title: { en: 'T' }, event: { en: 'JavaZone' } }).meta).toContain('JavaZone')
+    expect(view('positions', { organisation: { en: 'Club' }, name: { en: 'Member' } }).meta).toContain('Member')
+    expect(view('references', { name: 'O', title: 'CTO', company: 'BigCo', include_in_exports: true }).meta)
+      .toEqual(['CTO', 'BigCo'])
+  })
+})
+
+describe('SECTION_CATALOG — the descriptors that decline to render', () => {
+  const ctx: CatalogCtx = { locale: 'en', hideDates: false, target: 'text' }
+  const full = (key: string, it: Record<string, unknown>) => SECTION_CATALOG[key].full!(it as never, ctx)
+
+  it('renders a key competency with only ONE of title and body', () => {
+    // `!title && !body` — either alone is a usable block; requiring both would
+    // drop a competency whose description the user has not written yet.
+    expect(full('key_competencies', { title: { en: 'Cloud' }, description: {} })).not.toBeNull()
+    expect(full('key_competencies', { title: {}, description: { en: 'Runs clouds.' } })).not.toBeNull()
+    expect(full('key_competencies', { title: {}, description: {} })).toBeNull()
+  })
+
+  it('renders a showcase group with a name OR skills, not only with both', () => {
+    expect(full('technology_categories', { name: { en: 'Cloud' }, skills: [] })).not.toBeNull()
+    expect(full('technology_categories', { name: {}, skills: [{ name: { en: 'Go' } }] })).not.toBeNull()
+    expect(full('technology_categories', { name: {}, skills: [] })).toBeNull()
+  })
+
+  it('shows a certification expiry only when dates are shown AND one exists', () => {
+    const withExpiry = { name: { en: 'AWS SA' }, issued: { year: 2020, month: 1 }, expires: { year: 2023, month: 1 } }
+    expect(full('certifications', withExpiry)!.date).toMatch(/2023/)
+
+    const hidden = SECTION_CATALOG.certifications.full!(withExpiry as never, { ...ctx, hideDates: true })!
+    expect(hidden.date).toBe('')
+
+    const noExpiry = full('certifications', { name: { en: 'AWS SA' }, issued: { year: 2020, month: 1 }, expires: null })!
+    expect(noExpiry.date).not.toMatch(/–/)
+  })
+})
+
+describe('SECTION_CATALOG — the name lists a project draws on', () => {
+  const ctx: CatalogCtx = { locale: 'en', hideDates: false, target: 'text' }
+  const full = (it: Record<string, unknown>) => SECTION_CATALOG.projects.full!(it as never, ctx)!
+  const summary = (it: Record<string, unknown>) => SECTION_CATALOG.projects.summary!(it as never, ctx)!
+
+  it('drops a DISABLED role from the names, and a blank one', () => {
+    // A soft-deleted role link is out of every export; listing it here would put
+    // a name in the meta line that appears nowhere else in the CV.
+    const v = full({
+      customer: { en: 'Acme' },
+      roles: [
+        { name: { en: 'Architect' } },
+        { name: { en: 'Ghost' }, disabled: true },
+        { name: {} },
+      ],
+    })
+    expect(v.meta.join(' ')).toContain('Architect')
+    expect(v.meta.join(' ')).not.toContain('Ghost')
+    expect(v.meta.filter((m) => !m)).toEqual([])
+  })
+
+  it('drops a blank industry and a blank skill name', () => {
+    const v = full({
+      customer: { en: 'Acme' },
+      industries: [{ name: { en: 'Finance' } }, { name: {} }],
+      skills: [{ name: { en: 'Go' } }, { name: {} }],
+    })
+    expect(v.meta.join(' ')).toContain('Finance')
+    expect(v.tags).toEqual(['Go'])
+  })
+
+  it('reads a project with no roles, industries or skills at all', () => {
+    const v = full({ customer: { en: 'Acme' } })
+    expect(v.tags).toEqual([])
+    expect(v.meta.filter((m) => !m)).toEqual([])
+  })
+
+  it('puts the customer in the ORG slot only when the title came from elsewhere', () => {
+    // With no role and no description the customer IS the title; repeating it as
+    // the org would print "Acme — Acme".
+    const withRole = summary({ customer: { en: 'Acme' }, roles: [{ name: { en: 'Architect' } }] })
+    expect(withRole.parts.find((p) => p.key === 'org')?.value).toBe('Acme')
+
+    const bare = summary({ customer: { en: 'Acme' } })
+    expect(bare.parts.find((p) => p.key === 'title')!.value).toBe('Acme')
+    expect(bare.parts.find((p) => p.key === 'org')).toBeUndefined()
+  })
+
+  it('does not repeat the DESCRIPTION line when it is already the title', () => {
+    // With no customer the description becomes the title; printing it again as
+    // the lead-in line would show the same sentence twice.
+    const same = full({ customer: {}, description: { en: 'Payments platform' } })
+    expect(same.title).toBe('Payments platform')
+    expect(same.plainBody).toBe('')
+
+    const different = full({ customer: { en: 'Acme' }, description: { en: 'Payments platform' } })
+    expect(different.title).toBe('Acme')
+    expect(different.plainBody).toBe('Payments platform')
+  })
+})
+
+describe('SECTION_CATALOG — a profile’s key points', () => {
+  const ctx: CatalogCtx = { locale: 'en', hideDates: false, target: 'text', kq: { tagline: false, short: false, long: true } }
+  const full = (it: Record<string, unknown>) => SECTION_CATALOG.key_qualifications.full!(it as never, ctx)!
+
+  it('keeps a point with only a label or only a body, and drops an empty one', () => {
+    // Either half alone is a usable bullet; requiring both would silently drop a
+    // heading the user has not written the detail for yet.
+    const v = full({
+      summary: { en: 'Builds things.' },
+      key_points: [
+        { name: { en: 'Delivery' }, long_description: {} },
+        { name: {}, long_description: { en: 'Ships on time.' } },
+        { name: {}, long_description: {} },
+        { name: { en: 'Hidden' }, long_description: { en: 'x' }, disabled: true },
+      ],
+    })
+    expect(v.points.map((pt) => pt.label)).toEqual(['Delivery', ''])
+    expect(v.points.map((pt) => pt.body)).toEqual(['', 'Ships on time.'])
+  })
+
+  it('reads a profile with no key_points array at all', () => {
+    expect(full({ summary: { en: 'Builds things.' } }).points).toEqual([])
+  })
+})
+
+describe('SECTION_CATALOG — co-authors and the date slot', () => {
+  const ctx: CatalogCtx = { locale: 'en', hideDates: false, target: 'text' }
+
+  it('drops a blank co-author name, and says nothing when there are none', () => {
+    const line = (co: unknown) =>
+      SECTION_CATALOG.publications.full!({ title: { en: 'T' }, co_authors: co } as never, ctx)!.meta.join(' | ')
+    expect(line(['Ada', '', 'Grace'])).toContain('With Ada, Grace')
+    expect(line(['', ''])).not.toContain('With')
+    expect(line(undefined)).not.toContain('With')
+  })
+
+  it('emits no date part at all when the section has no date', () => {
+    // `summaryOf` only pushes a part when the slot has a value; an empty date
+    // part becomes a column in the tabulated grid that every row leaves blank.
+    const s = SECTION_CATALOG.key_competencies.summary!({ title: { en: 'Cloud' } } as never, ctx)!
+    expect(s.parts.some((p) => p.key === 'date')).toBe(false)
+  })
+
+  it('blanks BOTH date parts when dates are hidden', () => {
+    const s = SECTION_CATALOG.work_experiences.summary!(
+      { employer: { en: 'Acme' }, role_title: { en: 'Architect' }, start: { year: 2020, month: 1 }, end: { year: 2021, month: 1 } } as never,
+      { ...ctx, hideDates: true })!
+    expect(s.parts.some((p) => p.key === 'start' || p.key === 'end')).toBe(false)
+  })
+})
