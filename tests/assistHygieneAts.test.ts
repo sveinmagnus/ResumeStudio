@@ -1912,3 +1912,92 @@ describe('glossary — the guards around a harvested pair', () => {
     expect(glossaryFor(s, 'no', 'en', 'Ingenting her.')).toBeUndefined()
   })
 })
+
+/**
+ * C3's term harvesting. The glossary rides the ordinary Draft button with no UI,
+ * so a term that leaks in wrong is invisible until a translation comes back with
+ * a customer's name mangled.
+ */
+describe('buildGlossary — which terms are usable at all', () => {
+  const pairStore = (from: string, to: string): ResumeStore => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    s.skills = [makeSkill({ id: 's1', name: { no: from, en: to } })]
+    return s
+  }
+  const froms = (from: string, to: string) =>
+    buildGlossary(pairStore(from, to), 'no', 'en').terms.map((t) => t.from)
+
+  it('takes a term of exactly the maximum length', () => {
+    // The boundary decides whether a long official name — the kind that most
+    // needs pinning — is carried or silently dropped.
+    const max = 'A'.repeat(60)
+    expect(froms(max, 'Something else')).toContain(max)
+    expect(froms('B'.repeat(61), 'Something else')).toEqual([])
+  })
+
+  it('refuses a term with no letters in it', () => {
+    expect(froms('2024', '2025')).toEqual([])
+    expect(froms('--- ---', 'Something')).toEqual([])
+  })
+
+  it('drops a pair that says the same thing in both languages', () => {
+    // Identical in both columns is a do-not-translate instruction, not a
+    // translation; as a term pair it would just spend prompt space.
+    expect(froms('Cartavio', 'cartavio')).toEqual([])
+  })
+
+  it('matches a term case-insensitively when deciding it is the same', () => {
+    expect(froms('Skydrift', 'SKYDRIFT')).toEqual([])
+    expect(froms('Skydrift', 'Cloud operations')).toEqual(['Skydrift'])
+  })
+})
+
+describe('mentions — a whole term, not a substring', () => {
+  it('refuses a term that is not usable in the first place', () => {
+    expect(mentions('anything at all', '')).toBe(false)
+    expect(mentions('anything at all', 'A'.repeat(61))).toBe(false)
+  })
+
+  it('matches on a Unicode word boundary, not an ASCII one', () => {
+    // The reason the lookaround is Unicode: "Skydrift" must not match inside
+    // "Skydriften", and a Norwegian letter must not read as a boundary.
+    expect(mentions('Vi driver Skydrift for staten', 'Skydrift')).toBe(true)
+    expect(mentions('Skydriften er vår', 'Skydrift')).toBe(false)
+    expect(mentions('Jobber med Løsningsarkitektur', 'Løsning')).toBe(false)
+  })
+
+  it('matches regardless of case', () => {
+    expect(mentions('vi bruker skydrift her', 'Skydrift')).toBe(true)
+  })
+})
+
+describe('toPayload — what actually crosses the wire', () => {
+  it('sends the pairs and the keep list, without the internal origin', () => {
+    // `origin` is a debugging aid for the harvester; the provider has no use for
+    // it and DeepL hashes the payload to cache a glossary resource.
+    const payload = toPayload({
+      terms: [{ from: 'Skydrift', to: 'Cloud operations', origin: 'registry' }],
+      keep: ['Cartavio'],
+    } as never)
+    expect(payload).toEqual({ terms: [{ from: 'Skydrift', to: 'Cloud operations' }], keep: ['Cartavio'] })
+  })
+
+  it('sends nothing at all when there is nothing to say', () => {
+    expect(toPayload({ terms: [], keep: [] } as never)).toBeUndefined()
+  })
+})
+
+describe('buildGlossary — the size it will send', () => {
+  it('caps the do-not-translate list as tightly as the term list', () => {
+    // Both lists are pasted into a prompt (or hashed into a DeepL glossary
+    // resource); an uncapped one turns a large registry into a wall of text
+    // that crowds out the text being translated.
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    s.projects = Array.from({ length: 405 }, (_, i) =>
+      makeProject({ id: `p${i}`, customer: { no: `Cartavio${i}`, en: `Cartavio${i}` } }))
+    const g = buildGlossary(s, 'no', 'en')
+    expect(g.keep).toHaveLength(400)
+  })
+})

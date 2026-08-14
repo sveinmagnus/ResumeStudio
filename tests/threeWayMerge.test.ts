@@ -773,3 +773,101 @@ describe('mergeStores — the strings the conflict panel shows', () => {
     expect(conflictOn('customer', { en: '   ' }, 'their plain string')?.mine).toBe('(changed)')
   })
 })
+
+/**
+ * `adopted` is the count the caller uses to decide whether anything happened —
+ * a merge that silently takes the server's work and reports zero looks to the
+ * user like their own save simply went through.
+ *
+ * Every case below makes BOTH sides differ from base, so the per-item
+ * reconciliation actually runs: when one side matches base, the whole array is
+ * adopted wholesale one level up and the item logic is never reached.
+ */
+describe('mergeStores — per-item add and delete, with the count', () => {
+  const withProjects = (projects: Project[]): ResumeStore => ({ ...emptyStore(), projects })
+  const p = (id: string, customer: string) => makeProject({ id, customer: { en: customer } })
+
+  it('keeps an item the SERVER added while I edited another, and counts it', () => {
+    const base = withProjects([p('p1', 'Acme'), p('p2', 'Beta')])
+    const mine = withProjects([p('p1', 'Acme edited'), p('p2', 'Beta')])
+    const theirs = withProjects([p('p1', 'Acme'), p('p2', 'Beta'), p('p3', 'Gamma')])
+    const out = mergeStores(base, mine, theirs)
+    expect(out.merged.projects.map((x) => x.id).sort()).toEqual(['p1', 'p2', 'p3'])
+    expect(out.merged.projects.find((x) => x.id === 'p1')!.customer.en).toBe('Acme edited')
+    expect(out.adopted).toBe(1)
+    expect(out.conflicts).toEqual([])
+  })
+
+  it('adopts a deletion the server made to an item I had not touched, and counts it', () => {
+    const base = withProjects([p('p1', 'Acme'), p('p2', 'Beta')])
+    const mine = withProjects([p('p1', 'Acme edited'), p('p2', 'Beta')])
+    const theirs = withProjects([p('p1', 'Acme')])
+    const out = mergeStores(base, mine, theirs)
+    expect(out.merged.projects.map((x) => x.id)).toEqual(['p1'])
+    expect(out.adopted).toBe(1)
+    expect(out.conflicts).toEqual([])
+  })
+
+  it('keeps MY deletion when they had not touched that item', () => {
+    const base = withProjects([p('p1', 'Acme'), p('p2', 'Beta')])
+    const mine = withProjects([p('p1', 'Acme')])
+    const theirs = withProjects([p('p1', 'Acme changed'), p('p2', 'Beta')])
+    const out = mergeStores(base, mine, theirs)
+    expect(out.merged.projects.map((x) => x.id)).toEqual(['p1'])
+    expect(out.conflicts).toEqual([])
+  })
+
+  it('keeps an item only I added, and counts nothing for it', () => {
+    const base = withProjects([p('p1', 'Acme')])
+    const mine = withProjects([p('p1', 'Acme'), p('p9', 'Mine')])
+    const theirs = withProjects([p('p1', 'Acme changed')])
+    const out = mergeStores(base, mine, theirs)
+    expect(out.merged.projects.map((x) => x.id).sort()).toEqual(['p1', 'p9'])
+    // The one adoption is their p1 edit, not my own new item.
+    expect(out.adopted).toBe(1)
+  })
+
+  it('reports a conflict when they deleted what I was editing', () => {
+    const base = withProjects([p('p1', 'Acme'), p('p2', 'Beta')])
+    const mine = withProjects([p('p1', 'Acme'), p('p2', 'Beta edited')])
+    const theirs = withProjects([p('p1', 'Acme changed')])
+    const out = mergeStores(base, mine, theirs)
+    expect(out.conflicts.map((c) => c.theirs)).toContain('deleted on the server')
+    expect(out.merged.projects.map((x) => x.id).sort()).toEqual(['p1', 'p2'])
+  })
+
+  it('counts nothing when the two sides agree', () => {
+    const base = withProjects([p('p1', 'Acme')])
+    expect(mergeStores(base, base, base).adopted).toBe(0)
+  })
+})
+
+describe('mergeStores — a key both sides dropped stays dropped', () => {
+  it('does not write a removed top-level section back as undefined', () => {
+    // `undefined` and "absent" round-trip through JSON differently; a key
+    // written back as undefined reappears in the saved document as a null.
+    const base = emptyStore()
+    const drop = (s: ResumeStore) => {
+      const copy = { ...s } as Record<string, unknown>
+      delete copy.skill_categories
+      return copy as unknown as ResumeStore
+    }
+    const out = mergeStores(base, drop(emptyStore()), drop(emptyStore()))
+    expect('skill_categories' in out.merged).toBe(false)
+  })
+
+  it('does not write a removed nested field back as undefined', () => {
+    // Both sides dropped the phone but changed different OTHER fields, so the
+    // resume is merged key by key rather than returned whole.
+    const drop = (over: Record<string, unknown>) => {
+      const r = { ...makeResume({ full_name: 'Kari', ...over }) } as Record<string, unknown>
+      delete r.phone
+      return { ...emptyStore(), resume: r as never }
+    }
+    const base = { ...emptyStore(), resume: makeResume({ full_name: 'Kari', phone: '+47 900' }) }
+    const out = mergeStores(base, drop({ full_name: 'Kari M' }), drop({ email: 'k@x.io' }))
+    expect('phone' in (out.merged.resume as object)).toBe(false)
+    expect(out.merged.resume!.full_name).toBe('Kari M')
+    expect(out.merged.resume!.email).toBe('k@x.io')
+  })
+})
