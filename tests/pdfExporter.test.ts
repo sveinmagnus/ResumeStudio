@@ -1228,3 +1228,72 @@ describe('buildPdfDocDefinition — the summary line', () => {
     expect(text).not.toContain('The long profile.')
   })
 })
+
+describe('exportCoverLetterPdf — the filename it downloads as', () => {
+  beforeEach(() => { vi.resetModules(); __resetPdfMakeForTests() })
+  const FONT_MODULES = [
+    'pdfmake/build/fonts/Roboto',
+    'pdfmake/build/standard-fonts/Times',
+    'pdfmake/build/standard-fonts/Helvetica',
+    'pdfmake/build/standard-fonts/Courier',
+  ]
+  afterEach(() => {
+    vi.doUnmock('pdfmake/build/pdfmake')
+    for (const m of FONT_MODULES) vi.doUnmock(m)
+  })
+
+  /** Capture the name the download is handed; the render itself is not the point. */
+  function stubPdfMake() {
+    const seen: { name?: string } = {}
+    for (const m of FONT_MODULES) {
+      const family = m.split('/').pop()!
+      vi.doMock(m, () => ({ default: { vfs: {}, fonts: { [family]: {} } } }))
+    }
+    vi.doMock('pdfmake/build/pdfmake', () => ({
+      default: {
+        addFontContainer() {},
+        createPdf() {
+          return {
+            async download(name: string) { seen.name = name },
+            async getBlob() { return new Blob() },
+            async open() {},
+          }
+        },
+      },
+    }))
+    return seen
+  }
+
+  const run = async (letterName: string, fullName = 'Ada Lovelace') => {
+    const seen = stubPdfMake()
+    const mod = await import('../src/lib/pdfExporter')
+    const store = { ...emptyStore(), resume: makeResume({ full_name: fullName }) }
+    await mod.exportCoverLetterPdf(store, makeCoverLetter({ name: letterName } as never), 'en')
+    return seen.name!
+  }
+
+  it('names the file after the person and the letter', async () => {
+    // The letter is one of several a consultant sends the same week; a generic
+    // name means the wrong file gets attached.
+    // One export per test: the pdfmake stub is installed through the module
+    // registry, and re-stubbing inside a test does not reach the module already
+    // imported.
+    const name = await run('Equinor application')
+    expect(name).toMatch(/Ada_Lovelace/)
+    expect(name).toMatch(/Equinor_application/)
+    expect(name).toMatch(/\.pdf$/)
+  })
+
+  it('falls back to a generic letter name when the letter is unnamed', async () => {
+    expect(await run('')).toMatch(/cover-letter/)
+  })
+
+  it('exports for a store with no resume record', async () => {
+    const seen = stubPdfMake()
+    const mod = await import('../src/lib/pdfExporter')
+    const store = { ...emptyStore(), resume: null } as never
+    await expect(mod.exportCoverLetterPdf(store, makeCoverLetter({ name: 'Letter' } as never), 'en'))
+      .resolves.toBeUndefined()
+    expect(seen.name).toMatch(/Letter/)
+  })
+})
