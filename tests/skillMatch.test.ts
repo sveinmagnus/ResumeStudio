@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   normalizeKey, tokenize, editDistance, buildDomainIndex, matchSkillDomain,
-  matchSemantic, type SkillDomainModel,
+  matchSemantic, INFERRED_TIERS, type SkillDomainModel,
 } from '../src/lib/skillMatch'
 
 const DOMAINS: Record<string, string> = {
@@ -393,5 +393,112 @@ describe('the token tier — two library words, not one generic one', () => {
     // A single generic word would otherwise match almost any sentence.
     const single = buildDomainIndex({ Management: 'Management' })
     expect(matchSkillDomain('Some management of things', single)).toBeNull()
+  })
+})
+
+describe('matchSemantic — picking the winner', () => {
+  it('takes the HIGHEST-scoring domain, not the first one seen', () => {
+    // The rows are summed into a map whose iteration order is insertion order;
+    // without the sort the answer would depend on which token came first.
+    const model: SkillDomainModel = { a: { Low: 3 }, b: { High: 9 } }
+    expect(matchSemantic(['a', 'b'], model)).toBe('High')
+    expect(matchSemantic(['b', 'a'], model)).toBe('High')
+  })
+
+  it('sums the weights a domain gets from several tokens', () => {
+    const model: SkillDomainModel = { a: { X: 2 }, b: { X: 2 }, c: { Y: 3.5 } }
+    // X: 2+2 = 4 against Y: 3.5 — inside the 1.3 margin, so still ambiguous…
+    expect(matchSemantic(['a', 'b', 'c'], model)).toBeNull()
+    // …and one more contribution to X puts it clear.
+    expect(matchSemantic(['a', 'b', 'a', 'c'], model)).toBe('X')
+  })
+
+  it('assigns when there is only ONE domain in play', () => {
+    // The margin rule compares against a runner-up; with none there is nothing
+    // to be ambiguous with, and refusing here would leave every unambiguous
+    // single-domain skill uncategorised.
+    expect(matchSemantic(['a'], { a: { X: 5 } })).toBe('X')
+  })
+
+  it('refuses a tie', () => {
+    expect(matchSemantic(['a', 'b'], { a: { X: 4 }, b: { Y: 4 } })).toBeNull()
+  })
+})
+
+describe('matchSkillDomain — the fuzzy budget', () => {
+  const index = buildDomainIndex(DOMAINS)
+  const fuzzy = (name: string) => matchSkillDomain(name, index)
+
+  it('matches a one-character typo in a short-ish name', () => {
+    const m = fuzzy('Kubernets')
+    expect(m).toMatchObject({ domain: 'Cloud & Infrastructure', tier: 'fuzzy' })
+  })
+
+  it('refuses a name too far from anything in the library', () => {
+    // The budget is what stops "Kubernetes" absorbing every unrelated word of
+    // a similar length; a wrong domain is worse than none.
+    expect(fuzzy('Kandinskyish')).toBeNull()
+  })
+
+  it('allows three edits at twelve characters, the top of that band', () => {
+    // The budget steps 1 → 2 → 3 at 6 and 12 characters. A twelve-character key
+    // sits in the middle band, so a three-edit near-miss must NOT match.
+    const small = buildDomainIndex({ abcdefghijkl: 'Target' })
+    expect(matchSkillDomain('abcdefghixyz', small)).toBeNull()
+    // …while two edits still do.
+    expect(matchSkillDomain('abcdefghijxy', small)?.domain).toBe('Target')
+  })
+
+  it('picks the CLOSEST candidate, not the first within budget', () => {
+    // Two library entries within the budget: stopping at the first one found
+    // assigns the domain of whichever happens to be earlier in the index.
+    const small = buildDomainIndex({ 'Postgresqll': 'Wrong', 'PostgreSQL': 'Data & Analytics' })
+    expect(matchSkillDomain('PostgreSQI', small)?.domain).toBe('Data & Analytics')
+  })
+})
+
+describe('normalizeKey — which tokens are dropped, and which only look droppable', () => {
+  it('drops a token that is ONLY a number, or only a v-version', () => {
+    expect(normalizeKey('Java 8')).toBe('java')
+    expect(normalizeKey('Angular v14')).toBe('angular')
+  })
+
+  it('keeps a token that merely STARTS or ENDS with digits', () => {
+    // "3D" and "MP3" are the skill, not a version of one; an unanchored version
+    // of either rule erases them from the key entirely.
+    expect(normalizeKey('3D Modelling')).toBe('3d modelling')
+    expect(normalizeKey('MP3 encoding')).toBe('mp3 encoding')
+    expect(normalizeKey('Srv2 Administration')).toBe('srv2 administration')
+    // …and a token that starts LIKE a version but carries a name after it.
+    expect(normalizeKey('V2Ray proxy')).toBe('v2ray proxy')
+  })
+})
+
+describe('tokenize — one-character tokens are noise', () => {
+  it('drops a single letter left behind by punctuation', () => {
+    // "C#" normalises to "c"; as a token it would match half the library.
+    expect(tokenize('C# and Go')).toEqual(['go'])
+    expect(tokenize('R programming')).toEqual(['programming'])
+  })
+})
+
+describe('buildDomainIndex — two names that normalise the same', () => {
+  it('keeps the FIRST domain for a shared key', () => {
+    // The library is walked in file order; last-writer-wins would make the
+    // domain of a duplicated name depend on where it sits in a generated file.
+    const index = buildDomainIndex({ 'Node.js': 'Software Development', 'Node JS': 'Wrong' })
+    expect(index.byKey.get('node js')).toBe('Software Development')
+    expect(matchSkillDomain('Node.js', index)?.domain).toBe('Software Development')
+  })
+})
+
+describe('INFERRED_TIERS — which tiers are flagged as inferred', () => {
+  it('holds every heuristic tier, and not the reliable one', () => {
+    // The set drives the "check this" flag in the registry editor: a tier
+    // missing from it silently presents a guess as a certainty.
+    for (const tier of ['token', 'fuzzy', 'semantic', 'graph']) {
+      expect(INFERRED_TIERS.has(tier as never), tier).toBe(true)
+    }
+    expect(INFERRED_TIERS.has('exact' as never)).toBe(false)
   })
 })
