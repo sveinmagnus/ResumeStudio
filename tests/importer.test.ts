@@ -1510,3 +1510,123 @@ describe('importFromCVPartner — the interleaved localized array', () => {
     expect(first(['no', 42, 'int', 'English'])).toEqual({ en: 'English' })
   })
 })
+
+/**
+ * The coercions every CVpartner field passes through. Both are TOTAL by design:
+ * a malformed value degrades to "nothing here" rather than throwing, because one
+ * bad field would otherwise take the whole import down — and these exports carry
+ * nulls, numbers where strings belong, and truncated arrays.
+ */
+describe('importFromCVPartner — the value coercions', () => {
+  const customerOf = (customer: unknown) =>
+    importFromCVPartner({ project_experiences: [{ customer }] }).projects[0].customer
+  const projectOf = (over: Record<string, unknown>) =>
+    importFromCVPartner({ project_experiences: [{ customer: 'Acme', ...over }] }).projects[0]
+
+  it('reads the OBJECT shape as well as the array one, mapping int to en', () => {
+    expect(customerOf({ no: 'Acme AS', int: 'Acme Ltd' })).toEqual({ no: 'Acme AS', en: 'Acme Ltd' })
+  })
+
+  it('reads a bare string as English, and anything else as nothing', () => {
+    expect(customerOf('Acme')).toEqual({ en: 'Acme' })
+    expect(customerOf(null)).toEqual({})
+    expect(customerOf(undefined)).toEqual({})
+    expect(customerOf(42)).toEqual({})
+    expect(customerOf(true)).toEqual({})
+  })
+
+  it('trims each value and drops the blank and non-string ones', () => {
+    expect(customerOf({ no: '  Acme AS  ', en: '   ', se: 42, dk: null })).toEqual({ no: 'Acme AS' })
+  })
+
+  it('reads a date given as a NUMBER, not only as a string', () => {
+    // Both appear in real exports; parseInt on a number would work, but the
+    // month is read through a different branch and a wrong one lands the item
+    // in the wrong year on every date sort.
+    expect(projectOf({ year_from: 2019, month_from: 6 }).start).toEqual({ year: 2019, month: 6 })
+    expect(projectOf({ year_from: '2019', month_from: '06' }).start).toEqual({ year: 2019, month: 6 })
+  })
+
+  it('reads a year with no month as year-only, and no year as no date', () => {
+    expect(projectOf({ year_from: '2019' }).start).toEqual({ year: 2019, month: null })
+    expect(projectOf({ year_from: '2019', month_from: '' }).start).toEqual({ year: 2019, month: null })
+    expect(projectOf({}).start).toBeNull()
+    expect(projectOf({ year_from: '' }).start).toBeNull()
+  })
+})
+
+describe('importFromCVPartner — the content locale scan', () => {
+  const localesOf = (raw: Record<string, unknown>) =>
+    importFromCVPartner({ language_codes: ['no'], ...raw }).resume!.supported_locales
+
+  it('finds a locale nested several levels down', () => {
+    // The scan recurses because the locale keys sit on leaf values, and the
+    // export's own language list is the thing this exists to distrust.
+    expect(localesOf({
+      project_experiences: [{ customer: 'Acme', roles: [{ name: { dk: 'Arkitekt' } }] }],
+    })).toContain('dk')
+  })
+
+  it('walks an ARRAY of objects, not only an object', () => {
+    expect(localesOf({ project_experiences: [{ customer: { se: 'Kunden' } }] })).toContain('se')
+  })
+
+  it('ignores a locale key whose value is blank or not a string', () => {
+    // A blank slot is not evidence the resume supports that language; adding it
+    // marks every field in it as an untranslated gap.
+    expect(localesOf({ project_experiences: [{ customer: { dk: '   ' } }] })).not.toContain('dk')
+    expect(localesOf({ project_experiences: [{ customer: { dk: 42 } }] })).not.toContain('dk')
+  })
+
+  it('lists each locale once however many rows carry it', () => {
+    const locales = localesOf({
+      project_experiences: [{ customer: { se: 'A' } }, { customer: { se: 'B' } }],
+    })
+    expect(locales.filter((l) => l === 'se')).toHaveLength(1)
+    expect(locales).toEqual([...new Set(locales)])
+  })
+})
+
+describe('importFromCVPartner — the numbers on a project skill', () => {
+  const skillOf = (ps: Record<string, unknown>) => importFromCVPartner({
+    project_experiences: [{ customer: 'Acme', project_experience_skills: [{ tags: { no: 'Go' }, ...ps }] }],
+  }).skills[0]
+
+  it('carries a declared duration and proficiency', () => {
+    const s = skillOf({ total_duration_in_years: 4, proficiency: 3 })
+    expect(s.total_duration_in_years).toBe(4)
+    expect(s.proficiency).toBe(3)
+  })
+
+  it('defaults both to zero when the export omits them', () => {
+    // CVpartner exports often carry proficiency 0 across the board; the default
+    // has to be the same zero rather than undefined, which would render blank.
+    const s = skillOf({})
+    expect(s.total_duration_in_years).toBe(0)
+    expect(s.proficiency).toBe(0)
+  })
+})
+
+describe('importFromCVPartner — the skill category order', () => {
+  it('takes the export order when given, and falls back to the position', () => {
+    const store = importFromCVPartner({
+      technologies: [
+        { category: { no: 'Skyer' }, order: 7, technology_skills: [{ tags: { no: 'Go' } }] },
+        { category: { no: 'Språk' }, technology_skills: [{ tags: { no: 'Rust' } }] },
+      ],
+    })
+    const orders = (store.skill_categories ?? []).map((c) => c.sort_order)
+    expect(orders).toEqual([7, 1])
+  })
+
+  it('keeps an explicit order of ZERO rather than treating it as missing', () => {
+    // `?? index`, not `|| index`: the first category legitimately has order 0,
+    // and `||` would renumber it to its array position.
+    const store = importFromCVPartner({
+      technologies: [
+        { category: { no: 'A' }, order: 0, technology_skills: [{ tags: { no: 'Go' } }] },
+      ],
+    })
+    expect((store.skill_categories ?? [])[0].sort_order).toBe(0)
+  })
+})
