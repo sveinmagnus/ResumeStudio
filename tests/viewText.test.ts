@@ -973,3 +973,59 @@ describe('buildViewText — the matrix section, the tag line and the footer', ()
     expect(plain.trimEnd().split(String.fromCharCode(10)).pop()).toBe('Confidential')
   })
 })
+
+describe('buildViewText — the matrix column and heading gates', () => {
+  const mixed = (): ResumeStore => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'Ada Lovelace' })
+    s.skill_categories = [makeSkillCategory({ id: 'c1', name: { en: 'Languages' } })]
+    s.skills = [
+      makeSkill({ id: 's1', name: { en: 'Go' }, category_id: 'c1', is_highlighted: true, total_duration_in_years: 8, proficiency: 4 }),
+      makeSkill({ id: 's2', name: { en: 'Bash' }, category_id: null, is_highlighted: true, total_duration_in_years: 3, proficiency: 3 }),
+    ]
+    return s
+  }
+  const view = (style: Record<string, unknown> = {}) => makeView({
+    sections: [{ key: 'skill_matrix', detail: 'full', sort_order: 0, style } as never],
+  })
+
+  it('shows the Category column when only SOME rows have a category', () => {
+    // "some", not "every": one uncategorised skill must not hide the column for
+    // the rows that do have one.
+    const md = buildViewMarkdown(mixed(), view(), 'en')
+    expect(md).toContain('Category')
+    expect(md).toMatch(/\|\s*Go\s*\|\s*Languages\s*\|/)
+    expect(buildViewText(mixed(), view(), 'en')).toContain('Languages')
+  })
+
+  it('writes the heading, underlined, when it is not hidden', () => {
+    expect(buildViewMarkdown(mixed(), view(), 'en')).toMatch(/^## /m)
+    const text = buildViewText(mixed(), view(), 'en')
+    // The underline belongs to the heading directly above it.
+    expect(text).toMatch(new RegExp('SKILL MATRIX' + String.fromCharCode(10) + '-{4,}', 'i'))
+  })
+})
+
+describe('buildViewText — the tag line and the quote attribution', () => {
+  it('omits the tag line entirely for an item with no tags', () => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'Ada' })
+    s.projects = [makeProject({ id: 'p1', customer: { en: 'Acme' }, skills: [], long_description: { en: 'Ran it.' } })]
+    const text = buildViewText(s, makeView({ sections: [{ key: 'projects', detail: 'full', sort_order: 0 }] }), 'en')
+    expect(text).not.toMatch(/^\s*:/m)
+    expect(text).toContain('Ran it.')
+  })
+
+  it('leaves no dangling separator after a quote with no attribution meta', () => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'Ada' })
+    s.recommendations = [makeRecommendation({
+      id: 'r1', recommender_name: 'Jane Boss', recommender_title: {}, relationship: {},
+      recommender_company: null, text: { en: 'Excellent.' },
+    })]
+    const text = buildViewText(s, makeView({ sections: [{ key: 'recommendations', detail: 'full', sort_order: 0 }] }), 'en')
+    expect(text).toContain('Jane Boss')
+    expect(text).not.toMatch(/Jane Boss\s*[—·]\s*$/m)
+    expect(text).not.toContain('Jane Boss — ')
+  })
+})
