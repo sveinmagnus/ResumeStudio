@@ -675,3 +675,153 @@ describe('autoCategorizeSkills — choosing between two matches', () => {
     expect(out.store).toBe(store)
   })
 })
+
+describe('effectiveSkillCategory — the label a skill shows', () => {
+  it('says Uncategorized for no link and for a dangling one', () => {
+    // A dangling category_id outlives a deleted category; showing a blank there
+    // makes the By-category view render a group with no heading.
+    const names = new Map([['c1', 'Cloud']])
+    expect(effectiveSkillCategory({ category_id: 'c1' }, names)).toBe('Cloud')
+    expect(effectiveSkillCategory({ category_id: null }, names)).toBe('Uncategorized')
+    expect(effectiveSkillCategory({ category_id: 'gone' }, names)).toBe('Uncategorized')
+  })
+})
+
+describe('renameSkillCategory / assignSkillCategory — touching only the target', () => {
+  const two = (): ResumeStore => ({
+    ...emptyStore(),
+    resume: makeResume({ id: 'r1', full_name: 'X' }),
+    skill_categories: [
+      makeSkillCategory({ id: 'c1', name: { en: 'Cloud' } }),
+      makeSkillCategory({ id: 'c2', name: { en: 'Languages' } }),
+    ],
+    skills: [makeSkill({ id: 's1', name: { en: 'Go' }, category_id: 'c2' })],
+  })
+
+  it('renames only the category asked for', () => {
+    const out = renameSkillCategory(two(), 'c2', { en: 'Programming languages' })
+    expect(out.skill_categories!.map((c) => c.name.en)).toEqual(['Cloud', 'Programming languages'])
+  })
+
+  it('stamps a NEW category with the resume id, and survives a store with no resume', () => {
+    // The id ties the row to its resume for the sync merge; an empty one shows up
+    // as an orphan on the next machine.
+    const out = assignSkillCategory(two(), 's1', 'Data platforms', 'en')
+    const created = out.skill_categories!.find((c) => c.name.en === 'Data platforms')!
+    expect(created.resume_id).toBe('r1')
+
+    const orphan = { ...two(), resume: null } as unknown as ResumeStore
+    const out2 = assignSkillCategory(orphan, 's1', 'Data platforms', 'en')
+    expect(out2.skill_categories!.find((c) => c.name.en === 'Data platforms')!.resume_id).toBe('')
+  })
+})
+
+describe('autoCategorizeSkills — the created category rows', () => {
+  const store = (): ResumeStore => ({
+    ...emptyStore(),
+    resume: makeResume({ id: 'r1', full_name: 'X' }),
+    skills: [makeSkill({ id: 's1', name: { en: 'Kubernetes' } })],
+  })
+
+  it('stamps a category it creates with the resume id', () => {
+    const out = autoCategorizeSkills(store(), { Kubernetes: 'Platforms' })
+    expect(out.store.skill_categories!.find((c) => c.name.en === 'Platforms')!.resume_id).toBe('r1')
+  })
+
+  it('creates it with an empty resume id when there is no resume record', () => {
+    const orphan = { ...store(), resume: null } as unknown as ResumeStore
+    const out = autoCategorizeSkills(orphan, { Kubernetes: 'Platforms' })
+    expect(out.store.skill_categories!.find((c) => c.name.en === 'Platforms')!.resume_id).toBe('')
+  })
+
+  it('reuses a category whose name differs only by case or padding', () => {
+    // Otherwise a second run adds "Platforms" beside "platforms" and the
+    // Showcase grows two groups for one thing.
+    const s = store()
+    s.skill_categories = [makeSkillCategory({ id: 'c1', name: { en: '  platforms  ' } })]
+    const out = autoCategorizeSkills(s, { Kubernetes: 'Platforms' })
+    expect(out.store.skill_categories).toHaveLength(1)
+    expect(out.store.skills[0].category_id).toBe('c1')
+  })
+
+  it('leaves a skill alone when the graph gives it no neighbours', () => {
+    const out = autoCategorizeSkills(store(), { Rust: 'Languages' }, { relations: { helm: ['Rust'] } })
+    expect(out.assignments).toEqual([])
+    expect(out.store.skills[0].category_id).toBeNull()
+  })
+})
+
+/**
+ * The tier preference, with fixtures that can actually tell the tiers apart.
+ *
+ * The existing pair could not: 'Pythom' is a key in its own domain map, so both
+ * locale slots matched EXACTLY and whichever came first was also the best. These
+ * give the first slot a fuzzy-only match, so keeping it is a visible mistake.
+ */
+describe('autoCategorizeSkills — which locale slot wins', () => {
+  const store = (name: Record<string, string>): ResumeStore => ({
+    ...emptyStore(),
+    resume: makeResume({ id: 'r1', full_name: 'X' }),
+    skills: [makeSkill({ id: 's1', name })],
+  })
+
+  it('prefers a later EXACT match over an earlier fuzzy one', () => {
+    // 'Pythom' only fuzzy-matches; 'Python' is in the library. The tier is what
+    // the registry editor shows as "check this", so taking the fuzzy answer
+    // flags a certainty as a guess.
+    const out = autoCategorizeSkills(store({ en: 'Pythom', no: 'Python' }), { Python: 'Languages' })
+    expect(out.assignments[0]).toMatchObject({ tier: 'exact', category: 'Languages' })
+  })
+
+  it('stops at an exact match instead of considering later slots', () => {
+    const out = autoCategorizeSkills(
+      store({ en: 'Python', no: 'Kubernetez' }), { Python: 'Languages', Kubernetes: 'Platforms' })
+    expect(out.assignments[0]).toMatchObject({ tier: 'exact', category: 'Languages' })
+  })
+
+  it('keeps the FIRST of two equally-ranked matches', () => {
+    // Both slots only fuzzy-match, so neither is better; replacing on a tie
+    // makes the answer depend on the order the locales happen to be stored in.
+    const out = autoCategorizeSkills(
+      store({ en: 'Pythom', no: 'Kubernetez' }), { Python: 'Languages', Kubernetes: 'Platforms' })
+    expect(out.assignments[0]).toMatchObject({ tier: 'fuzzy', category: 'Languages' })
+  })
+})
+
+describe('autoCategorizeSkills — when it should do nothing at all', () => {
+  const store = (): ResumeStore => ({
+    ...emptyStore(),
+    resume: makeResume({ id: 'r1', full_name: 'X' }),
+    skills: [makeSkill({ id: 's1', name: { en: 'Kubernetes' } })],
+  })
+
+  it('returns the SAME store object when nothing matched', () => {
+    // Identity matters: the caller applies the result through replaceData, so a
+    // freshly-built store with identical content still bumps the mutation count,
+    // dirties the undo stack and triggers a save.
+    const s = store()
+    const out = autoCategorizeSkills(s, {})
+    expect(out.store).toBe(s)
+    expect(out.changed).toBe(0)
+    expect(out.assignments).toEqual([])
+  })
+
+  it('reports nothing on an OVERWRITE re-run that lands on the same category', () => {
+    // With overwrite on, the "respect a manual category" guard steps aside, so
+    // the only thing stopping a no-op from counting as a change is the check that
+    // the id it computed is the one already stored.
+    const first = autoCategorizeSkills(store(), { Kubernetes: 'Platforms' }, { overwrite: true })
+    expect(first.changed).toBe(1)
+    const second = autoCategorizeSkills(first.store, { Kubernetes: 'Platforms' }, { overwrite: true })
+    expect(second.changed).toBe(0)
+    expect(second.assignments).toEqual([])
+  })
+
+  it('reports nothing on a second run over the same store', () => {
+    const first = autoCategorizeSkills(store(), { Kubernetes: 'Platforms' })
+    expect(first.changed).toBe(1)
+    const second = autoCategorizeSkills(first.store, { Kubernetes: 'Platforms' })
+    expect(second.changed).toBe(0)
+    expect(second.store).toBe(first.store)
+  })
+})

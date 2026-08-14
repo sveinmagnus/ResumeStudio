@@ -1495,3 +1495,153 @@ describe('migrateStore — the legacy skill_tags field', () => {
     expect(migrateStore(store).projects).toBe(before)
   })
 })
+
+/**
+ * Migrations run once against data nobody can re-create, so each guard is
+ * asserted from both sides: it has to fire on the old shape AND leave the
+ * current one alone.
+ */
+describe('foldRoleDescriptions — which legacy roles carry text worth keeping', () => {
+  const withRole = (role: Record<string, unknown>): ResumeStore => ({
+    ...emptyStore(),
+    projects: [makeProject({
+      id: 'p1', long_description: { en: 'Ran it.' },
+      roles: [{ id: 'pr1', role_id: 'r1', name: { en: 'Architect' }, sort_order: 0, ...role } as never],
+    })],
+  })
+
+  it('folds text from EITHER legacy field', () => {
+    const fromLong = foldRoleDescriptions(withRole({ long_description: { en: 'Led the team.' } }))
+    expect(fromLong.projects[0].long_description.en).toContain('Led the team.')
+
+    const fromSummary = foldRoleDescriptions(withRole({ summary: { en: 'Led the team.' } }))
+    expect(fromSummary.projects[0].long_description.en).toContain('Led the team.')
+  })
+
+  it('strips the legacy keys even when they hold nothing', () => {
+    // The keys are what mark the row as old; leaving them means the migration
+    // runs again on every load, and `changed` reports a mutation each time.
+    const out = foldRoleDescriptions(withRole({ long_description: {}, summary: {} }))
+    const role = out.projects[0].roles[0] as Record<string, unknown>
+    expect('long_description' in role).toBe(false)
+    expect('summary' in role).toBe(false)
+    // Nothing was appended: the description is untouched.
+    expect(out.projects[0].long_description.en).toBe('Ran it.')
+  })
+
+  it('treats a whitespace-only legacy value as nothing to fold', () => {
+    const out = foldRoleDescriptions(withRole({ long_description: { en: '   ' } }))
+    expect(out.projects[0].long_description.en).toBe('Ran it.')
+  })
+
+  it('needs only ONE locale to hold text', () => {
+    const out = foldRoleDescriptions(withRole({ long_description: { en: '', no: 'Ledet laget.' } }))
+    expect(out.projects[0].long_description.no).toContain('Ledet laget.')
+  })
+})
+
+describe('internProjectIndustries — the v3 single link', () => {
+  const store = (project: Record<string, unknown>, industries: unknown[] = []): ResumeStore => ({
+    ...emptyStore(),
+    industries: industries as never,
+    projects: [makeProject({ id: 'p1', ...project } as never)],
+  })
+
+  it('snapshots the registry name for the linked industry', () => {
+    const out = internProjectIndustries(store(
+      { industry_id: 'i1', industries: undefined },
+      [{ id: 'i1', resume_id: 'r', name: { en: 'Finance' }, sort_order: 0, starred: false, disabled: false }],
+    ))
+    expect(out.projects[0].industries).toEqual([
+      expect.objectContaining({ industry_id: 'i1', name: { en: 'Finance' } }),
+    ])
+  })
+
+  it('falls back to the denormalized name when the registry has no such row', () => {
+    const out = internProjectIndustries(store(
+      { industry_id: 'gone', industry: { en: 'Public sector' }, industries: undefined }))
+    expect(out.projects[0].industries[0].name).toEqual({ en: 'Public sector' })
+  })
+
+  it('does not add a second link for an industry already listed', () => {
+    // Idempotence: running the chain twice must not duplicate the link.
+    const out = internProjectIndustries(store({
+      industry_id: 'i1',
+      industries: [{ id: 'pi1', industry_id: 'i1', name: { en: 'Finance' }, sort_order: 0 }],
+    }))
+    expect(out.projects[0].industries).toHaveLength(1)
+  })
+
+  it('DOES add the link when the list holds a different industry', () => {
+    // The duplicate check has to compare ids: matching anything already present
+    // would silently drop the v3 link on any project that had gained another.
+    const out = internProjectIndustries(store({
+      industry_id: 'i1',
+      industry: { en: 'Finance' },
+      industries: [{ id: 'pi1', industry_id: 'i2', name: { en: 'Public sector' }, sort_order: 0 }],
+    }))
+    expect(out.projects[0].industries.map((pi) => pi.industry_id).sort()).toEqual(['i1', 'i2'])
+  })
+
+  it('snapshots the name of the LINKED registry row, not the first one', () => {
+    const out = internProjectIndustries(store(
+      { industry_id: 'i2', industries: undefined },
+      [
+        { id: 'i1', resume_id: 'r', name: { en: 'Finance' }, sort_order: 0, starred: false, disabled: false },
+        { id: 'i2', resume_id: 'r', name: { en: 'Public sector' }, sort_order: 1, starred: false, disabled: false },
+      ],
+    ))
+    expect(out.projects[0].industries[0].name).toEqual({ en: 'Public sector' })
+  })
+})
+
+describe('internSkillCategories — the legacy free-text category', () => {
+  it('interns a category name off the skills, trimmed, once each', () => {
+    const s: ResumeStore = {
+      ...emptyStore(),
+      skills: [
+        { ...makeSkill({ id: 's1', name: { en: 'Go' } }), category: '  Languages  ' } as never,
+        { ...makeSkill({ id: 's2', name: { en: 'Rust' } }), category: 'Languages' } as never,
+        { ...makeSkill({ id: 's3', name: { en: 'Bash' } }), category: '   ' } as never,
+      ],
+    }
+    // v5 stored the categories as a plain string list; v6's unify step turns
+    // them into entities, so at THIS step they are still strings.
+    const out = internSkillCategories(s)
+    expect(out.skill_categories as unknown as string[]).toEqual(['Languages'])
+  })
+
+  it('trims a padded name in the pre-existing string list, and drops a blank one', () => {
+    // v5 wrote whatever the user typed; a padded duplicate would intern twice and
+    // a blank one would become a category with no name.
+    const s: ResumeStore = {
+      ...emptyStore(),
+      skill_categories: ['  Languages  ', '   '] as never,
+      skills: [{ ...makeSkill({ id: 's1', name: { en: 'Go' } }), category: 'Cloud' } as never],
+    }
+    // The padded entry and the new one both land trimmed; the blank one is gone.
+    expect(internSkillCategories(s).skill_categories as unknown as string[]).toEqual(['Cloud', 'Languages'])
+  })
+
+  it('keeps the same store reference when there is nothing new to intern', () => {
+    // Idempotence is what makes the chain safe to run on every load.
+    const s: ResumeStore = {
+      ...emptyStore(),
+      skill_categories: ['Languages'] as never,
+      skills: [{ ...makeSkill({ id: 's1', name: { en: 'Go' } }), category: 'Languages' } as never],
+    }
+    expect(internSkillCategories(s)).toBe(s)
+  })
+
+  it('leaves an ALREADY-migrated entity list alone', () => {
+    // v6+ data holds SkillCategory entities here, not strings. Trimming one as a
+    // string would throw and take the whole load down.
+    const s: ResumeStore = {
+      ...emptyStore(),
+      skill_categories: [makeSkillCategory({ id: 'c1', name: { en: 'Languages' } })],
+      skills: [makeSkill({ id: 's1', name: { en: 'Go' }, category_id: 'c1' })],
+    }
+    expect(() => internSkillCategories(s)).not.toThrow()
+    expect(internSkillCategories(s)).toBe(s)
+  })
+})

@@ -366,3 +366,95 @@ describe('buildBilingualDigest — the slot reader, exactly', () => {
     expect(out).toBe('')
   })
 })
+
+/**
+ * The BILINGUAL digest — A3's whole input.
+ *
+ * Its one job is to show the two locale slots side by side WITHOUT the
+ * resolution fallback, because the fallback would put the English text in the
+ * Norwegian column and the model would report perfect agreement on a field that
+ * has never been translated. Everything else about its shape exists so a reply's
+ * item id resolves against the live CV.
+ */
+describe('buildBilingualDigest', () => {
+  const NL = String.fromCharCode(10)
+  const store = (over: Partial<ResumeStore> = {}): ResumeStore => ({ ...emptyStore(), ...over })
+  const oneProject = (fields: Record<string, unknown>) =>
+    store({ projects: [makeProject({ id: 'p1', customer: { en: 'Acme' }, description: {}, long_description: {}, ...fields } as never)] })
+
+  it('shows both locale slots for a field, under the section and the item id', () => {
+    const out = buildBilingualDigest(
+      oneProject({ long_description: { en: 'Ran the rebuild.', no: 'Ledet ombyggingen.' } }), 'no', 'en')
+    expect(out).toMatch(/^## projects /m)
+    expect(out).toContain('- id: p1')
+    expect(out).toContain('  long_description:')
+    expect(out).toContain('    no: Ledet ombyggingen.')
+    expect(out).toContain('    en: Ran the rebuild.')
+  })
+
+  it('does NOT fall back to the other locale for a missing slot', () => {
+    // The whole point: an untranslated field must read as empty on one side, or
+    // the pass reports agreement where there is none.
+    const out = buildBilingualDigest(oneProject({ long_description: { en: 'Ran the rebuild.' } }), 'no', 'en')
+    expect(out).toContain('    no: (empty)')
+    expect(out).toContain('    en: Ran the rebuild.')
+  })
+
+  it('skips a field neither locale fills, and an item with no filled field', () => {
+    const out = buildBilingualDigest(
+      oneProject({ long_description: { en: 'Ran it.' }, short_description: {} }), 'no', 'en')
+    expect(out).not.toContain('short_description')
+
+    const empty = buildBilingualDigest(oneProject({}), 'no', 'en')
+    expect(empty).toBe('')
+  })
+
+  it('omits a section heading when no item in it has anything to compare', () => {
+    // A heading with nothing under it spends prompt budget and invites the model
+    // to comment on a section it was shown nothing from.
+    const out = buildBilingualDigest(store({
+      projects: [makeProject({ id: 'p1', customer: { en: 'Acme' }, description: {}, long_description: {} })],
+      courses: [makeCourse({ id: 'c1', description: { en: 'A course.', no: 'Et kurs.' } })],
+    }), 'no', 'en')
+    expect(out).not.toContain('## projects')
+    expect(out).toContain('## courses')
+  })
+
+  it('skips an item whose id is not a string — a reply could not name it', () => {
+    const s = store({ projects: [{ ...makeProject({ id: 'p1' }), id: 42, long_description: { en: 'x', no: 'y' } } as never] })
+    expect(buildBilingualDigest(s, 'no', 'en')).toBe('')
+  })
+
+  it('titles each item in the PRIMARY locale', () => {
+    const out = buildBilingualDigest(store({
+      projects: [makeProject({
+        id: 'p1', customer: { en: 'Acme Ltd', no: 'Acme AS' }, description: {},
+        long_description: { en: 'Ran it.', no: 'Ledet det.' },
+      })],
+    }), 'no', 'en')
+    expect(out).toContain('  title: Acme AS')
+  })
+
+  it('collapses each slot to one line and caps it', () => {
+    const long = 'word '.repeat(200)
+    const out = buildBilingualDigest(
+      oneProject({ long_description: { en: long, no: `First.${NL}${NL}Second   line.` } }), 'no', 'en', { maxFieldChars: 80 })
+    const noLine = out.split(NL).find((l) => l.trim().startsWith('no:'))!
+    const enLine = out.split(NL).find((l) => l.trim().startsWith('en:'))!
+    expect(noLine).toBe('    no: First. Second line.')
+    expect(enLine.length).toBeLessThan(100)
+    expect(enLine.endsWith('…')).toBe(true)
+  })
+
+  it('honours a section list, and ends with no trailing blank line', () => {
+    const s = store({
+      projects: [makeProject({ id: 'p1', customer: { en: 'Acme' }, long_description: { en: 'Ran it.', no: 'Ledet det.' } })],
+      courses: [makeCourse({ id: 'c1', description: { en: 'A course.', no: 'Et kurs.' } })],
+    })
+    const only = buildBilingualDigest(s, 'no', 'en', { sections: ['courses'] })
+    expect(only).toContain('## courses')
+    expect(only).not.toContain('## projects')
+    expect(only.endsWith(NL)).toBe(false)
+    expect(only.startsWith(' ')).toBe(false)
+  })
+})
