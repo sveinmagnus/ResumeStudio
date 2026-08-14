@@ -859,3 +859,58 @@ describe('validateLetterAngles / validateLetterCritique — the refusals', () =>
     }
   })
 })
+
+describe('validateJobFit — the refusals and the numbering', () => {
+  const store = (): ResumeStore => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'Kari' })
+    s.projects = [makeProject({ id: 'p1', customer: { en: 'Acme' } })]
+    return s
+  }
+
+  it('names a non-object reply as such, whatever kind it is', () => {
+    for (const bad of [null, undefined, 'text', 42, true]) {
+      expect(() => validateJobFit(bad, store(), 'en'), String(bad))
+        .toThrow(/not a JSON object/)
+    }
+  })
+
+  it('distinguishes a missing requirements array from a bad reply', () => {
+    expect(() => validateJobFit({ findings: [] }, store(), 'en'))
+      .toThrow(/no "requirements" array/)
+  })
+
+  it('numbers a dropped requirement from ONE', () => {
+    // The note points the user at a row in the model's reply; an off-by-one
+    // sends them to the wrong one.
+    const { dropped } = validateJobFit({ requirements: [
+      { requirement: 'Kubernetes', status: 'evidenced' },
+      'not an object',
+      { status: 'missing' },
+    ] }, store(), 'en')
+    expect(dropped[0]).toBe('Requirement 2 was not an object.')
+    expect(dropped[1]).toBe('Requirement 3 had no text.')
+  })
+
+  it('caps how many requirements it will read', () => {
+    const many = Array.from({ length: 80 }, (_, i) => ({ requirement: `R${i}`, status: 'missing' }))
+    const { requirements, dropped } = validateJobFit({ requirements: many }, store(), 'en')
+    expect(requirements.length + dropped.length).toBeLessThan(80)
+  })
+})
+
+describe('buildJobFitPrompt — the skills it lists', () => {
+  it('drops a registry entry with no name in the working locale', () => {
+    // An empty name would show as a bare comma in the list of skills the model
+    // is told the CV has.
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'Kari' })
+    s.skills = [
+      makeSkill({ id: 's1', name: { en: 'Go' } }),
+      makeSkill({ id: 's2', name: { no: 'Kun norsk' } }),
+    ]
+    const prompt = buildJobFitPrompt(s, 'We need Go.', 'en')
+    expect(prompt).toContain('Go')
+    expect(prompt).not.toMatch(/,\s*,/)
+  })
+})
