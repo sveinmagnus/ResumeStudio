@@ -109,3 +109,18 @@ describe('pathFor — the view path needs BOTH the section and the id', () => {
     expect(pathFor({ name: 'editor', id: 'abc', section: 'views' })).toBe('/r/abc/views')
   })
 })
+
+describe('parseRoute — a URL the browser will not decode', () => {
+  it('reads a malformed percent-escape as not-found rather than throwing', () => {
+    // A hand-edited or truncated link reaches the router before anything else;
+    // an uncaught URIError there blanks the whole app instead of showing the
+    // not-found screen.
+    for (const bad of ['/r/%E0%A4%A', '/r/abc/%', '/r/%ZZ']) {
+      expect(parseRoute(bad), bad).toEqual({ name: 'not-found', path: bad })
+    }
+  })
+
+  it('reads a third segment outside /views/ as not-found', () => {
+    expect(parseRoute('/r/abc/projects/extra')).toEqual({ name: 'not-found', path: '/r/abc/projects/extra' })
+  })
+})
