@@ -1535,7 +1535,7 @@ describe('hasMarkup — the probe that picks the path', () => {
   })
 })
 
-describe('renderRichHtml', () => {
+describe('renderRichHtml — the plain and the marked-up path', () => {
   const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   const nl = String.fromCharCode(10)
 
@@ -1562,7 +1562,7 @@ describe('renderRichHtml', () => {
   })
 })
 
-describe('renderRichInlineHtml', () => {
+describe('renderRichInlineHtml — joining for a one-line context', () => {
   const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   const nl = String.fromCharCode(10)
 
