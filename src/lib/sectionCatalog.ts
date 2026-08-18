@@ -146,6 +146,23 @@ export function summaryTitleMeta(v: SummaryView): { title: string; meta: string[
   return { title, meta }
 }
 
+/**
+ * Does this item view carry anything a reader would see?
+ *
+ * A descriptor can legitimately return a view with every slot empty — a profile
+ * in Summary mode whose short summary was never written, say. The paged and
+ * text adapters then emit no paragraphs and their section disappears, but the
+ * HTML adapter built a `<div class="ve-item">` of whitespace, which is truthy,
+ * so its section survived as a heading with a blank under it. The preview
+ * showed a section the exports did not have. Adapters ask this instead of each
+ * inventing an emptiness rule.
+ */
+export function isEmptyItemView(v: ItemView): boolean {
+  return !v.title && !v.date && !v.body && !v.plainBody && !v.attribution
+    && !v.meta.some(Boolean) && !v.extraLines.some(Boolean) && !v.tags.length
+    && !v.points.some((p) => p.label || p.body) && !v.attributionMeta.some(Boolean)
+}
+
 export interface SectionDescriptor {
   /** Editor-facing title (View editor item list). Shows raw data — no anonymization. */
   title(it: AnyItem, locale: string): string
@@ -157,9 +174,6 @@ export interface SectionDescriptor {
   full?(it: AnyItem, ctx: CatalogCtx): ItemView | null
   /** Render the full layout even when the view says summary (spoken languages). */
   alwaysFull?: boolean
-  /** DOCX sorts these by start date, newest first. The HTML path keeps store
-   *  order (what the user arranged) — historical drift, kept deliberately. */
-  docxSortByStart?: boolean
 }
 
 // ─── Field helpers ────────────────────────────────────────────────────────────
@@ -284,7 +298,6 @@ export const SECTION_CATALOG: Record<string, SectionDescriptor> = {
     title: (it, locale) =>
       ls(it, 'customer', locale) || ls(it, 'description', locale) || 'Untitled project',
     subtitle: (it) => rawRange(it),
-    docxSortByStart: true,
     summary(it, ctx) {
       const { start, end } = rangeParts(it, ctx)
       // Title = the role(s) held; Org = the client — matching the slot labels.
@@ -423,7 +436,6 @@ export const SECTION_CATALOG: Record<string, SectionDescriptor> = {
       const r = rawRange(it)
       return `${ls(it, 'role_title', locale)}${r ? ' · ' + r : ''}`
     },
-    docxSortByStart: true,
     summary: (it, ctx) => {
       const { start, end } = rangeParts(it, ctx)
       // Slots follow their labels: the position title is the Title, the employer

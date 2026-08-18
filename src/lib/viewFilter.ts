@@ -4,7 +4,7 @@ import type {
 } from '../types'
 import { SECTIONS, localizedSectionHeading } from './sections'
 import { resolve, bcp47 } from './locales'
-import { SECTION_CATALOG, type AnyItem, type CatalogCtx, type SummaryView, type SummaryPartKey } from './sectionCatalog'
+import { SECTION_CATALOG, isEmptyItemView, type AnyItem, type CatalogCtx, type SummaryView, type SummaryPartKey } from './sectionCatalog'
 import type { SummaryLayout } from '../types'
 import { skillMatrixRows, fmtLastUsed, fmtProficiency } from './skillMatrix'
 import { xs, fmtYears } from './exportStrings'
@@ -414,6 +414,9 @@ function renderItem(sectionKey: string, item: unknown, ctx: RenderCtx): string {
 
   const v = desc.full?.(item as AnyItem, cctx)
   if (!v) return ''
+  // An all-empty view renders as nothing in the paged and text exports; the
+  // preview must agree, or it shows a section heading they will not have.
+  if (isEmptyItemView(v)) return ''
 
   if (v.layout === 'inline') {
     const metaTxt = v.meta.filter(Boolean).join(' · ')

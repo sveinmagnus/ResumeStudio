@@ -208,9 +208,13 @@ describe('projects — the optional groups, and what stays per-target', () => {
     expect(SECTION_CATALOG.projects.full!(p, html)!.titleStyle).toBe('body')
   })
 
-  it('docx sorts by start date, html keeps store order (flag)', () => {
-    expect(SECTION_CATALOG.projects.docxSortByStart).toBe(true)
-    expect(SECTION_CATALOG.educations.docxSortByStart).toBeUndefined()
+  it('declares no per-target sort — item order is one decision for all of them', () => {
+    // A `docxSortByStart` flag used to live here, promising that DOCX sorted
+    // projects by start date while the preview kept the arranged order. No
+    // renderer had read it since ordering moved into viewSectionPlan, so it
+    // documented a divergence that did not exist. Order now comes from the
+    // view's per-section sort, once, for every adapter.
+    expect('docxSortByStart' in SECTION_CATALOG.projects).toBe(false)
   })
 })
 
