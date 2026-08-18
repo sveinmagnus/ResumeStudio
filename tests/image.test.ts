@@ -877,3 +877,54 @@ describe('fileToImage — the decoded image and its object URL', () => {
     await expect(fileToImage(svg)).rejects.toThrow(/SVG is not supported/)
   })
 })
+
+/**
+ * The data-URL parser's edges.
+ *
+ * `imageInfoFromDataUrl` decides what reaches the DOCX exporter's ImageRun. It
+ * returns null for anything it cannot parse CONFIDENTLY, because a wrong width or
+ * a truncated payload produces a document Word offers to repair rather than open.
+ */
+describe('imageInfoFromDataUrl — inputs it must refuse', () => {
+  it('refuses a payload with a line break in it', () => {
+    // The pattern is anchored at both ends on purpose: without the closing anchor
+    // it matches the FIRST line and decodes a truncated image, which is worse than
+    // refusing — the bytes are valid base64, just not the whole picture.
+    const png = dataUrl('image/png', pad([0x89, 0x50, 0x4e, 0x47], 40))
+    const [head, payload] = png.split(';base64,')
+    const split = `${head};base64,${payload.slice(0, 8)}${String.fromCharCode(10)}${payload.slice(8)}`
+    expect(imageInfoFromDataUrl(split)).toBeNull()
+  })
+
+  it('refuses a JPEG whose segment length cannot be trusted', () => {
+    // A segment header claiming a length below 2 would advance the scan by less
+    // than the header itself. Skipping the guard lets the walk carry on over
+    // garbage and report dimensions read from whatever it lands on.
+    const jpeg = [
+      0xff, 0xd8,             // SOI
+      0xff, 0xe0, 0x00, 0x00, // APP0 claiming length 0 — impossible
+      0xff, 0xc0, 0x00, 0x11, 0x08, 0x01, 0x2c, 0x01, 0x90, // a real SOF further on
+    ]
+    expect(imageInfoFromDataUrl(dataUrl('image/jpeg', pad(jpeg, 32)))).toBeNull()
+  })
+})
+
+describe('imageInfoFromDataUrl — decoding without Node’s Buffer', () => {
+  const realBuffer = (globalThis as { Buffer?: unknown }).Buffer
+
+  afterEach(() => {
+    ;(globalThis as { Buffer?: unknown }).Buffer = realBuffer
+  })
+
+  it('decodes through atob when Buffer is not available', () => {
+    // The browser is the real deployment target and has no Buffer at all; the
+    // fallback exists for old Node, not the other way round.
+    const png = dataUrl('image/png', pad([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+      0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52,
+      0, 0, 0, 8, 0, 0, 0, 4,
+    ], 32))
+    delete (globalThis as { Buffer?: unknown }).Buffer
+    expect(imageInfoFromDataUrl(png)).toMatchObject({ type: 'png', width: 8, height: 4 })
+  })
+})
