@@ -1630,3 +1630,57 @@ describe('importFromCVPartner — the skill category order', () => {
     expect((store.skill_categories ?? [])[0].sort_order).toBe(0)
   })
 })
+
+/**
+ * What a freshly imported store starts life with.
+ *
+ * Every row here is written out by hand, and the fields nothing in the export
+ * feeds — the empty link lists, the flags, the sections CVpartner has no source
+ * for — were the ones nothing asserted. Each is load-bearing: a seeded link list
+ * points at a registry entry that does not exist and every renderer resolves
+ * those ids, and a section that arrives with a row nobody wrote shows up in the
+ * sidebar of a CV the consultant has not touched yet.
+ */
+describe('importFromCVPartner — the lists and flags a fresh import starts with', () => {
+  it('leaves every section the CVpartner format cannot fill empty', () => {
+    const store = importFromCVPartner({ navn: 'Kari' })
+    expect(store.industries).toEqual([])
+    expect(store.recommendations).toEqual([])
+    expect(store.publications).toEqual([])
+    expect(store.references).toEqual([])
+    expect(store.views).toEqual([])
+    expect(store.cover_letters).toEqual([])
+    // No `technologies` block means no categories — not one nameless group.
+    expect(store.skill_categories).toEqual([])
+  })
+
+  it('links a mapped row to nothing until the user does', () => {
+    const store = importFromCVPartner({
+      work_experiences: [{ _id: 'w1', employer: { en: 'Cartavio' }, year_from: '2019' }],
+      courses: [{ _id: 'c1', name: { en: 'Kubernetes' }, year: '2021' }],
+      certifications: [{ _id: 'ce1', name: { en: 'AWS SA' }, year: '2022' }],
+    })
+    expect(store.work_experiences[0].role_ids).toEqual([])
+    expect(store.courses[0].skill_ids).toEqual([])
+    expect(store.certifications[0].skill_ids).toEqual([])
+  })
+
+  it('imports an education as a home-campus degree, not an exchange term', () => {
+    // `exchange` prints an extra line in every export, and CVpartner has no
+    // field for it — setting it makes the CV state something it never said.
+    const store = importFromCVPartner({
+      educations: [{ _id: 'e1', school: { en: 'NTNU' }, degree: { en: 'MSc' } }],
+    })
+    expect(store.educations[0].exchange).toBe(false)
+  })
+
+  it('creates no skills for a technology group that lists none', () => {
+    // The group still becomes a category; inventing a nameless skill inside it
+    // puts a blank row in the Skills Showcase the user cannot explain.
+    const store = importFromCVPartner({
+      technologies: [{ _id: 'cat1', category: { en: 'Languages' } }],
+    })
+    expect(store.skill_categories).toHaveLength(1)
+    expect(store.skills).toEqual([])
+  })
+})
