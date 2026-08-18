@@ -1502,3 +1502,89 @@ describe('richToPlain — whitespace', () => {
     expect(richToPlain('')).toBe('')
   })
 })
+
+/**
+ * The two render paths, and the probe that chooses between them.
+ *
+ * Both take a caller-supplied escaper for the plain branch, because a value with
+ * no markup has never been through the allowlist — escape-at-render is the only
+ * thing standing between imported CV text and the preview iframe.
+ */
+describe('hasMarkup — the probe that picks the path', () => {
+  it('recognises every tag the stored subset can hold', () => {
+    for (const tag of ['p', 'br', 'strong', 'b', 'em', 'i', 'u', 'ul', 'ol', 'li']) {
+      expect(hasMarkup(`<${tag}>x`), tag).toBe(true)
+      expect(hasMarkup(`</${tag}>`), tag).toBe(true)
+    }
+  })
+
+  it('is case-insensitive, because Word emits upper case', () => {
+    expect(hasMarkup('<UL><LI>x</LI></UL>')).toBe(true)
+  })
+
+  it('does not fire on a tag NAME that merely starts the same way', () => {
+    // A word-boundary keeps <pre> and <ins> out; treating them as markup would
+    // route the value down the sanitising path and silently unwrap them.
+    expect(hasMarkup('<pre>x</pre>')).toBe(false)
+    expect(hasMarkup('<ins>x</ins>')).toBe(false)
+  })
+
+  it('is false for plain text and empty input', () => {
+    expect(hasMarkup('Just a sentence about C++ & <3')).toBe(false)
+    expect(hasMarkup('')).toBe(false)
+  })
+})
+
+describe('renderRichHtml', () => {
+  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  const nl = String.fromCharCode(10)
+
+  it('paragraph-splits PLAIN text on the way out', () => {
+    // An imported CV whose descriptions are newline-separated has to read like
+    // one typed in the editor; without this the whole description arrived as a
+    // single block of running text.
+    expect(renderRichHtml(`First para${nl}Second para`, esc)).toBe('<p>First para</p><p>Second para</p>')
+  })
+
+  it('escapes plain text through the escaper the caller supplied', () => {
+    expect(renderRichHtml('<script>alert(1)</script>', esc)).not.toContain('<script>')
+  })
+
+  it('sends marked-up input through the allowlist instead', () => {
+    const out = renderRichHtml('<p>Kept<span onclick="x">also kept</span></p>', esc)
+    expect(out).toContain('Kept')
+    expect(out).not.toContain('onclick')
+    expect(out).not.toContain('<span')
+  })
+
+  it('is empty for an empty value', () => {
+    expect(renderRichHtml('', esc)).toBe('')
+  })
+})
+
+describe('renderRichInlineHtml', () => {
+  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  const nl = String.fromCharCode(10)
+
+  it('joins paragraphs with a space instead of block tags', () => {
+    // The caller is itself one line — a bullet with a label — and a <p> would
+    // push the text below the label it belongs to.
+    expect(renderRichInlineHtml('<p>One</p><p>Two</p>', esc)).toBe('One Two')
+    expect(renderRichInlineHtml(`One${nl}Two`, esc)).toBe('One Two')
+  })
+
+  it('keeps a list as markup rather than flattening it', () => {
+    const out = renderRichInlineHtml('<ul><li>One</li></ul>', esc)
+    expect(out).toContain('<ul>')
+    expect(out).toContain('<li>One</li>')
+  })
+
+  it('keeps inline formatting inside the joined paragraphs', () => {
+    expect(renderRichInlineHtml('<p><strong>Bold</strong> rest</p>', esc)).toBe('<strong>Bold</strong> rest')
+  })
+
+  it('escapes plain text and is empty for an empty value', () => {
+    expect(renderRichInlineHtml('<script>x</script>', esc)).not.toContain('<script>')
+    expect(renderRichInlineHtml('', esc)).toBe('')
+  })
+})
