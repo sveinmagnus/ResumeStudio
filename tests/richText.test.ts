@@ -1254,3 +1254,87 @@ describe('sanitizeRich — a newline inside a list stays a break', () => {
     expect(out.match(/<p>/g)).toHaveLength(2)
   })
 })
+
+/**
+ * The allowlist, and the break normalisation around it.
+ *
+ * `sanitizeRich` is the single final gate before storage: everything the editor
+ * saves, every import, and every model reply passes through it. What it strips
+ * is the difference between a CV field and a script running in the preview
+ * iframe, which is same-origin and carries the session cookie.
+ */
+describe('sanitizeRich — the allowlist', () => {
+  it('removes a dangerous container WITH its subtree, not just the tag', () => {
+    // Unwrapping a <script> would leave its source as visible text; removing the
+    // element takes the payload with it.
+    expect(sanitizeRich('<p>Before<script>alert(1)</script>After</p>')).not.toContain('alert(1)')
+    for (const tag of ['style', 'iframe', 'object', 'form', 'textarea', 'button', 'svg']) {
+      const out = sanitizeRich(`<p>Text<${tag}>payload</${tag}></p>`)
+      expect(out, tag).not.toContain('payload')
+      expect(out, tag).not.toContain(`<${tag}`)
+    }
+  })
+
+  it('removes a VOID dangerous element too', () => {
+    // <embed> and <input> take no children — the parser makes any following text
+    // a sibling — so what matters is that the element itself never survives.
+    for (const tag of ['embed', 'input']) {
+      const out = sanitizeRich(`<p>Text<${tag} src="x"></p>`)
+      expect(out, tag).not.toContain(`<${tag}`)
+      expect(out, tag).toContain('Text')
+    }
+  })
+
+  it('UNWRAPS a disallowed tag, keeping the words inside it', () => {
+    // A <span> or <font> carries no meaning we store, but the text inside it is
+    // the user's — dropping the subtree would silently delete their sentence.
+    const out = sanitizeRich('<p><span>kept</span> <font color="red">also kept</font></p>')
+    expect(richToPlain(out)).toContain('kept')
+    expect(richToPlain(out)).toContain('also kept')
+    expect(out).not.toContain('<span')
+    expect(out).not.toContain('<font')
+  })
+
+  it('wipes every attribute from a tag it keeps', () => {
+    // An event handler or a style is what turns allowed markup into a vector.
+    const out = sanitizeRich('<p class="x" onclick="alert(1)" style="color:red"><strong id="y">Bold</strong></p>')
+    expect(out).toContain('<strong>Bold</strong>')
+    expect(out).not.toContain('onclick')
+    expect(out).not.toContain('class=')
+    expect(out).not.toContain('style=')
+    expect(out).not.toContain('id=')
+  })
+
+  it('strips comments, which Word clipboard HTML is full of', () => {
+    expect(sanitizeRich('<p>Text<!-- [if gte mso 9] --></p>')).not.toContain('<!--')
+  })
+})
+
+describe('sanitizeRich — break normalisation', () => {
+  it('collapses a run of breaks into one boundary', () => {
+    // Two breaks in a row is how a Word user makes a blank line; keeping both
+    // draws an empty line the paragraph gap already provides.
+    const out = sanitizeRich('<p>One<br><br>Two</p>')
+    expect(out).not.toContain('<br><br>')
+  })
+
+  it('does not let blank text between two breaks hide the run', () => {
+    const out = sanitizeRich('<p>One<br>   <br>Two</p>')
+    expect(out).not.toMatch(/<br>\s*<br>/)
+  })
+
+  it('strips a break at the start or end of a paragraph', () => {
+    // A leading or trailing break only draws an empty edge line, and the
+    // paragraph gap is what actually separates blocks.
+    expect(sanitizeRich('<p><br>Text</p>')).not.toContain('<br>')
+    expect(sanitizeRich('<p>Text<br></p>')).not.toContain('<br>')
+    expect(sanitizeRich('<li><br>Item</li>')).not.toContain('<br>')
+  })
+
+  it('removes a paragraph left with nothing in it', () => {
+    // Word pastes a blank paragraph for every empty line; each one would render
+    // as an unexplained gap the user cannot click into.
+    const out = sanitizeRich('<p>One</p><p></p><p>   </p><p>Two</p>')
+    expect(out.match(/<p>/g)).toHaveLength(2)
+  })
+})
