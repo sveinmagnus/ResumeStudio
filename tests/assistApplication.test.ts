@@ -973,3 +973,136 @@ describe('the letter prompts — what they carry, trimmed', () => {
     expect(p).not.toContain('English body.')
   })
 })
+
+/**
+ * The remaining edges of B5's tidying and its two refusals.
+ *
+ * `tidyBody` runs four rules in sequence over one string, and every rule after
+ * the first depends on the one before having left the string anchored: three of
+ * them are `^`- or `$`-anchored, so a stray newline in the middle of the chain
+ * silently disables the rest of it.
+ */
+describe('letterAdvice — the tidying chain and the shape guards', () => {
+  const NL = String.fromCharCode(10)
+  const bodyOf = (body: string) =>
+    validateLetterAngles({ angles: [{ name: 'Angle', body }] })[0]?.body
+
+  it('drafts for an applicant whose resume record is not filled in yet', () => {
+    // A resume row created and gone straight to the letter has no identity
+    // record; the panel must produce a prompt, not fail on the way in.
+    const s = emptyStore()
+    s.resume = null
+    const prompt = buildLetterAnglesPrompt(s, makeCoverLetter({ role_applied: { en: 'Architect' } }), 'en')
+    expect(prompt).toContain('APPLICANT: (unnamed)')
+  })
+
+  it('strips a greeting the model wrote INSIDE a fenced block', () => {
+    // Unwrapping the fence leaves the greeting on the first line only if the
+    // newline the fence sat on goes with it — otherwise the greeting is no
+    // longer at the start, and it ships duplicated above the user's own.
+    expect(bodyOf(`\`\`\`${NL}${NL}Dear Hiring Manager,${NL}${NL}The letter body.${NL}\`\`\``))
+      .toBe('The letter body.')
+  })
+
+  it('takes the blank line under the greeting with it', () => {
+    // Leaving that newline behind puts the first paragraph at the end of a line
+    // break, where a sentence that merely opens with a sign-off word is deleted
+    // as a sign-off — and the whole letter disappears.
+    expect(bodyOf(`Dear Hiring Manager,${NL}${NL}Regards to the team have shaped how I work.`))
+      .toBe('Regards to the team have shaped how I work.')
+  })
+
+  it('leaves no indent or trailing space where the greeting and sign-off were', () => {
+    // The body is exported between the greeting and closing the user wrote, so
+    // an indent left behind shows up as a broken first line in the letter.
+    expect(bodyOf(`Dear Hiring Manager,${NL}${NL}   The letter body.   ${NL}${NL}Kind regards,${NL}Ada`))
+      .toBe('The letter body.')
+  })
+
+  it('drops an angle that is not a plain object even when it carries a body', () => {
+    // The guard is on the SHAPE of the entry, not on it being truthy: every
+    // field read after it assumes a record of strings.
+    const notAnObject = Object.assign(() => 'x', { body: 'A complete letter body.' })
+    expect(() => validateLetterAngles({ angles: [notAnObject] }))
+      .toThrow(/no usable letters/)
+  })
+
+  it('separates a critique reply that is not an object from one with nothing in it', () => {
+    // The two refusals point at different fixes: a non-object reply is a retry,
+    // an empty one is a model that had nothing to say.
+    expect(() => validateLetterCritique('The letter looks fine to me.'))
+      .toThrow(/not a JSON object/)
+    expect(() => validateLetterCritique({ notes: [] })).toThrow(/no critique/)
+  })
+
+  it('drops a critique note that is not a plain object even when it carries a title', () => {
+    const notAnObject = Object.assign(() => 'x', {
+      title: 'Weak opening', detail: 'It could head any letter for any role.',
+    })
+    const { notes } = validateLetterCritique({ overall: 'Solid.', notes: [notAnObject] })
+    expect(notes).toEqual([])
+  })
+})
+
+/**
+ * B1's malformed-reply edges.
+ *
+ * The report's value is that every line can be trusted: a requirement says what
+ * the posting said, and a dropped note names something the model actually got
+ * wrong. Both leak if the reply is copied through unchecked.
+ */
+describe('validateJobFit — what a malformed reply must not become', () => {
+  const store = (): ResumeStore => {
+    const s = emptyStore()
+    s.projects = [makeProject({ id: 'p1', customer: { en: 'Acme' } })]
+    return s
+  }
+
+  it('leaves a nameless skill out of the registry line entirely', () => {
+    // A blank between two commas reads as a requirement with no name, which the
+    // model then judges the CV against.
+    const s = emptyStore()
+    s.skills = [
+      makeSkill({ name: { en: 'Kubernetes' } }),
+      makeSkill({ name: {} }),
+      makeSkill({ name: { en: 'Terraform' } }),
+    ]
+    expect(buildJobFitPrompt(s, 'en', 'We need Kubernetes.'))
+      .toMatch(/^SKILLS REGISTRY: Kubernetes, Terraform$/m)
+  })
+
+  it('trims a requirement, and treats a whitespace-only one as having no text', () => {
+    // The requirement is the row's heading and is matched against the posting by
+    // eye; padding makes two identical requirements look like two rows.
+    const { requirements, dropped } = validateJobFit({ requirements: [
+      { requirement: '  Kubernetes in production  ', status: 'missing' },
+      { requirement: '   ', status: 'missing' },
+    ] }, store(), 'en')
+    expect(requirements.map((r) => r.requirement)).toEqual(['Kubernetes in production'])
+    expect(dropped).toEqual(['Requirement 2 had no text.'])
+  })
+
+  it('ignores an evidence entry that is not an object, and does not call it a bad citation', () => {
+    // A null or a bare string in the evidence list is a malformed reply, not the
+    // model pointing at an item the CV lacks — reporting it that way sends the
+    // user hunting for a row that was never cited.
+    const { requirements, dropped } = validateJobFit({ requirements: [
+      { requirement: 'Kubernetes', status: 'evidenced', evidence: [null, 'projects/p1', 42] },
+    ] }, store(), 'en')
+    expect(dropped).toEqual([])
+    expect(requirements[0].evidence).toEqual([])
+    // Claimed proof that resolved to nothing is not proof.
+    expect(requirements[0].status).toBe('adjacent')
+  })
+
+  it('quotes only the head of a long requirement when reporting a bad citation', () => {
+    // The note is one line in a list of drops; a requirement pasted whole buries
+    // the ones under it.
+    const requirement = 'Deep experience operating Kubernetes clusters for regulated customers'
+    const { dropped } = validateJobFit({ requirements: [
+      { requirement, status: 'evidenced', evidence: [{ section: 'projects', item_id: 'ghost' }] },
+    ] }, store(), 'en')
+    expect(dropped).toEqual([`"${requirement.slice(0, 40)}…" cited an item that isn't in the CV.`])
+    expect(dropped[0]).not.toContain('regulated customers')
+  })
+})

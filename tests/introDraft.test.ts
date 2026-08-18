@@ -212,3 +212,35 @@ describe('buildIntroPrompt — the profile text it quotes', () => {
     expect(prompt).not.toContain(`${NL}Second line.`)
   })
 })
+
+/**
+ * The two places D2 has to leave a string with no edges on it.
+ *
+ * Each tidying rule after the first is `^`-anchored, so whitespace left behind
+ * by the rule before it silently disables the rest of the chain; and the profile
+ * text is quoted into a labelled block where a stray space reads as part of the
+ * profile.
+ */
+describe('introDraft — what is left at the edges', () => {
+  const NL = String.fromCharCode(10)
+
+  it('strips a preamble label that sat inside a fenced block', () => {
+    // Unwrapping the fence has to leave the label at the start of the string,
+    // or "Introduction:" ships as the first words of the view's introduction.
+    expect(tidyIntro(`\`\`\`${NL}${NL}Introduction: The real intro.${NL}\`\`\``))
+      .toBe('The real intro.')
+  })
+
+  it('quotes the profile as one line with nothing hanging off either end', () => {
+    // A plain-text profile is passed through as written; the prompt puts it in a
+    // labelled block, and an indented first character reads as content.
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'Kari' })
+    s.key_qualifications = [makeKQ({
+      id: 'kq1', tag_line: { en: 'Architect' },
+      summary: { en: '   Builds delivery platforms for regulated customers.   ' },
+    } as never)]
+    const prompt = buildIntroPrompt(s, makeView({ sections: buildViewSections() }), 'en', DEFAULT_INTRO_FOCUS)
+    expect(prompt).toMatch(/^Builds delivery platforms for regulated customers\.$/m)
+  })
+})

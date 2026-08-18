@@ -1916,3 +1916,51 @@ describe('a drafted profile, once applied', () => {
     expect(out.key_competencies[0].resume_id).toBe('')
   })
 })
+
+/**
+ * A2 reading a localized field that is not there.
+ *
+ * The commonest real proposal is text for an EMPTY field — the short
+ * description nobody got round to — and "empty" arrives in more than one shape:
+ * absent on the item, or an explicit null from an older import or a hand-edited
+ * backup. Both have to read as no current text, because the alternative is the
+ * whole run failing on one malformed field.
+ */
+describe('validateProposals / applyProposals — a field that holds no object', () => {
+  const projectWithout = (id: string, shape: 'absent' | 'null'): ResumeStore => {
+    const s = emptyStore()
+    s.projects = [makeProject({ id })]
+    const raw = s.projects[0] as unknown as Record<string, unknown>
+    if (shape === 'absent') delete raw.short_description
+    else raw.short_description = null
+    return s
+  }
+
+  const edit = (id: string) => ({ edits: [{
+    section: 'projects', item_id: id, field: 'short_description',
+    proposed: 'Payments platform for a regulated bank.', why: 'Filled the gap.',
+  }] })
+
+  it('shows an empty original for a field that is absent or null', () => {
+    for (const shape of ['absent', 'null'] as const) {
+      const { proposals, dropped } = validateProposals(edit('p1'), projectWithout('p1', shape), 'en')
+      expect(dropped, shape).toEqual([])
+      expect(proposals[0], shape).toMatchObject({
+        current: '', proposed: 'Payments platform for a regulated bank.',
+      })
+    }
+  })
+
+  it('applies onto it, creating the localized value', () => {
+    // applyProposals re-reads the field to check nobody edited it since the run
+    // finished; a null field has to read as "still empty", not as a changed one.
+    for (const shape of ['absent', 'null'] as const) {
+      const s = projectWithout('p1', shape)
+      const { proposals } = validateProposals(edit('p1'), s, 'en')
+      const { data, applied, skipped } = applyProposals(s, proposals)
+      expect({ applied, skipped }, shape).toEqual({ applied: 1, skipped: [] })
+      expect(data.projects[0].short_description, shape)
+        .toEqual({ en: 'Payments platform for a regulated bank.' })
+    }
+  })
+})
