@@ -1099,7 +1099,7 @@ describe('buildViewText — the section loop', () => {
     expect(lines[i + 1].trim()).toBe('Ran it.')
 
     const inline = build(project, 'projects', 'summary', { short_desc_line: 'inline' })
-    expect(inline).toMatch(new RegExp('^- [^' + NL + ']*Ran it\.', 'm'))
+    expect(inline).toMatch(new RegExp('^- [^' + NL + ']*Ran it[.]', 'm'))
   })
 
   it('trims the short description it appends', () => {
