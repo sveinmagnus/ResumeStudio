@@ -17,6 +17,8 @@
  * that land in an exported file live in lib/exportStrings.ts.
  */
 
+import { lookup } from './lookup'
+
 /** One switchable group of optional fields within a section. */
 export interface ExtraGroup {
   /** Stored in `SectionStyle.extras`. Unique within its section only. */
@@ -73,7 +75,7 @@ export const SECTION_EXTRAS: Record<string, ExtraGroup[]> = {
 
 /** The groups offered for a section (empty when it has none). */
 export function extrasFor(sectionKey: string): ExtraGroup[] {
-  return SECTION_EXTRAS[sectionKey] ?? []
+  return lookup(SECTION_EXTRAS, sectionKey, [])
 }
 
 /** Does this section offer any optional groups? */

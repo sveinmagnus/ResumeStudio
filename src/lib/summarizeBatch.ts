@@ -21,6 +21,7 @@ import type { ResumeStore, LocalizedString } from '../types'
 import { richToPlain } from './richText'
 import { CV_FIELDS } from './cvFields'
 import { resolve } from './locales'
+import { lookup } from './lookup'
 
 /** Which long field feeds which short field, per section. */
 export interface SummaryFieldPair {
@@ -94,7 +95,7 @@ export function summaryContext(section: string, item: unknown, locale: string): 
   if (!item || typeof item !== 'object') return []
   const rec = item as Record<string, unknown>
   const out: string[] = []
-  for (const field of CV_FIELDS[section] ?? []) {
+  for (const field of lookup(CV_FIELDS, section, [])) {
     if (field.prose || field.list) continue
     // Resolved, not raw: the heading itself falls back across locales, so a
     // customer name stored only in `en` is still what the reader sees here.

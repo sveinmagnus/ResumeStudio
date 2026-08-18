@@ -19,7 +19,7 @@ units:
     audience: [agent, developer]
     validated: "2026-08-18"
     update_frequency: weekly
-    triggers: [conventions, architecture, data-model, store, persistence, sections, accessibility, routing, export-parity]
+    triggers: [conventions, architecture, data-model, store, persistence, sections, accessibility, routing, export-parity, lookup]
     content_structure:
       primary: prose
       contains: [table, code]

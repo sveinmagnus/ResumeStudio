@@ -18,6 +18,7 @@
 
 import type { FullLayout, SummaryLayout } from '../types'
 import type { SummaryPartKey, SummaryView } from './sectionCatalog'
+import { lookup } from './lookup'
 
 /** The three ordered groups a summary line is built from. */
 export type Slot = 'title' | 'org' | 'date'
@@ -43,7 +44,7 @@ export const SLOT_KEYS: Record<Slot, SummaryPartKey[]> = {
 
 /** The slot order a layout asks for, tolerating an out-of-enum stored value. */
 export function slotsFor(layout: SummaryLayout): Slot[] {
-  return LAYOUT_SLOTS[layout] ?? LAYOUT_SLOTS['title-org-date']
+  return lookup(LAYOUT_SLOTS, layout, LAYOUT_SLOTS['title-org-date'])
 }
 
 /**

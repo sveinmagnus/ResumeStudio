@@ -8,6 +8,7 @@
  * instance shares a single network call.
  */
 import { api } from './api'
+import { lookup } from './lookup'
 
 /**
  * App locale code → ISO code the translation service expects. Mirrors the map
@@ -25,7 +26,7 @@ const LOCALE_TO_SERVICE: Record<string, string> = {
 }
 
 export function toServiceLocale(appCode: string): string {
-  return LOCALE_TO_SERVICE[appCode] ?? appCode.toLowerCase()
+  return lookup(LOCALE_TO_SERVICE, appCode, appCode.toLowerCase())
 }
 
 /**

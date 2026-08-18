@@ -110,7 +110,10 @@ export function isTranslationConfigured(config?: TranslateConfig): boolean {
  */
 const LIBRE_MAP: Record<string, string> = { en: 'en', no: 'nb', se: 'sv', dk: 'da', de: 'de', fr: 'fr', es: 'es' }
 export function toServiceLocale(appCode: string): string {
-  return LIBRE_MAP[appCode] ?? appCode.toLowerCase()
+  // `Object.hasOwn`, not `??`: `appCode` comes off the request body, and an
+  // inherited key ('toString') reads a FUNCTION back out of the map — truthy,
+  // so `??` would pass it through into the upstream translate call.
+  return Object.hasOwn(LIBRE_MAP, appCode) ? LIBRE_MAP[appCode] : appCode.toLowerCase()
 }
 
 /**
@@ -435,11 +438,17 @@ const SCANDINAVIAN_RIVALS: Record<string, string[]> = {
  * Exported for the tests, which are the only reason to believe it discriminates.
  */
 export function looksWrongLanguage(text: string, target: string): boolean {
+  // Own properties only — `target` comes off the request, and an inherited key
+  // reads a function out of these maps: truthy past the guard below, then a
+  // TypeError at `for (… of rivals)` and `.filter`, i.e. a 500 on a crafted
+  // request rather than the "no opinion" this is supposed to return.
+  const markersFor = (k: string): RegExp[] =>
+    Object.hasOwn(SCANDINAVIAN_MARKERS, k) ? SCANDINAVIAN_MARKERS[k] : []
+  if (!Object.hasOwn(SCANDINAVIAN_RIVALS, target)) return false
   const rivals = SCANDINAVIAN_RIVALS[target]
-  if (!rivals) return false
-  const own = SCANDINAVIAN_MARKERS[target] ?? []
+  const own = markersFor(target)
   for (const rival of rivals) {
-    const hits = (SCANDINAVIAN_MARKERS[rival] ?? []).filter((re) => re.test(text)).length
+    const hits = markersFor(rival).filter((re) => re.test(text)).length
     if (hits < 2) continue
     // Don't fire when the target's own markers are just as present — mainland
     // Scandinavian shares most of its vocabulary, and a text showing both is

@@ -195,6 +195,18 @@ Wishlist: §12.
   backs it up on git's side (`diff` keeps a file textual to `git diff`/`git grep`
   regardless of content), but plain grep ignores that file, so the CI check is
   the enforcement. CI also runs CodeQL (`security-extended`) and gitleaks.
+- **A map lookup on a key that came from DATA goes through `lib/lookup.ts`**,
+  never `MAP[key] ?? fallback`. Every object literal inherits `toString`,
+  `constructor`, `valueOf` and friends, so a lookup with one of those as the key
+  returns a **function** — neither null nor undefined, so `??` hands it straight
+  to a caller expecting a string, a number or an array. No prototype pollution
+  needed; the key alone does it, and keys reach these maps from imported resume
+  and view JSON. Both failure shapes were live: a value INTERPOLATED into output
+  (`presentLabel('toString')` writing a function body into an exported date) and
+  a value USED (`slotsFor('toString').map(…)` throwing, so a crafted view
+  crashed the exporter). `tests/lookup.test.ts` pins the helper AND its callers.
+  The server mirrors the rule with `Object.hasOwn` (it targets ES2022, the
+  client ES2020) — `server/translate.ts` takes its locale off the request body.
 - **No `any`** unless interfacing with truly unknown shapes (e.g. raw imported JSON). Use `unknown` then narrow.
 - **No default exports** for components — use named exports, now enforced by `import-x/no-default-export` in `components/`/`lib/`/`store/`. (`main.tsx` and `App.tsx` are the only existing default exports; they are entry points and sit outside those paths.)
 - **Inline styles via `<style>` tag inside the component.** Each component owns its CSS. Tokens come from `src/index.css` (see §6). The only utility classes in `index.css` are widely-shared widgets: `.check-row`, `.skip-link`, `.sr-only`, `.pf-*` (plain-field primitives — wrap/label/input/year-stepper/ongoing). **`.pf-*` must stay in `index.css`, not a component's own `<style>` tag** — a component-scoped style block only exists in the DOM while that component is mounted, so a page using a bare `.pf-input` without ever mounting `TextField`/`DateField`/`TagField` gets an unstyled browser-default textbox (this regressed the registry `CategoryField` once already — see git history).

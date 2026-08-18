@@ -16,6 +16,7 @@ import type {
   FooterSeparator, CopyrightHolder, FooterNotePlacement,
 } from '../types'
 import { resolve } from './locales'
+import { lookup } from './lookup'
 
 // ─── Boundary validators ──────────────────────────────────────────────────────
 // View config can arrive from an untrusted backup / snapshot import, not just
@@ -136,7 +137,7 @@ const DEFAULT_FIELD_LABELS: Record<HeaderFieldKey, LocalizedString> = {
 
 /** The default label set for a field key ({} for an unrecognised key). */
 export function defaultFieldLabels(key: HeaderFieldKey): LocalizedString {
-  return { ...(DEFAULT_FIELD_LABELS[key] ?? {}) }
+  return { ...lookup(DEFAULT_FIELD_LABELS, key, {}) }
 }
 
 /**

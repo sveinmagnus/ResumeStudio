@@ -25,6 +25,7 @@ import {
 } from './fonts'
 import { PARA_GAP_LINES, paraGapEm } from './richText'
 import { normalizeExtras, NO_EXTRAS } from './sectionExtras'
+import { lookup } from './lookup'
 
 // ─── Defaults ───────────────────────────────────────────────────────────────
 
@@ -206,11 +207,11 @@ export function deriveTokens(style: ViewStyle): StyleTokens {
   // `?? default` on every map lookup: a crafted import (or stale data) can carry
   // an out-of-enum value that would otherwise index to undefined and throw when
   // a property is read. Renderers must never crash on untrusted view config.
-  const density = DENSITY_SCALE[style.density] ?? DENSITY_SCALE.normal
-  const sizes = BODY_SCALE[style.body_size] ?? BODY_SCALE.normal
+  const density = lookup(DENSITY_SCALE, style.density, DENSITY_SCALE.normal)
+  const sizes = lookup(BODY_SCALE, style.body_size, BODY_SCALE.normal)
   const headingFont = fontById(style.heading_font, DEFAULT_HEADING_FONT)
   const bodyFont = fontById(style.body_font, DEFAULT_BODY_FONT)
-  const pageMargin = PAGE_MARGIN_MAP[style.page_margin] ?? PAGE_MARGIN_MAP.normal
+  const pageMargin = lookup(PAGE_MARGIN_MAP, style.page_margin, PAGE_MARGIN_MAP.normal)
   const accentHex = sanitizeHexColor(style.accent_color)
   // Heading text colour falls back to the accent when unset (back-compat).
   const headingHex = sanitizeHexColor(style.heading_color ?? style.accent_color, accentHex)
@@ -379,20 +380,6 @@ const DIVIDER_WEIGHT: Record<DividerStyle, number> = {
 /** The short rule's fixed width, in points. */
 const SHORT_RULE_PT = 48
 
-/**
- * The divider styles that exist, as a Set rather than a lookup on the maps
- * above (the `FULL_LAYOUTS` pattern).
- *
- * `divider_style` arrives from stored view JSON, and an INHERITED key
- * ('toString', 'constructor') reads a function back out of every one of those
- * maps — truthy, so neither a truthiness test nor `??` rejects it. That
- * function would then be stringified into the preview's `<style>` block as a
- * border width. Membership is the only lookup that says no.
- */
-const DIVIDER_STYLES = new Set<string>([
-  'line', 'thick', 'dashed', 'dotted', 'double', 'short', 'space',
-])
-
 /** Composite `hex` at `alpha` over white — the opaque twin of an rgba() rule. */
 export function flattenOnWhite(hex: string, alpha: number): string {
   const ch = (i: number): string => {
@@ -414,14 +401,16 @@ export function flattenOnWhite(hex: string, alpha: number): string {
 export function dividerSpec(
   r: { item_divider: boolean; divider_style: DividerStyle }, accentHex: string,
 ): DividerSpec {
-  const style: DividerStyle = DIVIDER_STYLES.has(r.divider_style) ? r.divider_style : 'line'
-  const kind = r.item_divider ? DIVIDER_KIND[style] : 'none'
-  const alpha = DIVIDER_ALPHA[style]
+  // `lookup`, not `MAP[style]`: `divider_style` comes from stored view JSON, and
+  // an inherited key reads a FUNCTION back out of each of these maps — which a
+  // `??` would pass through, to be stringified into the `<style>` block below.
+  const kind = r.item_divider ? lookup(DIVIDER_KIND, r.divider_style, 'solid') : 'none'
+  const alpha = lookup(DIVIDER_ALPHA, r.divider_style, DIVIDER_ALPHA.line)
   const alphaHex = Math.round(alpha * 255).toString(16).padStart(2, '0')
   return {
     kind,
-    weightPt: kind === 'none' ? 0 : DIVIDER_WEIGHT[style],
-    widthPt: style === 'short' ? SHORT_RULE_PT : null,
+    weightPt: kind === 'none' ? 0 : lookup(DIVIDER_WEIGHT, r.divider_style, DIVIDER_WEIGHT.line),
+    widthPt: r.divider_style === 'short' ? SHORT_RULE_PT : null,
     colorCss: `#${accentHex}${alphaHex}`,
     colorHex: flattenOnWhite(accentHex, alpha),
   }
@@ -441,7 +430,7 @@ const BULLET_GLYPHS: Record<BulletStyle, string> = {
 
 /** The glyph a resolved section style draws before each item heading. */
 export function bulletGlyph(r: { item_bullets: boolean; bullet_style: BulletStyle }): string {
-  return BULLET_GLYPHS[r.bullet_style] ?? BULLET_GLYPHS.disc
+  return lookup(BULLET_GLYPHS, r.bullet_style, BULLET_GLYPHS.disc)
 }
 
 /**

@@ -14,18 +14,18 @@
  */
 
 import { SECTION_ICON_INNER } from '../generated/sectionIcons'
+import { lookup } from './lookup'
 
 /**
  * A complete 24×24 SVG for `iconName`, stroked in `colorHex` ('RRGGBB', no
  * '#'), or null when the name has no generated glyph.
  */
 export function sectionIconSvg(iconName: string, colorHex: string): string | null {
-  const inner = SECTION_ICON_INNER[iconName]
-  // Typed, not merely truthy: an INHERITED key ('toString') reads a function
-  // back out of the map, whose source would land inside the emitted `<svg>`.
-  // Callers pass a name from the static SECTIONS table today, so this guards
-  // the boundary rather than fixing a live bug.
-  if (typeof inner !== 'string' || !inner) return null
+  // `lookup`, so an inherited key ('toString') cannot read a function back out
+  // of the map and land its source inside the emitted `<svg>`. Callers pass a
+  // name from the static SECTIONS table today — this guards the boundary.
+  const inner = lookup(SECTION_ICON_INNER, iconName, '')
+  if (!inner) return null
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"`
     + ` fill="none" stroke="#${colorHex}" stroke-width="2"`
     + ` stroke-linecap="round" stroke-linejoin="round">${inner}</svg>`

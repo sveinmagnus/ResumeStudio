@@ -32,6 +32,7 @@ import type { SectionDef } from './sections'
 import { SECTIONS } from './sections'
 import { showcaseGroups } from './showcase'
 import { sortItems } from './sectionSort'
+import { lookup } from './lookup'
 
 // ─── Which sections can appear in a view ─────────────────────────────────────
 
@@ -72,7 +73,7 @@ const RENDER_KEY: Record<string, string> = {
 
 /** The catalog key a section renders through (identity for a normal section). */
 export function renderKeyFor(key: string): string {
-  return RENDER_KEY[key] ?? key
+  return lookup(RENDER_KEY, key, key)
 }
 
 // ─── The view's stored section list ──────────────────────────────────────────
