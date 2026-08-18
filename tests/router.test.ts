@@ -124,3 +124,20 @@ describe('parseRoute — a URL the browser will not decode', () => {
     expect(parseRoute('/r/abc/projects/extra')).toEqual({ name: 'not-found', path: '/r/abc/projects/extra' })
   })
 })
+
+describe('parseRoute — the paths that are not routes', () => {
+  it('reports an unrecognised path as not-found rather than throwing', () => {
+    // parseRoute runs in useRoute's RENDER path, which sits outside the editor's
+    // error boundary: a throw here white-screens the whole app.
+    expect(parseRoute('/nonsense')).toEqual({ name: 'not-found', path: '/nonsense' })
+    expect(parseRoute('/r')).toEqual({ name: 'not-found', path: '/r' })
+  })
+
+  it('survives a malformed percent-escape in a segment', () => {
+    // decodeURIComponent throws URIError on '/r/%'. Same reason as above: the
+    // route has to degrade to not-found, not take the render down.
+    for (const path of ['/r/%', '/r/abc/%E0%A4%A', '/r/abc/views/%']) {
+      expect(parseRoute(path), path).toMatchObject({ name: 'not-found' })
+    }
+  })
+})

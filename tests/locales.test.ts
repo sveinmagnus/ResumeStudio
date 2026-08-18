@@ -278,3 +278,32 @@ describe('detectLocalesInData — malformed values', () => {
     expect(detectLocalesInData(data)).toEqual(['no'])
   })
 })
+
+describe('detectLocalesInData — what the scan must not mistake for a locale', () => {
+  it('does not walk INTO a string value', () => {
+    // Recursing into a string yields character indexes as keys; the detector
+    // would then offer '0' and '1' as languages in the switcher.
+    const s: ResumeStore = { ...emptyStore(), projects: [makeProject({ id: 'p1', customer: { en: 'Acme' } })] }
+    s.projects[0].external_url = 'https://example.test/en/no'
+    const found = detectLocalesInData(s)
+    expect(found).toContain('en')
+    expect(found.some((l) => /^[0-9]+$/.test(l))).toBe(false)
+  })
+
+  it('finds a locale nested inside an array of localized values', () => {
+    const s: ResumeStore = {
+      ...emptyStore(),
+      projects: [makeProject({ id: 'p1', customer: {}, highlights: [{ no: 'Ett punkt' }] })],
+    }
+    expect(detectLocalesInData(s)).toContain('no')
+  })
+
+  it('ignores a locale key whose value is blank', () => {
+    // An empty slot is not evidence the resume is written in that language;
+    // offering it puts an empty column in the editor.
+    // A bare object, not a full store: the fixtures fill several fields in
+    // both languages, which would mask the blank one under test.
+    const found = detectLocalesInData({ customer: { en: 'Acme', no: '   ' } } as never)
+    expect(found).toEqual(['en'])
+  })
+})
