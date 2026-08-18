@@ -1068,3 +1068,66 @@ describe('importFromEuropassXml — the two shapes an email arrives in', () => {
     expect(resumeOf('<Telephone><Contact>+47 900</Contact></Telephone>').email).toBe('')
   })
 })
+
+/**
+ * The coercion helpers in front of the JSON path.
+ *
+ * A Europass export is written by someone else's exporter, and the shapes drift:
+ * a field that is usually a string arrives as a number, an object arrives as an
+ * array, a whole branch is absent. These three helpers are the only thing between
+ * that and a property read on undefined — and an importer that throws does not
+ * degrade, it takes the whole import screen down with nothing imported.
+ */
+describe('importFromEuropassJson — shapes the exporter had no business sending', () => {
+  it('imports an empty document without throwing', () => {
+    expect(() => importFromEuropassJson({})).not.toThrow()
+    const store = importFromEuropassJson({})
+    expect(store.projects).toEqual([])
+    expect(store.work_experiences).toEqual([])
+  })
+
+  it('survives every branch being the WRONG kind', () => {
+    // Objects where arrays belong and arrays where objects belong: each helper
+    // substitutes the empty shape rather than letting the read reach undefined.
+    const wrong = {
+      profile: {
+        personalInformation: [],
+        workExperience: {},
+        education: 'none',
+        skills: 42,
+        aboutMe: [],
+      },
+    }
+    expect(() => importFromEuropassJson(wrong)).not.toThrow()
+    expect(importFromEuropassJson(wrong).work_experiences).toEqual([])
+  })
+
+  it('reads a NUMBER where a string was expected rather than dropping it', () => {
+    // Some exporters emit a bare year or a numeric identifier. Coercing keeps the
+    // value; a type check that only accepts strings silently loses it.
+    const store = importFromEuropassJson({
+      profile: { personalInformation: { firstName: 'Kari', lastName: 2 } },
+    })
+    expect(store.resume?.full_name).toBe('Kari 2')
+  })
+
+  it('trims a padded string field', () => {
+    const store = importFromEuropassJson({
+      profile: { personalInformation: { firstName: '  Kari  ', lastName: 'Nordmann' } },
+    })
+    expect(store.resume?.full_name).toBe('Kari Nordmann')
+  })
+})
+
+describe('importFromEuropassXml — an element the document does not have', () => {
+  it('reads a missing element as empty rather than throwing', () => {
+    // querySelector returns null for anything absent, and Europass documents omit
+    // whole blocks routinely — a non-optional read here would fail the import on
+    // the first CV that leaves out a phone number.
+    const bare = '<?xml version="1.0"?><SkillsPassport><LearnerInfo></LearnerInfo></SkillsPassport>'
+    expect(() => importFromEuropassXml(bare)).not.toThrow()
+    const store = importFromEuropassXml(bare)
+    expect(store.resume?.full_name).toBe('')
+    expect(store.resume?.email).toBe('')
+  })
+})
