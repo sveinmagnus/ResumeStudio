@@ -29,6 +29,7 @@
 
 import { create } from 'zustand'
 import { api } from '../lib/api'
+import { lookup } from '../lib/lookup'
 
 export type AdvisorId =
   | 'review' | 'voice' | 'drift' | 'achievements' | 'jobfit'
@@ -72,7 +73,7 @@ export const ADVISOR_LABEL: Record<AdvisorId, string> = {
  */
 export function advisorSection(run: Pick<AdvisorRun, 'id' | 'scope'>): string {
   if (run.id === 'section' && run.scope) return run.scope
-  return ADVISOR_HOME[run.id] ?? 'overview'
+  return lookup(ADVISOR_HOME, run.id, 'overview')
 }
 
 export type RunStatus = 'running' | 'done' | 'error'

@@ -44,6 +44,7 @@ import { ViewFooterControls } from './ViewFooterControls'
 import { Styles } from './Styles'
 import { IntroDraftPanel } from '../../ui/IntroDraftPanel'
 import { AtsAuditPanel } from '../../ui/AtsAuditPanel'
+import { lookup } from '../../../lib/lookup'
 
 // ─── Content sections (excludes non-content + the skill/role registries) ─────
 const CONTENT_SECTIONS = SECTIONS.filter(isExportableSection)
@@ -84,7 +85,7 @@ function sectionConfigChips(vs: ViewSection): string[] {
   else if (s.heading_text && Object.values(s.heading_text).some((v) => (v ?? '').trim())) chips.push('Custom heading')
   if (s.hide_dates) chips.push('No dates')
   if (s.item_bullets !== undefined) chips.push(s.item_bullets ? 'Bullets' : 'No bullets')
-  if (s.date_format) chips.push(DATE_FORMAT_LABEL[s.date_format] ?? s.date_format)
+  if (s.date_format) chips.push(lookup(DATE_FORMAT_LABEL, s.date_format, s.date_format))
   if (s.density) chips.push(cap(s.density))
   if (s.item_divider === false) chips.push('No divider')
   else if (s.divider_style) chips.push(`${cap(s.divider_style)} rule`)

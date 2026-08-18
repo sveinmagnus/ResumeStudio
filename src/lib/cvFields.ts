@@ -18,6 +18,7 @@
  */
 
 import type { ResumeStore } from '../types'
+import { lookup } from './lookup'
 
 export interface CvField {
   /** The property key on the item — what a proposal names and what we write to. */
@@ -118,7 +119,7 @@ export const CV_SECTIONS: readonly string[] = Object.keys(CV_FIELDS)
 
 /** Field descriptors for a section (empty for one the advisors don't cover). */
 export function fieldsOf(section: string): readonly CvField[] {
-  return CV_FIELDS[section] ?? []
+  return lookup(CV_FIELDS, section, [])
 }
 
 /** One field descriptor by section + key, or null when unknown. */

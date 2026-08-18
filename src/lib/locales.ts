@@ -1,4 +1,5 @@
 import type { LocalizedString, ResumeStore } from '../types'
+import { lookup } from './lookup'
 
 /**
  * The offerable locales. Deliberately limited to Latin/Cyrillic-script European
@@ -103,9 +104,9 @@ export const PRESENT: Record<string, string> = {
   it: 'Presente', nl: 'Heden', pt: 'Presente', pl: 'Obecnie', fi: 'Nykyinen', is: 'Í dag',
   ru: 'Настоящее время', uk: 'Дотепер',
 }
-const monthAbbr = (locale: string): string[] => MONTH_ABBR[locale] ?? MONTH_ABBR.en
+const monthAbbr = (locale: string): string[] => lookup(MONTH_ABBR, locale, MONTH_ABBR.en)
 /** The localized word for an ongoing end date ("Present"). */
-export const presentLabel = (locale = 'en'): string => PRESENT[locale] ?? PRESENT.en
+export const presentLabel = (locale = 'en'): string => lookup(PRESENT, locale, PRESENT.en)
 
 /**
  * Format a YearMonth per the chosen format — e.g. "Mar 2021" / "2021 Mar" /

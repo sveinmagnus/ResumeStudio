@@ -23,6 +23,29 @@ describe('toServiceLocale()', () => {
     expect(toServiceLocale('en')).toBe('en')
     expect(toServiceLocale('PT')).toBe('pt')
   })
+
+  it('treats an INHERITED key as unknown, which `??` would not', () => {
+    // SECURITY: the locale comes off the request body. Every object literal
+    // inherits 'toString'/'constructor'/…, so a plain `MAP[code] ?? fallback`
+    // returns a FUNCTION for those — neither null nor undefined, so the
+    // fallback never fires and the function's source goes upstream as the
+    // target language.
+    for (const key of ['toString', 'constructor', 'valueOf', 'hasOwnProperty']) {
+      expect(toServiceLocale(key), key).toBe(key.toLowerCase())
+    }
+  })
+})
+
+describe('looksWrongLanguage() — inherited keys', () => {
+  it('returns no opinion instead of throwing', () => {
+    // The target also comes off the request. An inherited key read a function
+    // out of the rivals map — truthy past the guard, then a TypeError at the
+    // `for…of`, i.e. a 500 rather than "no opinion".
+    for (const key of ['toString', 'constructor', 'valueOf', 'hasOwnProperty']) {
+      expect(() => looksWrongLanguage('en helt vanlig setning', key), key).not.toThrow()
+      expect(looksWrongLanguage('en helt vanlig setning', key), key).toBe(false)
+    }
+  })
 })
 
 describe('isTranslationConfigured()', () => {

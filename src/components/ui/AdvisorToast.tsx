@@ -16,6 +16,7 @@ import { useStore } from '../../store/useStore'
 import {
   ADVISOR_LABEL, advisorSection, unseenRuns, useAdvisors, type AdvisorRun,
 } from '../../store/useAdvisors'
+import { lookup } from '../../lib/lookup'
 
 export function AdvisorToast() {
   const resumeId = useStore((s) => s.currentResumeId)
@@ -43,7 +44,7 @@ export function AdvisorToast() {
           </span>
           <div className="atoast-body">
             <div className="atoast-title">
-              {ADVISOR_LABEL[run.id] ?? 'AI advisor'}
+              {lookup(ADVISOR_LABEL, run.id, 'AI advisor')}
               {run.status === 'error' ? ' failed' : ' is ready'}
             </div>
             <div className="atoast-detail">
@@ -60,7 +61,7 @@ export function AdvisorToast() {
           <button
             className="atoast-x"
             onClick={() => markSeen(run)}
-            aria-label={`Dismiss ${ADVISOR_LABEL[run.id] ?? 'advisor'} notification`}
+            aria-label={`Dismiss ${lookup(ADVISOR_LABEL, run.id, 'advisor')} notification`}
             title="Dismiss — the results stay where they were produced"
           >
             <X size={14} />

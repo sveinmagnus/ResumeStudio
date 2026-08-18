@@ -11,6 +11,7 @@
  */
 
 import type { ResumeStore, LocalizedString } from '../types'
+import { lookup } from './lookup'
 
 /** A single differing item within a section. `added` = only in the local
  *  copy, `removed` = only on the server, `changed` = present in both, differs. */
@@ -70,7 +71,7 @@ const SECTION_LABELS: Record<string, string> = {
  */
 export function sectionLabel(key: string): string {
   if (key === 'resume') return 'Personal details'
-  return SECTION_LABELS[key] ?? key
+  return lookup(SECTION_LABELS, key, key)
 }
 
 /** Profile fields worth surfacing, with labels. */

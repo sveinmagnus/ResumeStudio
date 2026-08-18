@@ -27,7 +27,7 @@ import {
 function sectionHeadingHtml(resolved: ResolvedSectionStyle, key: string, iconName: string, locale: string): string {
   if (resolved.hide_heading) return ''
   const text = escapeHtml(sectionHeadingText(resolved, localizedSectionHeading(key, locale), locale))
-  const inner = resolved.show_icon ? (SECTION_ICON_INNER[iconName] ?? '') : ''
+  const inner = resolved.show_icon ? lookup(SECTION_ICON_INNER, iconName, '') : ''
   const icon = inner
     ? `<svg class="ve-sec-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${inner}</svg>`
     : ''
@@ -45,6 +45,7 @@ export {
   isExportableSection, defaultViewDetail, promotedProjectItems,
   buildViewSections, normalizeViewSections, reorderViewSections,
 } from './viewSectionPlan'
+import { lookup } from './lookup'
 
 /**
  * Redact a person's name to initials: "Kari Nordmann" → "K. N.". Used for

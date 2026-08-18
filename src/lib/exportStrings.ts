@@ -22,6 +22,7 @@
 
 import type { LocalizedString } from '../types'
 import { resolve, bcp47 } from './locales'
+import { lookup } from './lookup'
 
 export type ExportStringKey =
   | 'matrix_skill'
@@ -212,7 +213,7 @@ const YEAR_UNIT: Record<string, Partial<Record<Intl.LDMLPluralRule, string>>> = 
  */
 export function fmtYears(years: number, locale = 'en'): string {
   if (!(years > 0)) return ''
-  const unit = YEAR_UNIT[locale] ?? YEAR_UNIT.en
+  const unit = lookup(YEAR_UNIT, locale, YEAR_UNIT.en)
   let category: Intl.LDMLPluralRule = 'other'
   try {
     category = new Intl.PluralRules(bcp47(locale)).select(years)
