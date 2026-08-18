@@ -1136,3 +1136,51 @@ describe('cleanPastedHtml — reading a style declaration', () => {
     expect(cleanPastedHtml('<span style="font-weight:1600">x</span>')).toBe('x')
   })
 })
+
+/**
+ * Pasting from Word or a browser: loose text and stray containers.
+ *
+ * `cleanPastedHtml` wraps contiguous inline/text runs into paragraphs so a
+ * container can be unwrapped without its stray text merging into the surrounding
+ * flow. What counts as "visible content" decides whether a run becomes a
+ * paragraph or is thrown away — and throwing away a run the user pasted loses
+ * their text silently.
+ */
+describe('cleanPastedHtml — which runs survive the wrap', () => {
+  it('keeps a run whose only content is a line break', () => {
+    // A deliberate blank line between two pasted paragraphs is content: it has no
+    // text, and dropping it welds the two paragraphs together.
+    const out = cleanPastedHtml('<div>First</div><div><br></div><div>Second</div>')
+    expect(out).toContain('First')
+    expect(out).toContain('Second')
+    expect(richToPlain(out)).not.toBe('FirstSecond')
+  })
+
+  it('keeps a run whose break is nested inside an inline wrapper', () => {
+    // Word wraps almost everything in <span>; the break has to be found through
+    // it, not just at the top of the run.
+    const out = cleanPastedHtml('<div>First</div><div><span><br></span></div><div>Second</div>')
+    expect(out).toContain('First')
+    expect(out).toContain('Second')
+  })
+
+  it('drops a run that is only whitespace', () => {
+    // The whitespace between block tags in pasted markup is not content; wrapping
+    // it produces an empty paragraph the user cannot see or delete.
+    const nl = String.fromCharCode(10)
+    const out = cleanPastedHtml(`<div>First</div>   ${nl}   <div>Second</div>`)
+    expect(out).not.toMatch(/<p>\s*<\/p>/)
+  })
+
+  it('drops a run of non-breaking spaces, which Word emits by the dozen', () => {
+    const out = cleanPastedHtml('<div>First</div><div>  </div><div>Second</div>')
+    expect(out).not.toMatch(/<p>[\s ]*<\/p>/)
+  })
+
+  it('keeps a run where only PART of it is blank', () => {
+    // One blank node beside a text node must not condemn the whole run — that is
+    // the difference between "some node has content" and "every node has content".
+    const out = cleanPastedHtml('<div><span> </span>Real text<span> </span></div>')
+    expect(richToPlain(out)).toContain('Real text')
+  })
+})
