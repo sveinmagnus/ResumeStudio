@@ -37,22 +37,26 @@ function matrixStore() {
 }
 
 describe('skillMatrixRows', () => {
-  const rows = skillMatrixRows(matrixStore(), makeView(), 'en')
-  const byName = Object.fromEntries(rows.map((r) => [r.name, r]))
+  // Built per test rather than in the describe body: a fault in the matrix that
+  // throws would otherwise abort COLLECTION of this whole file, and a file that
+  // never collects reports no failing test at all — the regression would look
+  // like an infrastructure hiccup instead of the broken column that it is.
+  const rows = () => skillMatrixRows(matrixStore(), makeView(), 'en')
+  const byName = () => Object.fromEntries(rows().map((r) => [r.name, r]))
 
   it('uses the stored legacy total when the skill has no dated usage', () => {
-    expect(byName['TypeScript'].years).toBe(8)
+    expect(byName()['TypeScript'].years).toBe(8)
   })
 
   it('computes years from the union of project date spans (not declared per-skill durations)', () => {
     // Go spans p1 (2019-01..2020-06 = 1.5y) plus p2 (2021-01..ongoing), unioned
     // — well past the old declared-sum of 2.5.
-    expect(byName['Go'].years).toBeGreaterThan(5)
+    expect(byName()['Go'].years).toBeGreaterThan(5)
   })
 
   it('derives years from project date spans when nothing is declared', () => {
     // 2021-01 → now, ongoing — at least 4 years as of 2026.
-    expect(byName['Kubernetes'].years).toBeGreaterThan(3)
+    expect(byName()['Kubernetes'].years).toBeGreaterThan(3)
   })
 
   /** One skill used by two finished projects, in the order given. */
@@ -81,13 +85,14 @@ describe('skillMatrixRows', () => {
   })
 
   it('marks ongoing usage and formats it', () => {
-    expect(byName['Kubernetes'].ongoing).toBe(true)
-    expect(fmtLastUsed(byName['Kubernetes'])).toBe('Ongoing')
-    expect(byName['Go'].ongoing).toBe(true) // p2 is ongoing and uses Go
+    const named = byName()
+    expect(named['Kubernetes'].ongoing).toBe(true)
+    expect(fmtLastUsed(named['Kubernetes'])).toBe('Ongoing')
+    expect(named['Go'].ongoing).toBe(true) // p2 is ongoing and uses Go
   })
 
   it('sorts highlighted first, then by years descending', () => {
-    expect(rows[0].name).toBe('TypeScript')
+    expect(rows()[0].name).toBe('TypeScript')
   })
 
   it('respects view exclusions (legacy per-skill id)', () => {
@@ -229,13 +234,22 @@ describe('skillMatrixRows — the usage scan', () => {
   })
 
   it('ignores a project skill with no registry link', () => {
+    // An unlinked project skill has to contribute usage to NOTHING. A blank
+    // link is still a map key, so without the guard the usage lands on whatever
+    // registry entry shares that key — a malformed import carrying a blank id
+    // would then be dated from projects that never named it.
     const s = emptyStore()
-    s.skills = [makeSkill({ id: 'go', name: { en: 'Go' } })]
+    s.skills = [
+      makeSkill({ id: '', name: { en: 'Ghost' } }),
+      makeSkill({ id: 'go', name: { en: 'Go' } }),
+    ]
     s.projects = [makeProject({
       id: 'p1', skills: [{ ...ps(''), skill_id: '' }] as never,
       start: { year: 2020, month: 1 }, end: { year: 2021, month: 1 },
     })]
-    expect(skillMatrixRows(s, makeView(), 'en').find((r) => r.name === 'Go')!.lastUsed).toBeNull()
+    const rows = skillMatrixRows(s, makeView(), 'en')
+    expect(rows.find((r) => r.name === 'Go')!.lastUsed).toBeNull()
+    expect(rows.find((r) => r.name === 'Ghost')!.lastUsed).toBeNull()
   })
 
   it('marks a skill used by an OPEN-ENDED project as ongoing', () => {
@@ -410,6 +424,16 @@ describe('skillMatrixRows — the per-row values a reader takes as fact', () => 
     s.skills = [makeSkill({ id: 'sk', name: { en: 'Solo' }, category_id: 'cat' })]
     delete (s as { skill_categories?: unknown }).skill_categories
     expect(skillMatrixRows(s, makeView(), 'en')[0].category).toBe('')
+  })
+
+  it('reports a never-used skill as a complete, blank-dated row', () => {
+    // A registry skill no project references has no usage record at all. Every
+    // column still has to answer for itself: a missing record must read as "no
+    // date, not ongoing", never leak an absent value into the exported table.
+    expect(rowFor({ id: 'sk', proficiency: 4, is_highlighted: true })).toEqual({
+      id: 'sk', name: 'Solo', category: '', years: 0,
+      proficiency: 4, lastUsed: null, ongoing: false, highlighted: true,
+    })
   })
 
   it('clamps proficiency into the 0-5 the column claims', () => {
