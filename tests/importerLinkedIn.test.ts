@@ -3,6 +3,19 @@ import {
   parseCsv, csvObjects, parseLinkedInDate, isLinkedInExport, importFromLinkedIn,
 } from '../src/lib/importerLinkedIn'
 
+/**
+ * Import once, but not until a test asks for it.
+ *
+ * A shared fixture built in the describe body runs during COLLECTION, so an
+ * importer that throws takes the entire file down before a single test is
+ * registered — and a file that registered no tests reports no failures, which
+ * reads exactly like a suite that passed.
+ */
+function memoized<T>(build: () => T): () => T {
+  let cached: T | undefined
+  return () => (cached ??= build())
+}
+
 // ─── CSV parser ───────────────────────────────────────────────────────────────
 
 describe('parseCsv', () => {
@@ -123,24 +136,27 @@ describe('isLinkedInExport', () => {
 })
 
 describe('importFromLinkedIn', () => {
-  const store = importFromLinkedIn(FILES)
+  // Called from inside each test, never at describe-body level: an importer
+  // that throws while the file is being COLLECTED takes the whole suite with
+  // it, and a suite that registered no tests reports no failures at all.
+  const store = memoized(() => importFromLinkedIn(FILES))
 
   it('builds the profile with primary email, phone and headline title', () => {
-    expect(store.resume?.full_name).toBe('Svein Sørensen')
-    expect(store.resume?.email).toBe('sm@cartavio.no') // Primary=Yes wins
-    expect(store.resume?.phone).toBe('+47 913 04 810')
-    expect(store.resume?.title).toEqual({ en: 'Senior Consultant' })
-    expect(store.resume?.place_of_residence).toEqual({ en: 'Oslo, Norway' })
+    expect(store().resume?.full_name).toBe('Svein Sørensen')
+    expect(store().resume?.email).toBe('sm@cartavio.no') // Primary=Yes wins
+    expect(store().resume?.phone).toBe('+47 913 04 810')
+    expect(store().resume?.title).toEqual({ en: 'Senior Consultant' })
+    expect(store().resume?.place_of_residence).toEqual({ en: 'Oslo, Norway' })
   })
 
   it('turns the summary into a leading key qualification', () => {
-    expect(store.key_qualifications).toHaveLength(1)
-    expect(store.key_qualifications[0].summary).toEqual({ en: '20 years of experience' })
+    expect(store().key_qualifications).toHaveLength(1)
+    expect(store().key_qualifications[0].summary).toEqual({ en: '20 years of experience' })
   })
 
   it('maps positions with month-precision dates and ongoing end', () => {
-    expect(store.work_experiences).toHaveLength(2)
-    const [current, old] = store.work_experiences
+    expect(store().work_experiences).toHaveLength(2)
+    const [current, old] = store().work_experiences
     expect(current.employer).toEqual({ en: 'Cartavio AS' })
     expect(current.start).toEqual({ year: 2018, month: 1 })
     expect(current.end).toBeNull()
@@ -148,30 +164,30 @@ describe('importFromLinkedIn', () => {
   })
 
   it('maps education with year-only dates', () => {
-    expect(store.educations[0].school).toEqual({ en: 'NTNU' })
-    expect(store.educations[0].degree).toEqual({ en: 'M.Sc. Computer Science' })
-    expect(store.educations[0].start).toEqual({ year: 1998, month: null })
+    expect(store().educations[0].school).toEqual({ en: 'NTNU' })
+    expect(store().educations[0].degree).toEqual({ en: 'M.Sc. Computer Science' })
+    expect(store().educations[0].start).toEqual({ year: 1998, month: null })
   })
 
   it('dedupes skills into the registry', () => {
-    expect(store.skills.map((s) => s.name.en)).toEqual(['TypeScript', 'Architecture'])
+    expect(store().skills.map((s) => s.name.en)).toEqual(['TypeScript', 'Architecture'])
   })
 
   it('maps languages, certifications (with url + expiry) and projects', () => {
-    expect(store.spoken_languages[0].name).toEqual({ en: 'Norwegian' })
-    const cert = store.certifications[0]
+    expect(store().spoken_languages[0].name).toEqual({ en: 'Norwegian' })
+    const cert = store().certifications[0]
     expect(cert.name).toEqual({ en: 'CKA' })
     expect(cert.organiser).toEqual({ en: 'CNCF' })
     expect(cert.credential_url).toBe('https://example.com/cka')
     expect(cert.expires).toEqual({ year: 2025, month: 3 })
-    const project = store.projects[0]
+    const project = store().projects[0]
     expect(project.description).toEqual({ en: 'Payment platform' })
     expect(project.long_description).toEqual({ en: 'Modernised the stack' })
     expect(project.external_url).toBe('https://example.com')
   })
 
   it('maps received recommendations with the LinkedIn source marker', () => {
-    const rec = store.recommendations[0]
+    const rec = store().recommendations[0]
     expect(rec.recommender_name).toBe('Jane Boss')
     expect(rec.recommender_title).toEqual({ en: 'CTO' })
     expect(rec.text).toEqual({ en: 'Outstanding consultant' })
@@ -559,5 +575,39 @@ describe('parseLinkedInDate — the two-part form is exactly two parts', () => {
     // give in a form we understand.
     expect(parseLinkedInDate('Mar 2020 (present)')).toBeNull()
     expect(parseLinkedInDate('Mar 2020')).toEqual({ year: 2020, month: 3 })
+  })
+})
+
+describe('csvObjects — a row with nothing in it is not a record', () => {
+  it('drops a line that holds only separators and spaces', () => {
+    // LinkedIn pads its exports, so a "blank" line is rarely empty — it is a
+    // row of spaces. Keeping it adds an entry with every field blank, which
+    // then needs a name guard everywhere downstream to stay out of the CV.
+    expect(csvObjects('Name,Level\n   ,   \nNorwegian,Native\n'))
+      .toEqual([{ Name: 'Norwegian', Level: 'Native' }])
+  })
+
+  it('still keeps a row where only ONE field has content', () => {
+    expect(csvObjects('Name,Level\nNorwegian,   \n'))
+      .toEqual([{ Name: 'Norwegian', Level: '' }])
+  })
+})
+
+describe('importFromLinkedIn — what an education says about itself', () => {
+  const educationOf = (row: string) => importFromLinkedIn({
+    'Education.csv': `School Name,Start Date,End Date,Notes,Degree Name,Activities\n${row}\n`,
+  }).educations[0]
+
+  it('prefers Notes, and falls back to Activities when Notes is blank', () => {
+    // LinkedIn fills one or the other depending on how the entry was written;
+    // reading only one leaves the education in the CV as a bare school name.
+    expect(educationOf('NTNU,1998,2003,Thesis on compilers,M.Sc.,Student society').description)
+      .toEqual({ en: 'Thesis on compilers' })
+    expect(educationOf('NTNU,1998,2003,,M.Sc.,Student society').description)
+      .toEqual({ en: 'Student society' })
+  })
+
+  it('leaves the description EMPTY when the row carries neither', () => {
+    expect(educationOf('NTNU,1998,2003,,M.Sc.,').description).toEqual({})
   })
 })

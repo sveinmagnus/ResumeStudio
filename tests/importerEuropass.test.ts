@@ -8,6 +8,19 @@ import {
   importFromEuropassJson, importFromEuropassXml,
 } from '../src/lib/importerEuropass'
 
+/**
+ * Import once, but not until a test asks for it.
+ *
+ * A shared fixture built in the describe body runs during COLLECTION, so an
+ * importer that throws takes the entire file down before a single test is
+ * registered — and a file that registered no tests reports no failures, which
+ * reads exactly like a suite that passed.
+ */
+function memoized<T>(build: () => T): () => T {
+  let cached: T | undefined
+  return () => (cached ??= build())
+}
+
 // ─── Dates ────────────────────────────────────────────────────────────────────
 
 describe('parseEuropassDate', () => {
@@ -115,24 +128,27 @@ const PROFILE_JSON = {
 }
 
 describe('importFromEuropassJson', () => {
-  const store = importFromEuropassJson(PROFILE_JSON)
+  // Called from inside each test, never at describe-body level: an importer
+  // that throws while the file is being COLLECTED takes the whole suite with
+  // it, and a suite that never ran reports no failures at all.
+  const store = memoized(() => importFromEuropassJson(PROFILE_JSON))
 
   it('maps identity + contact under the profile language', () => {
-    expect(store.resume?.full_name).toBe('Kari Nordmann')
-    expect(store.resume?.email).toBe('kari@example.no')
-    expect(store.resume?.phone).toBe('+47 99988877')
-    expect(store.resume?.default_locale).toBe('no') // nb → no
-    expect(store.resume?.title).toEqual({ no: 'Senior rådgiver' })
-    expect(store.resume?.place_of_residence).toEqual({ no: 'Oslo, Norway' })
+    expect(store().resume?.full_name).toBe('Kari Nordmann')
+    expect(store().resume?.email).toBe('kari@example.no')
+    expect(store().resume?.phone).toBe('+47 99988877')
+    expect(store().resume?.default_locale).toBe('no') // nb → no
+    expect(store().resume?.title).toEqual({ no: 'Senior rådgiver' })
+    expect(store().resume?.place_of_residence).toEqual({ no: 'Oslo, Norway' })
   })
 
   it('puts aboutMe into a leading key qualification', () => {
-    expect(store.key_qualifications[0]?.summary).toEqual({ no: 'Erfaren konsulent.' })
+    expect(store().key_qualifications[0]?.summary).toEqual({ no: 'Erfaren konsulent.' })
   })
 
   it('maps work experiences with ongoing + string/object occupation forms', () => {
-    expect(store.work_experiences).toHaveLength(2)
-    const [current, old] = store.work_experiences
+    expect(store().work_experiences).toHaveLength(2)
+    const [current, old] = store().work_experiences
     expect(current.employer).toEqual({ no: 'Konsulenthuset AS' })
     expect(current.role_title).toEqual({ no: 'Seniorkonsulent' })
     expect(current.start).toEqual({ year: 2019, month: 8 })
@@ -142,11 +158,11 @@ describe('importFromEuropassJson', () => {
   })
 
   it('maps education and language skills (mother tongue = Native)', () => {
-    expect(store.educations[0].school).toEqual({ no: 'Universitetet i Oslo' })
-    expect(store.educations[0].degree).toEqual({ no: 'Master i informatikk' })
-    expect(store.spoken_languages.map((l) => l.name.no)).toEqual(['Norwegian', 'English'])
-    expect(store.spoken_languages[0].level).toEqual({ no: 'Native' })
-    expect(store.spoken_languages[1].level).toEqual({ no: 'C1' })
+    expect(store().educations[0].school).toEqual({ no: 'Universitetet i Oslo' })
+    expect(store().educations[0].degree).toEqual({ no: 'Master i informatikk' })
+    expect(store().spoken_languages.map((l) => l.name.no)).toEqual(['Norwegian', 'English'])
+    expect(store().spoken_languages[0].level).toEqual({ no: 'Native' })
+    expect(store().spoken_languages[1].level).toEqual({ no: 'C1' })
   })
 
   it('is total: an empty profile still yields a valid store', () => {
@@ -206,18 +222,18 @@ const SKILLS_PASSPORT_XML = `<?xml version="1.0" encoding="UTF-8"?>
 </SkillsPassport>`
 
 describe('importFromEuropassXml', () => {
-  const store = importFromEuropassXml(SKILLS_PASSPORT_XML)
+  const store = memoized(() => importFromEuropassXml(SKILLS_PASSPORT_XML))
 
   it('maps identity, contact and headline', () => {
-    expect(store.resume?.full_name).toBe('Ola Hansen')
-    expect(store.resume?.email).toBe('ola@example.no')
-    expect(store.resume?.phone).toBe('+47 41122334')
-    expect(store.resume?.title).toEqual({ en: 'Software architect' })
-    expect(store.resume?.place_of_residence).toEqual({ en: 'Bergen' })
+    expect(store().resume?.full_name).toBe('Ola Hansen')
+    expect(store().resume?.email).toBe('ola@example.no')
+    expect(store().resume?.phone).toBe('+47 41122334')
+    expect(store().resume?.title).toEqual({ en: 'Software architect' })
+    expect(store().resume?.place_of_residence).toEqual({ en: 'Bergen' })
   })
 
   it('maps work experience with the XML month form and Current=true', () => {
-    const w = store.work_experiences[0]
+    const w = store().work_experiences[0]
     expect(w.employer).toEqual({ en: 'Plattform AS' })
     expect(w.role_title).toEqual({ en: 'Architect' })
     expect(w.start).toEqual({ year: 2016, month: 3 })
@@ -225,10 +241,10 @@ describe('importFromEuropassXml', () => {
   })
 
   it('maps education and the linguistic skill lists', () => {
-    expect(store.educations[0].school).toEqual({ en: 'NTNU' })
-    expect(store.educations[0].end).toEqual({ year: 2013, month: 6 })
-    expect(store.spoken_languages.map((l) => l.name.en)).toEqual(['Norwegian', 'English'])
-    expect(store.spoken_languages[1].level).toEqual({ en: 'C2' })
+    expect(store().educations[0].school).toEqual({ en: 'NTNU' })
+    expect(store().educations[0].end).toEqual({ year: 2013, month: 6 })
+    expect(store().spoken_languages.map((l) => l.name.en)).toEqual(['Norwegian', 'English'])
+    expect(store().spoken_languages[1].level).toEqual({ en: 'C2' })
   })
 
   it('is total: garbage XML yields an empty-but-valid store', () => {
