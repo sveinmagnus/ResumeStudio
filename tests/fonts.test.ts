@@ -67,3 +67,15 @@ describe('font catalog', () => {
     expect(CATALOG_DEFAULT_FONTS).toEqual({ heading: DEFAULT_HEADING_FONT, body: DEFAULT_BODY_FONT })
   })
 })
+
+describe('the id index behind fontById', () => {
+  it('resolves every catalog entry by its own id', () => {
+    // The index is derived from the catalog; if the derivation breaks, every view
+    // silently falls back to the default font and the per-view choice is lost.
+    for (const f of FONT_CATALOG) expect(fontById(f.id)?.id, f.id).toBe(f.id)
+  })
+
+  it('falls back rather than returning nothing for an unknown id', () => {
+    expect(fontById('no-such-font')?.id).toBeTruthy()
+  })
+})

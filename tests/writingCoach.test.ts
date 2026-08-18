@@ -169,3 +169,20 @@ describe('validateCoachResponse names what was wrong', () => {
     expect(() => validateCoachResponse({ asks: ['What was your role?'] })).toThrow(/rewrite/i)
   })
 })
+
+describe('buildCoachPrompt — the source it hands the model', () => {
+  it('trims the flattened source', () => {
+    // The source is interpolated straight into the prompt; leading blank lines
+    // push the instruction away from the text it applies to, which is what a
+    // small model loses track of first.
+    const prompt = buildCoachPrompt({ en: '   Ran the platform rebuild.   ' }, 'en')
+    expect(prompt).toContain('Ran the platform rebuild.')
+    expect(prompt).not.toContain('   Ran the platform rebuild.')
+  })
+
+  it('reads the requested locale rather than whichever slot is filled', () => {
+    const prompt = buildCoachPrompt({ en: 'English text.', no: 'Norsk tekst.' }, 'no')
+    expect(prompt).toContain('Norsk tekst.')
+    expect(prompt).not.toContain('English text.')
+  })
+})

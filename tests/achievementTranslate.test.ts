@@ -97,3 +97,27 @@ describe('translateAchievements()', () => {
     expect(out.translations?.no.text).toBe('Kuttet releasetid')
   })
 })
+
+describe('translateAchievements — when the translator fails', () => {
+  it('leaves the achievement untouched when every call rejects', () => {
+    // Best-effort is the contract: the achievement still applies in the primary
+    // language. A failed translation must add NO secondary entry at all — an
+    // empty one would overwrite the other column with blanks on apply.
+    vi.spyOn(api, 'translate').mockRejectedValue(new Error('offline'))
+    return translateAchievements(emptyStore(), [achievement()], 'en', 'no').then(([out]) => {
+      expect(out.translations?.no).toBeUndefined()
+    })
+  })
+
+  it('still records the half that succeeded', () => {
+    // The title and the detail are translated independently; losing one must not
+    // discard the other.
+    vi.spyOn(api, 'translate').mockImplementation(((text: string) =>
+      text.startsWith('Cut') ? Promise.resolve('Kuttet') : Promise.reject(new Error('offline'))) as never)
+    return translateAchievements(
+      emptyStore(), [achievement({ detail: 'Some detail' })], 'en', 'no',
+    ).then(([out]) => {
+      expect(out.translations?.no).toEqual({ text: 'Kuttet', detail: '' })
+    })
+  })
+})
