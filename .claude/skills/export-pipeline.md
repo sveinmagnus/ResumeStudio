@@ -22,7 +22,8 @@ sections, excluded items, and — if set — non-starred items). Then:
   kept in sync while it's open).
 - **PDF** → `pdfExporter.ts → exportPdf()` builds a pdfmake document — a
   one-click vector `.pdf` download, no print dialog. Its own render engine, so
-  it ~matches (not pixel-identical to) the HTML preview.
+  it applies every style control (see visual parity below) without being
+  pixel-identical to the HTML preview.
 - **DOCX** → `exporter.ts → exportDocx()` builds a `docx` `Document`.
 - **Text / Markdown** → `viewText.ts → buildViewText()` / `buildViewMarkdown()`
   for ATS-safe plain formats.
@@ -52,10 +53,63 @@ list) is driven by a **single section-descriptor catalog**
 `full()` data views returning **data only**). The per-path adapters own
 escaping and layout — there are no per-section switch statements left. So
 "support a section in exports" means **adding one descriptor**, not editing
-four renderers. Per-path differences go behind `ctx.target`. See CLAUDE.md §7
-step 7. (Europass is the exception — a fixed external schema, not the catalog.)
+four renderers. `ctx.target` carries per-path **layout** differences — never
+per-path CONTENT (see the parity rule below). See CLAUDE.md §7 step 7.
+(Europass is the exception — a fixed external schema, not the catalog.)
 
-**Rule:** if a section/field renders in one *catalog-driven* path, it renders
+**Content parity is the rule, and it is mechanically enforced.** Every
+catalog-driven path states the SAME FACTS — the preview, the PDF, the Word file
+and the ATS text differ in how they look, never in what they say. This was
+broken in both halves at once: the catalog handed the paged targets fields it
+withheld from the HTML shape (team size, allocation, highlights, grades,
+credential URLs, referee contact details), and the HTML renderer separately
+never drew `plainBody`/`extraLines` at all. A consultant checking the preview
+was therefore reading a document that was not the one they sent.
+
+Optional content is now a **per-view choice**: `lib/sectionExtras.ts` declares
+the groups a section offers, `SectionStyle.extras` records which are on
+(normalised at the render boundary), and every group defaults OFF. Two suites
+hold it — `tests/sectionCatalog.test.ts` (descriptor data equal across targets)
+and `tests/exportParity.test.ts` (one view through all five outputs, every fact
+found in each). Adding an optional field means adding a group, never a
+`ctx.target` branch.
+
+**Visual parity is the same rule for STYLE, and it broke the same way.** A view
+style control must reach every target that can express it. Seven did not: Skill
+tags (chips vs inline), Item dividers (eight choices), Summary layout (six slot
+orders), Full-item layout (four), Summaries (free-flowing vs aligned columns),
+Section icons, and — Word only — density's line height. All seven moved the
+preview alone, which is the worst place for the discrepancy to sit: the preview
+is what gets checked before the file is sent.
+
+The structural cause was that each effect was described inside ONE adapter.
+The fix puts each description in one module the adapters read:
+
+| Effect | Owner | Adapters read it as |
+|---|---|---|
+| Summary slot order, full-item date placement | `lib/itemLayout.ts` | runs / paragraphs / lines |
+| Between-items rule | `viewStyle.dividerSpec` | CSS border, pdfmake table hairline, Word paragraph border |
+| Skill-chip fill | `viewStyle.tagChipHex` | CSS background, pdfmake run `background`, Word run shading |
+| Section heading glyph | `lib/sectionIcon.ts` | inline `<svg>`, pdfmake `svg` node, Word SVG picture |
+
+Targets that cannot do alpha take the composited colour (`flattenOnWhite`), so
+a rule is the same shade everywhere rather than each adapter guessing. Format
+differences BELOW the spec are expected and fine — a short rule is a background
+gradient in CSS, a fixed-`widths` table in pdfmake and a one-cell table in Word.
+What is not fine is a target having its own opinion about whether the control
+applies.
+
+`tests/exportVisualParity.test.ts` enforces it: flip each control, assert the
+EXACT set of targets whose output moved. Asserting the exact set (not merely
+"something changed") also catches the reverse leak — a purely visual choice
+altering the ATS text.
+
+Two deliberate format limits, both commented at the code: Word draws the
+section icon from Office 2016 on, its required raster fallback deliberately
+blank; and the ATS text cannot draw chips, so it keeps the `Skills:` label a
+chip drops. A Word file headed for an ATS should use "Inline list".
+
+**Corollary:** if a section/field renders in one *catalog-driven* path, it renders
 in the others (or there's a deliberate, commented reason it doesn't — e.g. the
 `skills`/`roles` *registries* are intentionally never exported as their own
 sections). Europass is exempt by design — its schema, not our catalog, decides
@@ -126,7 +180,9 @@ security-review skill for the full rationale (imported content → preview/expor
 1. Add (or extend) the **one descriptor** in `lib/sectionCatalog.ts` —
    title/subtitle + `summary()`/`full()` data views. Descriptors return
    **data only**; never build markup in a descriptor (the adapters own
-   escaping). Per-path differences go behind `ctx.target`.
+   escaping). `ctx.target` may change LAYOUT (title sizing, spacing, how a
+   title/meta pair is composed) and nothing else; a field that only some
+   exports should carry is an `extras` group, not a target branch.
 2. Confirm the section is in `SECTIONS` with a `storeKey` and reaches views
    via `isExportableSection` + `normalizeViewSections`; give it a
    `defaultViewDetail` if it shouldn't start as `full`.
@@ -137,6 +193,9 @@ security-review skill for the full rationale (imported content → preview/expor
    filtered store from `applyView` — don't re-read `store` directly.
 5. Eyeball all four outputs (preview, PDF, DOCX, text) — one descriptor
    feeds them, but layout quirks are per-adapter.
+6. Added a view STYLE control? Describe its effect in one shared module and
+   wire all four adapters to it, then add it to `exportVisualParity.test.ts`.
+   A control that moves only the preview is the defect that suite exists for.
 
 ## 5. Test discipline
 
@@ -151,13 +210,20 @@ security-review skill for the full rationale (imported content → preview/expor
   delete or weaken it.
 - `tests/pdfExporter.test.ts` + `tests/viewText.test.ts` — same
   structural-smoke idea for the other two paths.
+- `tests/exportParity.test.ts` — one view through all five outputs; every
+  fact reaches every one. `tests/exportVisualParity.test.ts` — the same idea
+  for STYLE: flip each view style control and assert the exact set of targets
+  whose output moved. A new style control belongs in that table.
 - After any change: `npm run typecheck && npm test && npm run build` (the build
   is the only check that proves the lazy chunks are still split).
 
 ## 6. When you touch this — checklist
 
 1. Changed one render path's layout? Mirror it in the others (or comment why
-   not).
+   not). If it is driven by a view STYLE control, the description belongs in
+   one shared module (`itemLayout` / `viewStyle` / `sectionIcon`) that all
+   four adapters read — not in the adapter you happened to be editing — and
+   it needs a row in `exportVisualParity.test.ts`.
 2. Added a section? One descriptor in the catalog + the §4 steps.
 3. Touched `viewFilter` string HTML? Every interpolation escaped? Run the XSS
    test.

@@ -24,16 +24,29 @@ function tryBind(port: number, host: string): Promise<number | null> {
 }
 
 /**
- * Try `preferred`, then `preferred+1 .. preferred+span`, then port 0 (OS picks).
- * Resolves with the first port that binds; rejects only if even an ephemeral
- * port can't be obtained (effectively never).
+ * Try each `preferred` port in order, then a short ladder above the LAST one,
+ * then port 0 (OS picks). Resolves with the first port that binds; rejects only
+ * if even an ephemeral port can't be obtained (effectively never).
+ *
+ * Several preferred ports rather than one because the desktop build wants port
+ * 80 (so the configured name needs no `:port` suffix) but must not depend on
+ * getting it: plenty of machines already run IIS, another dev server, or an OS
+ * that reserves the port. Each candidate is tried exactly as given, and only the
+ * last one gets the +1.. ladder, so a taken 80 falls to the documented 1923
+ * rather than to 81.
  */
 export async function findFreePort(
-  preferred: number,
+  preferred: number | number[],
   host = '127.0.0.1',
   span = 20,
 ): Promise<number> {
-  for (let p = preferred; p <= preferred + span; p++) {
+  const candidates = Array.isArray(preferred) ? preferred : [preferred]
+  const last = candidates[candidates.length - 1]
+  for (const p of candidates.slice(0, -1)) {
+    const ok = await tryBind(p, host)
+    if (ok) return ok
+  }
+  for (let p = last; p <= last + span; p++) {
     const ok = await tryBind(p, host)
     if (ok) return ok
   }

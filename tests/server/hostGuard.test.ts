@@ -15,10 +15,24 @@ describe('isLoopbackHost()', () => {
     }
   })
 
+  // RFC 6761 reserves the whole `.localhost` TLD for loopback and it is not
+  // delegated in the DNS root, so a name under it cannot be pointed elsewhere.
+  it('accepts names under the reserved .localhost TLD', () => {
+    for (const h of ['resumestudio.localhost', 'resumestudio.localhost:1923', 'cv.localhost']) {
+      expect(isLoopbackHost(h)).toBe(true)
+    }
+  })
+
   it('rejects non-loopback hosts, empties, and rebind lookalikes', () => {
-    for (const h of [undefined, '', 'evil.example', 'evil.example:3001', '10.0.0.5:3001', '127.0.0.1.evil.example', 'localhost.evil.example']) {
+    for (const h of [undefined, '', 'evil.example', 'evil.example:3001', '10.0.0.5:3001', '127.0.0.1.evil.example', 'localhost.evil.example', 'localhost.evil.com']) {
       expect(isLoopbackHost(h)).toBe(false)
     }
+  })
+
+  // A `.local` name is NOT loopback by definition — it resolves through the
+  // hosts file — so it passes only via the configured-name branch below.
+  it('does not accept a .local name on its own', () => {
+    expect(isLoopbackHost('resumestudio.local')).toBe(false)
   })
 })
 
@@ -54,6 +68,47 @@ describe('desktop DNS-rebinding guard', () => {
   it('blocks a rebinding read attempt at a data route too', async () => {
     const res = await request(app).get('/api/resumes').set('Host', 'attacker.test')
     expect(res.status).toBe(403)
+  })
+
+  it('allows a .localhost name with no configuration at all', async () => {
+    const res = await request(app).get('/api/health').set('Host', 'resumestudio.localhost:1923')
+    expect(res.status).toBe(200)
+  })
+})
+
+describe('the configured local hostname', () => {
+  let app: Express
+
+  beforeAll(async () => {
+    process.env.RESUME_DB_PATH = ':memory:'
+    process.env.RESUME_RATE_LIMIT_MAX = '1000000'
+    process.env.RESUME_DESKTOP = '1'
+    process.env.RESUME_LOCAL_HOSTNAME = 'resumestudio.local'
+    delete process.env.RESUME_API_TOKEN
+    const { createApp } = await import('../../server/app')
+    app = createApp()
+  })
+
+  afterAll(() => {
+    for (const k of ['RESUME_DB_PATH', 'RESUME_RATE_LIMIT_MAX', 'RESUME_DESKTOP', 'RESUME_LOCAL_HOSTNAME']) {
+      delete process.env[k]
+    }
+  })
+
+  it('is accepted, with or without a port', async () => {
+    for (const h of ['resumestudio.local', 'resumestudio.local:1923']) {
+      const res = await request(app).get('/api/health').set('Host', h)
+      expect(res.status).toBe(200)
+    }
+  })
+
+  // Configuring one name must not open the guard to every other .local name,
+  // nor to a lookalike that merely contains it.
+  it('does not admit a different .local name or a lookalike', async () => {
+    for (const h of ['other.local', 'resumestudio.local.evil.example']) {
+      const res = await request(app).get('/api/health').set('Host', h)
+      expect(res.status).toBe(403)
+    }
   })
 })
 

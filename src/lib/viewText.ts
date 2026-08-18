@@ -11,11 +11,12 @@
  * escaping applies. Do not repurpose these strings into an HTML context.
  */
 
-import type { ResumeStore, ResumeView, LocalizedString } from '../types'
+import type { ResumeStore, ResumeView, LocalizedString, FullLayout } from '../types'
 import { localizedSectionHeading } from './sections'
 import { applyView, viewProfileTagLine } from './viewFilter'
 import { planViewSections, sectionItems, renderKeyFor } from './viewSectionPlan'
-import { SECTION_CATALOG, summaryTitleMeta, type CatalogCtx, type ItemView } from './sectionCatalog'
+import { SECTION_CATALOG, type CatalogCtx, type ItemView } from './sectionCatalog'
+import { summarySegments, fullItemLayout, type SummarySegment } from './itemLayout'
 import { skillMatrixRows, fmtLastUsed, fmtProficiency } from './skillMatrix'
 import { xs, fmtYears } from './exportStrings'
 import { resolveSectionStyle, sectionHeadingText, kqVisibility, bulletGlyph, withDefaults } from './viewStyle'
@@ -66,21 +67,28 @@ function richToLines(html: string, fmt: Format): string[] {
 
 // ─── Item rendering ───────────────────────────────────────────────────────────
 
-function summaryLine(title: string, meta: string, sep: '—' | ':', fmt: Format): string {
-  const t = fmt === 'markdown' ? `**${title}**` : title
-  if (!meta) return `- ${t}`
-  return sep === ':' ? `- ${t}: ${meta}` : `- ${t} — ${meta}`
+function summaryLine(segments: SummarySegment[], trail: string, fmt: Format): string {
+  const body = segments
+    .map((g) => `${g.joiner}${fmt === 'markdown' && g.slot === 'title' ? `**${g.text}**` : g.text}`)
+    .join('')
+  if (!trail) return `- ${body}`
+  return `- ${body}${body ? ' — ' : ''}${trail}`
 }
 
-function renderItemLines(v: ItemView, fmt: Format, bullet: string | null = null): string[] {
+function renderItemLines(
+  v: ItemView, fmt: Format, layout: FullLayout, bullet: string | null = null,
+): string[] {
   const md = fmt === 'markdown'
   const lines: string[] = []
-  // The catalog now keeps the date separate from `meta` (so the HTML preview can
-  // reorder it); the linear text export just appends it to the details line.
-  const metaTxt = [...v.meta, v.date].filter(Boolean).join(' · ')
+  // Where the date sits among the details is a view choice, and the order
+  // facts are stated in survives being read as plain text — so the linear
+  // exports follow the same control as the paged ones.
+  const { metaParts, metaFirst } = fullItemLayout(v, layout)
+  const metaTxt = metaParts.join(' · ')
 
   if (v.layout === 'inline') {
     lines.push(`${md ? `**${v.title}**` : v.title}${metaTxt ? ` — ${metaTxt}` : ''}`)
+    for (const l of v.extraLines) if (l) lines.push(l)
     return lines
   }
 
@@ -91,8 +99,10 @@ function renderItemLines(v: ItemView, fmt: Format, bullet: string | null = null)
     return lines
   }
 
-  if (v.title) lines.push(md ? `### ${v.title}` : v.title)
-  if (metaTxt) lines.push(md ? `*${metaTxt}*` : metaTxt)
+  const titleLine = v.title ? [md ? `### ${v.title}` : v.title] : []
+  const metaLine = metaTxt ? [md ? `*${metaTxt}*` : metaTxt] : []
+  lines.push(...(metaFirst ? [...metaLine, ...titleLine] : [...titleLine, ...metaLine]))
+  if (v.plainBody) lines.push(v.plainBody)
   lines.push(...richToLines(v.body, fmt))
   for (const p of v.points) {
     // A point is one bullet line: the blank separators between paragraphs
@@ -102,6 +112,7 @@ function renderItemLines(v: ItemView, fmt: Format, bullet: string | null = null)
     lines.push(`- ${label}${body}`)
   }
   if (v.tags.length) lines.push(`${v.tagsLabel || ''}${v.tags.join(', ')}`)
+  for (const l of v.extraLines) if (l) lines.push(l)
 
   // Plain-text bullets: prefix the first line with the glyph and hang-indent the
   // rest so they line up under the heading. Markdown keeps its own structure
@@ -184,26 +195,27 @@ function buildViewDoc(store: ResumeStore, view: ResumeView, locale: string, fmt:
     const renderKey = renderKeyFor(s.key)
     const desc = SECTION_CATALOG[renderKey]
     if (!desc || (!desc.full && !desc.summary)) continue
-    const resolved = resolveSectionStyle(viewStyle, s.sectionStyle)
-    const cctx: CatalogCtx = { locale, hideDates: !!resolved.hide_dates, dateFormat: resolved.date_format, target: 'html', kq: kqVisibility(resolved, s.detail === 'summary' ? 'summary' : 'full') }
+    const resolved = resolveSectionStyle(viewStyle, s.sectionStyle, renderKeyFor(s.key))
+    const cctx: CatalogCtx = { locale, hideDates: !!resolved.hide_dates, dateFormat: resolved.date_format, target: 'docx', extras: resolved.extras, kq: kqVisibility(resolved, s.detail === 'summary' ? 'summary' : 'full') }
 
     const body: string[] = []
     for (const item of items as Array<Record<string, unknown>>) {
       if (s.detail === 'summary' && !desc.alwaysFull) {
         const sum = desc.summary?.(item, cctx)
         if (sum) {
-          const { title, meta } = summaryTitleMeta(sum)
+          const segments = summarySegments(sum, resolved.summary_layout)
           const short = resolve(item.short_description as LocalizedString | undefined, locale).trim()
           const below = !!short && resolved.short_desc_line !== 'inline'
-          const metaStr = short && !below ? [meta.join(' · '), short].filter(Boolean).join(' — ') : meta.join(' · ')
-          body.push(summaryLine(title, metaStr, sum.sep, fmt))
+          body.push(summaryLine(segments, below ? '' : short, fmt))
           if (below) body.push(md ? `  ${short}` : `  ${short}`)
         }
         continue
       }
       const v = desc.full?.(item, cctx)
       if (!v) continue
-      const lines = renderItemLines(v, fmt, resolved.item_bullets ? bulletGlyph(resolved) : null)
+      const lines = renderItemLines(
+        v, fmt, resolved.date_position, resolved.item_bullets ? bulletGlyph(resolved) : null,
+      )
       if (lines.length) { body.push(...lines); body.push('') }
     }
     while (body.length && body[body.length - 1] === '') body.pop()

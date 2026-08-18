@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { SECTION_CATALOG, summaryTitleMeta, type CatalogCtx } from '../src/lib/sectionCatalog'
+import { SECTION_CATALOG, summaryTitleMeta, type CatalogCtx, type ItemView } from '../src/lib/sectionCatalog'
+import { extrasFor } from '../src/lib/sectionExtras'
 import {
   makeProject, makeWork, makeEducation, makeKQ, makeReference,
   makeSpokenLanguage, makeKeyCompetency, makeRecommendation,
@@ -170,7 +171,7 @@ describe('projects — anonymization (both render paths)', () => {
   })
 })
 
-describe('projects — per-target drift stays explicit', () => {
+describe('projects — the optional groups, and what stays per-target', () => {
   const p = makeProject({
     customer: { en: 'Acme' },
     industries: [{ id: 'pi1', industry_id: 'ind1', name: { en: 'Finance' }, sort_order: 0 }],
@@ -180,25 +181,40 @@ describe('projects — per-target drift stays explicit', () => {
     highlights: [{ en: 'Cut costs 20%' }],
   }) as unknown as Record<string, unknown>
 
-  it('html: date folded into meta, no team size or highlights', () => {
-    const v = SECTION_CATALOG.projects.full!(p, html)!
-    expect(v.meta).toContain('Finance')
-    expect(v.meta.join(' ')).not.toContain('Team of')
-    expect(v.points).toHaveLength(0)
-    expect(v.body).toBe('Long desc')
+  const withGroups = (target: 'html' | 'docx', ...extras: string[]): CatalogCtx =>
+    ({ locale: 'en', hideDates: false, target, extras: new Set(extras) })
+
+  it('leaves team size and highlights out until the view asks — on both targets', () => {
+    for (const ctx of [html, docx]) {
+      const v = SECTION_CATALOG.projects.full!(p, ctx)!
+      expect(v.meta).toContain('Finance')
+      expect(v.meta.join(' ')).not.toContain('Team of')
+      expect(v.points).toHaveLength(0)
+      expect(v.body).toBe('Long desc')
+    }
   })
 
-  it('docx: separate date slot, team size in meta, highlights as points', () => {
-    const v = SECTION_CATALOG.projects.full!(p, docx)!
-    expect(v.meta).toContain('Team of 5')
-    expect(v.points.map((pt) => pt.body)).toContain('Cut costs 20%')
-    expect(v.plainBody).toBe('Short desc')
-    expect(v.titleStyle).toBe('large')
+  it('adds them for both targets once the groups are on', () => {
+    for (const target of ['html', 'docx'] as const) {
+      const v = SECTION_CATALOG.projects.full!(p, withGroups(target, 'metrics', 'highlights', 'lead'))!
+      expect(v.meta).toContain('Team of 5')
+      expect(v.points.map((pt) => pt.body)).toContain('Cut costs 20%')
+      expect(v.plainBody).toBe('Short desc')
+    }
   })
 
-  it('docx sorts by start date, html keeps store order (flag)', () => {
-    expect(SECTION_CATALOG.projects.docxSortByStart).toBe(true)
-    expect(SECTION_CATALOG.educations.docxSortByStart).toBeUndefined()
+  it('keeps the paged heading larger than the preview one', () => {
+    expect(SECTION_CATALOG.projects.full!(p, docx)!.titleStyle).toBe('large')
+    expect(SECTION_CATALOG.projects.full!(p, html)!.titleStyle).toBe('body')
+  })
+
+  it('declares no per-target sort — item order is one decision for all of them', () => {
+    // A `docxSortByStart` flag used to live here, promising that DOCX sorted
+    // projects by start date while the preview kept the arranged order. No
+    // renderer had read it since ordering moved into viewSectionPlan, so it
+    // documented a divergence that did not exist. Order now comes from the
+    // view's per-section sort, once, for every adapter.
+    expect('docxSortByStart' in SECTION_CATALOG.projects).toBe(false)
   })
 })
 
@@ -215,15 +231,17 @@ describe('key_qualifications — disabled points filtered (both paths)', () => {
     expect(v.points.map((p) => p.label)).toEqual(['Visible'])
   })
 
-  it('uses the tag line as the heading, shown only when opted in (label is gone)', () => {
+  it('uses the tag line as the heading on every target, shown only when opted in', () => {
     const k = makeKQ({ label: { en: 'Senior Dev' }, tag_line: { en: 'Tagline' } }) as unknown as Record<string, unknown>
-    // Default: tag line hidden (it doubles as the resume title) — no heading/meta.
+    // Default: tag line hidden (it doubles as the resume title) — no heading.
     expect(SECTION_CATALOG.key_qualifications.full!(k, html)!.title).toBe('')
-    expect(SECTION_CATALOG.key_qualifications.full!(k, docx)!.meta).toEqual([])
-    // Opt in via ctx.kq.tagline → html title / docx meta carry the tag line.
+    expect(SECTION_CATALOG.key_qualifications.full!(k, docx)!.title).toBe('')
+    // Opt in via ctx.kq.tagline. It is the heading on BOTH targets now: the
+    // paged path used to demote it to a meta line, which read as a different CV.
     const shown = { tagline: true, short: false, long: true }
-    expect(SECTION_CATALOG.key_qualifications.full!(k, { ...html, kq: shown })!.title).toBe('Tagline')
-    expect(SECTION_CATALOG.key_qualifications.full!(k, { ...docx, kq: shown })!.meta).toEqual(['Tagline'])
+    for (const target of [html, docx]) {
+      expect(SECTION_CATALOG.key_qualifications.full!(k, { ...target, kq: shown })!.title).toBe('Tagline')
+    }
   })
 })
 
@@ -296,12 +314,17 @@ describe('references — include_in_exports gate', () => {
     expect(SECTION_CATALOG.references.full!(ref, docx)).toBeNull()
   })
 
-  it('docx adds contact lines, html does not (historic drift)', () => {
+  it('adds contact lines on every target once the group is on', () => {
     const ref = makeReference({
       include_in_exports: true, name: 'Kari', email: 'kari@x.no', phone: '999',
     }) as unknown as Record<string, unknown>
+    const withContact = (target: 'html' | 'docx'): CatalogCtx =>
+      ({ locale: 'en', hideDates: false, target, extras: new Set(['contact']) })
     expect(SECTION_CATALOG.references.full!(ref, html)!.extraLines).toEqual([])
-    expect(SECTION_CATALOG.references.full!(ref, docx)!.extraLines).toContain('kari@x.no')
+    expect(SECTION_CATALOG.references.full!(ref, docx)!.extraLines).toEqual([])
+    for (const target of ['html', 'docx'] as const) {
+      expect(SECTION_CATALOG.references.full!(ref, withContact(target))!.extraLines).toContain('kari@x.no')
+    }
   })
 })
 
@@ -466,6 +489,9 @@ describe('editor titles and subtitles (parity with the old switches)', () => {
 describe('the simple sections', () => {
   const text: CatalogCtx = { locale: 'en', hideDates: false, target: 'text' }
   const noDates: CatalogCtx = { locale: 'en', hideDates: true, target: 'docx' }
+  /** Same target, with the section's optional groups switched on. */
+  const withAll = (base: CatalogCtx, ...keys: string[]): CatalogCtx =>
+    ({ ...base, extras: new Set(keys) })
 
   describe('certifications', () => {
     const cert = item({
@@ -485,21 +511,26 @@ describe('the simple sections', () => {
       expect(v.date).toContain('2022')
     })
 
-    it('appends the expiry to the date — but only away from HTML', () => {
-      expect(SECTION_CATALOG.certifications.full!(cert, docx)!.date).toMatch(/expires/)
-      expect(SECTION_CATALOG.certifications.full!(cert, html)!.date).not.toMatch(/expires/)
+    it('appends the expiry to the date only when the group asks', () => {
+      expect(SECTION_CATALOG.certifications.full!(cert, docx)!.date).not.toMatch(/expires/)
+      for (const target of [docx, html]) {
+        expect(SECTION_CATALOG.certifications.full!(cert, withAll(target, 'expiry'))!.date)
+          .toMatch(/expires/)
+      }
     })
 
-    it('emits the credential URL as an extra line away from HTML', () => {
-      expect(SECTION_CATALOG.certifications.full!(cert, docx)!.extraLines)
-        .toEqual(['https://verify.example/abc'])
-      expect(SECTION_CATALOG.certifications.full!(cert, html)!.extraLines ?? []).toEqual([])
+    it('emits the credential URL as an extra line only when the group asks', () => {
+      expect(SECTION_CATALOG.certifications.full!(cert, docx)!.extraLines).toEqual([])
+      for (const target of [docx, html]) {
+        expect(SECTION_CATALOG.certifications.full!(cert, withAll(target, 'links'))!.extraLines)
+          .toEqual(['https://verify.example/abc'])
+      }
     })
 
     it('drops the expiry along with the issue date when the view hides dates', () => {
       // hideDates blanks the issue date; the expiry is appended to it and must
       // go with it, or an anonymized export still prints a year.
-      expect(SECTION_CATALOG.certifications.full!(cert, noDates)!.date).toBe('')
+      expect(SECTION_CATALOG.certifications.full!(cert, withAll(noDates, 'expiry'))!.date).toBe('')
     })
 
     it('falls back to a generic label rather than an empty summary title', () => {
@@ -557,13 +588,14 @@ describe('the simple sections', () => {
       expect(v.date).toContain('2024')
     })
 
-    it('emits the talk URL as an extra line away from HTML', () => {
-      expect(SECTION_CATALOG.presentations.full!(talk, text)!.extraLines).toEqual(['https://talks.example/pg'])
-      expect(SECTION_CATALOG.presentations.full!(talk, html)!.extraLines ?? []).toEqual([])
+    it('emits the talk URL as an extra line only when the group asks', () => {
+      expect(SECTION_CATALOG.presentations.full!(talk, text)!.extraLines).toEqual([])
+      expect(SECTION_CATALOG.presentations.full!(talk, withAll(text, 'links'))!.extraLines)
+        .toEqual(['https://talks.example/pg'])
     })
 
     it('omits the extra line when there is no URL', () => {
-      const v = SECTION_CATALOG.presentations.full!(item({ ...talk, url: '' }), docx)!
+      const v = SECTION_CATALOG.presentations.full!(item({ ...talk, url: '' }), withAll(docx, 'links'))!
       expect(v.extraLines ?? []).toEqual([])
     })
   })
@@ -625,9 +657,10 @@ describe('the simple sections', () => {
       expect(SECTION_CATALOG.publications.full!(paper, docx)!.body).toBe('We shard.')
     })
 
-    it('emits the URL as an extra line away from HTML', () => {
-      expect(SECTION_CATALOG.publications.full!(paper, docx)!.extraLines).toEqual(['https://doi.example/1'])
-      expect(SECTION_CATALOG.publications.full!(paper, html)!.extraLines ?? []).toEqual([])
+    it('emits the URL as an extra line only when the group asks', () => {
+      expect(SECTION_CATALOG.publications.full!(paper, docx)!.extraLines).toEqual([])
+      expect(SECTION_CATALOG.publications.full!(paper, withAll(docx, 'links'))!.extraLines)
+        .toEqual(['https://doi.example/1'])
     })
   })
 })
@@ -746,44 +779,54 @@ describe('SECTION_CATALOG — editor titles and subtitles', () => {
  */
 describe('SECTION_CATALOG — the extra render details', () => {
   const text: CatalogCtx = { locale: 'en', hideDates: false, target: 'text' }
+  /** These details are all optional groups now — this switches them on. */
+  const on = (base: CatalogCtx, ...keys: string[]): CatalogCtx =>
+    ({ ...base, extras: new Set(keys) })
 
-  it('emits an education grade as an extra line, away from HTML', () => {
+  it('emits an education grade as an extra line on every target, once asked', () => {
     const withGrade = item({ school: { en: 'NTNU' }, degree: { en: 'MSc' }, grade: 'A' })
-    expect(SECTION_CATALOG.educations.full!(withGrade, docx)!.extraLines)
-      .toEqual([expect.stringContaining('A')])
-    expect(SECTION_CATALOG.educations.full!(withGrade, html)!.extraLines ?? []).toEqual([])
+    for (const target of [docx, html]) {
+      expect(SECTION_CATALOG.educations.full!(withGrade, on(target, 'grade'))!.extraLines)
+        .toEqual([expect.stringContaining('A')])
+      expect(SECTION_CATALOG.educations.full!(withGrade, target)!.extraLines).toEqual([])
+    }
   })
 
   it('omits the grade line when there is no grade', () => {
-    expect(SECTION_CATALOG.educations.full!(item({ school: { en: 'NTNU' } }), docx)!.extraLines ?? [])
+    expect(SECTION_CATALOG.educations.full!(item({ school: { en: 'NTNU' } }), on(docx, 'grade'))!.extraLines)
       .toEqual([])
   })
 
   it('shows an employment’s type as meta, humanised', () => {
     // Stored as a snake_case enum; printed with a space.
     const v = SECTION_CATALOG.work_experiences.full!(
-      item({ employer: { en: 'Acme' }, employment_type: 'full_time' }), docx)!
+      item({ employer: { en: 'Acme' }, employment_type: 'full_time' }), on(docx, 'employment_type'))!
     expect(v.meta).toContain('full time')
   })
 
   it('omits the employment-type meta when unset', () => {
-    expect(SECTION_CATALOG.work_experiences.full!(item({ employer: { en: 'Acme' } }), docx)!.meta)
+    expect(SECTION_CATALOG.work_experiences.full!(item({ employer: { en: 'Acme' } }), on(docx, 'employment_type'))!.meta)
       .toEqual([])
   })
 
-  it('combines employer and role into the employment title, with a fallback', () => {
-    expect(SECTION_CATALOG.work_experiences.full!(
-      item({ employer: { en: 'Acme' }, role_title: { en: 'Architect' } }), docx)!.title)
-      .toBe('Acme — Architect')
+  it('heads an employment with the employer and puts the role below it', () => {
+    // The paged targets used to fold the role into the heading and the preview
+    // did not, so the same CV read differently depending on the button pressed.
+    for (const target of [docx, html]) {
+      const v = SECTION_CATALOG.work_experiences.full!(
+        item({ employer: { en: 'Acme' }, role_title: { en: 'Architect' } }), target)!
+      expect(v.title).toBe('Acme')
+      expect(v.meta).toEqual(['Architect'])
+    }
     expect(SECTION_CATALOG.work_experiences.full!(item({ employer: {}, role_title: {} }), docx)!.title)
       .toBe('Employer')
   })
 
   it('shows a project’s allocation when set', () => {
     const v = SECTION_CATALOG.projects.full!(
-      item({ customer: { en: 'Acme' }, percent_allocated: 60 }), docx)!
+      item({ customer: { en: 'Acme' }, percent_allocated: 60 }), on(docx, 'metrics'))!
     expect(v.meta.join(' ')).toContain('60')
-    const none = SECTION_CATALOG.projects.full!(item({ customer: { en: 'Acme' } }), docx)!
+    const none = SECTION_CATALOG.projects.full!(item({ customer: { en: 'Acme' } }), on(docx, 'metrics'))!
     expect(none.meta.join(' ')).not.toContain('60')
   })
 
@@ -791,7 +834,7 @@ describe('SECTION_CATALOG — the extra render details', () => {
     const v = SECTION_CATALOG.projects.full!(item({
       customer: { en: 'Acme' },
       highlights: [{ en: 'Cut build time' }, {}, { en: 'Shipped it' }],
-    }), docx)!
+    }), on(docx, 'highlights'))!
     expect(v.points.map((p) => p.body)).toEqual(['Cut build time', 'Shipped it'])
   })
 
@@ -843,19 +886,22 @@ describe('SECTION_CATALOG — the extra render details', () => {
     })
 
     it('lists title and company as meta, and contact details as extra lines', () => {
-      const v = SECTION_CATALOG.references.full!(ref(), text)!
+      const v = SECTION_CATALOG.references.full!(ref(), on(text, 'contact'))!
       expect(v.meta).toEqual(['CTO', 'BigCo'])
       expect(v.extraLines).toEqual(['Worked together', 'jane@x.io', '+47 900'])
     })
 
-    it('withholds the contact details from the HTML preview', () => {
-      const v = SECTION_CATALOG.references.full!(ref(), html)!
-      expect(v.meta).toEqual(['CTO', 'BigCo'])
-      expect(v.extraLines ?? []).toEqual([])
+    it('withholds the contact details until the view asks, on every target', () => {
+      // Someone else's inbox and phone number: the default is to leave them out.
+      for (const target of [html, text]) {
+        const v = SECTION_CATALOG.references.full!(ref(), target)!
+        expect(v.meta).toEqual(['CTO', 'BigCo'])
+        expect(v.extraLines).toEqual([])
+      }
     })
 
     it('drops an absent contact route rather than leaving a blank line', () => {
-      const v = SECTION_CATALOG.references.full!(ref({ email: '', phone: '' }), text)!
+      const v = SECTION_CATALOG.references.full!(ref({ email: '', phone: '' }), on(text, 'contact'))!
       expect(v.extraLines).toEqual(['Worked together'])
     })
   })
@@ -868,90 +914,195 @@ describe('SECTION_CATALOG — the extra render details', () => {
 })
 
 /**
- * Where the two render targets genuinely differ.
+ * Content parity across the render adapters.
  *
- * Four descriptors carry extra lines or a different heading for the paged
- * targets (DOCX/PDF) than for the HTML preview, because a page can afford a URL
- * or a grade on its own line and a scrolling preview would just look noisy.
- * Three others used to branch on the target and produce the same object either
- * way; those branches are gone, and these tests are what says the remaining
- * differences are deliberate.
+ * The catalog used to carry a different SET OF FACTS per target: the DOCX shape
+ * printed a project's team size, allocation and highlights while the HTML
+ * preview dropped them — so the preview could not show a consultant what their
+ * PDF would contain — and the ATS text export, which asks for the same shape as
+ * the preview, quietly shipped less than either. `ctx.target` now selects
+ * LAYOUT ONLY (title sizing and spacing). These tests hold that line: a
+ * descriptor that starts branching content on the target again fails here.
+ *
+ * The optional facts moved to per-view groups instead (lib/sectionExtras), so
+ * they read the same in every export and the user decides which ship.
  */
-describe('SECTION_CATALOG — html versus the paged targets', () => {
-  const ctxFor = (target: 'html' | 'docx'): CatalogCtx =>
-    ({ locale: 'en', hideDates: false, dateFormat: 'month-year', target })
-
-  const fullFor = (key: string, item: Record<string, unknown>, target: 'html' | 'docx') =>
-    SECTION_CATALOG[key].full!(item as never, ctxFor(target))!
-
-  it('gives an education its grade only on a page', () => {
-    const item = {
-      school: { en: 'NTNU' }, degree: { en: 'MSc' }, description: { en: 'Studied' },
-      grade: 'A', start: { year: 2010, month: 8 }, end: { year: 2013, month: 6 },
-    }
-    expect(fullFor('educations', item, 'docx').extraLines).toEqual(['Grade: A'])
-    expect(fullFor('educations', item, 'html').extraLines ?? []).toEqual([])
-  })
-
-  it('gives a certification its credential link only on a page, and its expiry in the date', () => {
-    const item = {
+describe('SECTION_CATALOG — every target carries the same facts', () => {
+  /** Every section, populated with each optional field its groups can expose. */
+  const POPULATED: Array<[string, Record<string, unknown>]> = [
+    ['projects', {
+      customer: { en: 'Acme' }, description: { en: 'Short' }, long_description: { en: '<p>Long</p>' },
+      highlights: [{ en: 'Shipped it' }], skills: [{ name: { en: 'Go' }, sort_order: 0 }],
+      roles: [{ name: { en: 'Architect' }, sort_order: 0 }],
+      industries: [{ name: { en: 'Banking' }, sort_order: 0 }],
+      team_size: 5, percent_allocated: 80, external_url: 'https://case', location_country_code: 'NO',
+      start: { year: 2020, month: 1 }, end: null,
+    }],
+    ['work_experiences', {
+      employer: { en: 'Acme' }, role_title: { en: 'Architect' }, long_description: { en: '<p>Did work</p>' },
+      employment_type: 'permanent', company_size_local: '~50', company_size_national: '200',
+      company_size_global: '40,000', company_url: 'https://acme',
+      start: { year: 2020, month: 1 }, end: null,
+    }],
+    ['educations', {
+      school: { en: 'NTNU' }, degree: { en: 'MSc' }, description: { en: 'Studied' }, grade: 'A',
+      exchange: true, start: { year: 2010, month: 8 }, end: { year: 2013, month: 6 },
+    }],
+    ['certifications', {
       name: { en: 'AWS SA' }, organiser: { en: 'AWS' }, description: {},
-      issued: { year: 2024, month: 1 }, expires: { year: 2027, month: 1 },
-      credential_url: 'https://verify/x',
-    }
-    const paged = fullFor('certifications', item, 'docx')
-    const html = fullFor('certifications', item, 'html')
-    expect(paged.extraLines).toEqual(['https://verify/x'])
-    expect(html.extraLines ?? []).toEqual([])
-    // The HTML preview shows the issue date alone; a page shows the expiry too.
-    expect(paged.date.length).toBeGreaterThan(html.date.length)
-  })
-
-  it('gives a presentation and a publication their URL only on a page', () => {
-    const talk = { title: { en: 'A talk' }, event: { en: 'Testfest' }, description: {}, url: 'https://talk' }
-    expect(fullFor('presentations', talk, 'docx').extraLines).toEqual(['https://talk'])
-    expect(fullFor('presentations', talk, 'html').extraLines ?? []).toEqual([])
-
-    const paper = { title: { en: 'A paper' }, publisher: { en: 'ACM' }, abstract: {}, url: 'https://paper' }
-    expect(fullFor('publications', paper, 'docx').extraLines).toEqual(['https://paper'])
-    expect(fullFor('publications', paper, 'html').extraLines ?? []).toEqual([])
-  })
-
-  it('gives a reference its contact lines only on a page', () => {
-    const item = {
+      issued: { year: 2024, month: 1 }, expires: { year: 2027, month: 1 }, credential_url: 'https://verify/x',
+    }],
+    ['presentations', { title: { en: 'A talk' }, event: { en: 'Testfest' }, description: {}, url: 'https://talk' }],
+    ['publications', { title: { en: 'A paper' }, publisher: { en: 'ACM' }, abstract: {}, url: 'https://paper' }],
+    ['references', {
       name: 'Ada', title: 'CTO', company: 'Acme', include_in_exports: true,
       relationship: { en: 'Former manager' }, email: 'ada@acme.no', phone: '+47 1',
+      linkedin_url: 'https://linkedin/ada',
+    }],
+    ['recommendations', {
+      recommender_name: 'Ada', recommender_title: { en: 'CTO' }, recommender_company: 'Acme',
+      relationship: { en: 'Manager' }, text: { en: '<p>Great</p>' },
+      date: { year: 2023, month: 4 }, contact_url: 'https://rec',
+    }],
+    ['honor_awards', {
+      name: { en: 'Best paper' }, issuer: { en: 'ACM' }, description: { en: 'Won' },
+      for_work: { en: 'The Phoenix migration' }, date: { year: 2022, month: 5 },
+    }],
+    ['courses', { name: { en: 'Kubernetes' }, program: { en: 'CNCF' }, description: { en: 'Learned' }, end: { year: 2024, month: 2 } }],
+    ['positions', { name: { en: 'Board member' }, organisation: { en: 'Cartavio' }, description: { en: 'Served' }, start: { year: 2020, month: 1 }, end: null }],
+    ['key_competencies', { title: { en: 'Architecture' }, description: { en: 'Designs systems' } }],
+    ['technology_categories', { name: { en: 'Cloud' }, skills: [{ name: { en: 'AWS' }, sort_order: 0 }] }],
+    ['spoken_languages', { name: { en: 'Norwegian' }, level: { en: 'Native' } }],
+    ['key_qualifications', { tag_line: { en: 'Architect' }, summary: { en: '<p>Long</p>' }, summary_short: { en: 'Short' }, key_points: [] }],
+  ]
+
+  /** Every group the section declares — the maximal-content configuration. */
+  const allExtras = (key: string): ReadonlySet<string> => new Set(extrasFor(key).map((g) => g.key))
+
+  const ctxFor = (target: 'html' | 'docx', key: string): CatalogCtx => ({
+    locale: 'en', hideDates: false, dateFormat: 'month-year', target,
+    extras: allExtras(key), kq: { tagline: true, short: false, long: true },
+  })
+
+  /** The item view minus the two properties that are legitimately per-target. */
+  const contentOf = (v: ItemView): Omit<ItemView, 'titleStyle' | 'spacingBefore'> => {
+    const { titleStyle: _t, spacingBefore: _s, ...content } = v
+    return content
+  }
+
+  it.each(POPULATED)('carries identical content for %s on both targets', (key, item) => {
+    const html = SECTION_CATALOG[key].full!(item as never, ctxFor('html', key))!
+    const docx = SECTION_CATALOG[key].full!(item as never, ctxFor('docx', key))!
+    expect(contentOf(html)).toEqual(contentOf(docx))
+  })
+
+  it('still lets the targets differ in title sizing and spacing', () => {
+    // Parity is about FACTS, not layout: a paged export gives a project a
+    // larger heading and room above it, and should keep doing so.
+    const project = POPULATED[0][1]
+    const docx = SECTION_CATALOG.projects.full!(project as never, ctxFor('docx', 'projects'))!
+    const html = SECTION_CATALOG.projects.full!(project as never, ctxFor('html', 'projects'))!
+    expect(docx.titleStyle).toBe('large')
+    expect(docx.spacingBefore).toBeGreaterThan(0)
+    expect(html.titleStyle).toBe('body')
+    expect(html.spacingBefore).toBe(0)
+  })
+
+  it('leaves every declared group with something to switch on', () => {
+    // A group that changes no output is a checkbox that lies.
+    for (const [key, item] of POPULATED) {
+      const off = SECTION_CATALOG[key].full!(item as never, {
+        locale: 'en', hideDates: false, dateFormat: 'month-year', target: 'docx',
+        kq: { tagline: true, short: false, long: true },
+      })!
+      for (const g of extrasFor(key)) {
+        const on = SECTION_CATALOG[key].full!(item as never, {
+          locale: 'en', hideDates: false, dateFormat: 'month-year', target: 'docx',
+          extras: new Set([g.key]), kq: { tagline: true, short: false, long: true },
+        })!
+        expect(on, `${key}/${g.key}`).not.toEqual(off)
+      }
     }
-    expect(fullFor('references', item, 'docx').extraLines)
+  })
+})
+
+describe('SECTION_CATALOG — optional content groups', () => {
+  const ctx = (extras?: string[]): CatalogCtx => ({
+    locale: 'en', hideDates: false, dateFormat: 'month-year', target: 'docx',
+    extras: extras ? new Set(extras) : undefined,
+  })
+
+  const project = {
+    customer: { en: 'Acme' }, description: { en: 'Short' }, long_description: { en: '<p>Long</p>' },
+    highlights: [{ en: 'Shipped it' }], skills: [], roles: [], industries: [],
+    team_size: 5, percent_allocated: 80, external_url: 'https://case', location_country_code: 'NO',
+    start: { year: 2020, month: 1 }, end: null,
+  }
+  const full = (key: string, item: Record<string, unknown>, extras?: string[]) =>
+    SECTION_CATALOG[key].full!(item as never, ctx(extras))!
+
+  it('ships nothing optional when the view enables nothing', () => {
+    // The default for every section, and why enabling is the safe direction: a
+    // view saved by an older build renders the core facts and no surprises.
+    const v = full('projects', project)
+    expect(v.meta).toEqual([])
+    expect(v.points).toEqual([])
+    expect(v.extraLines).toEqual([])
+    expect(v.plainBody).toBe('')
+  })
+
+  it('adds team size and allocation only with the metrics group', () => {
+    expect(full('projects', project, ['metrics']).meta).toEqual(['Team of 5', '80% allocation'])
+  })
+
+  it('adds highlights only with the highlights group', () => {
+    expect(full('projects', project, ['highlights']).points).toEqual([{ label: '', body: 'Shipped it' }])
+  })
+
+  it('names the country rather than printing its code', () => {
+    // Intl already knows the fifteen offered locales, so no country table here.
+    expect(full('projects', project, ['location']).meta).toEqual(['Norway'])
+  })
+
+  it('keeps a short-only description visible whether or not the lead-in is on', () => {
+    // Otherwise the lead-in group would decide whether a project written only
+    // in short form renders at all.
+    const shortOnly = { ...project, long_description: {} }
+    expect(full('projects', shortOnly).body).toBe('Short')
+    expect(full('projects', shortOnly, ['lead']).plainBody).toBe('Short')
+  })
+
+  it('holds referee contact details back until the view asks for them', () => {
+    const ref = {
+      name: 'Ada', title: 'CTO', company: 'Acme', include_in_exports: true,
+      relationship: { en: 'Former manager' }, email: 'ada@acme.no', phone: '+47 1',
+      linkedin_url: 'https://linkedin/ada',
+    }
+    expect(full('references', ref).extraLines).toEqual([])
+    expect(full('references', ref, ['contact']).extraLines)
       .toEqual(['Former manager', 'ada@acme.no', '+47 1'])
-    expect(fullFor('references', item, 'html').extraLines ?? []).toEqual([])
+    expect(full('references', ref, ['links']).extraLines).toEqual(['https://linkedin/ada'])
   })
 
-  it('joins employer and role into one heading on a page, and keeps them apart in HTML', () => {
-    const item = {
-      employer: { en: 'Acme' }, role_title: { en: 'Architect' }, long_description: { en: 'Did work' },
-      employment_type: 'permanent', start: { year: 2020, month: 1 }, end: null,
+  it('joins the headcounts into one line rather than three', () => {
+    const w = {
+      employer: { en: 'Acme' }, role_title: { en: 'Architect' }, long_description: {},
+      company_size_local: '~50', company_size_global: '40,000', start: null, end: null,
     }
-    const paged = fullFor('work_experiences', item, 'docx')
-    const html = fullFor('work_experiences', item, 'html')
-    expect(paged.title).toBe('Acme — Architect')
-    expect(paged.titleStyle).toBe('large')
-    expect(paged.meta).toEqual(['permanent'])
-    expect(html.title).toBe('Acme')
-    expect(html.meta).toEqual(['Architect'])
+    expect(full('work_experiences', w, ['company_size']).extraLines)
+      .toEqual(['Company size: ~50 (local) · 40,000 (global)'])
   })
 
-  it('renders the same object for a course, a position and an award whatever the target', () => {
-    // These three carry no page-only extras; the descriptors say so once rather
-    // than branching to the same answer twice.
-    const cases: Array<[string, Record<string, unknown>]> = [
-      ['courses', { name: { en: 'Kubernetes' }, program: { en: 'CNCF' }, description: { en: 'Learned' }, end: { year: 2024, month: 2 } }],
-      ['positions', { name: { en: 'Board member' }, organisation: { en: 'Cartavio' }, description: { en: 'Served' }, start: { year: 2020, month: 1 }, end: null }],
-      ['honor_awards', { name: { en: 'Best paper' }, issuer: { en: 'ACM' }, description: { en: 'Won' }, date: { year: 2022, month: 5 } }],
-    ]
-    for (const [key, item] of cases) {
-      expect(fullFor(key, item, 'html'), key).toEqual(fullFor(key, item, 'docx'))
+  it('localizes the certification expiry instead of printing English into every language', () => {
+    const cert = {
+      name: { en: 'AWS SA' }, organiser: { en: 'AWS' }, description: {},
+      issued: { year: 2024, month: 1 }, expires: { year: 2027, month: 1 },
     }
+    const no: CatalogCtx = {
+      locale: 'no', hideDates: false, dateFormat: 'month-year', target: 'docx',
+      extras: new Set(['expiry']),
+    }
+    expect(SECTION_CATALOG.certifications.full!(cert as never, no)!.date).toContain('utløper')
   })
 })
 
@@ -1210,12 +1361,16 @@ describe('SECTION_CATALOG — the descriptors that decline to render', () => {
 
   it('shows a certification expiry only when dates are shown AND one exists', () => {
     const withExpiry = { name: { en: 'AWS SA' }, issued: { year: 2020, month: 1 }, expires: { year: 2023, month: 1 } }
-    expect(full('certifications', withExpiry)!.date).toMatch(/2023/)
+    const wantExpiry = { ...ctx, extras: new Set(['expiry']) }
+    expect(SECTION_CATALOG.certifications.full!(withExpiry as never, wantExpiry)!.date).toMatch(/2023/)
+    // Off by default, like every optional group.
+    expect(full('certifications', withExpiry)!.date).not.toMatch(/2023/)
 
-    const hidden = SECTION_CATALOG.certifications.full!(withExpiry as never, { ...ctx, hideDates: true })!
+    const hidden = SECTION_CATALOG.certifications.full!(withExpiry as never, { ...wantExpiry, hideDates: true })!
     expect(hidden.date).toBe('')
 
-    const noExpiry = full('certifications', { name: { en: 'AWS SA' }, issued: { year: 2020, month: 1 }, expires: null })!
+    const noExpiry = SECTION_CATALOG.certifications.full!(
+      { name: { en: 'AWS SA' }, issued: { year: 2020, month: 1 }, expires: null } as never, wantExpiry)!
     expect(noExpiry.date).not.toMatch(/–/)
   })
 })
@@ -1270,12 +1425,15 @@ describe('SECTION_CATALOG — the name lists a project draws on', () => {
 
   it('does not repeat the DESCRIPTION line when it is already the title', () => {
     // With no customer the description becomes the title; printing it again as
-    // the lead-in line would show the same sentence twice.
-    const same = full({ customer: {}, description: { en: 'Payments platform' } })
+    // the lead-in line would show the same sentence twice. Only meaningful with
+    // the lead-in group on — that is what promotes the short description.
+    const lead = (over: Record<string, unknown>) =>
+      SECTION_CATALOG.projects.full!(over as never, { ...ctx, extras: new Set(['lead']) })!
+    const same = lead({ customer: {}, description: { en: 'Payments platform' } })
     expect(same.title).toBe('Payments platform')
     expect(same.plainBody).toBe('')
 
-    const different = full({ customer: { en: 'Acme' }, description: { en: 'Payments platform' } })
+    const different = lead({ customer: { en: 'Acme' }, description: { en: 'Payments platform' } })
     expect(different.title).toBe('Acme')
     expect(different.plainBody).toBe('Payments platform')
   })

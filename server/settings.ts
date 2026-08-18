@@ -21,6 +21,7 @@ import path from 'path'
 import { resolvePaths } from './config.js'
 import { ltLoadOnly, TRANSLATE_PROVIDERS, type TranslateConfig, type TranslateProvider } from './translate.js'
 import { DEFAULT_OLLAMA_URL, LLM_PROVIDERS, type LlmConfig, type LlmProvider } from './llm.js'
+import { isValidLocalHostname } from './localHost.js'
 
 export const SETTINGS_FILENAME = 'settings.json'
 
@@ -53,6 +54,19 @@ export interface AppSettings {
    * for the Docker-managed instance; a remote/cloud provider ignores it.
    */
   translate_languages: string[]
+  // ── Local address (desktop) ──
+  /**
+   * The name this machine reaches the app at instead of `127.0.0.1`
+   * (`resumestudio.localhost` / `resumestudio.local`). Empty = the IP.
+   * Also widens the desktop Host guard — see server/app.ts.
+   */
+  local_hostname: string
+  /**
+   * Preferred TCP port. 0 = the automatic ladder (80, then 1923, then up),
+   * which is what makes the name usable without a port suffix on a machine
+   * where 80 happens to be free — and keeps working on one running IIS.
+   */
+  local_port: number
   /** Cloud-synced folder for the whole-store JSON backup (empty = sync off). */
   backup_dir: string
   /** How often (ms) to refresh the backup while running. */
@@ -103,6 +117,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   // Matches what docker-compose.yml shipped with, so an existing install's
   // container isn't recreated just because the setting appeared.
   translate_languages: ['en', 'no', 'se', 'dk'],
+  local_hostname: '',
+  local_port: 0,
   backup_dir: '',
   backup_interval_ms: 60_000,
   llm_provider: 'off',
@@ -149,13 +165,14 @@ export function settingsFilePath(): string {
  *   secret — string, never echoed back (toView emits `<key>_set: boolean`)
  *   text   — trimmed string
  *   bool   — boolean
- *   num    — finite number, floored at `min`
+ *   num    — finite number, floored at `min` (and capped at `max`)
  *   locales— array of locale-shaped codes (reaches docker as LT_LOAD_ONLY)
+ *   host   — empty, or a valid .local/.localhost name (see localHost.ts)
  *
  * `env` is the variable applyToEnv projects onto. `alwaysSet` writes even when
  * empty (a provider must always be present); the rest clear the var instead.
  */
-type FieldKind = 'enum' | 'url' | 'secret' | 'text' | 'bool' | 'num' | 'locales'
+type FieldKind = 'enum' | 'url' | 'secret' | 'text' | 'bool' | 'num' | 'locales' | 'host'
 
 interface FieldSpec {
   key: keyof AppSettings
@@ -166,6 +183,8 @@ interface FieldSpec {
   values?: readonly string[]
   /** Lower bound for `kind: 'num'`. */
   min?: number
+  /** Upper bound for `kind: 'num'`. */
+  max?: number
   /** Write the env var even when the value is empty. */
   alwaysSet?: boolean
   /**
@@ -190,6 +209,11 @@ const FIELDS: readonly FieldSpec[] = [
   { key: 'azure_api_key',          kind: 'secret', env: 'AZURE_TRANSLATOR_KEY' },
   { key: 'azure_region',           kind: 'text',   env: 'AZURE_TRANSLATOR_REGION' },
   { key: 'translate_languages',    kind: 'locales' },
+  // ── Local address ──
+  // RESUME_LOCAL_HOSTNAME is read by the desktop Host guard (app.ts) as well as
+  // the launcher, so it has to reach env, not just the launcher's own scope.
+  { key: 'local_hostname',         kind: 'host',   env: 'RESUME_LOCAL_HOSTNAME' },
+  { key: 'local_port',             kind: 'num',    env: 'RESUME_LOCAL_PORT', min: 0, max: 65535 },
   // ── Backup / sync ──
   { key: 'backup_dir',             kind: 'text',   env: 'RESUME_BACKUP_DIR' },
   { key: 'backup_interval_ms',     kind: 'num',    env: 'RESUME_BACKUP_INTERVAL_MS', min: 5_000, alwaysSet: true },
@@ -240,8 +264,19 @@ export function validateSettingsPatch(
         if (typeof v !== 'number' || !Number.isFinite(v) || (f.min !== undefined && v < f.min)) {
           return { error: `${f.key} must be a number >= ${f.min ?? 0}` }
         }
+        if (f.max !== undefined && v > f.max) return { error: `${f.key} must be <= ${f.max}` }
         patch[f.key] = v
         break
+      case 'host': {
+        if (typeof v !== 'string') return { error: `${f.key} must be a string` }
+        const trimmed = v.trim().toLowerCase()
+        // Empty is a real value: "go back to using the IP".
+        if (trimmed && !isValidLocalHostname(trimmed)) {
+          return { error: `${f.key} must be a .local or .localhost name` }
+        }
+        patch[f.key] = trimmed
+        break
+      }
       case 'url': {
         if (typeof v !== 'string') return { error: `${f.key} must be a string` }
         const trimmed = v.trim()
@@ -302,7 +337,14 @@ function coerceField(f: FieldSpec, raw: unknown): AppSettings[keyof AppSettings]
       return raw === true
     case 'num': {
       const n = typeof raw === 'number' && Number.isFinite(raw) ? raw : (dflt as number)
-      return f.min !== undefined ? Math.max(f.min, n) : n
+      const floored = f.min !== undefined ? Math.max(f.min, n) : n
+      return f.max !== undefined ? Math.min(f.max, floored) : floored
+    }
+    // An invalid stored name falls back to empty (the IP) rather than being
+    // written onto the Host guard's allow-list unchecked.
+    case 'host': {
+      const h = typeof raw === 'string' ? raw.trim().toLowerCase() : ''
+      return isValidLocalHostname(h) ? h : ''
     }
     case 'locales':
       return coerceLocales(raw)
@@ -521,6 +563,8 @@ export interface SettingsView {
   azure_api_key_set: boolean
   azure_region: string
   translate_languages: string[]
+  local_hostname: string
+  local_port: number
   backup_dir: string
   backup_interval_ms: number
   llm_provider: LlmProvider

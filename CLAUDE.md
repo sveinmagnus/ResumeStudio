@@ -131,7 +131,7 @@ Wishlist: §12.
 | Tests | Vitest (+ jsdom for browser-tied tests) | `npm test`, `npm run test:watch`, `npm run test:coverage` |
 | Icons | lucide-react | **Tree-shaken**: import each icon by name, never `import * as` |
 | DOCX export | `docx` npm package | **Lazy-loaded** (~352 kB chunk) — only fetched when the user clicks Export DOCX |
-| PDF export | `pdfmake` (vector) | **Lazy-loaded** (~1.2 MB lib + ~0.9 MB font vfs) — one-click `.pdf` download built from the section catalog in `lib/pdfExporter.ts`, mirroring the DOCX exporter. Its own render engine, so ~matches (not pixel-identical to) the HTML preview |
+| PDF export | `pdfmake` (vector) | **Lazy-loaded** (~1.2 MB lib + ~0.9 MB font vfs) — one-click `.pdf` download built from the section catalog in `lib/pdfExporter.ts`, mirroring the DOCX exporter. Its own render engine, so it applies every view style control (§7) but is not pixel-identical to the HTML preview |
 | Drag-and-drop | `@dnd-kit/core` + `@dnd-kit/sortable` | Pointer + keyboard sensors |
 | Styling | Inline `<style>` blocks per component + CSS custom properties in `src/index.css` | No Tailwind, no CSS-in-JS lib — keep it that way |
 
@@ -262,10 +262,14 @@ src/
 │   │   viewSectionPlan (planViewSections + sectionItems + renderKeyFor — the
 │   │     section PLAN all four render adapters share; owns isExportableSection/
 │   │     defaultViewDetail/promotedProjectItems, re-exported by viewFilter),
+│   │   itemLayout (summary slot order + full-item date placement — the LAYOUT all
+│   │     four adapters share, as viewSectionPlan is the plan they share),
+│   │   sectionIcon (the heading glyph as a standalone SVG, for PDF + DOCX),
 │   │   exporter (LAZY-LOADED docx; SECURITY: TextRun escapes), viewText (ATS text/MD),
 │   │   exporterEuropass (SkillsPassport XML; DOM+XMLSerializer, NOT string XML; round-trips importerEuropass),
 │   │   coverLetter (letter prompt + resolveLetterParts + text export; PDF/DOCX letter builders ride the lazy exporter/pdfmake chunks),
-│   │   viewStyle + viewHeader (render-boundary sanitisers), richText (allowlist;
+│   │   viewStyle (tokens + dividerSpec/tagChipHex — one description per visual
+│   │     effect) + viewHeader (render-boundary sanitisers), richText (allowlist;
 │   │   SECURITY-CRITICAL), image (canvas downscale; rejects SVG), sectionSort,
 │   │   viewTemplates, viewTailor (BYO-LLM), skillMatrix, showcase (showcaseGroups)
 │   │ — skills/taxonomy: skillTaxonomy (Quadim lazy JSON), skillNormalize (imports only),
@@ -531,9 +535,58 @@ Navigation: `setActiveSection(key)` / `setExpandedItem(id)`. Undo/redo: `useUndo
 4. Add the icon import to `Sidebar.tsx`'s `ICON_MAP`.
 5. Create the editor component and wire it into `App.tsx`'s `EditorRoute` switch (the key is auto a valid URL segment; EditorRoute validates against SECTIONS).
 6. If sortable by `sort_order`, wrap `<EditorCard>`s in `<SortableList section="…" ids={…}>`. Else pass `sortable={false}` to each card.
-7. If it should appear in Resume View exports: add **one descriptor** to `lib/sectionCatalog.ts` (title/subtitle + `summary()`/`full()` data views). Every render path (HTML/PDF, DOCX, text/Markdown) consumes the catalog through its generic adapter. Descriptors return **data only** — adapters own escaping; never build markup in a descriptor. Per-path differences go behind `ctx.target`. Views pick it up via `isExportableSection` + `normalizeViewSections`; give it a `defaultViewDetail` if not `full`. A **synthetic** section (derives its items instead of owning a store array, like `promoted_projects`) is declared once in `lib/viewSectionPlan.ts` — add its `RENDER_KEY` entry and a `sectionItems` branch there, never a `key === '…'` check in a renderer. See the **export-pipeline** and **security** skills.
+7. If it should appear in Resume View exports: add **one descriptor** to `lib/sectionCatalog.ts` (title/subtitle + `summary()`/`full()` data views). Every render path (HTML/PDF, DOCX, text/Markdown) consumes the catalog through its generic adapter. Descriptors return **data only** — adapters own escaping; never build markup in a descriptor. **`ctx.target` selects LAYOUT ONLY** (title sizing, spacing, title composition) — never which FACTS an item carries. Optional facts are per-VIEW, declared as a group in `lib/sectionExtras.ts` and read via `ctx.extras`; see the note below on why. Views pick it up via `isExportableSection` + `normalizeViewSections`; give it a `defaultViewDetail` if not `full`. A **synthetic** section (derives its items instead of owning a store array, like `promoted_projects`) is declared once in `lib/viewSectionPlan.ts` — add its `RENDER_KEY` entry and a `sectionItems` branch there, never a `key === '…'` check in a renderer. See the **export-pipeline** and **security** skills.
 8. If you add a configurable **style/header field** to a view, it is untrusted-import surface — sanitise at the render boundary (`viewStyle.ts → deriveTokens` / `viewHeader.ts → withHeaderDefaults`) and add a breakout regression test. See the security skill.
 9. If sortable by something other than `sort_order`, wire it into `lib/sectionSort.ts`.
+
+**Every export states the same facts (July 2026).** The catalog used to carry a
+different set of fields per target: the DOCX shape printed a project's team
+size, allocation and highlights, and the HTML preview dropped them — so the
+preview could not show a consultant what their PDF contained — while the ATS
+text export, which asked for the same shape as the preview, shipped less than
+either. Eight more fields (employment headcounts, project case-study URL and
+country, award "awarded for", recommendation link, reference LinkedIn, study
+abroad) were editable but reached no export at all.
+
+The fix is one rule: **content is identical in the preview, the PDF, the Word
+file and the ATS text; anything optional is chosen per view, not per target.**
+`lib/sectionExtras.ts` declares the switchable groups per section (`links`,
+`metrics`, `contact`, …); `SectionStyle.extras` stores which are on, normalised
+against the declared keys at the render boundary (untrusted-import surface, as
+in step 8). **Every group defaults OFF**, including the ones that used to ship
+unconditionally in DOCX/PDF — a view that wants them says so. Two suites hold
+the line: `tests/sectionCatalog.test.ts` pins the descriptor data as equal
+across targets, and `tests/exportParity.test.ts` renders one view through all
+five outputs and asserts each fact reaches every one of them. A group that
+changes no output fails the "checkbox that lies" test.
+
+**Every export also LOOKS the way the view asked (August 2026).** The same
+defect, one layer up: seven of the view editor's style controls moved the
+preview and nothing else — Skill tags (chips vs inline), Item dividers (eight
+choices), Summary layout (six slot orders), Full-item layout (four), Summaries
+(free-flowing vs aligned columns), Section icons, and, in Word alone, density's
+line height. Two of the four full-item layouts rendered identically in the PDF
+and the Word file, because both hung the date off the end of the title line
+instead of placing it in the details line the control reorders.
+
+The rule extends: **a style control reaches every target that can express it,
+and the description of the effect lives in ONE module, not in each adapter.**
+`lib/itemLayout.ts` owns slot ordering (summary + full item) for all four
+renderers; `viewStyle.dividerSpec` describes the between-items rule in terms
+CSS, pdfmake and Word can each draw; `viewStyle.tagChipHex` is the one chip
+fill; `lib/sectionIcon.ts` builds the one heading glyph. Format differences are
+fine and expected — a short rule is a background gradient in CSS, a
+fixed-`widths` table in pdfmake and a one-cell table in Word — but they are
+three renderings of one spec, never three opinions.
+
+`tests/exportVisualParity.test.ts` holds the line: flip each control and assert
+the EXACT set of targets whose output moved, so a purely visual choice leaking
+into the ATS text fails as loudly as a missing one. Known format limits, both
+deliberate: Word draws the section icon from Office 2016 on (its required
+raster fallback is blank, because an older Word cannot draw a vector glyph and
+a missing icon beats a wrong bitmap), and the ATS text has no chips, so it
+keeps the "Skills:" label the chip drops — pick "Inline list" if a Word file
+headed for an ATS needs that label too.
 
 ---
 
@@ -805,6 +858,23 @@ Full end-user + build docs in **`DESKTOP.md`**. Load-bearing invariants for work
 
 - **Two server entries, one app.** `server/index.ts` (VPS/dev, `tsx`) and `server/desktop/launcher.ts` (desktop) both call `createApp()`. Don't fork app logic per entry — differences are env/wiring only.
 - **The launcher is bundled to CJS** (esbuild; only `systray2` is external — there is no native addon left to keep out). So **launcher code must not use `import.meta`/`__dirname`** — it uses env + `process.cwd()`. `app.ts`/`db.ts` guard `import.meta.url` (`import.meta.url ? … : process.cwd()`) because esbuild emits `""` for it; don't "simplify" that back or the bundle crashes at boot.
+- **The local address is a NAME, and the guard knows two kinds** (`server/localHost.ts`).
+  `resumestudio.localhost` needs no setup — RFC 6761 reserves the whole
+  `.localhost` TLD for loopback, browsers resolve it internally, and it is not
+  delegated in the DNS root, so `app.ts`'s rebinding guard accepts **any**
+  `.localhost` name unconditionally. `resumestudio.local` needs a hosts-file
+  line, so it is accepted only when the user configured it
+  (`RESUME_LOCAL_HOSTNAME`). Names are constrained to those two suffixes: an
+  arbitrary one written into a hosts file could shadow a real site on the user's
+  machine. The hosts rewrite is a PURE text transform over a delimited managed
+  block (nothing outside it is ever touched) plus a per-platform elevated COPY
+  of a staged temp file — no user-supplied text ever reaches a command line, and
+  success is confirmed by re-reading the file, never by a helper's exit code
+  (a cancelled prompt exits 0). Port preference is **80, then 1923**, because
+  a developer machine running IIS is the normal case; an explicitly pinned port
+  is the only candidate tried. The launcher only opens a configured name after
+  `resolvesToLoopback()` confirms it reaches this machine — otherwise a removed
+  hosts entry would present as "the app won't start".
 - **Paths come from `server/config.ts`** (pure). The launcher sets `RESUME_DB_PATH` + `RESUME_CLIENT_DIR` before `createApp()`/first DB use. **Data dir** is per-user OS-standard (`%APPDATA%\ResumeStudio`, `~/Library/Application Support/ResumeStudio`, `~/.local/share/resume-studio`), overridable via `RESUME_DATA_DIR` — matches Electron's `app.getPath('userData')`.
 - **Sync model = ONE FILE PER RESUME, NOT the live DB in the cloud folder.** `RESUME_BACKUP_DIR` holds `<slug>__<resume-id>.json` per resume (`resumestudio-resume/v1`), plus `resume-studio-registry.json` (`resumestudio-registry/v1`) and `resume-studio-deleted-resumes.json` (`resumestudio-tombstones/v1`), each written atomically — see `server/backupFiles.ts`. **One file per person because erasure has to be actionable per person:** a resume is one identified individual's data, and with a monolith "remove this person from the backups" meant rewriting a file containing everybody else. Merge is **newest-wins per resume by `saved_at`, union** (`db.restoreResumes`, `merge` mode). Live SQLite in a sync folder is intentionally avoided (corruption); `RESUME_DB_JOURNAL=TRUNCATE` is the documented escape hatch.
 - **Identity is the id INSIDE the file; the filename is a hint.** `scanBackupDir` keys on `resume.id`, so two machines converge on one resume even mid-rename, and `writeResumeFiles` deletes the stale-named file afterwards. The slug is ASCII-folded (Nordic letters transliterated, combining marks stripped) so Windows/macOS/Linux derive byte-identical names from the same resume. A write pass **never deletes a file for an id it doesn't hold** — another machine may have just published a resume this one hasn't merged, and treating "not in my DB" as "delete" would make two machines erase each other's new work every round.

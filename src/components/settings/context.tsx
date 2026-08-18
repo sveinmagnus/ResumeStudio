@@ -77,6 +77,14 @@ export interface SettingsForm {
   modelsBusy: boolean
   refreshModels: () => Promise<void>
 
+  // ── Local address ──
+  /** `.local`/`.localhost` name for this machine; empty = use the IP. */
+  localHostname: string
+  setLocalHostname: (v: string) => void
+  /** Pinned port, or 0 for the automatic 80-then-1923 ladder. */
+  localPort: number
+  setLocalPort: (v: number) => void
+
   // ── Sync ──
   backupDir: string
   setBackupDir: (v: string) => void

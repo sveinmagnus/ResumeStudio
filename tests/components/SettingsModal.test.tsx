@@ -22,6 +22,8 @@ const managedStatus = (over: Partial<SettingsStatus['settings']> = {}): Settings
     google_api_key_set: false,
     azure_api_key_set: false,
     azure_region: '',
+    local_hostname: '',
+    local_port: 0,
     backup_dir: '',
     backup_interval_ms: 60000,
     llm_provider: 'off',
@@ -299,5 +301,85 @@ describe('<SettingsModal>', () => {
     await userEvent.click(screen.getByRole('button', { name: /Use this folder/i }))
 
     expect((screen.getByLabelText(/Backup folder/i) as HTMLInputElement).value).toBe('/home/you')
+  })
+
+  // ── Local address ─────────────────────────────────────────────────────────
+
+  it('offers a .localhost name and saves it without asking for any setup', async () => {
+    vi.spyOn(api, 'getSettings').mockResolvedValue(managedStatus())
+    const statusSpy = vi.spyOn(api, 'hostnameStatus').mockResolvedValue({
+      hostname: 'resumestudio.localhost', file: '/etc/hosts', automatic: true,
+      installed: true, managed: false, writable: false, manualCommand: '', note: null,
+    })
+    const saveSpy = vi.spyOn(api, 'saveSettings').mockResolvedValue(
+      managedStatus({ local_hostname: 'resumestudio.localhost' }))
+    render(<SettingsModal onClose={() => {}} onChanged={() => {}} onUnauthorized={() => {}} />)
+
+    await openTab(/local address/i)
+    await userEvent.click(await screen.findByRole('radio', { name: /resumestudio\.localhost/i }))
+    await waitFor(() => expect(statusSpy).toHaveBeenCalledWith('resumestudio.localhost'))
+    // An automatic name offers no Set-up button, because there is nothing to do.
+    expect(screen.queryByRole('button', { name: /Set up/i })).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: /^Save$/i }))
+    await waitFor(() => expect(saveSpy).toHaveBeenCalled())
+    expect(saveSpy.mock.calls[0][0]).toMatchObject({ local_hostname: 'resumestudio.localhost' })
+  })
+
+  /**
+   * The `.local` route edits a system file, so the panel has to say what it
+   * will do, offer the manual command as an alternative, and report the outcome
+   * of the elevation prompt honestly — including a refusal.
+   */
+  it('offers to install a .local name, and reports a declined elevation prompt', async () => {
+    vi.spyOn(api, 'getSettings').mockResolvedValue(managedStatus({ local_hostname: 'resumestudio.local' }))
+    const notInstalled = {
+      hostname: 'resumestudio.local', file: '/etc/hosts', automatic: false,
+      installed: false, managed: false, writable: false,
+      manualCommand: 'echo "127.0.0.1\tresumestudio.local" | sudo tee -a /etc/hosts', note: null,
+    }
+    vi.spyOn(api, 'hostnameStatus').mockResolvedValue(notInstalled)
+    const setupSpy = vi.spyOn(api, 'hostnameSetup').mockResolvedValue({
+      ok: false, message: 'The administrator prompt was refused or failed.', status: notInstalled,
+    })
+    render(<SettingsModal onClose={() => {}} onChanged={() => {}} onUnauthorized={() => {}} />)
+
+    await openTab(/local address/i)
+    expect(await screen.findByText('/etc/hosts')).toBeInTheDocument()
+    // The do-it-yourself command is offered up front, not only after a failure.
+    expect(screen.getByText(/sudo tee -a/)).toBeInTheDocument()
+
+    await userEvent.click(await screen.findByRole('button', { name: /Set up resumestudio\.local/i }))
+    await waitFor(() => expect(setupSpy).toHaveBeenCalledWith('install', 'resumestudio.local'))
+    expect(await screen.findByText(/administrator prompt was refused/i)).toBeInTheDocument()
+  })
+
+  it('offers to remove only an entry this app added', async () => {
+    vi.spyOn(api, 'getSettings').mockResolvedValue(managedStatus({ local_hostname: 'resumestudio.local' }))
+    // Installed, but by hand — ours to report, not ours to delete.
+    vi.spyOn(api, 'hostnameStatus').mockResolvedValue({
+      hostname: 'resumestudio.local', file: '/etc/hosts', automatic: false,
+      installed: true, managed: false, writable: false, manualCommand: 'x', note: null,
+    })
+    render(<SettingsModal onClose={() => {}} onChanged={() => {}} onUnauthorized={() => {}} />)
+
+    await openTab(/local address/i)
+    expect(await screen.findByText(/is in\s+your hosts file/i)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Remove the entry/i })).not.toBeInTheDocument()
+  })
+
+  it('pins a port when automatic selection is turned off', async () => {
+    vi.spyOn(api, 'getSettings').mockResolvedValue(managedStatus())
+    const saveSpy = vi.spyOn(api, 'saveSettings').mockResolvedValue(managedStatus({ local_port: 1923 }))
+    render(<SettingsModal onClose={() => {}} onChanged={() => {}} onUnauthorized={() => {}} />)
+
+    await openTab(/local address/i)
+    await userEvent.click(await screen.findByRole('checkbox', { name: /Choose automatically/i }))
+    const port = await screen.findByLabelText(/Fixed port/i)
+    expect((port as HTMLInputElement).value).toBe('1923')
+
+    await userEvent.click(screen.getByRole('button', { name: /^Save$/i }))
+    await waitFor(() => expect(saveSpy).toHaveBeenCalled())
+    expect(saveSpy.mock.calls[0][0]).toMatchObject({ local_port: 1923 })
   })
 })

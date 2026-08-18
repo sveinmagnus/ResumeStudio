@@ -84,13 +84,18 @@ describe('buildViewText', () => {
     })
   })
 
-  it('renders summary sections as one-line dashes', () => {
+  it('renders summary sections as one line, in the view’s slot order', () => {
     const sections = buildViewSections().map((s) =>
       s.key === 'projects' ? { ...s, detail: 'summary' as const } : s,
     )
+    // The default layout leads with the date, so the text export does too —
+    // the preview always did, and the two used to disagree about it.
     const txt = buildViewText(sampleStore(), makeView({ sections }), 'en')
-    // Title = the role; the client (AcmeCo) trails in the Org meta.
-    expect(txt).toMatch(/- Lead Developer — .*AcmeCo.*Mar 2022/)
+    expect(txt).toMatch(/- Mar 2022.*Lead Developer.*AcmeCo/)
+
+    const titleFirst = makeView({ sections, style: { ...DEFAULT_VIEW_STYLE, summary_layout: 'title-org-date' } })
+    expect(buildViewText(sampleStore(), titleFirst, 'en'))
+      .toMatch(/- Lead Developer — .*AcmeCo.*Mar 2022/)
   })
 
   it('respects exclusions and off sections', () => {
@@ -225,12 +230,14 @@ describe('buildViewMarkdown', () => {
     expect(md).toContain('> Excellent work')
   })
 
-  it('bolds summary titles', () => {
+  it('bolds the summary title wherever the layout puts it', () => {
     const sections = buildViewSections().map((s) =>
       s.key === 'projects' ? { ...s, detail: 'summary' as const } : s,
     )
     const md = buildViewMarkdown(sampleStore(), makeView({ sections }), 'en')
-    expect(md).toContain('- **Lead Developer**')
+    expect(md).toContain('**Lead Developer**')
+    // Bold marks the title slot, not the first thing on the line.
+    expect(md).not.toContain('- **Mar 2022')
   })
 
   it('renders key qualification points as labelled bullets', () => {
