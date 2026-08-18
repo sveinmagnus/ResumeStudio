@@ -24,6 +24,7 @@ import {
   type GlobalFonts, type PdfBaseFont,
 } from './fonts'
 import { PARA_GAP_LINES, paraGapEm } from './richText'
+import { normalizeExtras, NO_EXTRAS } from './sectionExtras'
 
 // ─── Defaults ───────────────────────────────────────────────────────────────
 
@@ -280,6 +281,9 @@ export interface ResolvedSectionStyle extends ViewStyle {
    *  tolerance but are never resolved — label is gone (the tag line is the
    *  profile's identity now) and short/long are owned by the section MODE. */
   kq_show_tagline?: boolean
+  /** Optional content groups enabled for this section, already normalised
+   *  against the keys the section declares. Empty = core facts only. */
+  extras: ReadonlySet<string>
 }
 
 /** The default full-item layout when nothing is set (title first, org then date). */
@@ -369,6 +373,7 @@ function resolveLocalized(ls: LocalizedString | undefined, locale: string): stri
 export function resolveSectionStyle(
   view: ViewStyle,
   section: SectionStyle | undefined,
+  sectionKey?: string,
 ): ResolvedSectionStyle {
   const merged: ViewStyle = {
     density: section?.density ?? view.density,
@@ -399,5 +404,8 @@ export function resolveSectionStyle(
     short_desc_line: section?.short_desc_line ?? 'below',
     show_icon: section?.show_icon ?? view.section_icons ?? false,
     kq_show_tagline: section?.kq_show_tagline,
+    // Without a section key there is nothing to validate the stored keys
+    // against, so the safe reading is "nothing enabled" — matching the default.
+    extras: sectionKey ? normalizeExtras(section?.extras, sectionKey) : NO_EXTRAS,
   }
 }

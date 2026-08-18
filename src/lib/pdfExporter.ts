@@ -219,7 +219,8 @@ function renderSection(key: string, label: string, items: unknown[], ctx: Export
   if (!desc || (!desc.full && !desc.summary)) return []
   const cctx: CatalogCtx = {
     locale: ctx.locale, hideDates: !!ctx.resolved.hide_dates, dateFormat: ctx.resolved.date_format,
-    target: 'docx', kq: kqVisibility(ctx.resolved, ctx.detail === 'summary' ? 'summary' : 'full'),
+    target: 'docx', extras: ctx.resolved.extras,
+    kq: kqVisibility(ctx.resolved, ctx.detail === 'summary' ? 'summary' : 'full'),
   }
   // Items arrive already ordered by the caller (the view's per-section sort).
   const list = items as CatalogItem[]
@@ -432,7 +433,7 @@ export async function buildPdfDocDefinition(
     // Item source + the view's per-section sort — see lib/viewSectionPlan.
     const items = sectionItems(store, view, filtered, def, locale)
     if (!items.length) continue
-    const resolved = resolveSectionStyle(viewStyle, def.sectionStyle)
+    const resolved = resolveSectionStyle(viewStyle, def.sectionStyle, renderKeyFor(def.key))
     const ctx: ExportCtx = { locale, detail: def.detail, resolved, tokens: deriveTokens(resolved) }
     const renderKey = renderKeyFor(def.key)
     content.push(...renderSection(renderKey, sectionHeadingText(resolved, localizedSectionHeading(def.key, locale), locale), items, ctx))

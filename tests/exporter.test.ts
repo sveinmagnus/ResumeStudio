@@ -915,7 +915,9 @@ describe('exportDocx — the shared paragraph builders', () => {
   const bodyStore = (html: string): ResumeStore => {
     const s = emptyStore()
     s.resume = makeResume({ full_name: 'X' })
-    s.projects = [makeProject({ id: 'p1', customer: { en: 'Acme' }, long_description: { en: html } })]
+    // No short description: it stands in for a missing long one, which would
+    // put a paragraph in the "empty body" case and hide what these count.
+    s.projects = [makeProject({ id: 'p1', customer: { en: 'Acme' }, description: {}, long_description: { en: html } })]
     return s
   }
   const xmlOf = async (html: string, style: Record<string, unknown> = {}) => {

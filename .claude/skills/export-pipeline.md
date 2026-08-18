@@ -52,10 +52,28 @@ list) is driven by a **single section-descriptor catalog**
 `full()` data views returning **data only**). The per-path adapters own
 escaping and layout — there are no per-section switch statements left. So
 "support a section in exports" means **adding one descriptor**, not editing
-four renderers. Per-path differences go behind `ctx.target`. See CLAUDE.md §7
-step 7. (Europass is the exception — a fixed external schema, not the catalog.)
+four renderers. `ctx.target` carries per-path **layout** differences — never
+per-path CONTENT (see the parity rule below). See CLAUDE.md §7 step 7.
+(Europass is the exception — a fixed external schema, not the catalog.)
 
-**Rule:** if a section/field renders in one *catalog-driven* path, it renders
+**Content parity is the rule, and it is mechanically enforced.** Every
+catalog-driven path states the SAME FACTS — the preview, the PDF, the Word file
+and the ATS text differ in how they look, never in what they say. This was
+broken in both halves at once: the catalog handed the paged targets fields it
+withheld from the HTML shape (team size, allocation, highlights, grades,
+credential URLs, referee contact details), and the HTML renderer separately
+never drew `plainBody`/`extraLines` at all. A consultant checking the preview
+was therefore reading a document that was not the one they sent.
+
+Optional content is now a **per-view choice**: `lib/sectionExtras.ts` declares
+the groups a section offers, `SectionStyle.extras` records which are on
+(normalised at the render boundary), and every group defaults OFF. Two suites
+hold it — `tests/sectionCatalog.test.ts` (descriptor data equal across targets)
+and `tests/exportParity.test.ts` (one view through all five outputs, every fact
+found in each). Adding an optional field means adding a group, never a
+`ctx.target` branch.
+
+**Corollary:** if a section/field renders in one *catalog-driven* path, it renders
 in the others (or there's a deliberate, commented reason it doesn't — e.g. the
 `skills`/`roles` *registries* are intentionally never exported as their own
 sections). Europass is exempt by design — its schema, not our catalog, decides
@@ -126,7 +144,9 @@ security-review skill for the full rationale (imported content → preview/expor
 1. Add (or extend) the **one descriptor** in `lib/sectionCatalog.ts` —
    title/subtitle + `summary()`/`full()` data views. Descriptors return
    **data only**; never build markup in a descriptor (the adapters own
-   escaping). Per-path differences go behind `ctx.target`.
+   escaping). `ctx.target` may change LAYOUT (title sizing, spacing, how a
+   title/meta pair is composed) and nothing else; a field that only some
+   exports should carry is an `extras` group, not a target branch.
 2. Confirm the section is in `SECTIONS` with a `storeKey` and reaches views
    via `isExportableSection` + `normalizeViewSections`; give it a
    `defaultViewDetail` if it shouldn't start as `full`.

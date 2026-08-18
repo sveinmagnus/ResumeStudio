@@ -412,7 +412,7 @@ export async function exportDocx(store: ResumeStore, view: ResumeView, locale: s
     // Item source + the view's per-section sort — see lib/viewSectionPlan.
     const items = sectionItems(store, view, filtered, def, locale)
     if (!items.length) continue
-    const resolved = resolveSectionStyle(viewStyle, def.sectionStyle)
+    const resolved = resolveSectionStyle(viewStyle, def.sectionStyle, renderKeyFor(def.key))
     const ctx: ExportCtx = {
       locale,
       detail: def.detail,
@@ -546,7 +546,7 @@ export async function exportCoverLetterDocx(
 function renderSection(key: string, label: string, items: unknown[], ctx: ExportCtx): Paragraph[] {
   const desc = SECTION_CATALOG[key]
   if (!desc || (!desc.full && !desc.summary)) return []
-  const cctx: CatalogCtx = { locale: ctx.locale, hideDates: !!ctx.resolved.hide_dates, dateFormat: ctx.resolved.date_format, target: 'docx', kq: kqVisibility(ctx.resolved, ctx.detail === 'summary' ? 'summary' : 'full') }
+  const cctx: CatalogCtx = { locale: ctx.locale, hideDates: !!ctx.resolved.hide_dates, dateFormat: ctx.resolved.date_format, target: 'docx', extras: ctx.resolved.extras, kq: kqVisibility(ctx.resolved, ctx.detail === 'summary' ? 'summary' : 'full') }
   // Items arrive already ordered by the caller (the view's per-section sort).
   const list = items as CatalogItem[]
   const out: Paragraph[] = []

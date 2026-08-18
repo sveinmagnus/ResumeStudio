@@ -802,7 +802,9 @@ describe('pdfExporter — tags, extra lines and the heading rule', () => {
       id: 'c1', name: { en: 'AWS SA' }, credential_url: 'https://verify.example/abc',
     })]
     const d = await buildPdfDocDefinition(s, makeView({
-      sections: [{ key: 'certifications', detail: 'full', sort_order: 0 } as never],
+      // The credential link is an opt-in group (lib/sectionExtras), like every
+      // optional fact — a view that wants it in the PDF asks for it.
+      sections: [{ key: 'certifications', detail: 'full', sort_order: 0, style: { extras: ['links'] } } as never],
     }), 'en')
     // The SUBTLE grey specifically — para() always sets some colour, so
     // "has a colour" would pass with the styling dropped.

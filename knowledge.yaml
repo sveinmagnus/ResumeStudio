@@ -123,12 +123,12 @@ units:
 
   - id: skill-export-pipeline
     path: .claude/skills/export-pipeline.md
-    intent: "How do the render paths (HTML preview, pdfmake PDF, DOCX, ATS text/Markdown, Europass XML, cover letters) stay in agreement via the section-descriptor catalog, what is the lazy-load discipline, and why does no render path hold an English literal?"
+    intent: "How do the render paths (HTML preview, pdfmake PDF, DOCX, ATS text/Markdown, Europass XML, cover letters) stay in agreement via the section-descriptor catalog, what enforces CONTENT PARITY between them, how are optional fields chosen per view, what is the lazy-load discipline, and why does no render path hold an English literal?"
     scope: module
     audience: [agent]
-    validated: "2026-07-18"
+    validated: "2026-08-18"
     depends_on: [claude-instructions, data-model]
-    triggers: [export, docx, pdf, viewFilter, exporter, buildViewHtml, preview, localization, locale, translation, chrome, exportStrings]
+    triggers: [export, docx, pdf, viewFilter, exporter, buildViewHtml, preview, parity, extras, sectionExtras, localization, locale, translation, chrome, exportStrings]
     hints:
       token_estimate: 1500
 

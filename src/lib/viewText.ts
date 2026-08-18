@@ -81,6 +81,7 @@ function renderItemLines(v: ItemView, fmt: Format, bullet: string | null = null)
 
   if (v.layout === 'inline') {
     lines.push(`${md ? `**${v.title}**` : v.title}${metaTxt ? ` — ${metaTxt}` : ''}`)
+    for (const l of v.extraLines) if (l) lines.push(l)
     return lines
   }
 
@@ -93,6 +94,7 @@ function renderItemLines(v: ItemView, fmt: Format, bullet: string | null = null)
 
   if (v.title) lines.push(md ? `### ${v.title}` : v.title)
   if (metaTxt) lines.push(md ? `*${metaTxt}*` : metaTxt)
+  if (v.plainBody) lines.push(v.plainBody)
   lines.push(...richToLines(v.body, fmt))
   for (const p of v.points) {
     // A point is one bullet line: the blank separators between paragraphs
@@ -102,6 +104,7 @@ function renderItemLines(v: ItemView, fmt: Format, bullet: string | null = null)
     lines.push(`- ${label}${body}`)
   }
   if (v.tags.length) lines.push(`${v.tagsLabel || ''}${v.tags.join(', ')}`)
+  for (const l of v.extraLines) if (l) lines.push(l)
 
   // Plain-text bullets: prefix the first line with the glyph and hang-indent the
   // rest so they line up under the heading. Markdown keeps its own structure
@@ -184,8 +187,8 @@ function buildViewDoc(store: ResumeStore, view: ResumeView, locale: string, fmt:
     const renderKey = renderKeyFor(s.key)
     const desc = SECTION_CATALOG[renderKey]
     if (!desc || (!desc.full && !desc.summary)) continue
-    const resolved = resolveSectionStyle(viewStyle, s.sectionStyle)
-    const cctx: CatalogCtx = { locale, hideDates: !!resolved.hide_dates, dateFormat: resolved.date_format, target: 'html', kq: kqVisibility(resolved, s.detail === 'summary' ? 'summary' : 'full') }
+    const resolved = resolveSectionStyle(viewStyle, s.sectionStyle, renderKeyFor(s.key))
+    const cctx: CatalogCtx = { locale, hideDates: !!resolved.hide_dates, dateFormat: resolved.date_format, target: 'docx', extras: resolved.extras, kq: kqVisibility(resolved, s.detail === 'summary' ? 'summary' : 'full') }
 
     const body: string[] = []
     for (const item of items as Array<Record<string, unknown>>) {

@@ -531,9 +531,30 @@ Navigation: `setActiveSection(key)` / `setExpandedItem(id)`. Undo/redo: `useUndo
 4. Add the icon import to `Sidebar.tsx`'s `ICON_MAP`.
 5. Create the editor component and wire it into `App.tsx`'s `EditorRoute` switch (the key is auto a valid URL segment; EditorRoute validates against SECTIONS).
 6. If sortable by `sort_order`, wrap `<EditorCard>`s in `<SortableList section="…" ids={…}>`. Else pass `sortable={false}` to each card.
-7. If it should appear in Resume View exports: add **one descriptor** to `lib/sectionCatalog.ts` (title/subtitle + `summary()`/`full()` data views). Every render path (HTML/PDF, DOCX, text/Markdown) consumes the catalog through its generic adapter. Descriptors return **data only** — adapters own escaping; never build markup in a descriptor. Per-path differences go behind `ctx.target`. Views pick it up via `isExportableSection` + `normalizeViewSections`; give it a `defaultViewDetail` if not `full`. A **synthetic** section (derives its items instead of owning a store array, like `promoted_projects`) is declared once in `lib/viewSectionPlan.ts` — add its `RENDER_KEY` entry and a `sectionItems` branch there, never a `key === '…'` check in a renderer. See the **export-pipeline** and **security** skills.
+7. If it should appear in Resume View exports: add **one descriptor** to `lib/sectionCatalog.ts` (title/subtitle + `summary()`/`full()` data views). Every render path (HTML/PDF, DOCX, text/Markdown) consumes the catalog through its generic adapter. Descriptors return **data only** — adapters own escaping; never build markup in a descriptor. **`ctx.target` selects LAYOUT ONLY** (title sizing, spacing, title composition) — never which FACTS an item carries. Optional facts are per-VIEW, declared as a group in `lib/sectionExtras.ts` and read via `ctx.extras`; see the note below on why. Views pick it up via `isExportableSection` + `normalizeViewSections`; give it a `defaultViewDetail` if not `full`. A **synthetic** section (derives its items instead of owning a store array, like `promoted_projects`) is declared once in `lib/viewSectionPlan.ts` — add its `RENDER_KEY` entry and a `sectionItems` branch there, never a `key === '…'` check in a renderer. See the **export-pipeline** and **security** skills.
 8. If you add a configurable **style/header field** to a view, it is untrusted-import surface — sanitise at the render boundary (`viewStyle.ts → deriveTokens` / `viewHeader.ts → withHeaderDefaults`) and add a breakout regression test. See the security skill.
 9. If sortable by something other than `sort_order`, wire it into `lib/sectionSort.ts`.
+
+**Every export states the same facts (July 2026).** The catalog used to carry a
+different set of fields per target: the DOCX shape printed a project's team
+size, allocation and highlights, and the HTML preview dropped them — so the
+preview could not show a consultant what their PDF contained — while the ATS
+text export, which asked for the same shape as the preview, shipped less than
+either. Eight more fields (employment headcounts, project case-study URL and
+country, award "awarded for", recommendation link, reference LinkedIn, study
+abroad) were editable but reached no export at all.
+
+The fix is one rule: **content is identical in the preview, the PDF, the Word
+file and the ATS text; anything optional is chosen per view, not per target.**
+`lib/sectionExtras.ts` declares the switchable groups per section (`links`,
+`metrics`, `contact`, …); `SectionStyle.extras` stores which are on, normalised
+against the declared keys at the render boundary (untrusted-import surface, as
+in step 8). **Every group defaults OFF**, including the ones that used to ship
+unconditionally in DOCX/PDF — a view that wants them says so. Two suites hold
+the line: `tests/sectionCatalog.test.ts` pins the descriptor data as equal
+across targets, and `tests/exportParity.test.ts` renders one view through all
+five outputs and asserts each fact reaches every one of them. A group that
+changes no output fails the "checkbox that lies" test.
 
 ---
 
