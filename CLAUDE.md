@@ -131,7 +131,7 @@ Wishlist: §12.
 | Tests | Vitest (+ jsdom for browser-tied tests) | `npm test`, `npm run test:watch`, `npm run test:coverage` |
 | Icons | lucide-react | **Tree-shaken**: import each icon by name, never `import * as` |
 | DOCX export | `docx` npm package | **Lazy-loaded** (~352 kB chunk) — only fetched when the user clicks Export DOCX |
-| PDF export | `pdfmake` (vector) | **Lazy-loaded** (~1.2 MB lib + ~0.9 MB font vfs) — one-click `.pdf` download built from the section catalog in `lib/pdfExporter.ts`, mirroring the DOCX exporter. Its own render engine, so ~matches (not pixel-identical to) the HTML preview |
+| PDF export | `pdfmake` (vector) | **Lazy-loaded** (~1.2 MB lib + ~0.9 MB font vfs) — one-click `.pdf` download built from the section catalog in `lib/pdfExporter.ts`, mirroring the DOCX exporter. Its own render engine, so it applies every view style control (§7) but is not pixel-identical to the HTML preview |
 | Drag-and-drop | `@dnd-kit/core` + `@dnd-kit/sortable` | Pointer + keyboard sensors |
 | Styling | Inline `<style>` blocks per component + CSS custom properties in `src/index.css` | No Tailwind, no CSS-in-JS lib — keep it that way |
 
@@ -262,10 +262,14 @@ src/
 │   │   viewSectionPlan (planViewSections + sectionItems + renderKeyFor — the
 │   │     section PLAN all four render adapters share; owns isExportableSection/
 │   │     defaultViewDetail/promotedProjectItems, re-exported by viewFilter),
+│   │   itemLayout (summary slot order + full-item date placement — the LAYOUT all
+│   │     four adapters share, as viewSectionPlan is the plan they share),
+│   │   sectionIcon (the heading glyph as a standalone SVG, for PDF + DOCX),
 │   │   exporter (LAZY-LOADED docx; SECURITY: TextRun escapes), viewText (ATS text/MD),
 │   │   exporterEuropass (SkillsPassport XML; DOM+XMLSerializer, NOT string XML; round-trips importerEuropass),
 │   │   coverLetter (letter prompt + resolveLetterParts + text export; PDF/DOCX letter builders ride the lazy exporter/pdfmake chunks),
-│   │   viewStyle + viewHeader (render-boundary sanitisers), richText (allowlist;
+│   │   viewStyle (tokens + dividerSpec/tagChipHex — one description per visual
+│   │     effect) + viewHeader (render-boundary sanitisers), richText (allowlist;
 │   │   SECURITY-CRITICAL), image (canvas downscale; rejects SVG), sectionSort,
 │   │   viewTemplates, viewTailor (BYO-LLM), skillMatrix, showcase (showcaseGroups)
 │   │ — skills/taxonomy: skillTaxonomy (Quadim lazy JSON), skillNormalize (imports only),
@@ -555,6 +559,34 @@ the line: `tests/sectionCatalog.test.ts` pins the descriptor data as equal
 across targets, and `tests/exportParity.test.ts` renders one view through all
 five outputs and asserts each fact reaches every one of them. A group that
 changes no output fails the "checkbox that lies" test.
+
+**Every export also LOOKS the way the view asked (August 2026).** The same
+defect, one layer up: seven of the view editor's style controls moved the
+preview and nothing else — Skill tags (chips vs inline), Item dividers (eight
+choices), Summary layout (six slot orders), Full-item layout (four), Summaries
+(free-flowing vs aligned columns), Section icons, and, in Word alone, density's
+line height. Two of the four full-item layouts rendered identically in the PDF
+and the Word file, because both hung the date off the end of the title line
+instead of placing it in the details line the control reorders.
+
+The rule extends: **a style control reaches every target that can express it,
+and the description of the effect lives in ONE module, not in each adapter.**
+`lib/itemLayout.ts` owns slot ordering (summary + full item) for all four
+renderers; `viewStyle.dividerSpec` describes the between-items rule in terms
+CSS, pdfmake and Word can each draw; `viewStyle.tagChipHex` is the one chip
+fill; `lib/sectionIcon.ts` builds the one heading glyph. Format differences are
+fine and expected — a short rule is a background gradient in CSS, a
+fixed-`widths` table in pdfmake and a one-cell table in Word — but they are
+three renderings of one spec, never three opinions.
+
+`tests/exportVisualParity.test.ts` holds the line: flip each control and assert
+the EXACT set of targets whose output moved, so a purely visual choice leaking
+into the ATS text fails as loudly as a missing one. Known format limits, both
+deliberate: Word draws the section icon from Office 2016 on (its required
+raster fallback is blank, because an older Word cannot draw a vector glyph and
+a missing icon beats a wrong bitmap), and the ATS text has no chips, so it
+keeps the "Skills:" label the chip drops — pick "Inline list" if a Word file
+headed for an ATS needs that label too.
 
 ---
 

@@ -787,14 +787,26 @@ describe('exportDocx — item layouts', () => {
     return documentXml(lastBlob!)
   }
 
-  it('puts the date on the title line, smaller and fainter', async () => {
+  it('puts the date on the details line, where the layout control places it', async () => {
+    // Not hung off the end of the title: the date is a slot of the details
+    // line, which is what the four full-item layouts reorder. Hanging it off
+    // the title made two of those four render identically here while the
+    // preview showed the difference.
     const xml = await xmlFor()
-    const titlePara = paragraphWith(xml, 'Acme')
-    expect(titlePara).toMatch(/Jan 2020/)
-    // Two runs: the title at body size and the date at the small size.
-    const sizes = [...titlePara.matchAll(/w:sz w:val="(\d+)"/g)].map((m) => Number(m[1]))
-    expect(sizes.length).toBeGreaterThan(1)
-    expect(Math.min(...sizes)).toBeLessThan(Math.max(...sizes))
+    expect(paragraphWith(xml, 'Acme')).not.toMatch(/Jan 2020/)
+    expect(paragraphWith(xml, 'Jan 2020')).toMatch(/Architect/)
+  })
+
+  it('moves the date ahead of the organisation when the layout asks', async () => {
+    const orgFirst = paragraphWith(await xmlFor({ date_position: 'title-org-date' }), 'Jan 2020')
+    expect(orgFirst.indexOf('Architect')).toBeLessThan(orgFirst.indexOf('Jan 2020'))
+    const dateFirst = paragraphWith(await xmlFor({ date_position: 'title-date-org' }), 'Jan 2020')
+    expect(dateFirst.indexOf('Jan 2020')).toBeLessThan(dateFirst.indexOf('Architect'))
+  })
+
+  it('lifts the details line above the title under a lead layout', async () => {
+    const xml = await xmlFor({ date_position: 'lead-org-date' })
+    expect(xml.indexOf('Jan 2020')).toBeLessThan(xml.indexOf('Acme'))
   })
 
   it('gives a large-title section a heading bigger than the body', async () => {
@@ -1246,14 +1258,14 @@ describe('exportDocx — spacing and sizes come from the tokens', () => {
     expect(num(paraWith(xml, 'Nested item'), 'w:left')).toBe(720)
   })
 
-  it('scales the date run down from the body size, in the same units', async () => {
+  it('sizes the item title and its details line from the tokens', async () => {
     for (const body_size of ['small', 'large'] as const) {
       const xml = await xmlFor('<p>Body text.</p>', { body_size })
       const t = tokensFor({ body_size })
-      const title = paraWith(xml, 'AcmeCo')
-      // A large item title is one point over h3; the date rides the same line
-      // at the small size.
-      expect(runSizes(title), body_size).toEqual([(t.h3Pt + 1) * 2, t.smallFontSizePt * 2])
+      // A large item title is one point over h3, and stands alone on its line
+      // — the date sits on the details line below it, at the body size.
+      expect(runSizes(paraWith(xml, 'AcmeCo')), body_size).toEqual([(t.h3Pt + 1) * 2])
+      expect(runSizes(paraWith(xml, 'Jan 2022')), body_size).toEqual([t.bodyFontSizePt * 2])
     }
   })
 })
@@ -1370,15 +1382,32 @@ describe('exportDocx — the summary layout', () => {
     return documentXml(lastBlob!)
   }
 
-  it('writes the title and its meta tail as separate runs, both at the small size', async () => {
+  it('writes each summary slot as its own run, all at the small size', async () => {
     const xml = await xmlFor()
     const t = deriveTokens(DEFAULT_VIEW_STYLE)
     const line = paraWith(xml, 'A talk about testing')
     expect(line).toContain('Testfest')
-    expect(runSizes(line)).toEqual([t.smallFontSizePt * 2, t.smallFontSizePt * 2])
+    // Slots and the separators between them are each a run; the size is what
+    // must not drift between them.
+    expect(new Set(runSizes(line))).toEqual(new Set([t.smallFontSizePt * 2]))
     // The tail is subdued, the title is not.
     expect(line).toMatch(/<w:b\/>/)
     expect(line).toContain('w:color w:val="666666"')
+  })
+
+  it('puts the slots in the order the view asked for', async () => {
+    // The Word file follows the same layout control as the preview: this used
+    // to be a preview-only setting, so one view produced two orderings.
+    const dateFirst = paraWith(await xmlFor({ summary_layout: 'date-title-org' }), 'A talk about testing')
+    const titleFirst = paraWith(await xmlFor({ summary_layout: 'title-org-date' }), 'A talk about testing')
+    const order = (frag: string): number[] =>
+      [frag.indexOf('Mar 2024'), frag.indexOf('A talk about testing'), frag.indexOf('Testfest')]
+    const [d1, t1, e1] = order(dateFirst)
+    expect(d1).toBeLessThan(t1)
+    expect(t1).toBeLessThan(e1)
+    const [d2, t2, e2] = order(titleFirst)
+    expect(t2).toBeLessThan(e2)
+    expect(e2).toBeLessThan(d2)
   })
 
   it('omits the tail run entirely when there is no meta to show', async () => {

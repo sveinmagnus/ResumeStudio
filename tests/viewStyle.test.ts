@@ -4,6 +4,7 @@ import {
   resolveFontCss, resolveFontDocx, resolveFontPdf, withResolvedFonts,
   resolveSectionStyle, sectionHeadingText,
   normalizeFullLayout, kqVisibility, bulletGlyph, DEFAULT_SUMMARY_LAYOUT,
+  dividerSpec, flattenOnWhite, tagChipHex,
 } from '../src/lib/viewStyle'
 import { PARA_GAP_LINES } from '../src/lib/richText'
 import type { ViewStyle } from '../src/types'
@@ -534,5 +535,61 @@ describe('sectionHeadingText — fallbacks', () => {
     expect(sectionHeadingText(resolved(undefined), 'Projects', 'en')).toBe('Projects')
     expect(sectionHeadingText(resolved({}), 'Projects', 'en')).toBe('Projects')
     expect(sectionHeadingText(resolved({ en: '  ' }), 'Projects', 'en')).toBe('Projects')
+  })
+})
+
+
+// ─── dividerSpec ─────────────────────────────────────────────────────────
+
+describe('dividerSpec()', () => {
+  const spec = (divider_style: string, item_divider = true) =>
+    dividerSpec({ item_divider, divider_style: divider_style as never }, '002E6E')
+
+  it('describes each style in terms every target can draw', () => {
+    expect(spec('line')).toMatchObject({ kind: 'solid', weightPt: 1, widthPt: null })
+    expect(spec('thick')).toMatchObject({ kind: 'solid', weightPt: 2 })
+    expect(spec('dashed').kind).toBe('dashed')
+    expect(spec('dotted').kind).toBe('dotted')
+    expect(spec('double').kind).toBe('double')
+    // The short rule is the only width-limited one.
+    expect(spec('short')).toMatchObject({ kind: 'solid', widthPt: 48 })
+    expect(spec('space').kind).toBe('none')
+    expect(spec('line', false).kind).toBe('none')
+  })
+
+  it('gives the alpha rule an opaque twin for the targets without alpha', () => {
+    const s = spec('line')
+    // CSS keeps the alpha; PDF and Word take it composited onto the page.
+    expect(s.colorCss).toMatch(/^#002E6E[0-9a-f]{2}$/)
+    expect(s.colorHex).toMatch(/^[0-9A-F]{6}$/)
+    expect(s.colorHex).not.toBe('002E6E')
+  })
+
+  it('rejects an INHERITED key, not just an unknown one', () => {
+    // SECURITY: `divider_style` comes from stored view JSON, so a crafted
+    // import can name 'toString'. Every lookup map inherits that key and
+    // returns a FUNCTION for it — truthy, so a `??` or truthiness guard lets it
+    // through, and the function's source is then interpolated into the
+    // preview's `<style>` block as a border width. Membership rejects it.
+    for (const key of ['toString', 'constructor', 'valueOf', 'hasOwnProperty', '__proto__']) {
+      const s = spec(key)
+      expect(s, key).toEqual(spec('line'))
+      expect(typeof s.weightPt, key).toBe('number')
+      expect(typeof s.kind, key).toBe('string')
+    }
+  })
+})
+
+describe('flattenOnWhite() / tagChipHex()', () => {
+  it('composites a colour onto the page at the given alpha', () => {
+    expect(flattenOnWhite('000000', 1)).toBe('000000')
+    expect(flattenOnWhite('000000', 0)).toBe('FFFFFF')
+    expect(flattenOnWhite('000000', 0.5)).toBe('808080')
+  })
+
+  it('gives the chip a fill lighter than the accent it comes from', () => {
+    const chip = tagChipHex('002E6E')
+    expect(chip).toMatch(/^[0-9A-F]{6}$/)
+    expect(parseInt(chip, 16)).toBeGreaterThan(0x002e6e)
   })
 })

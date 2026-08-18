@@ -23,23 +23,32 @@
 
 import type {
   ResumeStore, ResumeView, Resume, LocalizedString, SectionDetail,
-  ViewHeaderConfig, FooterSeparator, CoverLetter,
+  ViewHeaderConfig, FooterSeparator, CoverLetter, FullLayout, SummaryLayout,
 } from '../types'
 import { resolveLetterParts } from './coverLetter'
 import { localizedSectionHeading } from './sections'
 import { resolve, type DateFormat } from './locales'
 import { xs, fmtYears } from './exportStrings'
-import { SECTION_CATALOG, summaryTitleMeta, type AnyItem as CatalogItem, type CatalogCtx, type ItemView } from './sectionCatalog'
+import {
+  SECTION_CATALOG,
+  type AnyItem as CatalogItem, type CatalogCtx, type ItemView,
+  type SummaryView, type SummaryPartKey,
+} from './sectionCatalog'
+import {
+  summarySegments, fullItemLayout, summaryColumns, tabulatedColumns,
+  type SummarySegment,
+} from './itemLayout'
 import { skillMatrixRows, fmtLastUsed, fmtProficiency, type SkillMatrixRow } from './skillMatrix'
 import { applyView, viewProfileTagLine } from './viewFilter'
 import { planViewSections, sectionItems, renderKeyFor } from './viewSectionPlan'
 import { parseRichBlocks, plainParagraphs } from './richText'
 import {
-  deriveTokens, resolveSectionStyle, sectionHeadingText, kqVisibility, bulletGlyph, withDefaults,
-  withResolvedFonts, resolveFontPdf,
-  type ResolvedSectionStyle, type StyleTokens,
+  deriveTokens, dividerSpec, tagChipHex, resolveSectionStyle, sectionHeadingText, kqVisibility, bulletGlyph,
+  withDefaults, withResolvedFonts, resolveFontPdf,
+  type ResolvedSectionStyle, type StyleTokens, type DividerSpec,
 } from './viewStyle'
 import type { GlobalFonts } from './fonts'
+import { sectionIconSvg } from './sectionIcon'
 // Type-only: erased at compile time, so this does NOT pull pdfmake into any
 // bundle that imports this module — the library stays behind the lazy imports
 // in loadPdfMake().
@@ -68,6 +77,8 @@ interface ExportCtx {
   detail: SectionDetail
   resolved: ResolvedSectionStyle
   tokens: StyleTokens
+  /** The section's lucide icon name, drawn before the heading when enabled. */
+  icon: string
 }
 
 // The style tokens are twips; pdfmake measures in points.
@@ -124,12 +135,28 @@ function richToPdf(html: string, tokens: StyleTokens, opts: PStyle = {}): PdfNod
   return out
 }
 
-function sectionHeading(label: string, tokens: StyleTokens): PdfNode {
+function sectionHeading(
+  label: string, tokens: StyleTokens, icon: string | null = null,
+): PdfNode {
   const accent = `#${tokens.accentHex}`
+  const text: PdfNode = { text: label.toUpperCase(), bold: true, color: `#${tokens.headingHex}`, fontSize: tokens.h2Pt, font: tokens.headingPdfFont, border: [false, false, false, true] }
+  const svg = icon ? sectionIconSvg(icon, tokens.accentHex) : null
+  // Sized to the heading text and nudged onto its baseline, so the icon reads
+  // as part of the word rather than a picture beside it.
+  const cell: PdfNode = svg
+    ? {
+      columns: [
+        { svg, width: tokens.h2Pt, height: tokens.h2Pt, margin: [0, 1, 0, 0] as Margin },
+        { width: '*', ...(text as Record<string, unknown>) },
+      ],
+      columnGap: tokens.h2Pt * 0.35,
+      border: [false, false, false, true],
+    }
+    : text
   return {
     table: {
       widths: ['*'],
-      body: [[{ text: label.toUpperCase(), bold: true, color: `#${tokens.headingHex}`, fontSize: tokens.h2Pt, font: tokens.headingPdfFont, border: [false, false, false, true] }]],
+      body: [[cell]],
     },
     layout: {
       hLineWidth: (i: number) => (i === 1 ? 0.8 : 0),
@@ -141,15 +168,21 @@ function sectionHeading(label: string, tokens: StyleTokens): PdfNode {
   }
 }
 
-function summaryLine(title: string, meta: string, tokens: StyleTokens): PdfNode {
-  const runs: PdfNode[] = [{ text: title, bold: true }]
-  if (meta) runs.push({ text: ` — ${meta}`, color: SUBTLE })
+function summaryLine(segments: SummarySegment[], trail: string, tokens: StyleTokens): PdfNode {
+  const runs: PdfNode[] = []
+  for (const g of segments) {
+    if (g.joiner) runs.push({ text: g.joiner })
+    runs.push(g.slot === 'title' ? { text: g.text, bold: true } : { text: g.text, color: SUBTLE })
+  }
+  if (trail) runs.push({ text: `${runs.length ? ' — ' : ''}${trail}`, color: SUBTLE })
   return { text: runs, fontSize: tokens.smallFontSizePt, margin: [0, 0, 0, 2] as Margin }
 }
 
 // ─── Item rendering (mirrors renderItemDocx) ────────────────────────────────
 
-function renderItemPdf(v: ItemView, tokens: StyleTokens, bullet: string | null = null): PdfNode[] {
+function renderItemPdf(
+  v: ItemView, tokens: StyleTokens, layout: FullLayout, bullet: string | null = null,
+): PdfNode[] {
   const fs = tokens.bodyFontSizePt
   const out: PdfNode[] = []
 
@@ -167,14 +200,20 @@ function renderItemPdf(v: ItemView, tokens: StyleTokens, bullet: string | null =
     return out
   }
 
+  // The date rides the details line, in the slot the view's full-item layout
+  // asks for — not hung off the end of the title, which ignored the setting.
+  const { metaParts, metaFirst } = fullItemLayout(v, layout)
+  const metaTxt = metaParts.join(' · ')
+  const head: PdfNode[] = []
   if (v.title) {
     const titleSize = v.titleStyle === 'large' ? tokens.h3Pt + 1 : fs
-    const runs: PdfNode[] = [{ text: v.title, bold: true, fontSize: titleSize }]
-    if (v.date) runs.push({ text: `   ${v.date}`, fontSize: tokens.smallFontSizePt, color: FAINT })
-    out.push({ text: runs, color: INK, margin: [0, v.spacingBefore ? twip(v.spacingBefore) : 0, 0, 3] as Margin })
+    head.push({
+      text: [{ text: v.title, bold: true, fontSize: titleSize }], color: INK,
+      margin: [0, v.spacingBefore ? twip(v.spacingBefore) : 0, 0, 3] as Margin,
+    })
   }
-  const metaTxt = v.meta.filter(Boolean).join(' · ')
-  if (metaTxt) out.push(para(metaTxt, tokens, { italics: true, color: SUBTLE, bottom: 5 }))
+  const metaNode = metaTxt ? [para(metaTxt, tokens, { italics: true, color: SUBTLE, bottom: 5 })] : []
+  out.push(...(metaFirst ? [...metaNode, ...head] : [...head, ...metaNode]))
   if (v.plainBody) out.push(para(v.plainBody, tokens, { bottom: 5 }))
   if (v.body) out.push(...richToPdf(v.body, tokens, { bottom: 6 }))
   for (const p of v.points) {
@@ -189,9 +228,18 @@ function renderItemPdf(v: ItemView, tokens: StyleTokens, bullet: string | null =
     out.push({ text: line, fontSize: fs, color: INK, margin: [0, 0, 0, 4] as Margin })
   }
   if (v.tags.length) {
-    const runs: PdfNode[] = []
-    if (v.tagsLabel) runs.push({ text: v.tagsLabel, italics: true })
-    runs.push({ text: v.tags.join(', ') })
+    // Chips carry the affordance visually, so they drop the label the inline
+    // list needs — the same trade the preview makes. pdfmake has no box around
+    // a run, so a chip is a filled run with hair spaces for padding.
+    const runs: PdfNode[] = tokens.tagStyle === 'chips'
+      ? v.tags.flatMap((t, i) => [
+        ...(i ? [{ text: ' ' }] : []),
+        { text: ` ${t} `, background: `#${tagChipHex(tokens.accentHex)}`, color: `#${tokens.accentHex}` },
+      ])
+      : [
+        ...(v.tagsLabel ? [{ text: v.tagsLabel, italics: true }] : []),
+        { text: v.tags.join(', ') },
+      ]
     out.push({ text: runs, color: SUBTLE, fontSize: tokens.metaFontSizePt, margin: [0, 3, 0, 6] as Margin })
   }
   for (const line of v.extraLines) out.push(para(line, tokens, { color: SUBTLE, bottom: 3 }))
@@ -212,6 +260,85 @@ function renderItemPdf(v: ItemView, tokens: StyleTokens, bullet: string | null =
   return out
 }
 
+/**
+ * The rule drawn between two items, from the same {@link dividerSpec} the
+ * preview and the Word file read.
+ *
+ * pdfmake has no standalone rule, so it is a borderless table whose only
+ * horizontal line is the one we want: `widths` gives a short rule its fixed
+ * width, and a second empty row gives the double rule its second line.
+ */
+function itemDivider(spec: DividerSpec, gapPt: number): PdfNode | null {
+  if (spec.kind === 'none') return null
+  const color = `#${spec.colorHex}`
+  const rows = spec.kind === 'double' ? 2 : 1
+  const lastLine = spec.kind === 'double' ? 2 : 1
+  const dash = spec.kind === 'dashed' ? { length: 3, space: 2 }
+    : spec.kind === 'dotted' ? { length: 1, space: 2 } : undefined
+  const weight = spec.kind === 'double' ? Math.max(0.5, spec.weightPt / 3) : spec.weightPt * 0.75
+  return {
+    table: {
+      widths: [spec.widthPt ?? '*'],
+      body: Array.from({ length: rows }, () => [{ text: '', fontSize: 1 }]),
+    },
+    layout: {
+      hLineWidth: (i: number) => (i === 0 ? 0 : i <= lastLine ? weight : 0),
+      vLineWidth: () => 0,
+      hLineColor: () => color,
+      hLineStyle: () => (dash ? { dash } : null),
+      paddingLeft: () => 0, paddingRight: () => 0, paddingTop: () => 0, paddingBottom: () => 0,
+    },
+    margin: [0, gapPt, 0, gapPt] as Margin,
+  }
+}
+
+/**
+ * A summary section laid out as aligned columns — one column per present part,
+ * in the view's slot order, from the same helpers the preview's CSS grid uses.
+ *
+ * A borderless table, because that is what pdfmake aligns with. The divider, if
+ * the view draws one, becomes the table's horizontal rule rather than a node
+ * between rows, so the rules line up across the full width like the preview's.
+ */
+function tabulatedSummary(
+  summaries: SummaryView[], tokens: StyleTokens, layout: SummaryLayout, divider: DividerSpec,
+): PdfNode | null {
+  const partCols = summaryColumns(summaries, layout)
+  if (!partCols.length) return null
+  const cols = tabulatedColumns(partCols)
+  const flexes = (c: SummaryPartKey | 'sep'): boolean => c === 'title' || c === 'role' || c === 'org'
+  const body = summaries.map((sum) => {
+    const map = new Map(sum.parts.map((pt) => [pt.key, pt.value]))
+    return cols.map((c): PdfNode => {
+      if (c === 'sep') return { text: map.get('start') && map.get('end') ? '·' : '', fontSize: tokens.smallFontSizePt }
+      // pdfmake honours a real newline inside a cell, so the multi-line part
+      // (Languages' Europass column) needs no splitting here.
+      const text = map.get(c) ?? ''
+      return c === 'title'
+        ? { text, bold: true, fontSize: tokens.smallFontSizePt }
+        : { text, color: SUBTLE, fontSize: tokens.smallFontSizePt }
+    })
+  })
+  const weight = divider.kind === 'none' ? 0 : divider.weightPt * 0.75
+  const dash = divider.kind === 'dashed' ? { length: 3, space: 2 }
+    : divider.kind === 'dotted' ? { length: 1, space: 2 } : undefined
+  return {
+    table: { widths: cols.map((c) => (flexes(c) ? '*' : 'auto')), body },
+    layout: {
+      // A rule under every row but the last — the preview's `:last-child` rule.
+      hLineWidth: (i: number) => (i === 0 || i === body.length ? 0 : weight),
+      vLineWidth: () => 0,
+      hLineColor: () => `#${divider.colorHex}`,
+      hLineStyle: () => (dash ? { dash } : null),
+      paddingLeft: (i: number) => (i === 0 ? 0 : 6),
+      paddingRight: () => 0,
+      paddingTop: () => 1,
+      paddingBottom: () => 2,
+    },
+    margin: [0, 0, 0, 4] as Margin,
+  }
+}
+
 // ─── Section dispatcher (mirrors renderSection) ─────────────────────────────
 
 function renderSection(key: string, label: string, items: unknown[], ctx: ExportCtx): PdfNode[] {
@@ -224,32 +351,58 @@ function renderSection(key: string, label: string, items: unknown[], ctx: Export
   }
   // Items arrive already ordered by the caller (the view's per-section sort).
   const list = items as CatalogItem[]
-  const body: PdfNode[] = []
+  const spec = dividerSpec(ctx.resolved, ctx.tokens.accentHex)
+  if (ctx.detail === 'summary' && !desc.alwaysFull && ctx.resolved.tabulate && desc.summary) {
+    const summaries = list.map((it) => desc.summary!(it, { ...cctx, detail: 'tabulated' }))
+      .filter((v): v is SummaryView => !!v)
+    const table = summaries.length
+      ? tabulatedSummary(summaries, ctx.tokens, ctx.resolved.summary_layout,
+        ctx.resolved.item_divider ? spec : { ...spec, kind: 'none' })
+      : null
+    if (!table) return []
+    return ctx.resolved.hide_heading
+      ? [withTopMargin(table, twip(ctx.tokens.itemGapTwips))]
+      : [sectionHeading(label, ctx.tokens, ctx.resolved.show_icon ? ctx.icon : null), table]
+  }
+  // One item's nodes per entry, so a divider can go BETWEEN items rather
+  // than after every paragraph.
+  const blocks: PdfNode[][] = []
   for (const it of list) {
+    const body: PdfNode[] = []
     if (ctx.detail === 'summary' && !desc.alwaysFull) {
       const s = desc.summary?.(it, cctx)
       if (s) {
-        const { title, meta } = summaryTitleMeta(s)
+        const segments = summarySegments(s, ctx.resolved.summary_layout)
         const short = L((it as Record<string, unknown>).short_description as LocalizedString | undefined, ctx.locale).trim()
-        const metaStr = meta.join(' · ')
         const below = !!short && ctx.resolved.short_desc_line !== 'inline'
-        const line = short && !below ? [metaStr, short].filter(Boolean).join(' — ') : metaStr
-        body.push(summaryLine(title, line, ctx.tokens))
+        body.push(summaryLine(segments, below ? '' : short, ctx.tokens))
         if (below) body.push(para(short, ctx.tokens, { color: SUBTLE, bottom: 3 }))
       }
+      if (body.length) blocks.push(body)
       continue
     }
     const v = desc.full?.(it, cctx)
-    if (v) body.push(...renderItemPdf(v, ctx.tokens, ctx.resolved.item_bullets ? bulletGlyph(ctx.resolved) : null))
+    if (v) {
+      body.push(...renderItemPdf(
+        v, ctx.tokens, ctx.resolved.date_position,
+        ctx.resolved.item_bullets ? bulletGlyph(ctx.resolved) : null,
+      ))
+    }
+    if (body.length) blocks.push(body)
   }
-  if (!body.length) return []
+  if (!blocks.length) return []
+  const divider = ctx.resolved.item_divider
+    ? itemDivider(spec, twip(ctx.tokens.itemGapTwips) / 2)
+    : null
+  const body: PdfNode[] = blocks.flatMap((b, i) =>
+    divider && i < blocks.length - 1 ? [...b, divider] : b)
   if (ctx.resolved.hide_heading) {
     // No heading node to carry the section's top margin — put it on the first
     // node so the section keeps a sensible gap from the previous one (mirrors
     // the HTML `.ve-section-noheading` fix). Matches the heading's own top margin.
     return [withTopMargin(body[0], twip(ctx.tokens.itemGapTwips)), ...body.slice(1)]
   }
-  return [sectionHeading(label, ctx.tokens), ...body]
+  return [sectionHeading(label, ctx.tokens, ctx.resolved.show_icon ? ctx.icon : null), ...body]
 }
 
 /** Return a copy of `node` with `topPt` added to its top margin. */
@@ -425,7 +578,7 @@ export async function buildPdfDocDefinition(
       const rows = skillMatrixRows(store, view, locale, { highlightedOnly: def.detail === 'summary' })
       if (!rows.length) continue
       const tokens = deriveTokens(resolved)
-      if (!resolved.hide_heading) content.push(sectionHeading(sectionHeadingText(resolved, localizedSectionHeading(def.key, locale), locale), tokens))
+      if (!resolved.hide_heading) content.push(sectionHeading(sectionHeadingText(resolved, localizedSectionHeading(def.key, locale), locale), tokens, resolved.show_icon ? def.icon : null))
       const matrix = skillMatrixTable(rows, !resolved.hide_dates, tokens, locale, resolved.date_format)
       content.push(resolved.hide_heading ? withTopMargin(matrix, twip(tokens.itemGapTwips)) : matrix)
       continue
@@ -434,7 +587,7 @@ export async function buildPdfDocDefinition(
     const items = sectionItems(store, view, filtered, def, locale)
     if (!items.length) continue
     const resolved = resolveSectionStyle(viewStyle, def.sectionStyle, renderKeyFor(def.key))
-    const ctx: ExportCtx = { locale, detail: def.detail, resolved, tokens: deriveTokens(resolved) }
+    const ctx: ExportCtx = { locale, detail: def.detail, resolved, tokens: deriveTokens(resolved), icon: def.icon }
     const renderKey = renderKeyFor(def.key)
     content.push(...renderSection(renderKey, sectionHeadingText(resolved, localizedSectionHeading(def.key, locale), locale), items, ctx))
   }

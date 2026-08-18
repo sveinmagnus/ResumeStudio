@@ -6,10 +6,11 @@ import { SECTIONS, localizedSectionHeading } from './sections'
 import { resolve, bcp47 } from './locales'
 import { SECTION_CATALOG, isEmptyItemView, type AnyItem, type CatalogCtx, type SummaryView, type SummaryPartKey } from './sectionCatalog'
 import type { SummaryLayout } from '../types'
+import { summarySegments, summaryColumns, tabulatedColumns, fullItemLayout } from './itemLayout'
 import { skillMatrixRows, fmtLastUsed, fmtProficiency } from './skillMatrix'
 import { xs, fmtYears } from './exportStrings'
 import { renderRichHtml, renderRichInlineHtml, plainParagraphs } from './richText'
-import { deriveTokens, resolveSectionStyle, sectionHeadingText, kqVisibility, bulletGlyph, withDefaults, withResolvedFonts, resolveFontCss, type ResolvedSectionStyle, type StyleTokens } from './viewStyle'
+import { deriveTokens, resolveSectionStyle, sectionHeadingText, kqVisibility, bulletGlyph, withDefaults, withResolvedFonts, resolveFontCss, dividerSpec, type ResolvedSectionStyle, type StyleTokens, type DividerSpec } from './viewStyle'
 import type { GlobalFonts } from './fonts'
 import { SECTION_ICON_INNER } from '../generated/sectionIcons'
 import { withHeaderDefaults, withFooterDefaults, buildHeaderLines, buildCopyrightLine, footerLines } from './viewHeader'
@@ -260,33 +261,9 @@ function renderTagsHtml(names: string[], label: string, style: ResolvedSectionSt
   return `<div class="ve-tags">${names.map((n) => `<span class="ve-tag">${escapeHtml(n)}</span>`).join('')}</div>`
 }
 
-// ─── Summary item layout (ordering + tabulation) ─────────────────────────────
-// The summary line is composed of three ordered slots — Title, Organization
-// (role + org), Date (start/end or single date). A view's item-layout config
-// picks the slot order; tabulate spreads each part into its own aligned column.
-
-type Slot = 'title' | 'org' | 'date'
-
-const LAYOUT_SLOTS: Record<SummaryLayout, Slot[]> = {
-  'title-org-date': ['title', 'org', 'date'],
-  'title-date-org': ['title', 'date', 'org'],
-  'org-title-date': ['org', 'title', 'date'],
-  'org-date-title': ['org', 'date', 'title'],
-  'date-title-org': ['date', 'title', 'org'],
-  'date-org-title': ['date', 'org', 'title'],
-}
-
-/** Which slot each part belongs to. */
-const SLOT_OF: Record<SummaryPartKey, Slot> = {
-  title: 'title', role: 'org', org: 'org', start: 'date', end: 'date', date: 'date',
-}
-
-/** Per-slot column order for tabulation (each key becomes its own column). */
-const SLOT_KEYS: Record<Slot, SummaryPartKey[]> = {
-  title: ['title'], org: ['role', 'org'], date: ['start', 'end', 'date'],
-}
-
-const slotsFor = (layout: SummaryLayout): Slot[] => LAYOUT_SLOTS[layout] ?? LAYOUT_SLOTS['title-org-date']
+// ─── Summary item layout (ordering + tabulation) ───────────────────────
+// The slot order and the tabulation columns come from lib/summaryLayout, which
+// every adapter shares; only the markup below is the HTML adapter's own.
 
 /**
  * Render a summary as a single free-flowing line, slots in the chosen order.
@@ -296,33 +273,13 @@ const slotsFor = (layout: SummaryLayout): Slot[] => LAYOUT_SLOTS[layout] ?? LAYO
 function renderSummaryInline(
   s: SummaryView, layout: SummaryLayout, short = '', shortLine: 'inline' | 'below' = 'below',
 ): string {
-  const slots = slotsFor(layout)
-  const groups = slots
-    .map((slot) => ({
-      slot,
-      // Within a slot, distinct parts are joined with a middot — EXCEPT the
-      // date slot, whose from/to dates read as a range and use a short dash.
-      text: s.parts.filter((p) => SLOT_OF[p.key] === slot).map((p) => p.value)
-        .filter(Boolean).join(slot === 'date' ? ' – ' : ' · '),
-    }))
-    .filter((g) => g.text)
+  const segments = summarySegments(s, layout)
   const shortEsc = short.trim() ? escapeHtml(short.trim()) : ''
-  if (!groups.length && !shortEsc) return ''
-  // Keyed off what actually RENDERED first, not the configured slot order: a
-  // section with no dates (Languages) still leads with its title under the
-  // date-first layout, and should read "Norwegian — Native", not "· Native".
-  const titleFirst = groups[0]?.slot === 'title'
-  let html = groups
-    .map((g, i) => {
-      const inner = g.slot === 'title'
-        ? `<strong>${escapeHtml(g.text)}</strong>`
-        : `<span class="ve-meta-inline">${escapeHtml(g.text)}</span>`
-      if (i === 0) return inner
-      // Keep the classic "Title — meta" / "Category: skills" look when the title
-      // leads; otherwise a neutral middot between reordered slots.
-      const joiner = i === 1 && titleFirst ? (s.sep === ':' ? ': ' : ' — ') : ' · '
-      return `${joiner}${inner}`
-    })
+  if (!segments.length && !shortEsc) return ''
+  let html = segments
+    .map((g) => `${g.joiner}${g.slot === 'title'
+      ? `<strong>${escapeHtml(g.text)}</strong>`
+      : `<span class="ve-meta-inline">${escapeHtml(g.text)}</span>`}`)
     .join('')
   let below = ''
   if (shortEsc) {
@@ -331,15 +288,6 @@ function renderSummaryInline(
     else below = `<div class="ve-summary-short ve-summary-short-below">${shortEsc}</div>`
   }
   return `<div class="ve-item ve-item-line">${html}${below}</div>`
-}
-
-/** The tabulation columns for a set of summaries: every part key present, in slot order. */
-function summaryColumns(summaries: SummaryView[], layout: SummaryLayout): SummaryPartKey[] {
-  const present = new Set<SummaryPartKey>()
-  for (const s of summaries) for (const p of s.parts) if (p.value) present.add(p.key)
-  const cols: SummaryPartKey[] = []
-  for (const slot of slotsFor(layout)) for (const k of SLOT_KEYS[slot]) if (present.has(k)) cols.push(k)
-  return cols
 }
 
 /**
@@ -359,13 +307,7 @@ function renderTabulatedSummary(sectionKey: string, items: unknown[], ctx: Rende
   if (!summaries.length) return ''
   const partCols = summaryColumns(summaries, ctx.style.summary_layout)
   if (!partCols.length) return ''
-  // Insert a dedicated separator column between adjacent start & end date
-  // columns, so the range markers line up down the grid.
-  const cols: Array<SummaryPartKey | 'sep'> = []
-  for (let i = 0; i < partCols.length; i++) {
-    cols.push(partCols[i])
-    if (partCols[i] === 'start' && partCols[i + 1] === 'end') cols.push('sep')
-  }
+  const cols = tabulatedColumns(partCols)
   // Text columns (title/role/org) flex and wrap so no row runs past the page
   // edge; the short date columns hug their content. Computed from column KINDS
   // only — never user data — so it's safe to inline.
@@ -438,11 +380,8 @@ function renderItem(sectionKey: string, item: unknown, ctx: RenderCtx): string {
 
   // Compose the details line from the organisation meta + the (separate) date,
   // in the order the full-item layout asks for. `date` is '' when hidden.
-  const layout = ctx.style.date_position
-  const dateFirst = layout === 'title-date-org' || layout === 'lead-date-org'
-  const lead = layout === 'lead-org-date' || layout === 'lead-date-org'
-  const metaParts = v.meta.filter(Boolean)
-  const metaTxt = (dateFirst ? [v.date, ...metaParts] : [...metaParts, v.date]).filter(Boolean).join(' · ')
+  const { metaParts, metaFirst } = fullItemLayout(v, ctx.style.date_position)
+  const metaTxt = metaParts.join(' · ')
   const pointsHtml = v.points.length
     ? `<ul class="ve-points">${v.points
         .map((p) => `<li>${p.label ? `<strong>${escapeHtml(p.label)}</strong>: ` : ''}${renderRichInlineHtml(p.body, escapeHtml)}</li>`)
@@ -451,7 +390,7 @@ function renderItem(sectionKey: string, item: unknown, ctx: RenderCtx): string {
   const titleHtml = v.title ? `<h3>${escapeHtml(v.title)}</h3>` : ''
   const metaLine = metaTxt ? `<div class="ve-meta">${escapeHtml(metaTxt)}</div>` : ''
   // `lead-*` puts the details line above the title.
-  const head = lead ? `${metaLine}${titleHtml}` : `${titleHtml}${metaLine}`
+  const head = metaFirst ? `${metaLine}${titleHtml}` : `${titleHtml}${metaLine}`
   // The lead-in paragraph and the secondary lines are plain text, not rich —
   // escaped here, never passed through the rich renderer.
   const leadHtml = v.plainBody ? `<div class="ve-lead">${escapeHtml(v.plainBody)}</div>` : ''
@@ -484,8 +423,11 @@ function renderItem(sectionKey: string, item: unknown, ctx: RenderCtx): string {
  */
 function sectionStyleCss(secKey: string, resolved: ResolvedSectionStyle, baseTokens: StyleTokens): string {
   const tokens = deriveTokens(resolved)
+  const spec = dividerSpec(resolved, baseTokens.accentHex)
+  // 'Space only' keeps the gap and draws no rule, so the padding follows the
+  // divider being ON, not the rule being visible.
   const showDivider = resolved.item_divider
-  const rule = showDivider ? dividerRule(resolved.divider_style, baseTokens.accentCss) : { border: 'none', extra: '' }
+  const rule = dividerRule(spec)
   // Tabulated rows are subgrid boxes (see the base .ve-tab-row rule), so the
   // SAME density (row gap + line height) and divider style apply to them too.
   const rowGap = Math.max(2, Math.round(tokens.itemGapPx / 2))
@@ -511,25 +453,20 @@ function sectionStyleCss(secKey: string, resolved: ResolvedSectionStyle, baseTok
 }
 
 /**
- * CSS for a between-items divider in the given style. Full-width variants use
- * `border-bottom`; the short rule is drawn as a bottom-left background line
- * (a border can't be width-limited), and 'space' draws nothing (gap only).
+ * CSS for a between-items divider. The rule itself (kind, weight, width,
+ * colour) comes from `dividerSpec`, which the PDF and DOCX adapters read too;
+ * only the way CSS expresses it lives here. A width-limited rule can't be a
+ * border, so the short one is drawn as a bottom-left background line.
  */
-function dividerRule(style: ResolvedSectionStyle['divider_style'], accentCss: string): { border: string; extra: string } {
-  const faint = `${accentCss}1A`
-  switch (style) {
-    case 'space':  return { border: 'none', extra: '' }
-    case 'thick':  return { border: `2px solid ${faint}`, extra: '' }
-    case 'dashed': return { border: `1px dashed ${accentCss}40`, extra: '' }
-    case 'dotted': return { border: `1px dotted ${accentCss}55`, extra: '' }
-    case 'double': return { border: `3px double ${accentCss}40`, extra: '' }
-    case 'short':  return {
+function dividerRule(spec: DividerSpec): { border: string; extra: string } {
+  if (spec.kind === 'none') return { border: 'none', extra: '' }
+  if (spec.widthPt !== null) {
+    return {
       border: 'none',
-      extra: `background-image: linear-gradient(${accentCss}55, ${accentCss}55); background-repeat: no-repeat; background-position: left bottom; background-size: 48px 1px;`,
+      extra: `background-image: linear-gradient(${spec.colorCss}, ${spec.colorCss}); background-repeat: no-repeat; background-position: left bottom; background-size: ${spec.widthPt}px ${spec.weightPt}px;`,
     }
-    case 'line':
-    default:       return { border: `1px solid ${faint}`, extra: '' }
   }
+  return { border: `${spec.weightPt}px ${spec.kind} ${spec.colorCss}`, extra: '' }
 }
 
 export function buildViewHtml(store: ResumeStore, view: ResumeView, locale: string, globalFonts?: GlobalFonts): string {

@@ -331,6 +331,103 @@ export function kqVisibility(
 }
 
 /**
+ * The chip fill behind a skill tag, flattened onto white.
+ *
+ * The preview draws `accent` at 8% alpha; the PDF and the Word file have no
+ * alpha behind a run, so they take the composited colour. One number, so a
+ * chip is the same shade in all three rather than a preview-only affordance.
+ */
+export const TAG_CHIP_ALPHA = 0x14 / 255
+
+export function tagChipHex(accentHex: string): string {
+  return flattenOnWhite(accentHex, TAG_CHIP_ALPHA)
+}
+
+// ─── Item dividers ───────────────────────────────────────────────
+
+/** The rule a divider draws, in terms every target can express. */
+export type DividerKind = 'none' | 'solid' | 'dashed' | 'dotted' | 'double'
+
+export interface DividerSpec {
+  kind: DividerKind
+  /** Rule thickness in points. */
+  weightPt: number
+  /** Rule width in points, or null to span the content column. */
+  widthPt: number | null
+  /** CSS colour, alpha included — what the preview draws. */
+  colorCss: string
+  /** The same colour flattened onto white, 'RRGGBB' with no '#'. PDF and Word
+   *  have no alpha channel on a rule, so they take the composited result. */
+  colorHex: string
+}
+
+/** Alpha each divider style draws its rule at, over the page. */
+const DIVIDER_ALPHA: Record<DividerStyle, number> = {
+  line: 0x1a / 255, thick: 0x1a / 255, dashed: 0x40 / 255,
+  dotted: 0x55 / 255, double: 0x40 / 255, short: 0x55 / 255, space: 0,
+}
+
+const DIVIDER_KIND: Record<DividerStyle, DividerKind> = {
+  line: 'solid', thick: 'solid', dashed: 'dashed',
+  dotted: 'dotted', double: 'double', short: 'solid', space: 'none',
+}
+
+const DIVIDER_WEIGHT: Record<DividerStyle, number> = {
+  line: 1, thick: 2, dashed: 1, dotted: 1, double: 3, short: 1, space: 0,
+}
+
+/** The short rule's fixed width, in points. */
+const SHORT_RULE_PT = 48
+
+/**
+ * The divider styles that exist, as a Set rather than a lookup on the maps
+ * above (the `FULL_LAYOUTS` pattern).
+ *
+ * `divider_style` arrives from stored view JSON, and an INHERITED key
+ * ('toString', 'constructor') reads a function back out of every one of those
+ * maps — truthy, so neither a truthiness test nor `??` rejects it. That
+ * function would then be stringified into the preview's `<style>` block as a
+ * border width. Membership is the only lookup that says no.
+ */
+const DIVIDER_STYLES = new Set<string>([
+  'line', 'thick', 'dashed', 'dotted', 'double', 'short', 'space',
+])
+
+/** Composite `hex` at `alpha` over white — the opaque twin of an rgba() rule. */
+export function flattenOnWhite(hex: string, alpha: number): string {
+  const ch = (i: number): string => {
+    const v = parseInt(hex.slice(i, i + 2), 16)
+    const mixed = Math.round(v * alpha + 255 * (1 - alpha))
+    return Math.max(0, Math.min(255, mixed)).toString(16).padStart(2, '0').toUpperCase()
+  }
+  return `${ch(0)}${ch(2)}${ch(4)}`
+}
+
+/**
+ * The between-items rule a resolved section style draws.
+ *
+ * One description, four targets: the preview builds CSS from it, the PDF a
+ * table hairline, the Word file a paragraph border. It used to be CSS only, so
+ * eight divider choices moved the preview and left the PDF and the Word file
+ * with no rule at all whatever the view said.
+ */
+export function dividerSpec(
+  r: { item_divider: boolean; divider_style: DividerStyle }, accentHex: string,
+): DividerSpec {
+  const style: DividerStyle = DIVIDER_STYLES.has(r.divider_style) ? r.divider_style : 'line'
+  const kind = r.item_divider ? DIVIDER_KIND[style] : 'none'
+  const alpha = DIVIDER_ALPHA[style]
+  const alphaHex = Math.round(alpha * 255).toString(16).padStart(2, '0')
+  return {
+    kind,
+    weightPt: kind === 'none' ? 0 : DIVIDER_WEIGHT[style],
+    widthPt: style === 'short' ? SHORT_RULE_PT : null,
+    colorCss: `#${accentHex}${alphaHex}`,
+    colorHex: flattenOnWhite(accentHex, alpha),
+  }
+}
+
+/**
  * The concrete character for each bullet style. One source so HTML, PDF, DOCX
  * and ATS-text all draw the same glyph. All four are single BMP characters that
  * exist in the standard PDF/DOCX fonts, so no font embedding is needed.

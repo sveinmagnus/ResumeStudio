@@ -36,6 +36,25 @@ function collectText(node: unknown, out: string[] = []): string[] {
   return out
 }
 
+/**
+ * Every text node flattened to ONE string per rendered LINE — a pdfmake
+ * paragraph is `{ text: [run, run, …] }`, and a summary line is now several
+ * runs (one per slot, one per separator), so "is this on the same line" has to
+ * be asked of the joined paragraph rather than of an individual run.
+ */
+function collectLines(node: unknown, out: string[] = []): string[] {
+  if (Array.isArray(node)) { for (const n of node) collectLines(n, out); return out }
+  if (node && typeof node === 'object') {
+    const rec = node as Record<string, unknown>
+    if ('text' in rec) { const line = collectText(rec.text).join(''); if (line) out.push(line) }
+    if ('stack' in rec) collectLines(rec.stack, out)
+    if ('columns' in rec) collectLines(rec.columns, out)
+    if ('content' in rec) collectLines(rec.content, out)
+    if ('table' in rec) collectLines((rec.table as Record<string, unknown>).body, out)
+  }
+  return out
+}
+
 describe('buildPdfDocDefinition — rich text becomes pdfmake nodes', () => {
   /** Every node in the tree, flattened, so a body's nodes can be found by text. */
   const allNodes = (node: unknown, out: Record<string, unknown>[] = []): Record<string, unknown>[] => {
@@ -765,10 +784,21 @@ describe('pdfExporter — tags, extra lines and the heading rule', () => {
     }), 'en')
 
   it('lists an item’s tags, comma-joined, behind an italic label', async () => {
-    const doc = await dd(projectStore())
+    const doc = await dd(projectStore(), { tag_style: 'inline' })
     expect(texts(doc).some((x) => x.includes('Go, Kubernetes'))).toBe(true)
     const label = runs(doc.content).find((r) => /skills/i.test(String(r.text)))
     expect(label?.italics).toBe(true)
+  })
+
+  it('fills each tag as its own chip when the view asks for chips', async () => {
+    // The chip is the affordance — the reader can see those words are tags — so
+    // it drops the label, exactly as the preview does. This used to be the
+    // preview's alone: picking Chips changed nothing in the PDF.
+    const doc = await dd(projectStore(), { tag_style: 'chips' })
+    const chips = runs(doc.content).filter((r) => r.background)
+    expect(chips.map((r) => String(r.text).trim())).toEqual(['Go', 'Kubernetes'])
+    expect(new Set(chips.map((r) => r.background)).size).toBe(1)
+    expect(texts(doc).some((x) => /skills/i.test(x))).toBe(false)
   })
 
   it('emits no tag node at all when an item has none', async () => {
@@ -788,7 +818,7 @@ describe('pdfExporter — tags, extra lines and the heading rule', () => {
     s.skill_categories = [makeSkillCategory({ id: 'c1', name: { en: 'Languages' } })]
     s.skills = [makeSkill({ id: 'go', name: { en: 'Go' }, category_id: 'c1', is_highlighted: true })]
     const doc = await buildPdfDocDefinition(s, makeView({
-      sections: [{ key: 'technology_categories', detail: 'full', sort_order: 0 } as never],
+      sections: [{ key: 'technology_categories', detail: 'full', sort_order: 0, style: { tag_style: 'inline' } } as never],
     }), 'en')
     expect(texts(doc)).toContain('Go')
     expect(runs(doc.content).filter((r) => r.text === '')).toEqual([])
@@ -830,8 +860,9 @@ describe('pdfExporter — tags, extra lines and the heading rule', () => {
     const s = projectStore({ long_description: { en: '' }, description: {} })
     // An empty body must produce NO paragraph, not a blank one — a blank
     // paragraph is visible in the PDF as an unexplained gap.
-    const t = texts(await dd(s))
-    expect(t.filter((x) => x.trim() === '')).toEqual([])
+    // Asked of whole LINES: a chip list separates its chips with space runs,
+    // which are not blank paragraphs and are not what this guards.
+    expect(collectLines((await dd(s)).content).filter((x) => x.trim() === '')).toEqual([])
   })
 })
 
@@ -1166,14 +1197,27 @@ describe('buildPdfDocDefinition — the summary line', () => {
 
   it('joins several meta parts with a middot', async () => {
     const dd = await buildPdfDocDefinition(store(), summaryView(), 'en')
-    expect(collectText(dd.content).join(' | ')).toMatch(/Cartavio[^|]*\u00b7/)
+    expect(collectLines(dd.content).join(' | ')).toMatch(/Cartavio[^|]*\u00b7|\u00b7[^|]*Cartavio/)
+  })
+
+  it('orders the slots the way the view asked for', async () => {
+    // Same control as the preview's: it used to move only the preview, so one
+    // view read date-first on screen and title-first in its own PDF.
+    const line = async (layout: string): Promise<string> => collectLines(
+      (await buildPdfDocDefinition(store(), summaryView({ summary_layout: layout }), 'en')).content,
+    ).find((l) => l.includes('Architect'))!
+    const dateFirst = await line('date-title-org')
+    const titleFirst = await line('title-org-date')
+    expect(dateFirst.indexOf('Cartavio')).toBeGreaterThan(dateFirst.indexOf('Architect'))
+    expect(titleFirst.indexOf('Architect')).toBeLessThan(titleFirst.indexOf('Cartavio'))
+    expect(dateFirst).not.toEqual(titleFirst)
   })
 
   it('puts the short description on its own line by default', async () => {
     const dd = await buildPdfDocDefinition(
       store({ short_description: { en: 'Ran the platform.' } }), summaryView(), 'en')
-    const lines = collectText(dd.content)
-    // Its own text node, and NOT glued onto the one carrying the meta.
+    const lines = collectLines(dd.content)
+    // Its own line, and NOT glued onto the one carrying the meta.
     expect(lines).toContain('Ran the platform.')
     expect(lines.some((l) => l.includes('Cartavio') && l.includes('Ran the platform.'))).toBe(false)
   })
@@ -1182,7 +1226,7 @@ describe('buildPdfDocDefinition — the summary line', () => {
     const dd = await buildPdfDocDefinition(
       store({ short_description: { en: 'Ran the platform.' } }),
       summaryView({ short_desc_line: 'inline' }), 'en')
-    const lines = collectText(dd.content)
+    const lines = collectLines(dd.content)
     expect(lines.some((l) => l.includes('Cartavio') && l.includes('Ran the platform.'))).toBe(true)
     expect(lines).not.toContain('Ran the platform.')
   })

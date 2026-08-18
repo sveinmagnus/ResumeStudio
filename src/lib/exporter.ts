@@ -20,22 +20,31 @@
 import {
   Document, Packer, Paragraph, TextRun, AlignmentType,
   PageOrientation, BorderStyle, ImageRun, Table, TableRow, TableCell,
-  TableBorders, WidthType, VerticalAlign,
+  TableBorders, WidthType, VerticalAlign, LineRuleType, ShadingType,
 } from 'docx'
 import type {
   ResumeStore, ResumeView, Resume, LocalizedString, SectionDetail,
-  ViewHeaderConfig, FooterSeparator, CoverLetter,
+  ViewHeaderConfig, FooterSeparator, CoverLetter, FullLayout, SummaryLayout,
 } from '../types'
 import { resolveLetterParts } from './coverLetter'
 import { localizedSectionHeading } from './sections'
 import { resolve, type DateFormat } from './locales'
-import { SECTION_CATALOG, summaryTitleMeta, type AnyItem as CatalogItem, type CatalogCtx, type ItemView } from './sectionCatalog'
+import {
+  SECTION_CATALOG,
+  type AnyItem as CatalogItem, type CatalogCtx, type ItemView,
+  type SummaryView, type SummaryPartKey,
+} from './sectionCatalog'
+import {
+  summarySegments, fullItemLayout, summaryColumns, tabulatedColumns,
+  type SummarySegment,
+} from './itemLayout'
 import { skillMatrixRows, fmtLastUsed, fmtProficiency, type SkillMatrixRow } from './skillMatrix'
 import { xs, fmtYears } from './exportStrings'
 import { applyView, viewProfileTagLine } from './viewFilter'
 import { planViewSections, sectionItems, renderKeyFor } from './viewSectionPlan'
 import { parseRichBlocks, plainParagraphs, type RichRun } from './richText'
-import { deriveTokens, resolveSectionStyle, sectionHeadingText, kqVisibility, bulletGlyph, withDefaults, withResolvedFonts, resolveFontDocx, type ResolvedSectionStyle, type StyleTokens } from './viewStyle'
+import { sectionIconDataUri, BLANK_PNG_URI } from './sectionIcon'
+import { deriveTokens, dividerSpec, tagChipHex, resolveSectionStyle, sectionHeadingText, kqVisibility, bulletGlyph, withDefaults, withResolvedFonts, resolveFontDocx, type ResolvedSectionStyle, type StyleTokens, type DividerSpec, type DividerKind } from './viewStyle'
 import type { GlobalFonts } from './fonts'
 import { withHeaderDefaults, withFooterDefaults, buildHeaderLines, buildCopyrightLine, footerLines } from './viewHeader'
 import { imageInfoFromDataUrl, applyShapeMaskToDataUrl, type ImageInfo } from './image'
@@ -50,6 +59,8 @@ const FAINT_HEX  = '888888'
 interface ExportCtx {
   locale: string
   detail: SectionDetail
+  /** The section's lucide icon name, drawn before the heading when enabled. */
+  icon: string
   /** Resolved style for this section (view defaults overlaid with section overrides). */
   resolved: ResolvedSectionStyle
   /** Tokens derived from `resolved` — pre-computed for cheap reads. */
@@ -158,17 +169,37 @@ function flattenBlocks(blocks: ReturnType<typeof parseRichBlocks>): RichRun[] {
   return out
 }
 
-function sectionHeading(label: string, tokens: StyleTokens): Paragraph {
+function sectionHeading(
+  label: string, tokens: StyleTokens, icon: string | null = null,
+): Paragraph {
+  const svg = icon ? sectionIconDataUri(icon, tokens.accentHex) : null
+  // Word draws the vector from Office 2016 on; the required raster fallback
+  // is blank because an older Word has no way to draw the glyph at all, and
+  // a missing icon beats a wrong-looking bitmap.
+  const iconRuns = svg
+    ? [
+      new ImageRun({
+        type: 'svg',
+        data: svg,
+        fallback: { type: 'png', data: BLANK_PNG_URI },
+        transformation: { width: tokens.h2Pt, height: tokens.h2Pt },
+      }),
+      new TextRun({ text: '  ', size: tokens.h2Pt * 2, font: tokens.headingFontDocx }),
+    ]
+    : []
   return new Paragraph({
     spacing: { before: tokens.itemGapTwips * 2, after: tokens.sectionHeadingAfterTwips },
     border: { bottom: { color: tokens.accentHex, space: 1, style: BorderStyle.SINGLE, size: 8 } },
-    children: [new TextRun({
-      text: label.toUpperCase(),
-      bold: true,
-      color: tokens.headingHex,
-      size: tokens.h2Pt * 2,
-      font: tokens.headingFontDocx,
-    })],
+    children: [
+      ...iconRuns,
+      new TextRun({
+        text: label.toUpperCase(),
+        bold: true,
+        color: tokens.headingHex,
+        size: tokens.h2Pt * 2,
+        font: tokens.headingFontDocx,
+      }),
+    ],
   })
 }
 
@@ -188,21 +219,19 @@ function topSpacer(beforeTwips: number): Paragraph {
 /**
  * Emit a single-line summary paragraph: bold title plus an inline meta tail.
  */
-function summaryLine(title: string, meta: string, ctx: ExportCtx): Paragraph {
-  const children: TextRun[] = [
-    new TextRun({
-      text: title,
-      bold: true,
-      size: ctx.tokens.smallFontSizePt * 2,
-      font: ctx.tokens.bodyFontDocx,
-    }),
-  ]
-  if (meta) {
+function summaryLine(segments: SummarySegment[], trail: string, ctx: ExportCtx): Paragraph {
+  const size = ctx.tokens.smallFontSizePt * 2
+  const font = ctx.tokens.bodyFontDocx
+  const children: TextRun[] = []
+  for (const g of segments) {
+    if (g.joiner) children.push(new TextRun({ text: g.joiner, size, font }))
+    children.push(g.slot === 'title'
+      ? new TextRun({ text: g.text, bold: true, size, font })
+      : new TextRun({ text: g.text, color: SUBTLE_HEX, size, font }))
+  }
+  if (trail) {
     children.push(new TextRun({
-      text: ` — ${meta}`,
-      color: SUBTLE_HEX,
-      size: ctx.tokens.smallFontSizePt * 2,
-      font: ctx.tokens.bodyFontDocx,
+      text: `${children.length ? ' — ' : ''}${trail}`, color: SUBTLE_HEX, size, font,
     }))
   }
   return new Paragraph({
@@ -404,7 +433,7 @@ export async function exportDocx(store: ResumeStore, view: ResumeView, locale: s
       const rows = skillMatrixRows(store, view, locale, { highlightedOnly: def.detail === 'summary' })
       if (!rows.length) continue
       const tokens = deriveTokens(resolved)
-      if (!resolved.hide_heading) children.push(sectionHeading(sectionHeadingText(resolved, localizedSectionHeading(def.key, locale), locale), tokens))
+      if (!resolved.hide_heading) children.push(sectionHeading(sectionHeadingText(resolved, localizedSectionHeading(def.key, locale), locale), tokens, resolved.show_icon ? def.icon : null))
       else children.push(topSpacer(tokens.itemGapTwips * 2))
       children.push(skillMatrixTable(rows, !resolved.hide_dates, tokens, locale, resolved.date_format))
       continue
@@ -418,6 +447,7 @@ export async function exportDocx(store: ResumeStore, view: ResumeView, locale: s
       detail: def.detail,
       resolved,
       tokens: deriveTokens(resolved),
+      icon: def.icon,
     }
     const renderKey = renderKeyFor(def.key)
     const block = renderSection(renderKey, sectionHeadingText(resolved, localizedSectionHeading(def.key, locale), locale), items, ctx)
@@ -461,7 +491,15 @@ export async function exportDocx(store: ResumeStore, view: ResumeView, locale: s
   const doc = new Document({
     styles: {
       default: {
-        document: { run: { font: baseTokens.bodyFontDocx, size: baseTokens.bodyFontSizePt * 2 } },
+        document: {
+          run: { font: baseTokens.bodyFontDocx, size: baseTokens.bodyFontSizePt * 2 },
+          // Density sets line height in the preview and the PDF; Word takes it
+          // as a multiple of single spacing (240 twips), so the same three
+          // densities read the same in all three rather than only two.
+          paragraph: {
+            spacing: { line: Math.round(baseTokens.lineHeight * 240), lineRule: LineRuleType.AUTO },
+          },
+        },
       },
     },
     sections: [{
@@ -534,6 +572,114 @@ export async function exportCoverLetterDocx(
   downloadBlob(blob, exportFilename(store.resume?.full_name, letter.name || 'cover-letter', 'docx'))
 }
 
+const DIVIDER_BORDER: Record<Exclude<DividerKind, 'none'>, (typeof BorderStyle)[keyof typeof BorderStyle]> = {
+  solid: BorderStyle.SINGLE,
+  dashed: BorderStyle.DASHED,
+  dotted: BorderStyle.DOTTED,
+  double: BorderStyle.DOUBLE,
+}
+
+/**
+ * The rule drawn between two items, from the same {@link dividerSpec} the
+ * preview and the PDF read.
+ *
+ * Word has no free-standing rule either: it is an empty paragraph carrying a
+ * bottom border. The run is 1 half-point so the paragraph adds a hairline of
+ * height rather than a blank line. A SHORT rule can't be a paragraph border
+ * (those span the column), so it becomes a fixed-width one-cell table.
+ */
+function itemDivider(spec: DividerSpec, gapTwips: number): Paragraph | Table | null {
+  if (spec.kind === 'none') return null
+  const border = {
+    style: DIVIDER_BORDER[spec.kind],
+    // Word measures a border in EIGHTHS of a point.
+    size: Math.max(1, Math.round(spec.weightPt * 8)),
+    color: spec.colorHex,
+    space: 1,
+  }
+  const gap = Math.round(gapTwips / 2)
+  if (spec.widthPt !== null) {
+    return new Table({
+      width: { size: Math.round(spec.widthPt * 20), type: WidthType.DXA },
+      borders: { ...TableBorders.NONE, bottom: border },
+      rows: [new TableRow({
+        children: [new TableCell({
+          margins: { top: 0, bottom: 0, left: 0, right: 0 },
+          children: [new Paragraph({ spacing: { before: gap, after: gap, line: 20 }, children: [new TextRun({ text: '', size: 1 })] })],
+        })],
+      })],
+    })
+  }
+  return new Paragraph({
+    border: { bottom: border },
+    spacing: { before: gap, after: gap, line: 20 },
+    children: [new TextRun({ text: '', size: 1 })],
+  })
+}
+
+/** The separator glyph between a start and end date column. */
+const MIDDOT = '·'
+/** A hard line break inside a tabulated cell (Languages' Europass column). */
+const NEWLINE = '\n'
+
+/**
+ * A summary section laid out as aligned columns — one column per present part,
+ * in the view's slot order, from the same helpers the preview's CSS grid uses.
+ *
+ * A borderless Word table, because that is what aligns. The divider, if the
+ * view draws one, becomes the row's bottom border rather than a paragraph
+ * between rows, so the rules span the full width like the preview's.
+ */
+function tabulatedSummary(
+  summaries: SummaryView[], tokens: StyleTokens, layout: SummaryLayout, divider: DividerSpec,
+): Table | null {
+  const partCols = summaryColumns(summaries, layout)
+  if (!partCols.length) return null
+  const cols = tabulatedColumns(partCols)
+  const flexes = (c: SummaryPartKey | 'sep'): boolean => c === 'title' || c === 'role' || c === 'org'
+  // Text columns share the width; the short date columns take a fixed slice.
+  const narrow = cols.filter((c) => !flexes(c)).length
+  const wide = cols.length - narrow
+  const narrowPct = Math.min(12, narrow ? Math.floor(40 / narrow) : 0)
+  const widePct = wide ? Math.floor((100 - narrowPct * narrow) / wide) : 0
+  const size = tokens.smallFontSizePt * 2
+  const border = divider.kind === 'none' ? undefined : {
+    style: DIVIDER_BORDER[divider.kind],
+    size: Math.max(1, Math.round(divider.weightPt * 8)),
+    color: divider.colorHex,
+    space: 1,
+  }
+  const rows = summaries.map((sum, ri) => {
+    const map = new Map(sum.parts.map((pt) => [pt.key, pt.value]))
+    const last = ri === summaries.length - 1
+    return new TableRow({
+      children: cols.map((c) => {
+        const text = c === 'sep'
+          ? (map.get('start') && map.get('end') ? MIDDOT : '')
+          : map.get(c) ?? ''
+        return new TableCell({
+          width: { size: flexes(c) ? widePct : narrowPct, type: WidthType.PERCENTAGE },
+          borders: last || !border ? TableBorders.NONE : { ...TableBorders.NONE, bottom: border },
+          margins: { top: 20, bottom: 40, left: 0, right: 120 },
+          children: text.split(NEWLINE).map((line) => new Paragraph({
+            spacing: { after: 0 },
+            children: [new TextRun({
+              text: line, size, font: tokens.bodyFontDocx,
+              bold: c === 'title' || undefined,
+              color: c === 'title' ? undefined : SUBTLE_HEX,
+            })],
+          })),
+        })
+      }),
+    })
+  })
+  return new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, borders: TableBorders.NONE, rows })
+}
+
+/** What a section contributes to the document: paragraphs, plus the tables a
+ *  short divider rule and the skill matrix need. */
+type DocBlock = Paragraph | Table
+
 // ─── Section dispatcher ───────────────────────────────────────────────────────
 
 /**
@@ -543,35 +689,59 @@ export async function exportCoverLetterDocx(
  * catalog; this file only owns DOCX layout. The skill/role registries have no
  * `full` renderer in the catalog, so they fall through to [] as before.
  */
-function renderSection(key: string, label: string, items: unknown[], ctx: ExportCtx): Paragraph[] {
+function renderSection(key: string, label: string, items: unknown[], ctx: ExportCtx): DocBlock[] {
   const desc = SECTION_CATALOG[key]
   if (!desc || (!desc.full && !desc.summary)) return []
   const cctx: CatalogCtx = { locale: ctx.locale, hideDates: !!ctx.resolved.hide_dates, dateFormat: ctx.resolved.date_format, target: 'docx', extras: ctx.resolved.extras, kq: kqVisibility(ctx.resolved, ctx.detail === 'summary' ? 'summary' : 'full') }
   // Items arrive already ordered by the caller (the view's per-section sort).
   const list = items as CatalogItem[]
-  const out: Paragraph[] = []
+  const spec = dividerSpec(ctx.resolved, ctx.tokens.accentHex)
+  if (ctx.detail === 'summary' && !desc.alwaysFull && ctx.resolved.tabulate && desc.summary) {
+    const summaries = list.map((it) => desc.summary!(it, { ...cctx, detail: 'tabulated' }))
+      .filter((v): v is SummaryView => !!v)
+    const table = summaries.length
+      ? tabulatedSummary(summaries, ctx.tokens, ctx.resolved.summary_layout,
+        ctx.resolved.item_divider ? spec : { ...spec, kind: 'none' })
+      : null
+    return table ? wrap(label, [table], ctx) : []
+  }
+  // One item's paragraphs per entry, so a divider can go BETWEEN items
+  // rather than after every paragraph.
+  const blocks: Paragraph[][] = []
   for (const it of list) {
+    const out: Paragraph[] = []
     if (ctx.detail === 'summary' && !desc.alwaysFull) {
       const s = desc.summary?.(it, cctx)
       if (s) {
-        const { title, meta } = summaryTitleMeta(s)
+        const segments = summarySegments(s, ctx.resolved.summary_layout)
         const short = L((it as Record<string, unknown>).short_description as LocalizedString | undefined, ctx.locale).trim()
-        const metaStr = meta.join(' · ')
         const below = !!short && ctx.resolved.short_desc_line !== 'inline'
-        const line = short && !below ? [metaStr, short].filter(Boolean).join(' — ') : metaStr
-        out.push(summaryLine(title, line, ctx))
+        out.push(summaryLine(segments, below ? '' : short, ctx))
         if (below) out.push(para(short, ctx, { color: SUBTLE_HEX, after: 60 }))
       }
+      if (out.length) blocks.push(out)
       continue
     }
     const v = desc.full?.(it, cctx)
-    if (v) out.push(...renderItemDocx(v, ctx, ctx.resolved.item_bullets ? bulletGlyph(ctx.resolved) : null))
+    if (v) {
+      out.push(...renderItemDocx(
+        v, ctx, ctx.resolved.date_position,
+        ctx.resolved.item_bullets ? bulletGlyph(ctx.resolved) : null,
+      ))
+    }
+    if (out.length) blocks.push(out)
   }
-  return wrap(label, out, ctx)
+  const divider = ctx.resolved.item_divider
+    ? itemDivider(spec, ctx.tokens.itemGapTwips)
+    : null
+  return wrap(label, blocks.flatMap((b, i) =>
+    divider && i < blocks.length - 1 ? [...b, divider] : b), ctx)
 }
 
 /** Lay out one catalog ItemView as DOCX paragraphs. All text rides in TextRun (XML-escaped by docx). */
-function renderItemDocx(v: ItemView, ctx: ExportCtx, bullet: string | null = null): Paragraph[] {
+function renderItemDocx(
+  v: ItemView, ctx: ExportCtx, layout: FullLayout, bullet: string | null = null,
+): Paragraph[] {
   const sz = ctx.tokens.bodyFontSizePt * 2
   const font = ctx.tokens.bodyFontDocx
   const out: Paragraph[] = []
@@ -607,22 +777,26 @@ function renderItemDocx(v: ItemView, ctx: ExportCtx, bullet: string | null = nul
   const IND = bullet ? 260 : 0
   const bodyIndent = IND ? { left: IND } : undefined
 
+  // The date rides the details line, in the slot the view's full-item layout
+  // asks for — not hung off the end of the title, which ignored the setting.
+  const { metaParts, metaFirst } = fullItemLayout(v, layout)
+  const metaTxt = metaParts.join(' · ')
+  const head: Paragraph[] = []
   if (v.title) {
     const titleSize = v.titleStyle === 'large' ? (ctx.tokens.h3Pt + 1) * 2 : sz
-    out.push(new Paragraph({
+    head.push(new Paragraph({
       spacing: { before: v.spacingBefore || undefined, after: 40 },
       indent: IND ? { left: IND, hanging: IND } : undefined,
       children: [
         ...(bullet ? [new TextRun({ text: `${bullet}\t`, bold: true, size: titleSize, font })] : []),
         new TextRun({ text: v.title, bold: true, size: titleSize, font }),
-        ...(v.date ? [new TextRun({
-          text: `   ${v.date}`, size: ctx.tokens.smallFontSizePt * 2, color: FAINT_HEX, font,
-        })] : []),
       ],
     }))
   }
-  const metaTxt = v.meta.filter(Boolean).join(' · ')
-  if (metaTxt) out.push(para(metaTxt, ctx, { italic: true, color: SUBTLE_HEX, after: 80, indent: bodyIndent }))
+  const metaPara = metaTxt
+    ? [para(metaTxt, ctx, { italic: true, color: SUBTLE_HEX, after: 80, indent: bodyIndent })]
+    : []
+  out.push(...(metaFirst ? [...metaPara, ...head] : [...head, ...metaPara]))
   if (v.plainBody) out.push(para(v.plainBody, ctx, { after: 80, indent: bodyIndent }))
   if (v.body) out.push(...richParagraphs(v.body, ctx, { after: 100, indent: bodyIndent }))
   for (const p of v.points) {
@@ -641,14 +815,23 @@ function renderItemDocx(v: ItemView, ctx: ExportCtx, bullet: string | null = nul
   }
   if (v.tags.length) {
     const szm = ctx.tokens.metaFontSizePt * 2
-    out.push(new Paragraph({
-      spacing: { before: 60, after: 100 },
-      indent: bodyIndent,
-      children: [
+    // Chips carry the affordance visually, so they drop the label the inline
+    // list needs — the same trade the preview makes. Word shades a RUN rather
+    // than drawing a box, so a chip is a shaded run padded with spaces.
+    const chip = tagChipHex(ctx.tokens.accentHex)
+    const children = ctx.tokens.tagStyle === 'chips'
+      ? v.tags.flatMap((t, i) => [
+        ...(i ? [new TextRun({ text: ' ', font, size: szm })] : []),
+        new TextRun({
+          text: ` ${t} `, color: ctx.tokens.accentHex, font, size: szm,
+          shading: { type: ShadingType.SOLID, fill: chip, color: 'auto' },
+        }),
+      ])
+      : [
         ...(v.tagsLabel ? [new TextRun({ text: v.tagsLabel, italics: true, color: SUBTLE_HEX, font, size: szm })] : []),
         new TextRun({ text: v.tags.join(', '), color: SUBTLE_HEX, font, size: szm }),
-      ],
-    }))
+      ]
+    out.push(new Paragraph({ spacing: { before: 60, after: 100 }, indent: bodyIndent, children }))
   }
   for (const line of v.extraLines) {
     out.push(para(line, ctx, { color: SUBTLE_HEX, after: 40, indent: bodyIndent }))
@@ -656,10 +839,10 @@ function renderItemDocx(v: ItemView, ctx: ExportCtx, bullet: string | null = nul
   return out
 }
 
-function wrap(label: string, body: Paragraph[], ctx: ExportCtx): Paragraph[] {
+function wrap(label: string, body: DocBlock[], ctx: ExportCtx): DocBlock[] {
   if (!body.length) return []
   if (ctx.resolved.hide_heading) return [topSpacer(ctx.tokens.itemGapTwips * 2), ...body]
-  return [sectionHeading(label, ctx.tokens), ...body]
+  return [sectionHeading(label, ctx.tokens, ctx.resolved.show_icon ? ctx.icon : null), ...body]
 }
 
 // ─── Skill matrix table (F9) ──────────────────────────────────────────────────

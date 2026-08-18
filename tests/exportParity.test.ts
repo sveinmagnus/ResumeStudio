@@ -153,13 +153,33 @@ describe('export parity — every adapter states the same facts', () => {
   it('labels the skill list wherever the tags render as a run of words', async () => {
     // A bare comma list of technologies with nothing saying what they are is
     // the defect this suite was built around. Chips are the one exception —
-    // the reader can SEE those words are tags — so the preview's default form
-    // carries the affordance visually instead of in a word.
+    // the reader can SEE those words are tags — so a chip carries the
+    // affordance visually instead of in a word. The three targets that can
+    // DRAW a chip do; the two linear ones cannot, and keep the label.
     const out = await renderAll(populatedStore(), viewWith(false))
-    for (const adapter of ['ATS text', 'Markdown', 'PDF', 'DOCX']) {
+    for (const adapter of ['ATS text', 'Markdown']) {
       expect(out[adapter], `${adapter} lost the skills label`).toContain('Skills:')
     }
     expect(out['HTML preview']).toContain('ve-tag')
+    for (const adapter of ['PDF', 'DOCX']) {
+      expect(out[adapter], `${adapter} drew no chip`).toContain('Kotlin')
+      expect(out[adapter], `${adapter} labelled a chip list`).not.toContain('Skills:')
+    }
+  })
+
+  it('labels the tags in every paged export once the view lists them inline', async () => {
+    // Inline turns the chips into the same run of words the linear exports
+    // label, in all three of the targets that were drawing chips.
+    const inline = makeView({
+      sections: SECTION_KEYS.map((key, i) => ({
+        key, detail: 'full' as const, sort_order: i, style: { tag_style: 'inline' as const },
+      })),
+    }) as ResumeView
+    const out = await renderAll(populatedStore(), inline)
+    for (const adapter of ['ATS text', 'Markdown', 'PDF', 'DOCX']) {
+      expect(out[adapter], `${adapter} lost the skills label`).toContain('Skills:')
+    }
+    expect(out['HTML preview']).toContain('Skills: Kotlin')
   })
 
   it('labels the preview tags too when the view renders them inline', async () => {

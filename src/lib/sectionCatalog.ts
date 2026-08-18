@@ -103,9 +103,8 @@ export interface ItemView {
 
 /**
  * One-line summary, expressed as ordered semantic parts rather than a fixed
- * title + meta. The HTML adapter reorders and column-tabulates these per the
- * view's item-layout config; the DOCX / text adapters flatten them back to a
- * title + meta line via {@link summaryTitleMeta} (unchanged output).
+ * title + meta. Every adapter orders these through lib/summaryLayout per the
+ * view's item-layout config; the HTML one additionally column-tabulates them.
  *
  *  - title — the item's primary name (anchor; always present)
  *  - role  — a role / degree / position-type descriptor
@@ -125,10 +124,10 @@ export interface SummaryPart { key: SummaryPartKey; value: string }
 export interface SummaryView { parts: SummaryPart[]; sep: '—' | ':' }
 
 /**
- * Flatten a structured summary back to the legacy title + meta line, in the
- * catalog's default part order. The DOCX and plain-text adapters use this so
- * their output is unaffected by the HTML-only item-layout / tabulate features.
- * A start/end pair is re-joined into a single "start – end" range segment.
+ * Flatten a structured summary to a title + meta line in the catalog's own part
+ * order, ignoring the view's chosen layout. What a summary SAYS, independent of
+ * where the slots sit — which is what the descriptor tests assert on. Renderers
+ * use `summarySegments` instead, so a layout choice reaches all four of them.
  */
 export function summaryTitleMeta(v: SummaryView): { title: string; meta: string[] } {
   let title = ''
