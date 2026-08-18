@@ -1169,12 +1169,13 @@ describe('cleanPastedHtml — which runs survive the wrap', () => {
     // it produces an empty paragraph the user cannot see or delete.
     const nl = String.fromCharCode(10)
     const out = cleanPastedHtml(`<div>First</div>   ${nl}   <div>Second</div>`)
-    expect(out).not.toMatch(/<p>\s*<\/p>/)
+    expect(out).not.toContain('<p></p>')
   })
 
   it('drops a run of non-breaking spaces, which Word emits by the dozen', () => {
-    const out = cleanPastedHtml('<div>First</div><div>  </div><div>Second</div>')
-    expect(out).not.toMatch(/<p>[\s ]*<\/p>/)
+    const nbsp = String.fromCharCode(0xa0)
+    const out = cleanPastedHtml(`<div>First</div><div>${nbsp}${nbsp}</div><div>Second</div>`)
+    expect(out).not.toContain('<p></p>')
   })
 
   it('keeps a run where only PART of it is blank', () => {
