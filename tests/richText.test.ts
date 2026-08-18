@@ -1588,3 +1588,83 @@ describe('renderRichInlineHtml — joining for a one-line context', () => {
     expect(renderRichInlineHtml('', esc)).toBe('')
   })
 })
+
+describe('plainParagraphs / plainToRichHtml — plain text becoming storage', () => {
+  const nl = String.fromCharCode(10)
+
+  it('makes every line a paragraph and drops the blank ones', () => {
+    expect(plainParagraphs(`One${nl}${nl}  Two  ${nl}   ${nl}Three`)).toEqual(['One', 'Two', 'Three'])
+  })
+
+  it('treats a Windows line ending as one break, not two', () => {
+    const crlf = String.fromCharCode(13) + nl
+    expect(plainParagraphs(`One${crlf}Two`)).toEqual(['One', 'Two'])
+  })
+
+  it('is empty for empty or whitespace-only input', () => {
+    expect(plainParagraphs('')).toEqual([])
+    expect(plainParagraphs(`   ${nl}  `)).toEqual([])
+    expect(plainToRichHtml('')).toBe('')
+  })
+
+  it('leaves single-line paste UNWRAPPED so it splices into the caret paragraph', () => {
+    // Wrapping it in <p> would split the paragraph the user is typing in.
+    expect(plainToRichHtml('one line')).toBe('one line')
+    expect(plainToRichHtml('a < b & c')).toBe('a &lt; b &amp; c')
+  })
+
+  it('wraps a multi-line paste into paragraphs, escaping each', () => {
+    expect(plainToRichHtml(`One${nl}<script>`)).toBe('<p>One</p><p>&lt;script&gt;</p>')
+  })
+})
+
+describe('cleanPastedHtml — Word list paragraphs', () => {
+  it('turns a run of Word list paragraphs into a real list', () => {
+    // Word pastes each bullet as a styled <p> with the glyph in its own span;
+    // left alone they arrive as loose paragraphs and the bullets read as text.
+    const html = '<p class="MsoListParagraph" style="mso-list:l0 level1"><span style="mso-list:Ignore">·</span>First</p>'
+      + '<p class="MsoListParagraph" style="mso-list:l0 level1"><span style="mso-list:Ignore">·</span>Second</p>'
+    const out = cleanPastedHtml(html)
+    expect(out).toContain('<ul>')
+    expect(out.match(/<li>/g)).toHaveLength(2)
+    expect(out).not.toContain('·')
+  })
+
+  it('reads a numeric marker as an ORDERED list', () => {
+    const html = '<p class="MsoListParagraph"><span style="mso-list:Ignore">1.</span>First</p>'
+      + '<p class="MsoListParagraph"><span style="mso-list:Ignore">2.</span>Second</p>'
+    const out = cleanPastedHtml(html)
+    expect(out).toContain('<ol>')
+    expect(out).not.toContain('<ul>')
+  })
+
+  it('leaves an ordinary paragraph beside them alone', () => {
+    const html = '<p>Intro</p><p class="MsoListParagraph"><span style="mso-list:Ignore">·</span>Item</p>'
+    const out = cleanPastedHtml(html)
+    expect(out).toContain('<p>Intro</p>')
+    expect(out).toContain('<li>Item</li>')
+  })
+})
+
+describe('cleanPastedHtml — style-based formatting', () => {
+  it('maps a styled span onto a real tag', () => {
+    expect(cleanPastedHtml('<span style="font-weight:700">Bold</span>')).toContain('<strong>')
+    expect(cleanPastedHtml('<span style="font-style:italic">Ital</span>')).toContain('<em>')
+    expect(cleanPastedHtml('<span style="text-decoration:underline">Und</span>')).toContain('<u>')
+  })
+
+  it('honours a NEGATING style on a formatting tag', () => {
+    // Google Docs wraps whole pastes in <b style="font-weight:normal">; reading
+    // that as bold makes an entire pasted CV bold.
+    const out = cleanPastedHtml('<b style="font-weight:normal">Not bold</b>')
+    expect(out).not.toContain('<strong>')
+    expect(richToPlain(out)).toContain('Not bold')
+  })
+
+  it('replaces a non-breaking space with an ordinary one', () => {
+    const nbsp = String.fromCharCode(0xa0)
+    const out = cleanPastedHtml(`<p>One${nbsp}two</p>`)
+    expect(out).not.toContain(nbsp)
+    expect(richToPlain(out)).toBe('One two')
+  })
+})
