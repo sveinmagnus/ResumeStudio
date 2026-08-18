@@ -58,7 +58,7 @@ run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once.
 ## What's in the box
 
 The full feature tour lives on the
-[documentation site](https://sveinmagnus.github.io/resumestudio/features.html)
+[documentation site](https://sveinmagnus.github.io/ResumeStudio/features.html)
 — this is the short version:
 
 - **Multi-resume.** One instance holds any number of master CVs; the picker is
@@ -67,7 +67,7 @@ The full feature tour lives on the
   two inputs at once — pick any two locales, swap with one click, hide the
   secondary column when you want focus.
 - **AI assist, bring-your-own model.** Automatic Docker-managed Ollama setup or 
-  point the app at another local Ollama, Mistral, Antrhopic, OpenAI, or any OpenAI-compatible endpoint.
+  point the app at another local Ollama, Mistral, Anthropic, OpenAI, Google Gemini, or any OpenAI-compatible endpoint.
   The configured model powers the whole assist suite: one-line summaries (per field or
   "Bulk summarize" for a whole section), skill suggestions from project prose, drafted
   project highlights, an anonymization leak check, and over-length page-fit
@@ -87,7 +87,11 @@ The full feature tour lives on the
   headings, date formats, per-section sort and layout), **named templates**
   (compact technical / formal management / minimal one-pager), a configurable
   header/footer (localized contact fields, photo + logo placement), and a
-  **live preview pane** with a page-count estimate. Export as **PDF**
+  **live preview pane** with a page-count estimate. The preview, the PDF, the
+  Word file and the ATS text all state the same facts and honour the same style
+  controls; the optional extras (links, team/allocation metrics, referee
+  contact details, grades, expiry dates…) are switched on **per view** rather
+  than differing per format, and every group starts off. Export as **PDF**
   (one-click vector download), **DOCX** (lazy-loaded
   [`docx`](https://docx.js.org/)), ATS-friendly **plain text / Markdown**, or
   **Europass XML** (the `SkillsPassport` format public tenders ask for) —
@@ -152,7 +156,8 @@ The full feature tour lives on the
 - **Desktop build.** A portable folder with bundled Node — unzip,
   double-click, edit. System-tray icon, automatic updates from GitHub
   Releases, in-app Settings, and cross-computer sync via a JSON backup file
-  in your existing cloud folder (Drive/Dropbox/OneDrive). See
+  in your existing cloud folder (Drive/Dropbox/OneDrive) — one file per CV, so
+  removing one person from the backups is deleting one file. See
   [DESKTOP.md](./DESKTOP.md).
 
 ---
@@ -202,10 +207,14 @@ tests/           Vitest specs (see CI for the live count) — pure libs, store, 
 | `npm run typecheck` | `tsc --noEmit` for both client and server |
 | `npm run desktop` | Build the client and run the desktop launcher from source |
 | `npm run build:desktop` | Assemble the portable desktop `release/` folder (per target OS) |
+| `npm run test:e2e` | Build, then run the Playwright smoke + accessibility suites |
+| `npm run lint` | ESLint — a CI gate, not a style pass (see `eslint.config.js`) |
+| `npm run check:bundle` | Assert the initial-payload budget and that the heavy chunks stayed lazy |
 | `npm run dev:translate` | Start the bundled LibreTranslate Docker service (`translate:down` stops it) |
 
-CI (`.github/workflows/ci.yml`) runs typecheck + test + build on every push
-and PR.
+CI (`.github/workflows/ci.yml`) runs lint + check:text + typecheck + test +
+build + check:bundle on every push and PR, plus the coverage ratchet, the
+Playwright suites on Chromium/Firefox/WebKit, CodeQL, and gitleaks.
 
 ---
 
@@ -229,8 +238,8 @@ translation, sync, and updates.
 | `LLM_HIGH_END` | empty | Set to `1` to declare the model strong enough for the **advanced assists** (whole-CV review, consistency pass, achievement mining, semantic drift, positioning). Hidden and server-refused otherwise. |
 | `RESUME_RATE_LIMIT_MAX` / `RESUME_RATE_LIMIT_WINDOW_MS` | `50` / `900000` | Failure-focused API rate limiter (only ≥400 responses count, so auto-save is never throttled). |
 | `RESUME_DATA_DIR` | per-user OS folder | Desktop build: where the live SQLite DB + log live. |
-| `RESUME_BACKUP_DIR` | empty | Desktop build: cloud-synced folder for the whole-store JSON backup (cross-computer sync). |
-| `RESUME_BACKUP_INTERVAL_MS` | `60000` | Desktop build: backup refresh cadence. |
+| `RESUME_BACKUP_DIR` | empty | Desktop build: cloud-synced folder for the backup files — one JSON per resume, plus a registry file and an id-only tombstone file (cross-computer sync). |
+| `RESUME_BACKUP_INTERVAL_MS` | `60000` | Desktop build: how often changed resumes are written out to that folder. |
 | `RESUME_DB_JOURNAL` | `WAL` | SQLite journal mode (`TRUNCATE` escape hatch if the DB must live in a synced folder). |
 
 In dev/VPS mode the SQLite database lives at `data/resume.db` (gitignored):
@@ -240,7 +249,7 @@ The desktop build keeps the same schema in `RESUME_DATA_DIR` instead.
 
 ### Enabling AI assist and translation support (optional)
 
-The "AI assist" and "Draft translation" buttons needs configured providers. The zero-key
+The "AI assist" and "Draft translation" buttons need a configured provider. The zero-key
 option is a self-hosted [LibreTranslate](https://libretranslate.com/) and/or [Ollama](https://ollama.com/)
 instance — a `docker-compose.yml` is bundled to run both alongside the app:
 
@@ -261,8 +270,8 @@ translates with the AI-assist model using `LLM_PROVIDER` — see `.env.example`.
 On the desktop build, all of this lives in Settings, which can also start/stop 
 the Docker services and pick the installed languages for you.
 
-LLM assist and translation is entirely optional — without it, "Copy from primary" still works
-and the other buttons stays hidden. CV text only travels browser → app server →
+LLM assist and translation are entirely optional — without them, "Copy from primary" still
+works and the other buttons stay hidden. CV text only travels browser → app server →
 the provider you configured; there is no third-party middleman.
 
 ---

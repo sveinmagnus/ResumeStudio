@@ -214,6 +214,12 @@ and fix the thing a finding just told you about and come back to the rest.
 
 ## Export
 
+- **What you previewed is what you send.** The live preview, the PDF, the Word
+  file and the ATS text state the same facts and honour the same style choices.
+  Optional extras — links, team size and allocation, referee contact details,
+  grades, expiry dates, locations — are switched on **per view**, so what an
+  export contains is something you chose rather than a side effect of which
+  button you pressed. Every group starts off.
 - **PDF** — a one-click vector download, rendered from the same section
   catalog as the preview.
 - **DOCX** (`.docx`) via the [`docx`](https://docx.js.org/) library, lazy-
@@ -270,14 +276,20 @@ and fix the thing a finding just told you about and come back to the rest.
 ## Cross-computer sync (desktop)
 
 - **Backup folder in your existing cloud sync** (Google Drive, Dropbox,
-  OneDrive). Resume Studio writes a single JSON file there, atomically, and
-  merges newer content back in **continuously while it runs** — not only at
+  OneDrive). Resume Studio writes **one JSON file per CV** there, atomically,
+  and merges newer content back in **continuously while it runs** — not only at
   launch — so edits made on another computer land within seconds of your sync
   client delivering them, even if you leave the app open for days. If the CV
   you're viewing was updated elsewhere, a small **"updated on another device —
   Reload"** notice appears.
-- **Newest-wins per resume, never deletes.** Safe by design — a restore
-  drops a snapshot first, so it's reversible from History.
+- **One file per person, on purpose.** A CV is one identified individual's
+  data, so removing someone from your backups is deleting one file — not
+  editing a document that holds everybody. You can also hand a single CV to
+  someone by sending its file.
+- **Newest-wins per CV.** A restore drops a snapshot first, so it's reversible
+  from History. Nothing is removed except CVs you deleted yourself: a deletion
+  writes an id-and-timestamp marker the other machines honour, and a copy saved
+  *after* the deletion counts as a revival and is kept.
 - **No real-time multi-writer.** Designed for one person hopping between
   computers, not for two people editing the same CV at once.
 - **Automatic updates.** The desktop app checks GitHub Releases daily (or on
@@ -292,7 +304,8 @@ and fix the thing a finding just told you about and come back to the rest.
   keep everything on your computer.
 - **No account, no telemetry, no analytics.**
 - **Loopback-only on desktop.** The local server binds `127.0.0.1` — the app
-  is never exposed to your network.
+  is never exposed to your network, including when you reach it under the
+  friendly local name (`resumestudio.localhost`) instead of the IP.
 - **Auth-gated when self-hosted.** Server deployments require a bearer token;
   the browser exchanges it for an HttpOnly session cookie so the token never
   lives in JavaScript-readable storage.

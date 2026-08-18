@@ -28,9 +28,17 @@ tasks once you're set up. If you haven't installed it yet, head to the
 ## First launch
 
 Double-click the launcher for your platform (see the [download page](download.html)
-if you're not sure which file). A small log window opens, the app picks a free
-port starting at 3001, your browser opens automatically to the home screen,
-and a **Resume Studio icon appears in the system tray**.
+if you're not sure which file). A small log window opens, the app claims a free
+local port (80 if it's available, so the address needs no `:port` suffix at all,
+otherwise 1923), your browser opens automatically to the home screen, and a
+**Resume Studio icon appears in the system tray**.
+
+The app is reachable at a name rather than an IP: **`resumestudio.localhost`**
+works in any browser with nothing to set up. Settings → **Local address** can
+also offer `resumestudio.local`, which every tool resolves (curl, a script,
+another device's browser pointed at this machine) at the cost of one
+administrator prompt to add a line to the system hosts file. Either way the
+server still listens on loopback only.
 
 That home screen is the **picker** — your list of CVs. It starts empty.
 
@@ -186,8 +194,10 @@ configure** in **Settings → AI assist**:
   and/or key. The buttons then say content is sent to that provider, and
   whole-CV tasks confirm once per session before the first send.
 
-Pick a model (the field suggests a curated shortlist plus whatever your
-Ollama has already pulled), hit **Test**, and Save. Every AI result is a
+Pick a model — the field lists what your provider actually offers right now,
+fetched from the provider itself rather than a built-in shortlist that goes
+stale when a model is retired (for a local Ollama it also shows download sizes)
+— then hit **Test** and Save. Every AI result is a
 draft you review before it touches your CV.
 
 No model configured? Every AI feature still works manually: copy the
@@ -203,9 +213,10 @@ person hopping between computers.
 1. On computer A, open **Settings → Backup & sync folder** and paste in a
    folder inside your cloud sync client (Google Drive, Dropbox, OneDrive).
    Save.
-2. Use the app normally. Resume Studio writes a single
-   `resume-studio-backup.json` in that folder, atomically, whenever your CVs
-   change (about once a minute, only if something actually changed).
+2. Use the app normally. Resume Studio writes **one JSON file per CV** in that
+   folder, atomically, whenever your CVs change (about once a minute, only if
+   something actually changed) — plus a shared registry file, so a single CV
+   file can rebuild the skills and roles it references on a fresh machine.
 3. On computer B, set the **same** folder in Settings. B pulls in A's CVs
    automatically — at launch, and then **continuously while it runs**: it
    watches the folder and merges anything newer your sync client drops in,
@@ -219,8 +230,12 @@ person hopping between computers.
 - A CV that's newer in the backup replaces the local copy.
 - A CV that's only in the backup is added.
 - A CV that's only local stays.
-- **Nothing is ever deleted** by a normal restore, and a restore drops a
-  snapshot first so it's reversible from History.
+- A restore drops a snapshot first, so it's reversible from History.
+- **The only thing that removes a CV is deleting it yourself.** Deleting one
+  writes a marker — its id and the time, nothing else — that the other machines
+  honour, so a delete on one computer doesn't come back from another. Edit a CV
+  after deleting it elsewhere and the edit wins: a newer copy counts as a
+  revival.
 
 If you edit the *same* CV on two machines without syncing in between, the last
 one to sync wins. (If a background sync brings in a change to a CV you have
@@ -234,8 +249,10 @@ Two independent backup mechanisms; use whichever fits the situation:
 - **Per-CV export** (from the editor's header) — downloads a single `.json`
   file for the active CV. Versioned and portable. Loading it from the picker
   creates a new CV rather than overwriting one.
-- **Whole-store sync backup** (Settings → Backup & sync folder) — the JSON
-  file in your cloud-sync folder, described above. Holds every CV in the app.
+- **Sync folder** (Settings → Backup & sync folder) — the per-CV JSON files in
+  your cloud-sync folder, described above. Settings → Backup & export also
+  downloads exactly those files as one `.zip`, which you can drop back on the
+  picker later; it merges by CV rather than creating copies.
 
 And, server-side, every save is snapshotted automatically (last 50 per CV).
 
@@ -268,8 +285,10 @@ And, server-side, every save is snapshotted automatically (last 50 per CV).
   browser tab, or another machine that synced first). The modal shows what
   changed and lets you **keep mine** (re-save your version on top) or
   **discard mine** (take the other side).
-- **Port 3001 is busy.** The launcher tries 3001 first, then climbs until it
-  finds a free port. Check the launcher window for the actual URL.
+- **The port is busy.** The launcher tries port 80 first (so the address needs
+  no `:port` suffix at all), then 1923, then climbs from there. Check the
+  launcher window for the actual URL. Pin one with `RESUME_LOCAL_PORT`, or in
+  Settings → Local address.
 
 If something else goes wrong, **[file an issue]({{ site.repo_url }}/issues)** —
 include the contents of `resume-studio.log` and your OS.

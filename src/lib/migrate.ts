@@ -8,14 +8,8 @@
  * (Idempotence is load-bearing: data written before versioning existed is
  * unstamped, so the only safe dispatch for it is shape-sniffing.)
  *
- * Current migrations (all part of shape v1 → v2):
- *  - foldRoleDescriptions: collapse the old per-role free text
- *    (ProjectRole.long_description / .summary) into the project's single
- *    `long_description`, leaving roles as registry links only.
- *  - extractKeyPointsToCompetencies: promote per-KQ key_points to the
- *    standalone key_competencies section.
- *  - migrateEmploymentShape: WorkExperience role_id → role_ids[] + seed the
- *    company_size_* triple from the deprecated single company_size (shape v8).
+ * The chain itself is `MIGRATIONS` below, in application order; what each
+ * shape version changed is the numbered list on `CURRENT_SHAPE_VERSION`.
  */
 
 import type {
@@ -57,6 +51,11 @@ import { uuidv4 } from './uuid'
  *                 title/role renders per export language like every other
  *                 translatable field. A legacy string is wrapped as
  *                 `{ en: title }`; null/absent becomes `{}`.
+ *  - 8          — `WorkExperience.role_id` becomes `role_ids[]`, and the
+ *                 deprecated free-text `company_size` seeds
+ *                 `company_size_national` (`migrateEmploymentShape`). The
+ *                 legacy `company_size` is left in place — it round-trips
+ *                 harmlessly and nothing reads it.
  *  - 9          — un-pin the heading font on views written before fonts became
  *                 configurable (`unpinLegacyHeadingFont`), so the app-wide
  *                 default in Settings actually reaches them.

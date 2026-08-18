@@ -179,7 +179,8 @@ prescriptive.
   dropped not fatal) and `lib/assistProposals.ts` (field rewrites — carries the
   original, refuses non-prose fields, re-checks at apply time so a field edited
   after the run is skipped rather than overwritten; one `replaceData` per batch).
-  The seven: **whole-CV review**, **consistency & voice pass**, **cross-language
+  Twelve shipped. The seven about the CV itself: **whole-CV review**,
+  **consistency & voice pass**, **cross-language
   meaning check** (drift.ts's long-noted missing third signal), **achievement
   mining** (every proposal must quote its supporting sentence or it's dropped),
   **profile + competency-bundle generator** (requires a written focus brief —
@@ -508,7 +509,7 @@ prescriptive.
 
 ## What's intentionally simple
 
-- The **router** is a hand-rolled ~150-line History API hook
+- The **router** is a hand-rolled ~220-line History API hook
   (`src/lib/router.ts`) — no dep. Routes: `/` picker, `/r/:id` editor,
   `/r/:id/:section` (active section in the URL — refresh keeps your place,
   Back walks sections), `/r/:id/views/:viewId` (one view open), plus a 404.
@@ -665,6 +666,48 @@ dropping the sync file on the picker used to run each resume through
 `createResume`, mint a new id, and duplicate the whole list back onto the first
 machine. The legacy combined file is still read, then retired once superseded.
 
+**Export parity (1.0.1, August 2026) — the one that changes how you reason
+about the render paths.** The four targets used to disagree with each other in
+both directions, and both halves are now enforced by a suite:
+
+- **Content.** `lib/sectionCatalog.ts` carried a different set of FIELDS per
+  target — the Word and PDF files printed a project's team size, allocation and
+  highlights while the HTML preview printed none of them, and the ATS text
+  shipped less than either. Eight more fields were editable and reached no
+  export at all. The rule is now: **content is identical in the preview, the
+  PDF, the Word file and the ATS text, and anything optional is chosen per VIEW,
+  not per target** — `lib/sectionExtras.ts` declares the switchable groups per
+  section, `SectionStyle.extras` stores which are on, and **every group defaults
+  OFF** (including the ones DOCX/PDF used to ship unconditionally, so an
+  existing view renders less until it opts in — the point being that an export's
+  contents become a decision rather than an accident).
+  `tests/exportParity.test.ts` renders one view through all five outputs and
+  asserts each fact reaches every one.
+- **Appearance.** Seven style controls moved the preview and nothing else (skill
+  tags, item dividers, summary layout, full-item layout, aligned summary
+  columns, section icons, and Word's line height), and two of the four
+  full-item layouts rendered identically in the PDF and Word. So the description
+  of a visual effect now lives in ONE module — `lib/itemLayout.ts` (slot order),
+  `viewStyle.dividerSpec`, `viewStyle.tagChipHex`, `lib/sectionIcon.ts` — and
+  the adapters render it, rather than each holding an opinion.
+  `tests/exportVisualParity.test.ts` flips each control and asserts the EXACT
+  set of targets whose output moved, so a purely visual choice leaking into the
+  ATS text fails as loudly as a missing one.
+
+**Also in 1.0.x:** a **map lookup keyed on DATA goes through `lib/lookup.ts`**
+(`MAP[key] ?? fallback` was the idiom in 21 places, and an inherited
+`toString`/`constructor` key is neither null nor undefined — both failure
+shapes were live: a function body interpolated into an exported date, and a
+crafted view crashing the exporter). A **local name for the desktop build**
+(`resumestudio.localhost`, no setup; `resumestudio.local` behind one elevated
+hosts-file write — `server/localHost.ts`) and **port 80 before 1923**. **Intel
+macOS release assets**, without which the updater failed closed on every Intel
+Mac. The 1.0.0 cycle before it was a quality milestone rather than a feature
+release: AA contrast fixed on all three paper surfaces (the jsdom axe suite
+could not see it — no layout engine), unlabelled view-editor controls named,
+and the legal/policy texts written (LICENSE, PRIVACY, SECURITY,
+THIRD-PARTY-LICENSES, RELEASING).
+
 **Toolchain (July 2026):** **Vite 5 → 8** (Rolldown — the production build went
 from ~16 s to under a second, and the dev-server advisories that had no fix
 within Vite 5 are gone; `npm audit` is clean). **ESLint** added as a CI gate
@@ -682,9 +725,12 @@ depcheck. ESLint grew from five project-invariant rules to also enforce the §3
 layering (`import-x/no-restricted-paths` + `no-cycle`), five selected type-aware
 rules, `jsx-a11y`, and the vitest/testing-library correctness rules — see
 CLAUDE.md §2 for what is deliberately OFF and why. Coverage is a **ratchet** set
-just below current (global ~76 %, `src/lib` ~86 %), and the bundle budget
-asserts the initial payload (340 kB gzip) plus that pdfmake / vfs_fonts /
-exporter stay in their own chunks. **Stryker** mutation testing
+just below current (global 78 % statements / 81 % lines, `src/lib` 86 % / 89 %),
+and the bundle budget asserts the initial payload (340 kB gzip) plus that
+pdfmake, the DOCX `exporter`, and each pdfmake font family (Roboto / Times /
+Helvetica / Courier — 0.3 ships one module per family, so any one of them
+folding into the entry is a bigger regression than the whole library was) stay
+in their own chunks. **Stryker** mutation testing
 (`npm run test:mutation`, `src/lib` only) is a pre-release audit rather than a
 gate — it answers the question coverage cannot: not "did this line run" but
 "would any test have noticed if it were wrong".

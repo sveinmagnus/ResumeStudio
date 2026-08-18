@@ -4,8 +4,8 @@
 # re-verify a unit's accuracy, and when you change a document, update its unit here.
 kcp_version: "0.20"
 project: resume-studio
-version: 1.0.0
-updated: "2026-08-13"
+version: 1.0.1
+updated: "2026-08-19"
 language: en
 hints:
   recommended_entry_point: claude-instructions
@@ -17,7 +17,7 @@ units:
     intent: "How must an agent work in this codebase? Architecture map, data model, store patterns, conventions (incl. the v0.3.1 accessibility invariants, the three-surface contrast rule, and the version/build-channel source-of-truth rules), and what not to change. Holds invariants only — the exhaustive feature catalog is in feature-map."
     scope: global
     audience: [agent, developer]
-    validated: "2026-08-18"
+    validated: "2026-08-19"
     update_frequency: weekly
     triggers: [conventions, architecture, data-model, store, persistence, sections, accessibility, routing, export-parity, lookup]
     content_structure:
@@ -34,7 +34,7 @@ units:
     intent: "What features exist and how does each hang together? The exhaustive per-feature design catalog + the recently-shipped changelog, extracted from CLAUDE.md §1 to keep the instruction file lean."
     scope: global
     audience: [agent, developer]
-    validated: "2026-08-04"
+    validated: "2026-08-19"
     update_frequency: weekly
     depends_on: [claude-instructions]
     triggers: [features, changelog, skills-showcase, skill-category, registry, resume-views, import, what-exists]
@@ -53,7 +53,7 @@ units:
     intent: "What is Resume Studio and how do I install, run, and configure it?"
     scope: global
     audience: [human, agent]
-    validated: "2026-08-04"
+    validated: "2026-08-19"
     update_frequency: monthly
     triggers: [overview, quickstart, install, configuration, env]
     not_for: ["architecture", "data model", "code conventions"]
@@ -66,7 +66,7 @@ units:
     intent: "How does the portable desktop build work — building, data dirs, cloud-folder sync (one file per resume, with per-person erasure), manual zip backup/restore, tray, tabbed in-app settings (translation + AI assist + the local .local/.localhost address and port), and auto-update?"
     scope: project
     audience: [human, developer, agent]
-    validated: "2026-08-13"
+    validated: "2026-08-19"
     update_frequency: monthly
     depends_on: [readme]
     triggers: [desktop, launcher, portable, tray, auto-update, sync, backup-folder, local-address, hostname, port]
@@ -77,11 +77,11 @@ units:
   - id: data-model
     kind: schema
     path: src/types/index.ts
-    intent: "What is the resume data model? Single source of truth for every entity, localized field, view-config type, cover letters (shape v10), profile competency bundles (KeyQualification.competency_ids, shape v12), and the shape_version stamp."
+    intent: "What is the resume data model? Single source of truth for every entity, localized field, view-config type, cover letters (shape v10), profile competency bundles (KeyQualification.competency_ids, shape v12), the per-view optional-extras switch (SectionStyle.extras), and the shape_version stamp (currently 14)."
     format: text
     scope: global
     audience: [developer, agent]
-    validated: "2026-07-23"
+    validated: "2026-08-19"
     update_frequency: monthly
     triggers: [types, entities, LocalizedString, ResumeStore, ResumeView, schema]
     not_for: ["runtime behavior", "business logic", "how a feature works"]
@@ -98,7 +98,7 @@ units:
     intent: "What is the resumestudio-ai/v1 exchange schema that external LLMs fill in for the bring-your-own-LLM CV import? (docs/ai-import-template.md mirrors it for the docs site.)"
     scope: module
     audience: [human, agent]
-    validated: "2026-07-17"
+    validated: "2026-08-19"
     update_frequency: rarely
     triggers: [ai-import, byo-llm, exchange-schema, import]
     not_for: ["the internal ResumeStore data model"]
@@ -115,7 +115,7 @@ units:
     intent: "What rules govern the Zustand store, auto-save, boot, undo, offline sync, and the loadStore-vs-replaceData split? Includes the /api/resumes route grammar and the boot/save/conflict sequences."
     scope: module
     audience: [agent]
-    validated: "2026-07-17"
+    validated: "2026-08-19"
     depends_on: [claude-instructions, data-model]
     triggers: [store, zustand, auto-save, undo, redo, mutationCount, localCache, persistence, offline, conflict, api-routes]
     hints:
@@ -126,7 +126,7 @@ units:
     intent: "How do the render paths (HTML preview, pdfmake PDF, DOCX, ATS text/Markdown, Europass XML, cover letters) stay in agreement via the section-descriptor catalog, what enforces CONTENT and VISUAL PARITY between them, how are optional fields chosen per view, what is the lazy-load discipline, and why does no render path hold an English literal?"
     scope: module
     audience: [agent]
-    validated: "2026-08-18"
+    validated: "2026-08-19"
     depends_on: [claude-instructions, data-model]
     triggers: [export, docx, pdf, viewFilter, exporter, buildViewHtml, preview, parity, visual-parity, itemLayout, dividerSpec, extras, sectionExtras, localization, locale, translation, chrome, exportStrings]
     hints:
@@ -138,7 +138,7 @@ units:
     kind: policy
     scope: project
     audience: [agent]
-    validated: "2026-08-04"
+    validated: "2026-08-19"
     depends_on: [claude-instructions]
     triggers: [security, xss, escaping, sanitise, auth, csp, untrusted-input]
     hints:
@@ -147,10 +147,10 @@ units:
 
   - id: skill-software-testing
     path: .claude/skills/software-testing.md
-    intent: "How to write tests that find bugs here — the lint/typecheck/test/build gate, regression discipline, and live verification."
+    intent: "How to write tests that find bugs here — the six-step lint/check:text/typecheck/test/build/check:bundle gate in ci.yml order, regression discipline, telling a real failure from harness noise, and live verification."
     scope: project
     audience: [agent]
-    validated: "2026-08-11"
+    validated: "2026-08-19"
     depends_on: [claude-instructions]
     triggers: [testing, vitest, rtl, regression, qa, verification]
     hints:
@@ -161,7 +161,7 @@ units:
     intent: "What CVpartner-format quirks and importer invariants must be preserved when touching importer.ts?"
     scope: module
     audience: [agent]
-    validated: "2026-07-17"
+    validated: "2026-08-19"
     depends_on: [claude-instructions, data-model]
     triggers: [cvpartner, importer, locale-detection, import]
     hints:
@@ -172,7 +172,7 @@ units:
     intent: "What are the Cartavio brand colors, fonts, and design tokens all UI must follow? Includes the WCAG-AA text-safe variants and self-hosted font setup."
     scope: project
     audience: [agent]
-    validated: "2026-07-17"
+    validated: "2026-08-19"
     triggers: [brand, design, colors, fonts, tokens, styling, contrast]
     hints:
       token_estimate: 1400
@@ -182,7 +182,7 @@ units:
     intent: "How do this repo's CI (ci.yml: verify/coverage/e2e/depcheck) and tag-driven release pipeline (release.yml) work, and how do you triage a red check or a failed release build?"
     scope: project
     audience: [agent, developer]
-    validated: "2026-08-11"
+    validated: "2026-08-19"
     depends_on: [ci-policy, release-policy, skill-software-testing]
     triggers: [ci-failure, red-check, release-build, triage, workflow, version-drift, updater-asset, sha256-sidecar]
     hints:
@@ -193,7 +193,7 @@ units:
     intent: "When does a comment earn its place here, and what shape must it take? Sparse WHY-only comments, above the line, never narrating the diff — plus the six-question review pass and where longer commentary belongs instead."
     scope: project
     audience: [agent, developer]
-    validated: "2026-08-05"
+    validated: "2026-08-19"
     depends_on: [claude-instructions]
     triggers: [comments, documentation, code-review, readability, style, cleanup]
     hints:
@@ -250,7 +250,7 @@ units:
     intent: "What is NOT built, and what has been decided against? Unbuilt features with design notes and cost (B3 interview brief, F1 staffing fit, C2 native multi-language authoring, F2 registry harmonisation, B2 per-view rewrites, E1 fit-by-tightening), deferred infrastructure with the trigger condition for each (image asset table, PWA offline-load, Electron, cross-tab lock, better-sqlite3 v13), and CLOSED decisions that must not be re-proposed (English-only UI, no application log). Also carries the 'deliberately not a defect' list salvaged from the code-quality review."
     scope: global
     audience: [human, developer, agent]
-    validated: "2026-08-04"
+    validated: "2026-08-19"
     update_frequency: as-needed
     depends_on: [claude-instructions, feature-map]
     triggers: [what-to-build-next, unbuilt, deferred, roadmap, do-not-propose, out-of-scope, priorities]
@@ -265,7 +265,7 @@ units:
     intent: "What is Resume Studio, who is it for, and what makes it different? (End-user landing page.)"
     scope: global
     audience: [human]
-    validated: "2026-07-17"
+    validated: "2026-08-19"
     update_frequency: monthly
     hints:
       token_estimate: 650
@@ -275,7 +275,7 @@ units:
     intent: "What does Resume Studio do today, feature by feature? (Most current end-user feature list.) Its privacy/security section now points at PRIVACY.md and SECURITY.md for the detail."
     scope: global
     audience: [human, agent]
-    validated: "2026-08-11"
+    validated: "2026-08-19"
     update_frequency: monthly
     triggers: [features, capabilities, what-shipped]
     not_for: ["architecture", "implementation detail"]
@@ -287,7 +287,7 @@ units:
     intent: "How does an end user perform day-to-day tasks — first launch, editing, views, exporting, translation and AI assist, syncing?"
     scope: global
     audience: [human]
-    validated: "2026-07-24"
+    validated: "2026-08-19"
     update_frequency: monthly
     not_for: ["code or implementation questions"]
     hints:
@@ -298,7 +298,7 @@ units:
     intent: "Where does an end user download the desktop build for each OS?"
     scope: global
     audience: [human]
-    validated: "2026-07-24"
+    validated: "2026-08-19"
     update_frequency: monthly
     hints:
       token_estimate: 1000
@@ -310,13 +310,32 @@ units:
     intent: "Which code-quality rules does this repo enforce, and — more importantly — which are deliberately OFF and why? Project invariants (lazy exporters, lucide tree-shaking, no process.env in the client, the exportStrings localization boundary), the CLAUDE.md §3 layering as import-x zones, five selected type-aware rules, jsx-a11y, and the vitest/testing-library correctness rules. Read before adding a rule or 'fixing' a disabled one."
     scope: project
     audience: [agent, developer]
-    validated: "2026-07-31"
+    validated: "2026-08-19"
     update_frequency: as-needed
     depends_on: [claude-instructions]
     triggers: [lint, eslint, rules, code-quality, layering, a11y-lint, type-aware]
     not_for: ["formatting style", "what a feature does"]
     hints:
       token_estimate: 2400
+      priority: supplementary
+
+  - id: coverage-and-bundle-policy
+    kind: policy
+    path: vite.config.ts
+    intent: "What does the coverage ratchet actually require, and why is src/lib held higher than the global figure? Also the vitest environment/timeout/concurrency choices the suite depends on. The numbers quoted in CLAUDE.md and feature-map come from here — read it before changing either."
+    format: text
+    scope: project
+    audience: [developer, agent]
+    validated: "2026-08-19"
+    update_frequency: as-needed
+    depends_on: [ci-policy, skill-software-testing]
+    triggers: [coverage, ratchet, thresholds, vitest-config, jsdom, test-timeout]
+    not_for: ["what a test asserts", "how to write a test"]
+    content_structure:
+      primary: code
+      density: normal
+    hints:
+      token_estimate: 900
       priority: supplementary
 
   - id: ci-policy
@@ -326,7 +345,7 @@ units:
     format: yaml
     scope: project
     audience: [developer, agent]
-    validated: "2026-08-11"
+    validated: "2026-08-19"
     update_frequency: rarely
     triggers: [ci, checks, pipeline]
     content_structure:
@@ -342,7 +361,7 @@ units:
     format: yaml
     scope: project
     audience: [developer, agent]
-    validated: "2026-07-24"
+    validated: "2026-08-19"
     update_frequency: rarely
     depends_on: [desktop-guide]
     triggers: [release, publish, tarball, versioning, version]
@@ -359,7 +378,7 @@ units:
     format: yaml
     scope: project
     audience: [developer, agent]
-    validated: "2026-07-24"
+    validated: "2026-08-19"
     update_frequency: rarely
     depends_on: [ci-policy, release-policy, skill-ci-and-release]
     triggers: [dependabot, dependencies, sha-pin, supply-chain, action-updates]
@@ -375,7 +394,7 @@ units:
     format: text
     scope: project
     audience: [developer, agent]
-    validated: "2026-07-17"
+    validated: "2026-08-19"
     update_frequency: monthly
     triggers: [env, configuration, token, translate-provider, summarize-provider, llm]
     content_structure:
@@ -391,7 +410,7 @@ units:
     format: text
     scope: global
     audience: [human, developer]
-    validated: "2026-08-11"
+    validated: "2026-08-19"
     update_frequency: as-needed
     triggers: [license, licensing, copyright, proprietary, redistribution]
     hints:
@@ -402,7 +421,7 @@ units:
     intent: "Which third-party components ship inside the app and under what licences? Bundled fonts (Apache-2.0 / Ubuntu Font Licence), the Quadim skill taxonomy (Apache-2.0), the runtime npm dependencies, and the bundled Node binary. build-desktop.mjs hard-fails if this file is missing from a release."
     scope: global
     audience: [human, developer, agent]
-    validated: "2026-08-11"
+    validated: "2026-08-19"
     update_frequency: as-needed
     depends_on: [license]
     triggers: [third-party, attribution, notice, fonts, taxonomy, dependencies, apache]
@@ -414,7 +433,7 @@ units:
     intent: "What personal data does Resume Studio store, where, and what leaves the machine? Covers the update check, the AI and translation providers (nothing is sent until one is configured), the sync folder, tombstone-based erasure, and the absence of telemetry. The user-facing counterpart to the desktop sync design."
     scope: global
     audience: [human, developer, agent]
-    validated: "2026-08-11"
+    validated: "2026-08-19"
     update_frequency: as-needed
     depends_on: [desktop-guide]
     triggers: [privacy, gdpr, personal-data, telemetry, erasure, data-handling, providers]
@@ -426,7 +445,7 @@ units:
     intent: "How is a vulnerability reported (privately, via GitHub advisories) and what is in scope? Names the untrusted-input surfaces — importers, render boundaries, the API, the updater, secret handling — and what is deliberately out of scope, such as a server run without RESUME_API_TOKEN."
     scope: global
     audience: [human, developer, agent]
-    validated: "2026-08-11"
+    validated: "2026-08-19"
     update_frequency: as-needed
     depends_on: [skill-security-review]
     triggers: [security, vulnerability, disclosure, reporting, scope]
@@ -438,7 +457,7 @@ units:
     intent: "What changed in each release, newest first? Full detail for 1.0.0 (a quality milestone, not a feature release); earlier 0.x lines summarised by wave with dates."
     scope: global
     audience: [human, developer, agent]
-    validated: "2026-08-11"
+    validated: "2026-08-19"
     update_frequency: as-needed
     depends_on: [feature-map]
     triggers: [changelog, release-notes, history, what-changed, version]
@@ -450,7 +469,7 @@ units:
     intent: "How is a release cut, and what must be checked first? The tag-driven sequence, the gates CI does and does not run, the manual checks no gate can make (opening a DOCX in Word, rehearsing the auto-update), and the three ways the release path has already failed."
     scope: project
     audience: [human, developer, agent]
-    validated: "2026-08-11"
+    validated: "2026-08-19"
     update_frequency: as-needed
     depends_on: [release-policy, ci-policy]
     triggers: [release, releasing, tag, version-bump, checklist, upgrade-rehearsal]
@@ -485,6 +504,11 @@ relationships:
   - from: ci-policy
     to: skill-ci-and-release
     type: context
+  # The ratchet is a gate's threshold, so the policy that sets it and the skill
+  # that explains the gate have to move together.
+  - from: coverage-and-bundle-policy
+    to: skill-software-testing
+    type: governs
   - from: release-policy
     to: skill-ci-and-release
     type: context

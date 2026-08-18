@@ -102,7 +102,8 @@ function EditorRoute({ resumeId, routeSection, routeViewId, onUnauthorized }: {
   // getState) never pushes a stale path in the same commit — including right
   // after boot, when loadStore has reset activeViewId.
   useEffect(() => {
-    if (!hasData) return // reconcile once the resume is in memory
+    // Nothing to reconcile against until the resume is in memory.
+    if (!hasData) return
     const st = useStore.getState()
     // Canonicalize first so legacy/alias keys (e.g. the old combined
     // 'profile_competencies') resolve to a real section instead of bouncing to

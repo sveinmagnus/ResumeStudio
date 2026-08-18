@@ -14,8 +14,9 @@ reproduce.
 Useful things to include:
 
 - The version string the app reports (Settings → Version, or the picker
-  footer). A released build shows `v1.0.0`; a development build shows
-  `Dev-<commit>`, which tells us exactly what code you were running.
+  footer). A released build shows the version with a leading `v` (`v1.2.3`); a
+  development build shows `Dev-<commit>`, which tells us exactly what code you
+  were running.
 - Whether you were running the **desktop build** or a **self-hosted server**,
   since the exposure differs (see below).
 - Steps to reproduce, and what an attacker would gain.

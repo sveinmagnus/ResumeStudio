@@ -289,11 +289,6 @@ export function normalizeImportLocale(raw: unknown): string {
 
 // ─── Mapping → ResumeStore ────────────────────────────────────────────────────
 
-/** Coerce an incoming scalar to a trimmed string (numbers/booleans stringified). */
-
-
-
-
 /**
  * Map a validated AI-import object into a fresh `ResumeStore`.
  *

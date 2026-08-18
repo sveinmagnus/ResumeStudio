@@ -18,8 +18,10 @@ CLAUDE.md §9.
   `['no', '...', 'int', '...']`. The `localized()` helper handles both — route
   every localized field through it; never index a raw field.
 - **`int` is English.** Normalise `int → en` everywhere (the helper does;
-  `scanLocales`/`detectLocalesInData` do too). Our locale codes: `en, no, se,
-  dk`.
+  `scanLocales`/`detectLocalesInData` do too). The codes a CVpartner export
+  carries are `no`, `int`, `se` and `dk`; the app's own set is the 15 in
+  `LOCALE_LABELS`, so a detected locale outside CVpartner's four is legitimate
+  and must survive the import.
 - **Empty/whitespace values are dropped** and text is trimmed. A locale key with
   only whitespace must not appear in the result.
 - **`language_codes` lies.** It often lists only `no` even when content is in

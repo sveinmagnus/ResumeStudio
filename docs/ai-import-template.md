@@ -20,8 +20,14 @@ You are converting a CV/resume into structured JSON for **Resume Studio**.
 ## Rules
 
 - Include `"$schema": "resumestudio-ai/v1"` as the first field.
-- Set `"primary_locale"` to the CV's main language: `"en"` (English), `"no"`
-  (Norwegian), `"se"` (Swedish), or `"dk"` (Danish). Default to `"en"`.
+- Set `"primary_locale"` to the CV's main language, as one of the codes Resume
+  Studio offers: `"en"` English, `"no"` Norwegian, `"se"` Swedish, `"dk"` Danish,
+  `"de"` German, `"fr"` French, `"es"` Spanish, `"it"` Italian, `"nl"` Dutch,
+  `"pt"` Portuguese, `"pl"` Polish, `"fi"` Finnish, `"is"` Icelandic, `"ru"`
+  Russian, `"uk"` Ukrainian. Use `"en"` only if the language is genuinely
+  unclear — an unrecognised code silently becomes `"en"`, which would file a
+  German CV as English. (`nb`/`nn`, `sv` and `da` are accepted and folded into
+  `no`, `se` and `dk`.)
 - **Every text field is plain text in the CV's main language.** Do not translate.
 - For any field you cannot determine from the CV, **omit it** — never invent
   data. Omitting is always safe; the app fills in sensible defaults.
@@ -40,7 +46,7 @@ You are converting a CV/resume into structured JSON for **Resume Studio**.
 ```ts
 {
   "$schema": "resumestudio-ai/v1",
-  "primary_locale": "en",            // "en" | "no" | "se" | "dk"
+  "primary_locale": "en",            // one of the 15 codes listed above
 
   "profile": {
     "full_name": string,

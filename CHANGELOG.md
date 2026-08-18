@@ -74,8 +74,8 @@ behaviour, but the assertions that would have caught these defects earlier.
 ### Tested
 
 A mutation-testing campaign over `src/lib` added **~16,700 lines of tests**
-across 77 files, including ten new suites. The suite now runs **6,214 tests in
-192 files**. Two new parity suites hold the fixes above in place:
+across 77 files, including ten new suites. The suite runs **6,195 tests in 192
+files**. Two new parity suites hold the fixes above in place:
 `tests/exportParity.test.ts` renders one view through all five outputs and
 asserts each fact reaches every one of them, and
 `tests/exportVisualParity.test.ts` flips each style control and asserts the

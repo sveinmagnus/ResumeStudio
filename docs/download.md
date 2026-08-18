@@ -49,7 +49,9 @@ data:
 | Linux | `$XDG_DATA_HOME/resume-studio` or `~/.local/share/resume-studio` |
 
 The local server binds **loopback only** (`127.0.0.1`) — the app is never
-exposed to your network.
+exposed to your network. You reach it at **`resumestudio.localhost`**, which
+needs no setup: browsers resolve the whole `.localhost` domain to your own
+machine without asking DNS.
 
 ## Build from source
 
@@ -66,9 +68,10 @@ npm run build:desktop
 ```
 
 `npm run build:desktop` runs the client build and assembles a portable
-`release/` folder identical in shape to the downloads above. The bundled
-Node binary and the SQLite native addon are platform-specific, so **run the
-build on the same OS you want to target** — there is no cross-compilation.
+`release/` folder identical in shape to the downloads above. The bundled Node
+binary is platform-specific, so **run the build on the same OS you want to
+target** — there is no cross-compilation. (SQLite comes from Node itself via
+`node:sqlite`, so there is no native addon to compile.)
 
 Want to try it without packaging?
 

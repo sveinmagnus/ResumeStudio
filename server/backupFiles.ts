@@ -475,7 +475,9 @@ export function scanBackupDir(dir: string): ScannedFolder {
   try {
     names = fs.readdirSync(dir)
   } catch {
-    return reconcileSources([]) // folder absent — treated as empty, not an error
+    // An absent folder is an empty one: the first machine to configure a sync
+    // directory reaches this before anything has been written there.
+    return reconcileSources([])
   }
 
   const sources: ParsedSource[] = []

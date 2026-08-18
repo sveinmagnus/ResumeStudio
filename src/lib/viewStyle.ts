@@ -394,9 +394,9 @@ export function flattenOnWhite(hex: string, alpha: number): string {
  * The between-items rule a resolved section style draws.
  *
  * One description, four targets: the preview builds CSS from it, the PDF a
- * table hairline, the Word file a paragraph border. It used to be CSS only, so
- * eight divider choices moved the preview and left the PDF and the Word file
- * with no rule at all whatever the view said.
+ * table hairline, the Word file a paragraph border. Each is a rendering of this
+ * spec, never its own opinion — a target that reads `divider_style` directly is
+ * how eight choices come to move the preview and nothing else.
  */
 export function dividerSpec(
   r: { item_divider: boolean; divider_style: DividerStyle }, accentHex: string,

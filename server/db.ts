@@ -456,7 +456,9 @@ export function createResumeDb(dbPath: string): ResumeDb {
     // Image-free copy for history. Comparing on the stripped JSON also means
     // an image-only change updates the live row without minting a snapshot.
     const snapJson = JSON.stringify(stripSnapshotImages(data))
-    const newVersion = row.version + 1 // single synchronous connection → exact
+    // Exact rather than optimistic: node:sqlite is one synchronous connection,
+    // so no other write can land between this read and the UPDATE below.
+    const newVersion = row.version + 1
     const tx = db.transaction(() => {
       if (locales) {
         updateResumeDataAndLocales.run(
@@ -588,7 +590,8 @@ export function createResumeDb(dbPath: string): ResumeDb {
       if (opts?.mode === 'replace') {
         for (const { id } of selectAllIds.all() as { id: string }[]) {
           if (!incomingIds.has(id)) {
-            deleteResumeStmt.run(id) // snapshots cascade
+            // Snapshots go with it — the FK is ON DELETE CASCADE.
+            deleteResumeStmt.run(id)
             summary.deleted++
           }
         }

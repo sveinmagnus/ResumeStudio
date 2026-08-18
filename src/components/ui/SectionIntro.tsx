@@ -3,8 +3,8 @@ import type { ReactNode } from 'react'
 /**
  * The standard descriptive blurb shown at the top of an editor section — a
  * sunken paragraph with a navy accent rule. Shared so every section that
- * explains itself renders the same treatment (this consolidates the
- * previously-duplicated `.section-intro` / `.kc-intro` / `.rec-intro` blocks).
+ * explains itself renders the same treatment; a section that styles its own
+ * blurb is how the variants drift apart.
  */
 export function SectionIntro({ children }: { children: ReactNode }) {
   return (

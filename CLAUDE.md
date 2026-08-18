@@ -94,7 +94,7 @@ The full catalog with per-feature design detail is in
 - **Desktop** — downloadable portable build with cross-computer JSON sync and
   auto-update (§14, `DESKTOP.md`).
 
-**Intentionally simple:** the router is a hand-rolled ~150-line History API
+**Intentionally simple:** the router is a hand-rolled ~220-line History API
 hook (`src/lib/router.ts`, no dep; the URL is canonical, `EditorRoute`
 two-way-syncs it — URL→store then store→URL, order load-bearing). Each
 history entry also carries a **UI snapshot** (scroll + expanded card) so Back
@@ -130,8 +130,8 @@ Wishlist: §12.
 | Routing | Hand-rolled History API hook | `src/lib/router.ts` — `useRoute()`, `navigate()`, `<Link>`. No dep. |
 | Tests | Vitest (+ jsdom for browser-tied tests) | `npm test`, `npm run test:watch`, `npm run test:coverage` |
 | Icons | lucide-react | **Tree-shaken**: import each icon by name, never `import * as` |
-| DOCX export | `docx` npm package | **Lazy-loaded** (~352 kB chunk) — only fetched when the user clicks Export DOCX |
-| PDF export | `pdfmake` (vector) | **Lazy-loaded** (~1.2 MB lib + ~0.9 MB font vfs) — one-click `.pdf` download built from the section catalog in `lib/pdfExporter.ts`, mirroring the DOCX exporter. Its own render engine, so it applies every view style control (§7) but is not pixel-identical to the HTML preview |
+| DOCX export | `docx` npm package | **Lazy-loaded** (~378 kB chunk, ~106 kB gzip) — only fetched when the user clicks Export DOCX |
+| PDF export | `pdfmake` (vector) | **Lazy-loaded** (~950 kB lib + one font module per family — Roboto alone is ~835 kB) — one-click `.pdf` download built from the section catalog in `lib/pdfExporter.ts`, mirroring the DOCX exporter. Its own render engine, so it applies every view style control (§7) but is not pixel-identical to the HTML preview |
 | Drag-and-drop | `@dnd-kit/core` + `@dnd-kit/sortable` | Pointer + keyboard sensors |
 | Styling | Inline `<style>` blocks per component + CSS custom properties in `src/index.css` | No Tailwind, no CSS-in-JS lib — keep it that way |
 
@@ -170,7 +170,7 @@ Wishlist: §12.
     `require-await`, `return-await`. Cheap here because `void f()` is already
     the house fire-and-forget marker, so they only fire on unmarked promises.
   - **Accessibility** (`jsx-a11y`), complementing the jest-axe suite: axe only
-    sees what a test mounts, this sees all ~50 components.
+    sees what a test mounts, this sees all ~80 components.
   - **Test correctness** (`@vitest/eslint-plugin`, `testing-library`): a
     `findBy*` without `await` is always truthy and always passes.
   Rules that are OFF are off with a recorded reason, never silently: the React
@@ -186,8 +186,8 @@ Wishlist: §12.
   `216f9e1`). Drop the override once the plugin ships an eslint-10 peer.
 - **Other gates** — `npm run check:bundle` asserts the initial-payload budget
   (340 kB gzip) and that the heavy chunks stay lazy; `npm run test:coverage`
-  enforces a ratchet (global ~76 %, `src/lib` ~86 %) set just below current so it
-  catches decay, not noise; `npm run test:mutation` (Stryker, `src/lib` only) is
+  enforces a ratchet (global 78 % statements / 81 % lines, `src/lib` 86 % / 89 %)
+  set just below current so it catches decay, not noise; `npm run test:mutation` (Stryker, `src/lib` only) is
   an **audit you run before a release**, not a CI gate — it reports which
   assertions aren't there. `npm run check:text` fails on a raw control character
   anywhere git tracks — ESLint covers the same ground for `.ts`/`.tsx` only, and
@@ -209,7 +209,7 @@ Wishlist: §12.
   client ES2020) — `server/translate.ts` takes its locale off the request body.
 - **No `any`** unless interfacing with truly unknown shapes (e.g. raw imported JSON). Use `unknown` then narrow.
 - **No default exports** for components — use named exports, now enforced by `import-x/no-default-export` in `components/`/`lib/`/`store/`. (`main.tsx` and `App.tsx` are the only existing default exports; they are entry points and sit outside those paths.)
-- **Inline styles via `<style>` tag inside the component.** Each component owns its CSS. Tokens come from `src/index.css` (see §6). The only utility classes in `index.css` are widely-shared widgets: `.check-row`, `.skip-link`, `.sr-only`, `.pf-*` (plain-field primitives — wrap/label/input/year-stepper/ongoing). **`.pf-*` must stay in `index.css`, not a component's own `<style>` tag** — a component-scoped style block only exists in the DOM while that component is mounted, so a page using a bare `.pf-input` without ever mounting `TextField`/`DateField`/`TagField` gets an unstyled browser-default textbox (this regressed the registry `CategoryField` once already — see git history).
+- **Inline styles via `<style>` tag inside the component.** Each component owns its CSS. Tokens come from `src/index.css` (see §6). The only utility classes in `index.css` are widely-shared widgets: `.check-row`, `.skip-link`, `.sr-only`, `.pf-*` (plain-field primitives — wrap/label/input/year-stepper/ongoing). **`.pf-*` must stay in `index.css`, not a component's own `<style>` tag** — a component-scoped style block only exists in the DOM while that component is mounted, so a page using a bare `.pf-input` without ever mounting `TextField`/`DateField` gets an unstyled browser-default textbox (this regressed the registry `CategoryField` once already — see git history).
 - **Accessibility conventions (v0.3.1)** — hold these invariants when touching UI:
   - Every form control gets a programmatic name (`htmlFor`/`useId`, or
     `aria-label`). `DualField`/`RichField` name each column
@@ -253,7 +253,9 @@ src/
 ├── types/index.ts   ← single source of truth for the data model (zero runtime imports)
 ├── store/           ← useStore (Zustand + generic CRUD, currentResumeId, unloadStore),
 │                      useUndoRedo, useResumePersistence (boot+auto-save+3-way merge),
-│                      useTranslation, useSortedItems, useReorderGuard,
+│                      saveState (the status one live region renders), useTranslation,
+│                      useSortedItems, useReorderGuard, useStableExpanded,
+│                      useCanonicalRegistrySync (debounced rename→canonical push),
 │                      useAdvisors + useAdvisorRun (AI runs; a SEPARATE store — never
 │                      saved/synced/undone). See the store-and-persistence skill
 ├── lib/             ← PURE logic (no React); a few touch browser APIs but stay jsdom-testable
@@ -262,14 +264,21 @@ src/
 │   │   (CURRENT_SHAPE_VERSION; single migration choke point), usage, merge (generic
 │   │   mergeRegistry), completeness (+ shared collectTrackedFields), drift
 │   │   (cross-language divergence; reuses collectTrackedFields), wipeLocale,
-│   │   contentSearch, careerTimeline, freshness, uuid (the one id generator —
-│   │   crypto.randomUUID with a non-secure-context fallback; no `uuid` package)
+│   │   contentSearch, careerTimeline, experience (months/years arithmetic),
+│   │   freshness, undoHistory (the pure burst-undo rule), download (blob → file),
+│   │   coerce (defensive JSON narrowing), settingsBus, uuid (the one id generator —
+│   │   crypto.randomUUID with a non-secure-context fallback; no `uuid` package),
+│   │   lookup (getBy/hasKey — the ONLY safe read of a map keyed by DATA; see §2)
+│   │ — editor-only vocabularies (never exported): courseCategories, employmentTypes,
+│   │   positionTypes, publicationTypes, recommendationRelationships, cefr
 │   │ — persistence/sync: api, localCache (per-id fallback+queue), connectivity,
 │   │   syncEngine (PURE boot/drain decisions), diffResume, threeWayMerge (base/mine/
 │   │   theirs reconciliation so a 409 over non-overlapping edits never asks the user),
 │   │   storage (weight thresholds), backup (per-resume JSON), snapshotDiff, snapshotImages
 │   │ — render/export: exportStrings (localized EXPORT chrome + xs/xt/fmtYears;
 │   │   export-only by design — see §12), sectionCatalog (one descriptor feeds ALL render adapters),
+│   │   sectionExtras (the OPTIONAL fact groups a view switches on — links/metrics/
+│   │     contact/…; declared per section, normalised at the render boundary),
 │   │   viewFilter (applyView + buildViewHtml; escapeHtml; SECURITY-CRITICAL),
 │   │   viewSectionPlan (planViewSections + sectionItems + renderKeyFor — the
 │   │     section PLAN all four render adapters share; owns isExportableSection/
@@ -277,35 +286,64 @@ src/
 │   │   itemLayout (summary slot order + full-item date placement — the LAYOUT all
 │   │     four adapters share, as viewSectionPlan is the plan they share),
 │   │   sectionIcon (the heading glyph as a standalone SVG, for PDF + DOCX),
-│   │   exporter (LAZY-LOADED docx; SECURITY: TextRun escapes), viewText (ATS text/MD),
+│   │   exporter (LAZY-LOADED docx; SECURITY: TextRun escapes),
+│   │   pdfExporter (LAZY-LOADED pdfmake; the vector .pdf, same catalog),
+│   │   viewText (ATS text/MD),
 │   │   exporterEuropass (SkillsPassport XML; DOM+XMLSerializer, NOT string XML; round-trips importerEuropass),
 │   │   coverLetter (letter prompt + resolveLetterParts + text export; PDF/DOCX letter builders ride the lazy exporter/pdfmake chunks),
 │   │   viewStyle (tokens + dividerSpec/tagChipHex — one description per visual
 │   │     effect) + viewHeader (render-boundary sanitisers), richText (allowlist;
 │   │   SECURITY-CRITICAL), image (canvas downscale; rejects SVG), sectionSort,
-│   │   viewTemplates, viewTailor (BYO-LLM), skillMatrix, showcase (showcaseGroups)
+│   │   viewItemSelect (editor type Filter + view item selection), pageFit,
+│   │   exportFilename, fonts (catalog + pdfFont mapping) + appPrefs (app-wide
+│   │   default fonts, localStorage), viewTemplates, viewTailor (BYO-LLM),
+│   │   skillMatrix, showcase (showcaseGroups), anonCheck
 │   │ — skills/taxonomy: skillTaxonomy (Quadim lazy JSON), skillNormalize (imports only),
 │   │   skillMatch (exact/token/fuzzy/semantic tiers), skillCategorize (SkillCategory
 │   │   CRUD + auto-categorization; effectiveSkillCategory)
-│   │ — AI assist: translateClient + llmClient (memoized availability + high-end probe),
+│   │ — cross-resume registries: registrySync (overlayCanonicalNames — canonical
+│   │   name wins at load), registryPublish (the picker's "Share…" orchestrator),
+│   │   registryReintern, whoKnowsWhat (the skill × person grid),
+│   │   competencyBundles (pure profile-bundle reassignment)
+│   │ — AI assist (ordinary tier): translateClient + llmClient (memoized availability
+│   │   + high-end probe), llmAssist (looksHighEnd + the shared prompt scaffolding),
 │   │   summarizeBatch (SUMMARY_FIELDS source→target per section; emptySummaryTargets
 │   │   work list; summarizableSource — the ONE "has a source" rule, shared with DualField),
+│   │   skillExtract, keyPoints, writingCoach, modelPicker + cloudModelCatalog,
 │   │   ollamaCatalog (curated open-weight models + sizes; merged with installed),
-│   │   translateLanguages (which Argos langs to install; forced pivot + editing pair)
+│   │   translateLanguages (which Argos langs to install; forced pivot + editing pair),
+│   │   glossary (C3 — term pairs harvested from the registries; NOT gated)
+│   │ — AI assist (advanced tier, §15): cvFields + cvDigest (the shared vocabulary —
+│   │   build new advisors on these), assistFindings (A1/A3/D3) + assistProposals (A2),
+│   │   cvReview, voicePass, semanticDrift, achievementMining + achievementTranslate,
+│   │   profileGenerator, introDraft, sectionAdvice, jobFit, letterAdvice,
+│   │   atsAudit (pass 1 needs no model), registryHygiene (proposal-only)
 │   └ — importers: importer (CVpartner), importerLinkedIn (CSV/zip), importerEuropass
 │       (XML+JSON), aiImport (resumestudio-ai/v1), bulkImport (resumestudio-bulk/v1;
 │       ONE spec per section drives instructions+validation+mapping+preview), translateClient
 ├── components/
 │   ├── shell: App (routes + URL⇄store sync), AppHeader, ErrorBoundary, ResumeList (picker),
 │   │   ImportScreen, AIImportModal, AuthGate, SnapshotHistory (restores via replaceData),
-│   │   ConflictModal, NewerDataNotice, SyncPanel, SettingsModal, UpdateBanner, GlobalSearch
+│   │   ConflictModal, NewerDataNotice, RemoteUpdateNotice, RegistryConflictNotice,
+│   │   SyncPanel, SettingsModal, UpdateBanner, GlobalSearch, WhoKnowsWhatPanel
 │   ├── layout/      ← Sidebar (GROUP_ORDER), LanguageSwitcher (popover), SaveStatus (live region)
-│   ├── ui/          ← DualField (THE KEY COMPONENT), EditorCard, Fields, Autocomplete
-│   │                  (ARIA combobox), SortableList, TranslationPopover (here to avoid a
-│   │                  circular import), useDialog (shared modal focus behaviour)
-│   └── editor/      ← Overview, HeaderEditor, ProfileCompetenciesEditor, ProjectsEditor,
-│                      SimpleEditors, RegistryEditors, RegistryCategoryView, ResumeViewsEditor,
-│                      CoverLettersEditor (own entity referencing a view; letter exports)
+│   ├── ui/          ← DualField (THE KEY COMPONENT), EditorCard, Fields, RichField,
+│   │                  ImageField + ImageCropperModal, Autocomplete (ARIA combobox),
+│   │                  SortableList, SortBar, SectionIntro, CollapsibleSection,
+│   │                  ConfirmDialog, BulkImportModal, TranslationPopover (here to avoid
+│   │                  a circular import), useDialog (shared modal focus behaviour),
+│   │                  AssistRun + AdvisorToast + AdvancedAssistCard (§15) and the
+│   │                  advisor result panels (AssistFindings/AssistProposals/JobFit/
+│   │                  AtsAudit/IntroDraft/ProfileGenerator/RegistryHygiene/LetterAdvice/
+│   │                  KeyPoints/WritingCoach/SectionAdviceButton/SummarizeAllButton)
+│   ├── settings/    ← SettingsTabs + the tabs (Translation, AiAssist incl. ModelField,
+│   │                  Sync, Address, Version) + FolderPicker + a shared context
+│   └── editor/      ← Overview, HeaderEditor, ProjectsEditor, SimpleEditors (every
+│                      list section INCLUDING Profiles + Key Competencies and their
+│                      bundles), RegistryEditors, RegistryCategoryView, CareerTimeline,
+│                      UsagePanel, CvAdvisors (§15), ResumeViewsEditor,
+│                      CoverLettersEditor (own entity referencing a view; letter exports),
+│                      views/ (ViewEditor + the style/header/footer/item-select panels)
 └── index.css        ← self-hosted @font-face + design tokens + global a11y rules + utilities
 
 server/              ← Express API + SQLite persistence
@@ -324,17 +362,26 @@ server/              ← Express API + SQLite persistence
 │   backupScheduler (writes edits OUT) + backupWatcher (fs.watch+fingerprint poll;
 │   merges other machines' edits IN while running, not just at launch, and applies
 │   tombstones) + backupRuntime (owns both)
-├── settings.ts (desktop settings.json; applyToEnv; isDesktop gate) · storage.ts (payloadStats)
-├── translate.ts (pluggable proxy: libretranslate/deepl/google/azure) · translateDocker.ts
+├── settings.ts (desktop settings.json; applyToEnv; isDesktop gate) · storage.ts (payloadStats) ·
+│   folders.ts (the sync-folder browser behind Settings' picker)
+├── localHost.ts (the `.localhost`/`.local` name: validation, the PURE hosts-file
+│   text transform, the elevated write, and the loopback predicate app.ts guards on)
+├── translate.ts (pluggable proxy: libretranslate/deepl/google/azure/llm) · translateDocker.ts
 ├── llm.ts (THE LLM layer: 7 providers, 2 wire protocols, chatComplete, high-end flag) ·
+│   llmModels.ts (asks the provider what it offers — no hardcoded hosted model ids) ·
 │   summarize.ts (one FEATURE on top of it: the one-line short description) ·
+│   glossary.ts (C3 per provider: prompt block / DeepL resource / notranslate spans) ·
 │   ollamaDocker.ts (app-driven local Ollama, like translateDocker)
-├── version.ts (APP_VERSION) · desktop/ (launcher, freePort, openBrowser, notify, tray,
-│   trayIcon, updater, updateRuntime — CJS-bundled, see §14)
+├── version.ts (APP_VERSION + APP_VERSION_LABEL) · desktop/ (launcher, freePort,
+│   openBrowser, notify, tray, trayIcon, updater, updateRuntime — CJS-bundled, see §14)
 └── routes/          ← auth, resume, registry, translate, llm, summarize, backup, settings, update
 
-scripts/build-desktop.mjs ← assembles the portable release/ folder (per target OS)
-tests/               ← Vitest (lib/store/components/server) + e2e/smoke.spec.ts. See §10
+scripts/             ← build-desktop (assembles the portable release/ folder, per target
+                        OS), check-bundle-size + check-control-chars (CI gates), dev-server
+                        (pins the API port — see §11), mutation-run, and the two codegen
+                        steps: gen-section-icons, build-skill-taxonomy
+tests/               ← Vitest (lib/store/components/server); e2e/ holds the Playwright
+                        smoke + accessibility suites. See §10
 ```
 
 ### Layered design — these layers must stay clean
@@ -636,8 +683,9 @@ headed for an ATS needs that label too.
   - Sync decisions are pure functions in `lib/syncEngine.ts`; connectivity
     recovery is health-poll-confirmed (`lib/connectivity.ts`).
 - **Backup** (`lib/backup.ts`, per-resume `BackupV1`): loading one from the
-  picker creates a **new** resume. Distinct from the server's whole-store sync
-  file (§14).
+  picker creates a **new** resume, because that download carries no identity.
+  Distinct from the server's identity-bearing sync files (§14), which merge by
+  resume id instead.
 - **Live sync (desktop)**: the sync folder holds **one file per resume**
   (`server/backupFiles.ts`) and is kept current in BOTH directions while the app
   runs, not only at launch — `backupScheduler` writes our edits out,
@@ -651,17 +699,19 @@ headed for an ATS needs that label too.
   `stripSnapshotImages`; restore re-attaches current images). The History modal
   restores via **`replaceData`** so a restore is undoable + re-saved.
 - **Data-shape versioning** (`lib/migrate.ts`): `shape_version` (absent = 1;
-  `CURRENT_SHAPE_VERSION` = 13). `migrateStore()` is the single choke point for
+  `CURRENT_SHAPE_VERSION` = 14). `migrateStore()` is the single choke point for
   data entering from outside (`loadStore` + snapshot restore; `replaceData`
   never migrates). Migrations are **idempotent shape-sniffers**. Newer-build
   data loads best-effort (stamp never downgraded; `NewerDataNotice`). **Bump
   only for structural migrations** — additive optional fields stay covered by
-  `with*Defaults` render tolerance. The three most recent bumps: **v11**
-  (`migrateCourseDates` — Course `completed` → `start`/`end` range), **v12**
+  `with*Defaults` render tolerance. The three most recent bumps: **v12**
   (`migrateBundleMembership` — competency `profile_id` → the owning profile's
-  ordered `competency_ids` bundle; see §4), and **v13** (`migratePresentationDates`
-  — Presentation `date` → `start`/`end` range, mirroring v11). The full version
-  history lives in the header comment of `lib/migrate.ts`.
+  ordered `competency_ids` bundle; see §4), **v13** (`migratePresentationDates`
+  — Presentation `date` → `start`/`end` range, mirroring Courses' v11), and
+  **v14** (`stripSkillTags` — the scaffold-era `skill_tags` array, declared on
+  ten entities and read by none, is dropped on load rather than left to linger
+  in stored resumes). The full version history lives in the header comment of
+  `lib/migrate.ts`.
 - **Translation assist**: the client never calls a translation backend directly
   — `POST /api/translate` proxies to the configured provider
   (`TRANSLATE_PROVIDER` ∈ `off|libretranslate|deepl|google|azure|llm`; unset +
@@ -782,16 +832,21 @@ npm run dev              # client (Vite, 5173) + server (Express, 3001) via conc
 npm run dev:client       # just Vite      npm run dev:server   # just Express (tsx watch)
 npm run build            # production build to dist/    npm run preview  # serve dist/
 npm test                 # vitest run      npm run typecheck    # client + server tsc
+npm run test:watch       # vitest watch    npm run test:coverage  # v8 coverage + ratchet
+npm run test:e2e         # build + Playwright (smoke + a11y, three engines)
 npm run lint             # eslint (CI gate)   npm run lint:fix     # eslint --fix
 npm run check:bundle     # initial-payload budget (needs a build first)
+npm run check:text       # raw control characters anywhere git tracks (CI gate)
 npm run test:mutation    # Stryker over src/lib — slow, pre-release audit
 npm start                # production server (NODE_ENV=production)
 npm run desktop          # build client + run the desktop launcher from source (tsx)
 npm run build:desktop    # assemble the portable release/ folder (per target OS)
+npm run gen:icons        # regenerate the section-icon SVGs
+npm run gen:taxonomy     # rebuild the slim Quadim skill-taxonomy JSON
 ```
 
 ### Verifying changes
-After any significant change: 1. `npm run lint` (clean) → 2. `npm run typecheck` (clean) → 3. `npm test` (green) → 4. `npm run build` (clean — catches what tsc misses) → 5. for UI, click through the affected flow. CI runs all four. Before committing anything touching HTML/string templating, the server, auth, persistence, imports, or exports, run through the **security skill** (`.claude/skills/security-review.md`).
+After any significant change: 1. `npm run lint` (clean) → 2. `npm run check:text` (clean) → 3. `npm run typecheck` (clean) → 4. `npm test` (green) → 5. `npm run build` (clean — catches what tsc misses) → 6. `npm run check:bundle` → 7. for UI, click through the affected flow. CI runs steps 1–6 in that order, plus the coverage ratchet, the Playwright suites on three engines, CodeQL, gitleaks, and an advisory depcheck. Before committing anything touching HTML/string templating, the server, auth, persistence, imports, or exports, run through the **security skill** (`.claude/skills/security-review.md`).
 
 ### Server / env
 - Copy `.env.example` to `.env`; set `RESUME_API_TOKEN` for a deployed instance (empty disables auth — fine for local dev).
@@ -801,9 +856,9 @@ After any significant change: 1. `npm run lint` (clean) → 2. `npm run typechec
 - **Translation is optional.** Bundled `docker-compose.yml` runs LibreTranslate (`en,nb,sv,da`); `npm run dev:translate` (`translate:down` to stop), then set `LIBRETRANSLATE_URL` + restart. Intentionally *not* part of `npm run dev` (first boot pulls a multi-GB image). Unset = Draft hides, Copy still works.
 
 ### Known quirks
-- The preview tool injects `PORT=5173`, but Express reads `process.env.PORT` and collides with Vite. To verify auto-save inside the preview, run the server manually with `PORT=3001 npx tsx server/index.ts`.
+- An injected `PORT` means the CLIENT's port. `npm run dev:server` goes through `scripts/dev-server.mjs`, which pins the API to `RESUME_SERVER_PORT ?? 3001` before handing off to `server/index.ts` — so the in-app preview (which injects `PORT=5173`) no longer has Express win the race for 5173 and leave Vite's `/api` proxy pointing at nothing. Use `RESUME_SERVER_PORT`, never `PORT`, to move the API.
 - `.pdf` export is a **vector one-click download** via lazy-loaded `pdfmake` (`lib/pdfExporter.ts`) — no print dialog, no pop-up. Like the DOCX path it's a *separate* render engine (bundled Roboto font, not the brand Open Sans Condensed/Ubuntu), so its layout is close to but not pixel-identical with the HTML preview. Don't statically import `lib/pdfExporter.ts` or `pdfmake` from any always-loaded file.
-- The DOCX exporter (`lib/exporter.ts`) is lazy-loaded via dynamic import in `views/ViewEditor.tsx` (~352 kB chunk). Don't statically import it from any always-loaded file.
+- The DOCX exporter (`lib/exporter.ts`) is lazy-loaded via dynamic import in `views/ViewEditor.tsx` (~378 kB chunk). Don't statically import it from any always-loaded file.
 - CVpartner project skills may have proficiency=0 across the board — don't assume non-zero.
 
 ### What NOT to change without good reason
@@ -925,7 +980,7 @@ whole CV and make comparative judgements about it.
   suggestion stops re-firing once they express an opinion.
 - **Two enforcement points.** Client: `AdvancedAssistCard` (+ `useAdvancedAssist`)
   renders *nothing* when the flag is off — the ONE place the client checks, so
-  seven features can't each get it wrong. Server: `POST /api/llm/complete` with
+  twelve features can't each get it wrong. Server: `POST /api/llm/complete` with
   `advanced: true` **403s** unless the flag is set, and only then grants the
   bigger budget (240 k prompt chars / 16 k output tokens / 180 s vs 60 k / 4 k /
   45 s). The server half is what a stale tab can't bypass.
@@ -950,7 +1005,7 @@ whole CV and make comparative judgements about it.
   panel is non-blocking, so a field edited after the run is skipped rather than
   overwritten. The batch applies through `replaceData` as ONE undo step.
 
-### The seven
+### The twelve
 
 | | What | Where |
 |---|---|---|

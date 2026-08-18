@@ -217,7 +217,7 @@ Salvaged from the code-quality review so it isn't rediscovered the hard way.
 
 **Things that are deliberately NOT defects** — don't "clean these up":
 
-- **Inline `<style>` blocks per component** (~50 components). A documented
+- **Inline `<style>` blocks per component** (~80 components). A documented
   architecture choice (CLAUDE.md §6), not duplication. Only *duplicated class
   definitions across components* violate it.
 - **The per-section editors in `SimpleEditors.tsx` looking alike.** Each is a

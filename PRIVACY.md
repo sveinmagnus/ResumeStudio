@@ -145,4 +145,4 @@ answerable.
 Privacy questions: https://cartavio.no. Security issues: see
 [SECURITY.md](./SECURITY.md).
 
-*Last reviewed: 2026-08-11.*
+*Last reviewed: 2026-08-19.*

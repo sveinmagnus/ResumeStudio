@@ -299,7 +299,8 @@ export function validateSettingsPatch(
         patch[f.key] = [...new Set(codes)]
         break
       }
-      default: // secret | text
+      // secret | text
+      default:
         if (typeof v !== 'string') return { error: `${f.key} must be a string` }
         patch[f.key] = f.kind === 'text' ? v.trim() : v
         break

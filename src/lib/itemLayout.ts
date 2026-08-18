@@ -118,10 +118,9 @@ export interface FullItemLayout {
  * the details line comes first.
  *
  * The catalog keeps `date` separate from `meta` precisely so this choice can be
- * made per view. It used to be made only by the HTML adapter, which left the
- * PDF and the Word file hanging the date off the end of the title line whatever
- * the view asked for — so two of the four layout options rendered identically
- * there, and a third moved nothing at all.
+ * made per view, and EVERY adapter must make it here. An adapter that hangs the
+ * date off the end of the title line instead collapses two of the four layouts
+ * into one rendering and leaves a third moving nothing at all.
  */
 export function fullItemLayout(
   v: { meta: readonly string[]; date: string }, layout: FullLayout,

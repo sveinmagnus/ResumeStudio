@@ -360,6 +360,13 @@ launch and then daily**, and you can check on demand. The tray menu shows the
   Version** shows your current version with a **Check for updates** button; and
   the picker footer always shows the installed version.
 
+**What the version string tells you.** A build published by the release workflow
+reads `v<semver>` (`v1.0.1`). Anything else reads `Dev-<commit>` — a local
+`npm run build:desktop`, or a run from source. Only CI sets the release channel,
+so a working copy cannot claim to be the artifact users downloaded; the two are
+otherwise near-identical trees. Every surface above renders the string verbatim,
+which is why a `Dev-…` build shows no version number to prefix.
+
 **How it installs.** Click **Install** (the pop-up), or **Install update** (tray
 or banner). The app downloads the new build for your OS, **checks it against the
 SHA-256 published with the release** and refuses to install anything that

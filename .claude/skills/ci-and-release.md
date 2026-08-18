@@ -21,7 +21,7 @@ build & release invariants), and the `software-testing` skill (the local gate).
 | **depcheck** (advisory, `continue-on-error`) | `npx depcheck@1.4.7` | `npx depcheck@1.4.7` |
 
 **Triage order = the gate order** (each catches what the previous misses):
-lint → typecheck → test → build → e2e. Reproduce locally with the *same* command the
+lint → check:text → typecheck → test → build → check:bundle → e2e. Reproduce locally with the *same* command the
 job ran before touching anything — CI failures here are almost always real, not
 environmental (the harness noise in `software-testing` §6 is about *local* runs).
 
@@ -30,8 +30,12 @@ environmental (the harness noise in `software-testing` §6 is about *local* runs
   `tsc` can't: missing third-party exports, broken dynamic imports, lazy-chunk
   regressions (see the `export-pipeline` skill — `exporter`/`pdfmake` must stay
   split chunks).
-- **e2e red** → it boots the REAL prod server (`e2e/smoke.spec.ts`) on all three
-  engines. Failure artifacts: the job uploads `test-results/` as
+- **e2e red** → the job boots the REAL prod server and runs BOTH suites in
+  `e2e/` on all three engines: `smoke.spec.ts` (create → edit/auto-save/reload →
+  view preview → unknown-id bounce) and `a11y.spec.ts` (axe with real layout,
+  plus keyboard-only journeys). The job name says "smoke" but the command is a
+  bare `npx playwright test`, so an accessibility regression reports here too —
+  check which spec failed before assuming a functional break. Failure artifacts: the job uploads `test-results/` as
   `playwright-traces` on failure (7-day retention) — open the trace before
   guessing. Keep this suite thin (happy paths only); a flaky assertion here is
   usually a missing readiness wait, not a product bug (`software-testing` §5).

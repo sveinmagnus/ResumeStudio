@@ -12,22 +12,36 @@ change actually do what it's supposed to, and will I know if it later breaks?**
 
 ---
 
-## 1. The quality gate — run all three, every time
+## 1. The quality gate — run it whole, every time
 
-Order matters; each catches what the previous one misses.
+Order matters; each step catches what the previous one misses, and this is the
+same order `.github/workflows/ci.yml` runs, so a local pass predicts a green CI.
 
-1. **Typecheck** (`npm run typecheck` / `tsc --noEmit`) — covers *all* tsconfig
+1. **Lint** (`npm run lint`) — not a style pass. Every rule in
+   `eslint.config.js` either encodes a CLAUDE.md invariant or catches a bug the
+   type system can't see, so a lint failure is usually a real defect.
+2. **Control characters** (`npm run check:text`) — a raw NUL makes git and grep
+   treat the whole file as binary, which is how an edit escapes review.
+3. **Typecheck** (`npm run typecheck` / `tsc --noEmit`) — covers *all* tsconfig
    projects (client *and* server). Clean types are table stakes, not done.
-2. **Tests** (`npm test`) — the behavioural contract.
-3. **Build** (`npm run build`) — the prod bundler catches what `tsc` cannot:
+4. **Tests** (`npm test`) — the behavioural contract.
+5. **Build** (`npm run build`) — the prod bundler catches what `tsc` cannot:
    missing exports from third-party packages, broken dynamic imports, lazy-chunk
    problems. *Never skip the build because typecheck was clean.*
+6. **Bundle budget** (`npm run check:bundle`, needs step 5's output) — asserts
+   the initial payload and that the heavy chunks are still lazy. A static import
+   of `lib/exporter` or `lib/pdfExporter` fails here, not earlier.
 
-For user-facing changes, add a **4th step: live verification** (§5). "Tests
+For user-facing changes, add a **7th step: live verification** (§5). "Tests
 pass" ≠ "the feature works."
 
+CI additionally runs the coverage ratchet, the Playwright suites on three
+engines, CodeQL and gitleaks in parallel jobs — those are worth reaching for
+when you've touched coverage-sensitive logic or anything security-shaped, but
+they are not part of the fast local loop.
+
 Run the gate **before declaring done and before committing**, not just at the
-end of a long edit. CI should run the same three so regressions can't merge.
+end of a long edit.
 
 ---
 

@@ -137,11 +137,14 @@ CLAUDE.md §12. Don't import `exportStrings.ts` from `components/`.
 
 - **Both are lazy-loaded.** `ViewEditor` does
   `await import('../../../lib/exporter')` / `…/pdfExporter` on click. The
-  `docx` library is ~352 kB; pdfmake is ~1.2 MB + a ~0.9 MB font vfs. **Never
-  statically import `exporter.ts`, `pdfExporter.ts`, or `pdfmake` from an
-  always-loaded module** or they rejoin the initial bundle. Verify after
-  changes with `npm run build` — you should see separate `exporter-*.js` /
-  `pdfmake-*.js` chunks, and the initial `index-*.js` should not jump.
+  `docx` library is ~378 kB; pdfmake is ~950 kB plus one module per font family
+  (Roboto alone is ~835 kB — 0.3 dropped the single `vfs_fonts` bundle, so each
+  family is its own chunk and any one of them folding into the entry is a bigger
+  regression than the whole library was). **Never statically import
+  `exporter.ts`, `pdfExporter.ts`, or `pdfmake` from an always-loaded module** or
+  they rejoin the initial bundle. `npm run check:bundle` asserts exactly this
+  after a build — it lists each chunk that must stay lazy and fails if one is
+  gone, which is stricter than eyeballing `npm run build`'s output.
 - **`italics: true`, not `italic`.** The `docx` `TextRun` option is `italics`.
   Easy typo; `tsc` catches it, but know it.
 - **`docx` XML-escapes `TextRun` text automatically** — the DOCX path is

@@ -119,7 +119,8 @@ export class BackupWatcher {
 
     // Poll backstop.
     this.timer = setInterval(() => this.check(), this.intervalMs)
-    this.timer.unref?.() // don't keep the process alive just for the watcher
+    // Unref'd so a poll timer can't be the only thing holding the process open.
+    this.timer.unref?.()
 
     // Low-latency layer. Watch the FOLDER, not a file: a sync client (and our
     // own atomic write) replaces files via rename, which detaches a file-level
@@ -192,7 +193,9 @@ export class BackupWatcher {
     if (!erasedIds.length && backupSignature(keep) === backupSignature(local)) return
 
     try {
-      const summary = this.db.restoreResumes(keep) // merge mode: newest-wins, no deletes
+      // Merge mode: newest-wins per resume, and no row is removed here —
+      // erasure runs below, from the tombstones, never from an absent file.
+      const summary = this.db.restoreResumes(keep)
       const registry = this.db.mergeRegistry(scan.registry)
 
       // Erasure last, so a stale file for a deleted resume can't re-insert it.
