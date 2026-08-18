@@ -1668,3 +1668,66 @@ describe('cleanPastedHtml — style-based formatting', () => {
     expect(richToPlain(out)).toBe('One two')
   })
 })
+
+/**
+ * blockify: the guarantee the whole module exists to provide.
+ *
+ * After it, the root holds only <p>, <ul> and <ol> — no loose text, no stray
+ * <br>, no raw newlines. Four renderers depend on that, and the editor's repaint
+ * guard depends on the rebuild being idempotent.
+ */
+describe('sanitizeRich — the structural guarantee', () => {
+  const nl = String.fromCharCode(10)
+  const roots = (html: string) => {
+    const d = new DOMParser().parseFromString(`<div id="r">${sanitizeRich(html)}</div>`, 'text/html')
+    return Array.from(d.getElementById('r')!.children).map((e) => e.tagName)
+  }
+
+  it('wraps loose text into a paragraph', () => {
+    // Loose text at the root renders, but no renderer can space it: it belongs
+    // to no block, so the PDF and Word run it into whatever follows.
+    expect(roots('Loose text')).toEqual(['P'])
+    expect(sanitizeRich('Loose text')).toBe('<p>Loose text</p>')
+  })
+
+  it('keeps loose text ahead of the block that follows it', () => {
+    const out = sanitizeRich('Intro text<p>A paragraph</p>')
+    expect(out.indexOf('Intro text')).toBeLessThan(out.indexOf('A paragraph'))
+    expect(roots('Intro text<p>A paragraph</p>')).toEqual(['P', 'P'])
+  })
+
+  it('leaves only paragraphs and lists at the root', () => {
+    expect(roots(`Loose<br>text<p>Para</p><ul><li>Item</li></ul>more loose`))
+      .toEqual(['P', 'P', 'P', 'UL', 'P'])
+  })
+
+  it('splits a paragraph at every break, rebuilding the formatting around each half', () => {
+    // A break in the middle of a bold run has to leave BOTH halves bold, or the
+    // second sentence silently loses its emphasis on export.
+    const out = sanitizeRich('<p><strong>First half<br>second half</strong></p>')
+    expect(out).toBe('<p><strong>First half</strong></p><p><strong>second half</strong></p>')
+  })
+
+  it('splits at a raw newline sitting next to text', () => {
+    expect(sanitizeRich(`<p>First${nl}second</p>`)).toBe('<p>First</p><p>second</p>')
+  })
+
+  it('rebuilds a canonical value to itself', () => {
+    // The editor repaints only when the sanitised value differs from what is in
+    // the DOM; a non-idempotent rebuild makes it repaint on every keystroke and
+    // move the caret to the end.
+    for (const html of [
+      '<p>One</p><p>Two</p>',
+      '<ul><li>One</li><li>Two</li></ul>',
+      '<p><strong>Bold</strong> and <em>italic</em></p>',
+      '<ol><li>First</li></ol><p>After</p>',
+    ]) {
+      expect(sanitizeRich(html), html).toBe(html)
+      expect(sanitizeRich(sanitizeRich(html)), html).toBe(sanitizeRich(html))
+    }
+  })
+
+  it('is empty for an empty value', () => {
+    expect(sanitizeRich('')).toBe('')
+  })
+})
