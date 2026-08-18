@@ -2706,7 +2706,10 @@ describe('buildViewHtml — skill tags', () => {
     const inline = projectHtml({ tag_style: 'inline' }, [
       { skill_id: 'go', name: { en: 'Go' } }, { skill_id: 'k8s', name: { en: 'Kubernetes' } },
     ])
-    expect(inline).toContain('<div class="ve-tags-inline">Go, Kubernetes</div>')
+    // LABELLED, unlike the chips: an inline list is a run of words like the one
+    // every other export writes, and there the label is what says these are
+    // skills rather than, say, employers. A chip shows that by its shape.
+    expect(inline).toContain('<div class="ve-tags-inline">Skills: Go, Kubernetes</div>')
     expect(inline).not.toContain('<span class="ve-tag">')
   })
 })

@@ -244,11 +244,18 @@ interface RenderCtx {
 /**
  * Skills are either chips (default) or an inline italic comma list.
  * `names` are plain text from the catalog; escaping happens here.
+ *
+ * The INLINE form carries the label, the chips do not. A chip is a visual
+ * affordance — the reader can see those words are tags — but an inline comma
+ * list is just a run of words, exactly like the linear exports, and there it
+ * needs something saying what they are. Dropping the label from the inline
+ * form left the preview showing "Go, Kubernetes" while the same view's PDF
+ * said "Skills: Go, Kubernetes".
  */
-function renderTagsHtml(names: string[], style: ResolvedSectionStyle): string {
+function renderTagsHtml(names: string[], label: string, style: ResolvedSectionStyle): string {
   if (!names.length) return ''
   if (style.tag_style === 'inline') {
-    return `<div class="ve-tags-inline">${escapeHtml(names.join(', '))}</div>`
+    return `<div class="ve-tags-inline">${escapeHtml(label)}${escapeHtml(names.join(', '))}</div>`
   }
   return `<div class="ve-tags">${names.map((n) => `<span class="ve-tag">${escapeHtml(n)}</span>`).join('')}</div>`
 }
@@ -451,7 +458,7 @@ function renderItem(sectionKey: string, item: unknown, ctx: RenderCtx): string {
         ${leadHtml}
         ${v.body ? `<div class="ve-desc">${renderRichHtml(v.body, escapeHtml)}</div>` : ''}
         ${pointsHtml}
-        ${renderTagsHtml(v.tags, ctx.style)}
+        ${renderTagsHtml(v.tags, v.tagsLabel, ctx.style)}
         ${extraHtml}`
   // Bullets (default layout only): a two-column flex row places the glyph in
   // its own column so every content line aligns under the heading, not the

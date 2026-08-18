@@ -150,15 +150,29 @@ describe('export parity — every adapter states the same facts', () => {
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
   })
 
-  it('labels the skill list in every adapter that writes tags as text', async () => {
-    // The HTML preview is the deliberate exception: it draws tags as CHIPS, so
-    // the label would be noise. Everywhere else a bare comma list of words with
-    // no label is exactly the defect this suite was built around.
+  it('labels the skill list wherever the tags render as a run of words', async () => {
+    // A bare comma list of technologies with nothing saying what they are is
+    // the defect this suite was built around. Chips are the one exception —
+    // the reader can SEE those words are tags — so the preview's default form
+    // carries the affordance visually instead of in a word.
     const out = await renderAll(populatedStore(), viewWith(false))
     for (const adapter of ['ATS text', 'Markdown', 'PDF', 'DOCX']) {
       expect(out[adapter], `${adapter} lost the skills label`).toContain('Skills:')
     }
     expect(out['HTML preview']).toContain('ve-tag')
+  })
+
+  it('labels the preview tags too when the view renders them inline', async () => {
+    // Switching a view to inline tags turns the chips into exactly the run of
+    // words the other adapters label, so the preview must label them as well —
+    // otherwise the same view reads "Kotlin" in the preview and "Skills:
+    // Kotlin" in its own PDF.
+    const inlineView = makeView({
+      sections: [{ key: 'projects', detail: 'full', sort_order: 0, style: { tag_style: 'inline' } }],
+    }) as ResumeView
+    const html = buildViewHtml(populatedStore(), inlineView, 'en')
+    expect(html).not.toContain('ve-tag"')
+    expect(html).toContain('Skills: Kotlin')
   })
 
   it('carries every core fact into all five outputs', async () => {
