@@ -1331,3 +1331,278 @@ describe('SECTION_CATALOG — co-authors and the date slot', () => {
     expect(s.parts.some((p) => p.key === 'start' || p.key === 'end')).toBe(false)
   })
 })
+
+// ─── Mutation-audit additions ─────────────────────────────────────────────────
+
+describe('SECTION_CATALOG — the blank shape every item view starts from', () => {
+  it('gives an item that fills no list slot empty lists, not populated ones', () => {
+    // Every adapter renders `meta`/`tags`/`points`/`extraLines`/`attributionMeta`
+    // unconditionally; a default that arrived non-empty would print a stray
+    // segment under an item that never asked for one, in all four exports.
+    const v = SECTION_CATALOG.key_competencies.full!(
+      item({ title: { en: 'Cloud' }, description: { en: 'Runs clouds.' } }) as never, html)!
+    expect(v).toEqual({
+      layout: 'default',
+      title: 'Cloud',
+      date: '',
+      meta: [],
+      body: 'Runs clouds.',
+      plainBody: '',
+      extraLines: [],
+      tags: [],
+      tagsLabel: '',
+      points: [],
+      attribution: '',
+      attributionMeta: [],
+      titleStyle: 'body',
+      spacingBefore: 60,
+    })
+  })
+})
+
+describe('SECTION_CATALOG — the single-date slot', () => {
+  it('emits a date PART, keyed date, for the sections that carry one date', () => {
+    // The tabulated grid columns by part key: a date arriving without its key,
+    // or not arriving at all, silently drops the year from every awards /
+    // certification / publication row.
+    const award = SECTION_CATALOG.honor_awards.summary!(
+      item({ name: { en: 'Best paper' }, date: { year: 2021, month: 5 } }) as never, html)!
+    expect(award.parts).toContainEqual({ key: 'date', value: expect.stringContaining('2021') })
+
+    const cert = SECTION_CATALOG.certifications.summary!(
+      item({ name: { en: 'AWS SA' }, issued: { year: 2019, month: 3 } }) as never, html)!
+    expect(cert.parts).toContainEqual({ key: 'date', value: expect.stringContaining('2019') })
+
+    const rec = SECTION_CATALOG.recommendations.summary!(
+      item({ recommender_name: 'Jane Boss', date: { year: 2018, month: 1 } }) as never, html)!
+    expect(rec.parts).toContainEqual({ key: 'date', value: expect.stringContaining('2018') })
+  })
+})
+
+describe('SECTION_CATALOG — a project’s joined name lists', () => {
+  const proj = (over: Record<string, unknown>, ctx: CatalogCtx = html) =>
+    SECTION_CATALOG.projects.full!(item(over) as never, ctx)!
+
+  it('joins only the role names that survive, with no trailing separator', () => {
+    // The names are comma-JOINED into one meta segment, so a dropped role that
+    // is merely blanked instead of removed still leaves its comma behind —
+    // "Architect, " reads as a truncated second role in every export.
+    const v = proj({ customer: { en: 'Acme' }, roles: [{ name: { en: 'Architect' } }, { name: {} }] })
+    expect(v.meta).toEqual(['Architect'])
+  })
+
+  it('joins only the industry names that survive', () => {
+    const v = proj({ customer: { en: 'Acme' }, industries: [{ name: { en: 'Finance' } }, { name: {} }] })
+    expect(v.meta).toEqual(['Finance'])
+  })
+
+  it('anchors the summary on the roles alone when one of them is nameless', () => {
+    const s = SECTION_CATALOG.projects.summary!(
+      item({ customer: { en: 'Acme' }, roles: [{ name: { en: 'Architect' } }, { name: {} }] }) as never, html)!
+    expect(s.parts.find((p) => p.key === 'title')!.value).toBe('Architect')
+  })
+
+  it('gives a DOCX project with no highlights no bullet points at all', () => {
+    // Highlights become bullets under the project; inventing one for a project
+    // that recorded none puts a line in the Word export with nothing in it.
+    expect(proj({ customer: { en: 'Acme' } }, docx).points).toEqual([])
+    expect(proj({ customer: { en: 'Acme' }, highlights: [{ en: 'Cut build time in half.' }] }, docx).points)
+      .toEqual([{ label: '', body: 'Cut build time in half.' }])
+  })
+})
+
+describe('SECTION_CATALOG — a profile’s tag line as meta', () => {
+  const kq = { tagline: true, short: false, long: true }
+
+  it('adds no meta segment for a profile that has no tag line', () => {
+    // DOCX renders the tag line as a meta line; an empty one shows as a bare
+    // separator above the profile prose.
+    const v = SECTION_CATALOG.key_qualifications.full!(
+      item({ tag_line: {}, summary: { en: 'Builds things.' } }) as never, { ...docx, kq })!
+    expect(v.meta).toEqual([])
+    expect(v.title).toBe('')
+  })
+
+  it('carries the tag line as meta on DOCX when the view asks for it', () => {
+    const v = SECTION_CATALOG.key_qualifications.full!(
+      item({ tag_line: { en: 'Cloud architect' }, summary: { en: 'Builds things.' } }) as never, { ...docx, kq })!
+    expect(v.meta).toEqual(['Cloud architect'])
+  })
+
+  it('keeps the HTML profile’s meta empty — the tag line is its heading there', () => {
+    const shown = SECTION_CATALOG.key_qualifications.full!(
+      item({ tag_line: { en: 'Cloud architect' }, summary: { en: 'Builds things.' } }) as never, { ...html, kq })!
+    expect(shown.title).toBe('Cloud architect')
+    expect(shown.meta).toEqual([])
+
+    const hidden = SECTION_CATALOG.key_qualifications.full!(
+      item({ tag_line: { en: 'Cloud architect' }, summary: { en: 'Builds things.' } }) as never,
+      { ...html, kq: { tagline: false, short: false, long: true } })!
+    expect(hidden.title).toBe('')
+    expect(hidden.meta).toEqual([])
+  })
+})
+
+describe('SECTION_CATALOG — a recommendation’s attribution', () => {
+  const rec = (over: Record<string, unknown>) => item(over) as never
+
+  it('joins title and company without a dangling comma when one is missing', () => {
+    // The attribution is what names the person vouching; a trailing "CTO, "
+    // reads as a company the reader is expected to supply.
+    const onlyTitle = SECTION_CATALOG.recommendations.summary!(
+      rec({ recommender_name: 'Jane Boss', recommender_title: { en: 'CTO' } }), html)!
+    expect(onlyTitle.parts.find((p) => p.key === 'org')!.value).toBe('CTO')
+
+    const onlyCompany = SECTION_CATALOG.recommendations.summary!(
+      rec({ recommender_name: 'Jane Boss', recommender_company: 'BigCo' }), html)!
+    expect(onlyCompany.parts.find((p) => p.key === 'org')!.value).toBe('BigCo')
+  })
+
+  it('builds the quote attribution from the parts that exist, and only those', () => {
+    expect(SECTION_CATALOG.recommendations.full!(
+      rec({ recommender_name: 'Jane Boss', recommender_title: { en: 'CTO' }, text: { en: 'Great.' } }), html)!.attribution)
+      .toBe('Jane Boss, CTO')
+
+    // A quote whose speaker is unnamed still attributes to the role — but must
+    // not open with the comma that a missing name would otherwise leave.
+    expect(SECTION_CATALOG.recommendations.full!(
+      rec({ recommender_title: { en: 'CTO' }, recommender_company: 'BigCo', text: { en: 'Great.' } }), html)!.attribution)
+      .toBe('CTO, BigCo')
+
+    expect(SECTION_CATALOG.recommendations.full!(
+      rec({ recommender_name: 'Jane Boss', text: { en: 'Great.' } }), html)!.attribution)
+      .toBe('Jane Boss')
+  })
+})
+
+describe('SECTION_CATALOG — employment prose and DOCX ordering', () => {
+  it('prefers the long description and falls back to the short one', () => {
+    // The two fields are alternatives, not a pair: showing neither (or the
+    // wrong one) empties the body of every job in the CV.
+    const both = SECTION_CATALOG.work_experiences.full!(
+      item({ employer: { en: 'Acme' }, long_description: { en: 'Ran the platform.' }, description: { en: 'Ran it.' } }) as never, html)!
+    expect(both.body).toBe('Ran the platform.')
+
+    const shortOnly = SECTION_CATALOG.work_experiences.full!(
+      item({ employer: { en: 'Acme' }, description: { en: 'Ran it.' } }) as never, html)!
+    expect(shortOnly.body).toBe('Ran it.')
+
+    const neither = SECTION_CATALOG.work_experiences.full!(item({ employer: { en: 'Acme' } }) as never, html)!
+    expect(neither.body).toBe('')
+  })
+
+  it('asks the DOCX path to sort employment by start date', () => {
+    // Word output is chronological regardless of the arranged store order; a
+    // false here silently reorders every exported employment history.
+    expect(SECTION_CATALOG.work_experiences.docxSortByStart).toBe(true)
+  })
+})
+
+describe('SECTION_CATALOG — courses', () => {
+  it('subtitles a course with its raw date range in the View editor list', () => {
+    // The editor list is how the consultant tells two runs of the same course
+    // apart; without the range the rows are indistinguishable.
+    const sub = SECTION_CATALOG.courses.subtitle!(
+      item({ start: { year: 2020, month: 1 }, end: { year: 2021, month: 6 } }) as never, 'en')
+    expect(sub).toMatch(/2020/)
+    expect(sub).toMatch(/2021/)
+  })
+
+  it('renders the course name as the title and its description as the body', () => {
+    const v = SECTION_CATALOG.courses.full!(
+      item({ name: { en: 'Kubernetes' }, description: { en: 'Two weeks of it.' }, program: { en: 'Cloud track' } }) as never, html)!
+    expect(v.title).toBe('Kubernetes')
+    expect(v.body).toBe('Two weeks of it.')
+    expect(v.meta).toEqual(['Cloud track'])
+  })
+})
+
+describe('SECTION_CATALOG — certification expiry and credential link', () => {
+  const cert = { name: { en: 'AWS SA' }, issued: { year: 2019, month: 3 } }
+
+  it('says nothing about expiry for a certification that never expires', () => {
+    // The mention is parenthetical text glued onto the issue date; emitting it
+    // unconditionally prints "(expires )" beside every permanent certificate.
+    const issued = SECTION_CATALOG.certifications.full!(item(cert) as never, html)!.date
+    expect(issued).not.toBe('')
+    expect(SECTION_CATALOG.certifications.full!(item(cert) as never, docx)!.date).toBe(issued)
+    expect(SECTION_CATALOG.certifications.full!({ ...cert, expires: { year: 2023, month: 3 } } as never, docx)!.date)
+      .toMatch(/2023/)
+  })
+
+  it('adds no credential line for a certification without a credential URL', () => {
+    expect(SECTION_CATALOG.certifications.full!(item(cert) as never, docx)!.extraLines).toEqual([])
+    expect(SECTION_CATALOG.certifications.full!(
+      { ...cert, credential_url: 'https://example.test/c/1' } as never, docx)!.extraLines)
+      .toEqual(['https://example.test/c/1'])
+  })
+})
+
+describe('SECTION_CATALOG — the skills showcase group', () => {
+  it('carries the category name as the title and its skills as unlabelled tags', () => {
+    // The showcase IS the tag list; a group that renders its name without its
+    // skills (or vice versa) is an empty heading in every export.
+    const v = SECTION_CATALOG.technology_categories.full!(
+      item({ name: { en: 'Cloud' }, skills: [{ name: { en: 'Go' } }, { name: { en: 'Rust' } }] }) as never, html)!
+    expect(v.title).toBe('Cloud')
+    expect(v.tags).toEqual(['Go', 'Rust'])
+    // No "Skills: " prefix here — the group's own name already says what they are.
+    expect(v.tagsLabel).toBe('')
+  })
+})
+
+describe('SECTION_CATALOG — publications', () => {
+  const pub = {
+    title: { en: 'On merging' },
+    abstract: { en: 'A study.' },
+    publisher: { en: 'IEEE' },
+    publication_type: 'research',
+    date: { year: 2022, month: 4 },
+    co_authors: ['Ada'],
+  }
+
+  it('subtitles a publication with its publisher and type in the editor list', () => {
+    // The View editor lists publications by title alone otherwise, and a
+    // consultant with an article and a talk of the same name cannot pick.
+    expect(SECTION_CATALOG.publications.subtitle!(item(pub) as never, 'en'))
+      .toBe('IEEE (Research Publication)')
+  })
+
+  it('gives the HTML publication its title, abstract, date and publisher line', () => {
+    // HTML/PDF is the preview the consultant checks before sending; an item
+    // that renders as an empty block there ships as one.
+    const v = SECTION_CATALOG.publications.full!(item(pub) as never, html)!
+    expect(v.title).toBe('On merging')
+    expect(v.body).toBe('A study.')
+    expect(v.date).toMatch(/2022/)
+    expect(v.meta).toEqual(['IEEE (Research Publication)', 'With Ada'])
+  })
+
+  it('adds no link line for a publication without a URL', () => {
+    expect(SECTION_CATALOG.publications.full!(item(pub) as never, docx)!.extraLines).toEqual([])
+    expect(SECTION_CATALOG.publications.full!({ ...pub, url: 'https://example.test/p' } as never, docx)!.extraLines)
+      .toEqual(['https://example.test/p'])
+  })
+})
+
+describe('SECTION_CATALOG — a reference’s name and affiliation', () => {
+  const ref = { name: 'Ola Hansen', include_in_exports: true }
+
+  it('names the referee on both render paths', () => {
+    // The name is the whole point of a reference entry; losing it leaves a
+    // contact block the reader cannot attribute to anyone.
+    expect(SECTION_CATALOG.references.full!(item(ref) as never, html)!.title).toBe('Ola Hansen')
+    expect(SECTION_CATALOG.references.full!(item(ref) as never, docx)!.title).toBe('Ola Hansen')
+  })
+
+  it('joins title and company without a dangling comma when one is missing', () => {
+    const onlyTitle = SECTION_CATALOG.references.summary!(item({ ...ref, title: 'CTO' }) as never, html)!
+    expect(onlyTitle.parts.find((p) => p.key === 'org')!.value).toBe('CTO')
+
+    const onlyCompany = SECTION_CATALOG.references.summary!(item({ ...ref, company: 'BigCo' }) as never, html)!
+    expect(onlyCompany.parts.find((p) => p.key === 'org')!.value).toBe('BigCo')
+
+    const both = SECTION_CATALOG.references.summary!(item({ ...ref, title: 'CTO', company: 'BigCo' }) as never, html)!
+    expect(both.parts.find((p) => p.key === 'org')!.value).toBe('CTO, BigCo')
+  })
+})
