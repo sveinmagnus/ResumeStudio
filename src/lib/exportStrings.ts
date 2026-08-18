@@ -32,6 +32,12 @@ export type ExportStringKey =
   | 'ongoing'
   | 'skills'
   | 'grade'
+  | 'expires'
+  | 'study_abroad'
+  | 'company_size'
+  | 'size_local'
+  | 'size_national'
+  | 'size_global'
   | 'team_of'
   | 'allocation'
 
@@ -94,6 +100,47 @@ export const EXPORT_STRINGS: Record<ExportStringKey, LocalizedString> = {
     de: 'Note', fr: 'Mention', es: 'Calificación', it: 'Voto',
     nl: 'Cijfer', pt: 'Classificação', pl: 'Ocena',
     fi: 'Arvosana', is: 'Einkunn', ru: 'Оценка', uk: 'Оцінка',
+  },
+
+  /** Certification expiry — composed as `${xs('expires', l)}: Jan 2027`. */
+  expires: {
+    en: 'Expires', no: 'Utløper', se: 'Upphör', dk: 'Udløber',
+    de: 'Läuft ab', fr: 'Expire', es: 'Caduca', it: 'Scade',
+    nl: 'Verloopt', pt: 'Expira', pl: 'Wygasa',
+    fi: 'Voimassa asti', is: 'Rennur út', ru: 'Истекает', uk: 'Спливає',
+  },
+  /** Education's exchange / study-abroad marker — rendered on its own. */
+  study_abroad: {
+    en: 'Study abroad', no: 'Utveksling', se: 'Utbytesstudier', dk: 'Udveksling',
+    de: 'Auslandsstudium', fr: 'Études à l’étranger', es: 'Estudios en el extranjero', it: 'Studio all’estero',
+    nl: 'Studie in het buitenland', pt: 'Estudos no estrangeiro', pl: 'Studia za granicą',
+    fi: 'Vaihto-opinnot', is: 'Skiptinám', ru: 'Обучение за рубежом', uk: 'Навчання за кордоном',
+  },
+  /** Employment headcount line label — `${xs('company_size', l)}: ~50 (local)`. */
+  company_size: {
+    en: 'Company size', no: 'Selskapsstørrelse', se: 'Företagsstorlek', dk: 'Virksomhedsstørrelse',
+    de: 'Unternehmensgröße', fr: 'Taille de l’entreprise', es: 'Tamaño de la empresa', it: 'Dimensione aziendale',
+    nl: 'Bedrijfsgrootte', pt: 'Dimensão da empresa', pl: 'Wielkość firmy',
+    fi: 'Yrityksen koko', is: 'Stærð fyrirtækis', ru: 'Размер компании', uk: 'Розмір компанії',
+  },
+  /** Headcount qualifiers — bare adjectives, parenthesised by the caller. */
+  size_local: {
+    en: 'local', no: 'lokalt', se: 'lokalt', dk: 'lokalt',
+    de: 'lokal', fr: 'local', es: 'local', it: 'locale',
+    nl: 'lokaal', pt: 'local', pl: 'lokalnie',
+    fi: 'paikallisesti', is: 'staðbundið', ru: 'локально', uk: 'локально',
+  },
+  size_national: {
+    en: 'national', no: 'nasjonalt', se: 'nationellt', dk: 'nationalt',
+    de: 'national', fr: 'national', es: 'nacional', it: 'nazionale',
+    nl: 'nationaal', pt: 'nacional', pl: 'krajowo',
+    fi: 'kansallisesti', is: 'á landsvísu', ru: 'по стране', uk: 'по країні',
+  },
+  size_global: {
+    en: 'global', no: 'globalt', se: 'globalt', dk: 'globalt',
+    de: 'global', fr: 'mondial', es: 'global', it: 'globale',
+    nl: 'wereldwijd', pt: 'global', pl: 'globalnie',
+    fi: 'maailmanlaajuisesti', is: 'á heimsvísu', ru: 'глобально', uk: 'глобально',
   },
 
   // ─── Templates (interpolate with `xt`) ────────────────────────────────────

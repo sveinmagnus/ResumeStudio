@@ -111,6 +111,7 @@ export function ProjectsEditor() {
           <div className="sub-block">
             <div className="sub-head">Reference</div>
             <TextField label="External case-study URL" value={p.external_url || ''} onChange={(v) => updateItem('projects', p.id, { external_url: v })} />
+            <TextField label="Country code" value={p.location_country_code || ''} onChange={(v) => updateItem('projects', p.id, { location_country_code: v })} placeholder="e.g. NO — exported as the country name" />
           </div>
         </EditorCard>
       ))}

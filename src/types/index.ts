@@ -774,6 +774,21 @@ export interface SectionStyle {
    * column is where content choices go.
    */
   starred_only?: boolean
+  /**
+   * Optional content groups switched ON for this section — the keys declared
+   * by `lib/sectionExtras.ts` (e.g. 'links', 'metrics', 'contact'). Absent or
+   * empty = the core facts only, which is the default for every section.
+   *
+   * A content choice living on `SectionStyle` for the same reason as
+   * `starred_only`: this is the per-section override surface every render
+   * adapter already resolves, so a group added here reaches the preview, the
+   * PDF, the Word file and the ATS text through one path instead of four.
+   *
+   * Untrusted-import surface — normalised against the section's declared keys
+   * at the render boundary (`normalizeExtras`), never trusted as stored.
+   * Additive/optional: data written before this shipped simply has no groups on.
+   */
+  extras?: string[]
   /** Override the global tag chip / inline choice for projects + tech cats. */
   tag_style?: TagStyle
   /** Override whether a divider is drawn between items in this section. Undefined = inherit the view default. */

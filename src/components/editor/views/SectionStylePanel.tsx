@@ -1,6 +1,8 @@
 import type { SectionStyle, SectionDetail, Density, TagStyle, DividerStyle, SummaryLayout, FullLayout, DateFormat, BulletStyle, LocalizedString, SortMode } from '../../../types'
 import { Sliders, RotateCcw } from 'lucide-react'
 import { availableSortModes, SORT_LABELS } from '../../../lib/sectionSort'
+import { extrasFor } from '../../../lib/sectionExtras'
+import { renderKeyFor } from '../../../lib/viewSectionPlan'
 import { DualField } from '../../ui/DualField'
 
 // Item-layout option lists, shared with the view-wide controls. "Org" is the
@@ -110,6 +112,19 @@ export function SectionStylePanel({ sectionKey, detail, style, onChange, onReset
   // feature (it's what separates the two modes), so it's hidden when tabulated.
   const isPlainSummary = isSummary && !s.tabulate
   const sortModes = availableSortModes(sectionKey)
+  // Optional content groups, keyed on the RENDER section so a synthetic
+  // section (promoted_projects) offers the same groups as the one it renders as.
+  const extraGroups = extrasFor(renderKeyFor(sectionKey))
+  const enabledExtras = new Set(s.extras ?? [])
+  const toggleExtra = (key: string, wanted: boolean) => {
+    const next = new Set(enabledExtras)
+    if (wanted) next.add(key)
+    else next.delete(key)
+    // Stored in declaration order, not click order, so two views that enable
+    // the same groups hold equal arrays.
+    const keys = extraGroups.filter((g) => next.has(g.key)).map((g) => g.key)
+    onChange({ extras: keys.length ? keys : undefined })
+  }
   // Rendered inline whenever its section row is expanded — the row is the
   // collapse unit, so the overrides need no second click. They're almost always
   // what the user opened the row to adjust.
@@ -161,6 +176,21 @@ export function SectionStylePanel({ sectionKey, detail, style, onChange, onReset
               <option value="all">All items</option>
             </select>
           </div>
+          {extraGroups.length > 0 && (
+            <div className="rv-extras">
+              <span className="rv-extras-head">Optional fields</span>
+              {extraGroups.map((g) => (
+                <label className="rv-toggle rv-extra" key={g.key}>
+                  <input
+                    type="checkbox"
+                    checked={enabledExtras.has(g.key)}
+                    onChange={(e) => toggleExtra(g.key, e.target.checked)}
+                  />
+                  <span>{g.label}<em>{g.hint}</em></span>
+                </label>
+              ))}
+            </div>
+          )}
           <label className="rv-toggle">
             <input
               type="checkbox"

@@ -345,7 +345,7 @@ function summaryColumns(summaries: SummaryView[], layout: SummaryLayout): Summar
 function renderTabulatedSummary(sectionKey: string, items: unknown[], ctx: RenderCtx): string {
   const desc = SECTION_CATALOG[sectionKey]
   if (!desc?.summary) return ''
-  const cctx: CatalogCtx = { locale: ctx.locale, hideDates: !!ctx.style.hide_dates, dateFormat: ctx.style.date_format, target: 'html', detail: 'tabulated', kq: kqVisibility(ctx.style, 'summary') }
+  const cctx: CatalogCtx = { locale: ctx.locale, hideDates: !!ctx.style.hide_dates, dateFormat: ctx.style.date_format, target: 'html', extras: ctx.style.extras, detail: 'tabulated', kq: kqVisibility(ctx.style, 'summary') }
   const summaries = items
     .map((it) => desc.summary!(it as AnyItem, cctx))
     .filter((s): s is SummaryView => !!s)
@@ -396,7 +396,7 @@ function renderTabulatedSummary(sectionKey: string, items: unknown[], ctx: Rende
 function renderItem(sectionKey: string, item: unknown, ctx: RenderCtx): string {
   const desc = SECTION_CATALOG[sectionKey]
   if (!desc) return ''
-  const cctx: CatalogCtx = { locale: ctx.locale, hideDates: !!ctx.style.hide_dates, dateFormat: ctx.style.date_format, target: 'html', kq: kqVisibility(ctx.style, ctx.detail === 'summary' ? 'summary' : 'full') }
+  const cctx: CatalogCtx = { locale: ctx.locale, hideDates: !!ctx.style.hide_dates, dateFormat: ctx.style.date_format, target: 'html', extras: ctx.style.extras, kq: kqVisibility(ctx.style, ctx.detail === 'summary' ? 'summary' : 'full') }
 
   if (ctx.detail === 'summary' && !desc.alwaysFull) {
     const s = desc.summary?.(item as AnyItem, cctx)
@@ -442,10 +442,17 @@ function renderItem(sectionKey: string, item: unknown, ctx: RenderCtx): string {
   const metaLine = metaTxt ? `<div class="ve-meta">${escapeHtml(metaTxt)}</div>` : ''
   // `lead-*` puts the details line above the title.
   const head = lead ? `${metaLine}${titleHtml}` : `${titleHtml}${metaLine}`
+  // The lead-in paragraph and the secondary lines are plain text, not rich —
+  // escaped here, never passed through the rich renderer.
+  const leadHtml = v.plainBody ? `<div class="ve-lead">${escapeHtml(v.plainBody)}</div>` : ''
+  const extraHtml = v.extraLines.filter(Boolean)
+    .map((l) => `<div class="ve-extra">${escapeHtml(l)}</div>`).join('')
   const inner = `${head}
+        ${leadHtml}
         ${v.body ? `<div class="ve-desc">${renderRichHtml(v.body, escapeHtml)}</div>` : ''}
         ${pointsHtml}
-        ${renderTagsHtml(v.tags, ctx.style)}`
+        ${renderTagsHtml(v.tags, ctx.style)}
+        ${extraHtml}`
   // Bullets (default layout only): a two-column flex row places the glyph in
   // its own column so every content line aligns under the heading, not the
   // bullet. Off by default, so the plain `.ve-item` markup is unchanged.
@@ -551,7 +558,7 @@ export function buildViewHtml(store: ResumeStore, view: ResumeView, locale: stri
       // Item source + the view's per-section sort — see lib/viewSectionPlan.
       const items = sectionItems(store, view, filtered, s, locale)
       if (!items.length) return ''
-      const resolved = resolveSectionStyle(viewStyle, s.sectionStyle)
+      const resolved = resolveSectionStyle(viewStyle, s.sectionStyle, renderKeyFor(s.key))
       const ctx: RenderCtx = { locale, detail: s.detail, style: resolved }
       const renderKey = renderKeyFor(s.key)
       const desc = SECTION_CATALOG[renderKey]
@@ -798,6 +805,8 @@ export function buildViewHtml(store: ResumeStore, view: ResumeView, locale: stri
     .ve-sec-spoken_languages .ve-item-line:last-child { margin-right: 0; }
     .ve-meta { font-size: ${tokens.metaFontSizePt}pt; color: #6B7280; margin: 2px 0 5px; }
     .ve-desc { font-size: ${tokens.smallFontSizePt}pt; color: #374151; margin-top: 5px; }
+    .ve-lead { font-size: ${tokens.smallFontSizePt}pt; color: #374151; margin-top: 5px; }
+    .ve-extra { font-size: ${tokens.metaFontSizePt}pt; color: #6B7280; margin-top: 3px; }
     .ve-desc ul, .ve-desc ol { margin: ${tokens.paraGapEm}em 0 ${tokens.paraGapEm}em 18px; }
     .ve-desc li { margin-bottom: 2px; }
     /* ONE paragraph gap for every prose block, whatever the field or the

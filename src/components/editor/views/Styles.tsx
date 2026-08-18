@@ -253,6 +253,16 @@ export function Styles() {
         font-size: 12px; color: var(--ink-soft); cursor: pointer;
       }
       .rv-toggle input[type=checkbox] { flex-shrink: 0; accent-color: var(--accent); width: 15px; height: 15px; }
+      /* Optional content groups. Every group is OFF by default, so the block
+         reads as an additive list rather than a set of switches to audit. */
+      .rv-extras { display: flex; flex-direction: column; gap: 6px; }
+      .rv-extras-head {
+        font-size: 11px; font-weight: 600; letter-spacing: 0.03em;
+        text-transform: uppercase; color: var(--ink-faint);
+      }
+      .rv-extra { align-items: flex-start; }
+      .rv-extra input[type=checkbox] { margin-top: 1px; }
+      .rv-extra em { display: block; font-style: normal; font-size: 11px; color: var(--ink-faint); }
       /* Stack the label above the control so every dropdown is the SAME width
          (the full column cell) rather than sized to its content. */
       .rv-sel {

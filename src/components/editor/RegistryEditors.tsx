@@ -1186,6 +1186,7 @@ export function ReferencesEditor() {
           <FieldRow>
             <TextField label="Email" value={ref.email || ''} onChange={(v) => updateItem('references', ref.id, { email: v })} />
             <TextField label="Phone" value={ref.phone || ''} onChange={(v) => updateItem('references', ref.id, { phone: v })} />
+            <TextField label="LinkedIn URL" value={ref.linkedin_url || ''} onChange={(v) => updateItem('references', ref.id, { linkedin_url: v })} />
           </FieldRow>
           <ReferenceContextLink reference={ref} />
           <label className="check-row">

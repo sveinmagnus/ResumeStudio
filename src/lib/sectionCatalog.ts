@@ -20,7 +20,7 @@
 import type { LocalizedString } from '../types'
 import { publicationTypeLabel } from './publicationTypes'
 import { positionTypeLabel } from './positionTypes'
-import { resolve, fmtRange, fmtDate, presentLabel, type DateFormat } from './locales'
+import { resolve, fmtRange, fmtDate, presentLabel, bcp47, type DateFormat } from './locales'
 import { xs, xt } from './exportStrings'
 import { cefrLines, type CefrMap } from './cefr'
 
@@ -33,8 +33,20 @@ export interface CatalogCtx {
   hideDates: boolean
   /** Resolved date format for the section (default 'month-year'). */
   dateFormat?: DateFormat
-  /** Which render pipeline is asking. Keeps deliberate per-path differences explicit. */
+  /**
+   * Which render pipeline is asking. It selects LAYOUT ONLY — title sizing,
+   * spacing, and how a title/meta pair is composed. It must never select which
+   * FACTS an item carries: that drift is what let the DOCX export print a
+   * project's team size and highlights while the preview and the ATS text
+   * silently dropped them, so the consultant could not see what they were
+   * sending. Optional facts are chosen per view via `extras`, not per target.
+   */
   target: 'html' | 'docx'
+  /**
+   * Optional content groups this view switched on for the section
+   * (lib/sectionExtras). Absent = none: every group is opt-in.
+   */
+  extras?: ReadonlySet<string>
   /**
    * Which detail mode is asking for this summary — 'plain' for a free-flowing
    * line, 'tabulated' for the column grid. Almost every descriptor ignores it:
@@ -171,6 +183,27 @@ const rangeParts = (it: AnyItem, ctx: CatalogCtx): { start: string; end: string 
 
 const rawRange = (it: AnyItem): string => fmtRange(it.start as YM, it.end as YM)
 
+/** Is this optional content group switched on for the section being rendered? */
+const on = (ctx: CatalogCtx, group: string): boolean => !!ctx.extras?.has(group)
+
+/** A plain string field, trimmed. Empty for anything that isn't one. */
+const str = (v: unknown): string => (typeof v === 'string' ? v.trim() : '')
+
+/**
+ * A country code as its name in the reader's language, via Intl — so the
+ * fifteen offered locales need no country table of their own. Falls back to
+ * the code itself: "NO" is still information, a blank line is not.
+ */
+const countryName = (code: unknown, locale: string): string => {
+  const c = str(code)
+  if (c.length !== 2) return c
+  try {
+    return new Intl.DisplayNames([bcp47(locale)], { type: 'region' }).of(c.toUpperCase()) ?? c
+  } catch {
+    return c
+  }
+}
+
 const view = (partial: Partial<ItemView>): ItemView => ({
   layout: 'default', title: '', date: '', meta: [], body: '', plainBody: '',
   extraLines: [], tags: [], tagsLabel: '', points: [], attribution: '',
@@ -270,41 +303,35 @@ export const SECTION_CATALOG: Record<string, SectionDescriptor> = {
       const industry = projectIndustryNames(it, locale).join(', ')
       const shortDesc = ls(it, 'description', locale)
       const longDesc = ls(it, 'long_description', locale)
-      if (ctx.target === 'html') {
-        return view({
-          title,
-          date: range(it, ctx),
-          meta: [industry, roles].filter(Boolean),
-          body: longDesc || shortDesc,
-          tags: skillNames(it, locale),
-          // Carried on BOTH shapes even though the HTML renderer draws chips and
-          // ignores it: the label is a fact about the tags, and every renderer
-          // that writes them as text needs it. The ATS text adapter asks for this
-          // shape (target 'html'), so leaving it off printed the skills as a bare
-          // comma list with nothing saying what they were.
-          tagsLabel: `${xs('skills', locale)}: `,
-        })
-      }
-      // DOCX renders more project facts (team size, allocation, highlights,
-      // the short description as a lead-in) — kept from the original exporter.
-      const highlights = ((it.highlights as LocalizedString[] | undefined) ?? [])
-        .map((h) => resolve(h, locale))
-        .filter(Boolean)
+      const docx = ctx.target === 'docx'
+      const highlights = on(ctx, 'highlights')
+        ? ((it.highlights as LocalizedString[] | undefined) ?? []).map((h) => resolve(h, locale)).filter(Boolean)
+        : []
+      // The lead-in is the short description promoted above the long one. With
+      // the group off, it still stands in for a missing long description —
+      // otherwise a project written only in short form renders as a bare title.
+      const lead = on(ctx, 'lead') && shortDesc && shortDesc !== title ? shortDesc : ''
       return view({
         title,
-        titleStyle: 'large',
-        spacingBefore: 200,
+        titleStyle: docx ? 'large' : 'body',
+        spacingBefore: docx ? 200 : 0,
         date: range(it, ctx),
         meta: [
           roles, industry,
-          it.team_size ? xt('team_of', locale, { n: it.team_size as number }) : '',
-          it.percent_allocated ? xt('allocation', locale, { n: it.percent_allocated as number }) : '',
+          on(ctx, 'location') ? countryName(it.location_country_code, locale) : '',
+          on(ctx, 'metrics') && it.team_size ? xt('team_of', locale, { n: it.team_size as number }) : '',
+          on(ctx, 'metrics') && it.percent_allocated ? xt('allocation', locale, { n: it.percent_allocated as number }) : '',
         ].filter(Boolean),
-        plainBody: shortDesc && shortDesc !== title ? shortDesc : '',
-        body: longDesc,
+        plainBody: lead,
+        body: lead ? longDesc : (longDesc || shortDesc),
         points: highlights.map((h) => ({ label: '', body: h })),
         tags: skillNames(it, locale),
+        // Read by every adapter that writes tags as TEXT (DOCX, PDF, ATS); the
+        // HTML renderer draws chips and ignores it. It is a fact about the tags,
+        // so it is carried unconditionally — leaving it off one shape printed
+        // the skills as a bare comma list with nothing saying what they were.
         tagsLabel: `${xs('skills', locale)}: `,
+        extraLines: on(ctx, 'links') ? [str(it.external_url)].filter(Boolean) : [],
       })
     },
   },
@@ -341,10 +368,6 @@ export const SECTION_CATALOG: Record<string, SectionDescriptor> = {
         kq.long ? ls(it, 'summary', locale) : '',
       ].filter(Boolean).join('')
       const tagLine = ls(it, 'tag_line', locale)
-      // DOCX historically renders the tag line as meta rather than a heading.
-      if (ctx.target === 'docx') {
-        return view({ meta: kq.tagline ? [tagLine].filter(Boolean) : [], body, points })
-      }
       return view({ title: kq.tagline ? tagLine : '', meta: [], body, points })
     },
   },
@@ -385,7 +408,11 @@ export const SECTION_CATALOG: Record<string, SectionDescriptor> = {
         layout: 'quote',
         body: ls(it, 'text', ctx.locale),
         attribution: [String(it.recommender_name ?? ''), attrib].filter(Boolean).join(', '),
-        attributionMeta: [rel ? `(${rel})` : '', dateAt(it, 'date', ctx)].filter(Boolean),
+        attributionMeta: [
+          rel ? `(${rel})` : '',
+          dateAt(it, 'date', ctx),
+          on(ctx, 'links') ? str(it.contact_url) : '',
+        ].filter(Boolean),
       })
     },
   },
@@ -415,16 +442,32 @@ export const SECTION_CATALOG: Record<string, SectionDescriptor> = {
       const employer = ls(it, 'employer', locale)
       const role = ls(it, 'role_title', locale)
       const body = ls(it, 'long_description', locale) || ls(it, 'description', locale)
-      if (ctx.target === 'html') {
-        return view({ title: employer, date: range(it, ctx), meta: [role].filter(Boolean), body })
-      }
+      const docx = ctx.target === 'docx'
+      // Headcounts read as one line rather than three: the qualifier belongs to
+      // its number, and three separate lines for one fact crowds the item.
+      const sizes = on(ctx, 'company_size')
+        ? ([
+            [str(it.company_size_local) || str(it.company_size), 'size_local'],
+            [str(it.company_size_national), 'size_national'],
+            [str(it.company_size_global), 'size_global'],
+          ] as const)
+            .filter(([v]) => v)
+            .map(([v, key]) => `${v} (${xs(key, locale)})`)
+        : []
       return view({
-        title: [employer, role].filter(Boolean).join(' — ') || 'Employer',
-        titleStyle: 'large',
-        spacingBefore: 180,
+        title: employer || 'Employer',
+        titleStyle: docx ? 'large' : 'body',
+        spacingBefore: docx ? 180 : 0,
         date: range(it, ctx),
-        meta: it.employment_type ? [String(it.employment_type).replace('_', ' ')] : [],
+        meta: [
+          role,
+          on(ctx, 'employment_type') && it.employment_type ? String(it.employment_type).replace('_', ' ') : '',
+        ].filter(Boolean),
         body,
+        extraLines: [
+          sizes.length ? `${xs('company_size', locale)}: ${sizes.join(' · ')}` : '',
+          on(ctx, 'links') ? str(it.company_url) : '',
+        ].filter(Boolean),
       })
     },
   },
@@ -449,15 +492,15 @@ export const SECTION_CATALOG: Record<string, SectionDescriptor> = {
     full(it, ctx) {
       const { locale } = ctx
       const common = { title: ls(it, 'school', locale), body: ls(it, 'description', locale) }
-      if (ctx.target === 'html') {
-        return view({ ...common, date: range(it, ctx), meta: [ls(it, 'degree', locale)].filter(Boolean) })
-      }
       return view({
         ...common,
-        spacingBefore: 140,
+        spacingBefore: ctx.target === 'docx' ? 140 : 0,
         date: range(it, ctx),
-        meta: [ls(it, 'degree', locale)].filter(Boolean),
-        extraLines: it.grade ? [`${xs('grade', locale)}: ${it.grade as string}`] : [],
+        meta: [
+          ls(it, 'degree', locale),
+          on(ctx, 'exchange') && it.exchange ? xs('study_abroad', locale) : '',
+        ].filter(Boolean),
+        extraLines: on(ctx, 'grade') && it.grade ? [`${xs('grade', locale)}: ${it.grade as string}`] : [],
       })
     },
   },
@@ -492,16 +535,17 @@ export const SECTION_CATALOG: Record<string, SectionDescriptor> = {
     full(it, ctx) {
       const { locale } = ctx
       const issued = dateAt(it, 'issued', ctx)
-      const expires = !ctx.hideDates && it.expires ? ` (expires ${fmtDate(it.expires as YM, ctx.dateFormat)})` : ''
+      // Localized, unlike the English "(expires …)" this replaced — it lands in
+      // a client's PDF, so it is export chrome like any other.
+      const expires = on(ctx, 'expiry') && !ctx.hideDates && it.expires
+        ? ` (${xs('expires', locale).toLocaleLowerCase(bcp47(locale))} ${fmtDate(it.expires as YM, ctx.dateFormat, locale)})`
+        : ''
       const common = { title: ls(it, 'name', locale), body: ls(it, 'description', locale) }
-      if (ctx.target === 'html') {
-        return view({ ...common, date: issued, meta: [ls(it, 'organiser', locale)].filter(Boolean) })
-      }
       return view({
         ...common,
         date: issued ? `${issued}${expires}` : '',
         meta: [ls(it, 'organiser', locale)].filter(Boolean),
-        extraLines: it.credential_url ? [it.credential_url as string] : [],
+        extraLines: on(ctx, 'links') ? [str(it.credential_url)].filter(Boolean) : [],
       })
     },
   },
@@ -614,14 +658,11 @@ export const SECTION_CATALOG: Record<string, SectionDescriptor> = {
     full(it, ctx) {
       const { locale } = ctx
       const common = { title: ls(it, 'title', locale), body: ls(it, 'description', locale) }
-      if (ctx.target === 'html') {
-        return view({ ...common, date: range(it, ctx), meta: [ls(it, 'event', locale)].filter(Boolean) })
-      }
       return view({
         ...common,
         date: range(it, ctx),
         meta: [ls(it, 'event', locale)].filter(Boolean),
-        extraLines: it.url ? [it.url as string] : [],
+        extraLines: on(ctx, 'links') ? [str(it.url)].filter(Boolean) : [],
       })
     },
   },
@@ -637,7 +678,14 @@ export const SECTION_CATALOG: Record<string, SectionDescriptor> = {
     full(it, ctx) {
       const { locale } = ctx
       const common = { title: ls(it, 'name', locale), body: ls(it, 'description', locale) }
-      return view({ ...common, date: dateAt(it, 'date', ctx), meta: [ls(it, 'issuer', locale)].filter(Boolean) })
+      return view({
+        ...common,
+        date: dateAt(it, 'date', ctx),
+        meta: [
+          ls(it, 'issuer', locale),
+          on(ctx, 'for_work') ? ls(it, 'for_work', locale) : '',
+        ].filter(Boolean),
+      })
     },
   },
 
@@ -654,14 +702,11 @@ export const SECTION_CATALOG: Record<string, SectionDescriptor> = {
       const { locale } = ctx
       const common = { title: ls(it, 'title', locale), body: ls(it, 'abstract', locale) }
       const authors = coAuthorsLine(it)
-      if (ctx.target === 'html') {
-        return view({ ...common, date: dateAt(it, 'date', ctx), meta: [publisherWithType(it, locale), authors].filter(Boolean) })
-      }
       return view({
         ...common,
         date: dateAt(it, 'date', ctx),
         meta: [publisherWithType(it, locale), authors].filter(Boolean),
-        extraLines: it.url ? [it.url as string] : [],
+        extraLines: on(ctx, 'links') ? [str(it.url)].filter(Boolean) : [],
       })
     },
   },
@@ -678,14 +723,16 @@ export const SECTION_CATALOG: Record<string, SectionDescriptor> = {
     full(it, ctx) {
       if (!it.include_in_exports) return null
       const meta = [it.title as string, it.company as string].filter(Boolean)
-      if (ctx.target === 'html') {
-        return view({ title: String(it.name ?? ''), meta })
-      }
       const rel = ls(it, 'relationship', ctx.locale)
+      // A referee's phone number and inbox are someone ELSE's personal data, so
+      // they ship only when this view asks for them.
       return view({
         title: String(it.name ?? ''),
         meta,
-        extraLines: [rel, it.email as string, it.phone as string].filter(Boolean),
+        extraLines: [
+          ...(on(ctx, 'contact') ? [rel, str(it.email), str(it.phone)] : []),
+          on(ctx, 'links') ? str(it.linkedin_url) : '',
+        ].filter(Boolean),
       })
     },
   },
