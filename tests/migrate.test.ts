@@ -5,7 +5,7 @@ import {
   internSkillCategories, unifyShowcaseCategories, localizeRecommenderTitles,
   unpinLegacyHeadingFont, ensureCoverLetters, migrateCourseDates, migrateBundleMembership, migratePresentationDates, migrateStore, isNewerShape, CURRENT_SHAPE_VERSION,
 } from '../src/lib/migrate'
-import { emptyStore, makeProject, makeWork, makeSkill, makeSkillCategory, makeView, makeCoverLetter, makeRecommendation, makeCourse, makeKQ, makeKeyCompetency, makePresentation } from './fixtures'
+import { emptyStore, makeProject, makeWork, makeSkill, makeSkillCategory, makeView, makeCoverLetter, makeRecommendation, makeCourse, makeKQ, makeKeyCompetency, makePresentation, makePosition } from './fixtures'
 import type { ProjectRole, KeyQualification, KeyPoint, WorkExperience, Project, LocalizedString, Skill, ResumeStore } from '../src/types'
 
 /** A project carrying the pre-v4 single `industry`/`industry_id` pair. */
@@ -1643,5 +1643,395 @@ describe('internSkillCategories — the legacy free-text category', () => {
     }
     expect(() => internSkillCategories(s)).not.toThrow()
     expect(internSkillCategories(s)).toBe(s)
+  })
+})
+
+/**
+ * Every guard below is asserted from BOTH sides — it fires on the old shape and
+ * leaves the current one alone. A migration runs once against data nobody can
+ * re-create, so a guard that reads the wrong way is unrecoverable for the user.
+ */
+describe('buildRoleParagraph — a locale the role has nothing to say in', () => {
+  it('emits no key at all rather than a bare heading', () => {
+    // The role name is a label for text that follows it. With no text, writing
+    // the key anyway prints "Architect:" into the project description in a
+    // language the role was never described in.
+    const out = buildRoleParagraph({
+      name: { en: 'Architect', no: 'Arkitekt' },
+      long_description: { en: '   ', no: 'Ledet laget.' },
+    })
+    expect('en' in out).toBe(false)
+    expect(out.no).toBe('Arkitekt: Ledet laget.')
+  })
+})
+
+describe('foldRoleDescriptions — the guard that decides there is nothing to fold', () => {
+  const withRole = (role: Record<string, unknown>): ResumeStore => ({
+    ...emptyStore(),
+    projects: [makeProject({
+      id: 'p1',
+      long_description: { en: 'Ran the platform.' },
+      roles: [{ id: 'pr1', role_id: 'r1', name: { en: 'Architect' }, sort_order: 0, disabled: false, ...role } as never],
+    })],
+  })
+
+  it('never routes a blank legacy field through the fold', () => {
+    // Blank text produces no paragraph, so the only trace a needless fold leaves
+    // is a rebuilt description object — which is how the guard is seen to have
+    // fired at all. Whitespace counts as blank: a legacy value of "   " must not
+    // reach appendLocalized either.
+    const store = withRole({ long_description: { en: '   ' }, summary: {} })
+    const before = store.projects[0].long_description
+    const out = foldRoleDescriptions(store)
+    expect(out.projects[0].long_description).toBe(before)
+    expect(out.projects[0].long_description).toEqual({ en: 'Ran the platform.' })
+  })
+})
+
+describe('migrateEmploymentShape — the two halves migrate independently', () => {
+  const withWork = (over: Record<string, unknown>, dropRoleIds = false): ResumeStore => {
+    const w = { ...makeWork({ id: 'w1' }), ...over } as Record<string, unknown>
+    if (dropRoleIds) delete w.role_ids
+    return { ...emptyStore(), work_experiences: [w as unknown as WorkExperience] }
+  }
+
+  it('leaves an employment that already has both halves untouched, by reference', () => {
+    // company_size is deprecated but kept so old saves round-trip, so its mere
+    // presence must not re-seed a national size the user has since edited.
+    const store = withWork({ role_ids: ['r1'], company_size: 'Enterprise', company_size_national: 'Regional' })
+    expect(migrateEmploymentShape(store)).toBe(store)
+  })
+
+  it('carries the rest of the employment across when it rewrites the shape', () => {
+    const out = migrateEmploymentShape(withWork({ role_id: 'r1', employer: { en: 'BigCo' } }, true))
+    expect(out.work_experiences[0].id).toBe('w1')
+    expect(out.work_experiences[0].employer).toEqual({ en: 'BigCo' })
+    expect(out.work_experiences[0].role_ids).toEqual(['r1'])
+  })
+
+  it('does not rebuild role_ids when only the company size needs seeding', () => {
+    // Recomputing role_ids from the long-gone `role_id` would empty the links a
+    // post-v8 save already holds.
+    const out = migrateEmploymentShape(withWork({ role_ids: ['r1'], company_size: 'Enterprise' }))
+    expect(out.work_experiences[0].role_ids).toEqual(['r1'])
+    expect(out.work_experiences[0].company_size_national).toBe('Enterprise')
+  })
+
+  it('does not touch the company size when only the role links need rebuilding', () => {
+    const out = migrateEmploymentShape(
+      withWork({ role_id: 'r1', company_size: 'Enterprise', company_size_national: 'Regional' }, true))
+    expect(out.work_experiences[0].role_ids).toEqual(['r1'])
+    expect(out.work_experiences[0].company_size_national).toBe('Regional')
+  })
+})
+
+describe('internProjectIndustries — the registry key and the rows it writes', () => {
+  it('tolerates a legacy project whose industry name was never written', () => {
+    // A v3 save can carry `industry_id: null` and no name at all; reading a name
+    // off nothing must not take the whole load down.
+    const p = { ...makeProject({ id: 'p1' }), industry_id: null } as Record<string, unknown>
+    delete p.industries
+    const out = internProjectIndustries({ ...emptyStore(), projects: [p as unknown as Project] })
+    expect(out.projects[0].industries).toEqual([])
+    expect(out.industries).toEqual([])
+  })
+
+  it('folds case when keying names, and nothing more', () => {
+    // Two names differing by more than case are two industries. Folding them
+    // together silently relabels one project with the other's spelling, and the
+    // pre-registry free text is gone once the migration has run.
+    const out = internProjectIndustries({
+      ...emptyStore(),
+      projects: [legacyProject('p1', { en: 'Strasse' }), legacyProject('p2', { en: 'Straße' })],
+    })
+    expect(out.industries).toHaveLength(2)
+  })
+
+  it('starts from an EMPTY registry when the store has no industries array', () => {
+    const store = { ...emptyStore(), projects: [legacyProject('p1', { en: 'Finance' })] } as ResumeStore
+    delete (store as unknown as Record<string, unknown>).industries
+    const out = internProjectIndustries(store)
+    expect(out.industries).toHaveLength(1)
+    expect(out.industries[0].name).toEqual({ en: 'Finance' })
+  })
+
+  it('links to the FIRST registry row when two share a name', () => {
+    // Re-keying on every row hands the link to the last duplicate, so which
+    // industry a project ends up under would depend on registry order.
+    const industries = [
+      { id: 'i1', resume_id: 'resume-1', name: { en: 'Finance' }, sort_order: 0, disabled: false },
+      { id: 'i2', resume_id: 'resume-1', name: { en: 'Finance' }, sort_order: 1, disabled: false },
+    ]
+    const out = internProjectIndustries({
+      ...emptyStore(), industries, projects: [legacyProject('p1', { en: 'Finance' })],
+    })
+    expect(out.projects[0].industries[0].industry_id).toBe('i1')
+    expect(out.industries).toHaveLength(2)
+  })
+
+  it('interns the industry owned by this resume, and enabled', () => {
+    // A disabled row is excluded from every export: interning legacy text as
+    // disabled would drop the industry out of the CV it came from.
+    const out = internProjectIndustries({
+      ...emptyStore(), projects: [legacyProject('p1', { en: 'Finance' })],
+    })
+    expect(out.industries[0].resume_id).toBe('resume-1')
+    expect(out.industries[0].disabled).toBe(false)
+  })
+})
+
+describe('internSkillCategories — a store with no category list at all', () => {
+  it('seeds the list from the skills when the key is absent', () => {
+    const store = {
+      ...emptyStore(),
+      skills: [{ ...makeSkill({ id: 's1' }), category: 'Cloud' } as unknown as Skill],
+    } as ResumeStore
+    delete (store as unknown as Record<string, unknown>).skill_categories
+    expect(internSkillCategories(store).skill_categories as unknown as string[]).toEqual(['Cloud'])
+  })
+})
+
+describe('unifyShowcaseCategories — what counts as legacy data', () => {
+  const withSkills = (...skills: unknown[]): ResumeStore =>
+    ({ ...emptyStore(), skills: skills as unknown as Skill[] })
+
+  it('leaves a current store with an EMPTY category list alone, by reference', () => {
+    const store = withSkills(makeSkill({ id: 's1' }))
+    expect(unifyShowcaseCategories(store)).toBe(store)
+  })
+
+  it('does not read an EMPTY category string as legacy data to migrate', () => {
+    const store = withSkills({ ...makeSkill({ id: 's1' }), category: '' })
+    expect(unifyShowcaseCategories(store)).toBe(store)
+  })
+
+  it('does not read a non-string category value as the legacy field', () => {
+    // Only free text was ever the v5 category. Anything else came from somewhere
+    // this migration does not understand, and rewriting every skill on the
+    // strength of it would be a guess.
+    const store = withSkills({ ...makeSkill({ id: 's1' }), category: { en: 'Cloud' } })
+    expect(unifyShowcaseCategories(store)).toBe(store)
+  })
+
+  it('migrates a legacy category string even when another skill carries none', () => {
+    const store = withSkills(
+      makeSkill({ id: 's1', name: { en: 'Go' } }),
+      { ...makeSkill({ id: 's2', name: { en: 'AWS' } }), category: 'Cloud' },
+    )
+    const out = unifyShowcaseCategories(store)
+    expect(out.skill_categories).toHaveLength(1)
+    expect(out.skills[1].category_id).toBe(out.skill_categories[0].id)
+  })
+
+  it('creates one entity per category when the store has no skill_categories key', () => {
+    const store = withSkills({ ...makeSkill({ id: 's1' }), category: 'Cloud' })
+    delete (store as unknown as Record<string, unknown>).skill_categories
+    const out = unifyShowcaseCategories(store)
+    expect(out.skill_categories).toHaveLength(1)
+    expect(out.skill_categories[0].name).toEqual({ en: 'Cloud' })
+  })
+
+  it('does not intern a category from a whitespace-only string', () => {
+    // An entity with a blank name is a heading nobody can read or find to delete.
+    const store = withSkills({ ...makeSkill({ id: 's1' }), category: '   ' })
+    const out = unifyShowcaseCategories(store)
+    expect(out.skill_categories).toEqual([])
+    expect(out.skills[0].category_id).toBeNull()
+  })
+
+  it('trims the legacy name before it becomes the entity name', () => {
+    const store = withSkills(
+      { ...makeSkill({ id: 's1' }), category: '  Cloud  ' },
+      { ...makeSkill({ id: 's2' }), category: 'Cloud' },
+    )
+    const out = unifyShowcaseCategories(store)
+    expect(out.skill_categories).toHaveLength(1)
+    expect(out.skill_categories[0].name).toEqual({ en: 'Cloud' })
+    expect(out.skills[0].category_id).toBe(out.skills[1].category_id)
+  })
+
+  it('stamps a new category with the resume that owns it', () => {
+    const store = withSkills({ ...makeSkill({ id: 's1' }), category: 'Cloud' })
+    expect(unifyShowcaseCategories(store).skill_categories[0].resume_id).toBe('resume-1')
+  })
+
+  it('migrates data that arrives with no resume record at all', () => {
+    // migrate is the choke point for outside data — a partial backup or a
+    // hand-edited file must degrade, not throw away the whole load.
+    const store: ResumeStore = { ...withSkills({ ...makeSkill({ id: 's1' }), category: 'Cloud' }), resume: null }
+    expect(unifyShowcaseCategories(store).skill_categories[0].resume_id).toBe('')
+  })
+
+  it('keeps a category_id the skill already had when a legacy showcase is folded in', () => {
+    const store = withLegacyTechCats({
+      ...emptyStore(),
+      skill_categories: [makeSkillCategory({ id: 'c1', name: { en: 'Languages' } })],
+      skills: [makeSkill({ id: 's1', name: { en: 'Go' }, category_id: 'c1' })],
+    }, [{ id: 'tc1', name: { en: 'Backend' }, sort_order: 0, skills: [] }])
+    expect(unifyShowcaseCategories(store).skills[0].category_id).toBe('c1')
+  })
+
+  it('orders the showcase groups by sort_order, not by array position', () => {
+    // sort_order is the order the user curated; it becomes the Showcase's
+    // rendering order, so reading it off the array reshuffles the export.
+    const store = withLegacyTechCats(emptyStore(), [
+      { id: 'tc1', name: { en: 'Backend' }, sort_order: 1, skills: [] },
+      { id: 'tc2', name: { en: 'Frontend' }, sort_order: 0, skills: [] },
+      { id: 'tc3', name: { en: 'Tools' }, sort_order: 2, skills: [] },
+    ])
+    expect(unifyShowcaseCategories(store).skill_categories.map((c) => c.name.en))
+      .toEqual(['Frontend', 'Backend', 'Tools'])
+  })
+
+  it('keeps a showcase group that never had any members', () => {
+    const store = withLegacyTechCats(emptyStore(), [{ id: 'tc1', name: { en: 'Backend' }, sort_order: 0 }])
+    expect(unifyShowcaseCategories(store).skill_categories).toHaveLength(1)
+  })
+
+  it('gives a skill listed in two showcase groups the FIRST one', () => {
+    const store = withLegacyTechCats({
+      ...emptyStore(), skills: [makeSkill({ id: 's1', name: { en: 'Go' } })],
+    }, [
+      { id: 'tc1', name: { en: 'Backend' }, sort_order: 0, skills: [{ id: 'cs1', skill_id: 's1' }] },
+      { id: 'tc2', name: { en: 'Tools' }, sort_order: 1, skills: [{ id: 'cs2', skill_id: 's1' }] },
+    ])
+    const out = unifyShowcaseCategories(store)
+    const backend = out.skill_categories.find((c) => c.name.en === 'Backend')
+    expect(out.skills[0].category_id).toBe(backend?.id)
+  })
+})
+
+describe('localizeRecommenderTitles — a legacy title worth keeping', () => {
+  const withTitle = (recommender_title: unknown): ResumeStore => ({
+    ...emptyStore(),
+    recommendations: [{ ...makeRecommendation({ id: 'rec1' }), recommender_title } as never],
+  })
+
+  it('trims a legacy title, and treats a whitespace-only one as no title', () => {
+    // The title prints on its own line in every export; padding it or promoting
+    // a blank puts a stray gap under the recommender's name.
+    expect(localizeRecommenderTitles(withTitle('  CTO  ')).recommendations[0].recommender_title).toEqual({ en: 'CTO' })
+    expect(localizeRecommenderTitles(withTitle('   ')).recommendations[0].recommender_title).toEqual({})
+  })
+})
+
+describe('extractKeyPointsToCompetencies — which profiles are rewritten', () => {
+  it('tolerates a profile written before key_points existed', () => {
+    const kq = { ...makeKQ({ id: 'kq1' }) } as Record<string, unknown>
+    delete kq.key_points
+    const store: ResumeStore = { ...emptyStore(), key_qualifications: [kq as unknown as KeyQualification] }
+    expect(extractKeyPointsToCompetencies(store)).toBe(store)
+  })
+
+  it('extracts points even when another profile has none', () => {
+    const store: ResumeStore = {
+      ...emptyStore(),
+      key_qualifications: [makeKQ({ id: 'kq1' }), kqWithPoints([{ name: { en: 'Architecture' } }])],
+    }
+    expect(extractKeyPointsToCompetencies(store).key_competencies).toHaveLength(1)
+  })
+
+  it('returns a profile with nothing to extract by reference', () => {
+    const untouched = makeKQ({ id: 'kq1' })
+    const store: ResumeStore = {
+      ...emptyStore(),
+      key_qualifications: [untouched, kqWithPoints([{ name: { en: 'Architecture' } }])],
+    }
+    expect(extractKeyPointsToCompetencies(store).key_qualifications[0]).toBe(untouched)
+  })
+
+  it('appends above the HIGHEST existing sort_order, not the lowest', () => {
+    // A duplicate sort_order puts the promoted competency at an arbitrary place
+    // in the list the user then has to re-sort by hand.
+    const store: ResumeStore = {
+      ...emptyStore(),
+      key_competencies: [
+        makeKeyCompetency({ id: 'c1', sort_order: 0 }),
+        makeKeyCompetency({ id: 'c2', sort_order: 5 }),
+      ],
+      key_qualifications: [kqWithPoints([{ name: { en: 'Architecture' } }])],
+    }
+    expect(extractKeyPointsToCompetencies(store).key_competencies[2].sort_order).toBe(6)
+  })
+
+  it('promotes a point as an ordinary competency, never a starred one', () => {
+    // starred drives `starred_only` views; arriving pre-starred would push every
+    // legacy point into the views built to show only the picked few.
+    const store: ResumeStore = {
+      ...emptyStore(), key_qualifications: [kqWithPoints([{ name: { en: 'Architecture' } }])],
+    }
+    expect(extractKeyPointsToCompetencies(store).key_competencies[0].starred).toBe(false)
+  })
+
+  it('migrates data that arrives with no resume record at all', () => {
+    const store: ResumeStore = {
+      ...emptyStore(), resume: null, key_qualifications: [kqWithPoints([{ name: { en: 'Architecture' } }])],
+    }
+    expect(extractKeyPointsToCompetencies(store).key_competencies[0].resume_id).toBe('')
+  })
+})
+
+describe('migrateBundleMembership — the two halves of the sniff', () => {
+  it('bundles a linked competency even when another carries no profile_id', () => {
+    const store: ResumeStore = {
+      ...emptyStore(),
+      key_qualifications: [makeKQ({ id: 'kq1', competency_ids: [] })],
+      key_competencies: [
+        { ...makeKeyCompetency({ id: 'c1', sort_order: 0 }), profile_id: 'kq1' } as never,
+        makeKeyCompetency({ id: 'c2', sort_order: 1 }),
+      ],
+    }
+    expect(migrateBundleMembership(store).key_qualifications[0].competency_ids).toEqual(['c1'])
+  })
+
+  it('gives EVERY profile a bundle array, not just the ones that had one', () => {
+    // A profile with no `competency_ids` shows no competencies at all in a view,
+    // and the editor has no list to add to.
+    const without = { ...makeKQ({ id: 'kq2' }) } as Record<string, unknown>
+    delete without.competency_ids
+    const store: ResumeStore = {
+      ...emptyStore(),
+      key_qualifications: [makeKQ({ id: 'kq1', competency_ids: [] }), without as unknown as KeyQualification],
+    }
+    expect(migrateBundleMembership(store).key_qualifications[1].competency_ids).toEqual([])
+  })
+
+  it('returns a competency that never carried a profile_id by reference', () => {
+    const clean = makeKeyCompetency({ id: 'c1' })
+    const kq = { ...makeKQ({ id: 'kq1' }) } as Record<string, unknown>
+    delete kq.competency_ids
+    const out = migrateBundleMembership({
+      ...emptyStore(),
+      key_qualifications: [kq as unknown as KeyQualification],
+      key_competencies: [clean],
+    })
+    expect(out.key_competencies[0]).toBe(clean)
+  })
+})
+
+describe('migrateStore — stripping skill_tags out of data that is not shaped as expected', () => {
+  const legacyStore = (positions: unknown[] | undefined): ResumeStore => {
+    const store = { ...emptyStore(), shape_version: 1, positions } as unknown as Record<string, unknown>
+    if (positions === undefined) delete store.positions
+    return store as unknown as ResumeStore
+  }
+
+  it('tolerates a store that is missing a whole section array', () => {
+    // Backups and hand-edited files reach this code; a missing section must not
+    // abort the load of every other section.
+    expect(() => migrateStore(legacyStore(undefined))).not.toThrow()
+  })
+
+  it('walks past junk rows in a section that has nothing to strip', () => {
+    const out = migrateStore(legacyStore([null, 'junk', makePosition({ id: 'pos1' })]))
+    expect(out.positions).toHaveLength(3)
+  })
+
+  it('strips the field off the real row and leaves junk rows as they are', () => {
+    const rows = [{ ...makePosition({ id: 'pos1' }), skill_tags: ['ignored'] }, null, 'junk']
+    const out = migrateStore(legacyStore(rows)) as unknown as { positions: unknown[] }
+    expect('skill_tags' in (out.positions[0] as object)).toBe(false)
+    expect(out.positions[1]).toBeNull()
+    expect(out.positions[2]).toBe('junk')
   })
 })
