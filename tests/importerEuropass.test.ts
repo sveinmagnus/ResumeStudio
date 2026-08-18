@@ -964,3 +964,91 @@ describe('importFromEuropassXml — foreign language levels', () => {
     expect(lang('').level).toEqual({})
   })
 })
+
+/**
+ * The rows a Europass import writes out by hand.
+ *
+ * Neither path has a source for the link lists or the flags, so every one of
+ * them is a literal in the mapper. Each is load-bearing: a seeded link list
+ * points at a registry entry that does not exist and every renderer resolves
+ * those ids, a row that lands disabled is missing from every export with no
+ * visible cause, and a resume whose locale list is empty offers the consultant
+ * no language to edit in.
+ */
+describe('importFromEuropass — the lists and flags a fresh import starts with', () => {
+  it('supports the one language it detected, from either path', () => {
+    const fromJson = importFromEuropassJson({
+      profile: { preference: { profileLanguage: 'nb' }, personalInformation: { firstName: 'Kari' } },
+    })
+    expect(fromJson.resume!.default_locale).toBe('no')
+    expect(fromJson.resume!.supported_locales).toEqual(['no'])
+
+    const fromXml = importFromEuropassXml(
+      '<?xml version="1.0"?><SkillsPassport locale="nb"><LearnerInfo/></SkillsPassport>',
+    )
+    expect(fromXml.resume!.default_locale).toBe('no')
+    expect(fromXml.resume!.supported_locales).toEqual(['no'])
+  })
+
+  it('links the opening profile to no competencies and no key points', () => {
+    const store = importFromEuropassJson({ profile: { aboutMe: 'I build systems.' } })
+    expect(store.key_qualifications[0].competency_ids).toEqual([])
+    expect(store.key_qualifications[0].key_points).toEqual([])
+  })
+
+  it('links a JSON work experience to no roles until the user does', () => {
+    const store = importFromEuropassJson({ profile: { workExperiences: [{ employer: 'Acme' }] } })
+    expect(store.work_experiences[0].role_ids).toEqual([])
+  })
+
+  it('imports a non-native language enabled, like every other row', () => {
+    const store = importFromEuropassJson({
+      profile: { languageSkills: { otherLanguages: [{ language: 'German', listening: 'B1' }] } },
+    })
+    expect(store.spoken_languages[0]).toMatchObject({ name: { en: 'German' }, disabled: false })
+  })
+})
+
+describe('importFromEuropassXml — where the document states its language', () => {
+  it('prefers the Locale ELEMENT when the root carries no locale attribute', () => {
+    // Europass 3.x writes the language as a child element; reading only the
+    // attribute silently imports a Norwegian CV as English, and every field
+    // then lands in a locale column the consultant is not editing.
+    const store = importFromEuropassXml(
+      '<?xml version="1.0"?><SkillsPassport><Locale>no</Locale><LearnerInfo/></SkillsPassport>',
+    )
+    expect(store.resume!.default_locale).toBe('no')
+  })
+
+  it('falls back to the root attribute when there is no Locale element', () => {
+    const store = importFromEuropassXml(
+      '<?xml version="1.0"?><SkillsPassport locale="sv"><LearnerInfo/></SkillsPassport>',
+    )
+    expect(store.resume!.default_locale).toBe('se')
+  })
+
+  it('settles on English when the document states no language at all', () => {
+    const store = importFromEuropassXml('<?xml version="1.0"?><SkillsPassport><LearnerInfo/></SkillsPassport>')
+    expect(store.resume!.default_locale).toBe('en')
+  })
+})
+
+describe('importFromEuropassXml — the two shapes an email arrives in', () => {
+  const resumeOf = (contact: string) => importFromEuropassXml(
+    `<?xml version="1.0"?><SkillsPassport><LearnerInfo><Identification><ContactInfo>${contact}</ContactInfo></Identification></LearnerInfo></SkillsPassport>`,
+  ).resume!
+
+  it('reads the address straight off Email when there is no nested Contact', () => {
+    // Older exports put the address in the element itself. Dropping the
+    // fallback leaves the consultant with a CV that lists no way to reach them.
+    expect(resumeOf('<Email>ola@example.no</Email>').email).toBe('ola@example.no')
+  })
+
+  it('still prefers the nested Contact when both could be read', () => {
+    expect(resumeOf('<Email><Contact>ola@example.no</Contact></Email>').email).toBe('ola@example.no')
+  })
+
+  it('leaves the address EMPTY rather than undefined when there is no email at all', () => {
+    expect(resumeOf('<Telephone><Contact>+47 900</Contact></Telephone>').email).toBe('')
+  })
+})
