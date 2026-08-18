@@ -1051,6 +1051,17 @@ describe('api — the AI endpoints', () => {
     await expect(api.llmModels()).resolves.toEqual([])
   })
 
+  it('llmModels ignores a model list carried by a FAILING response', async () => {
+    // A 500 still has a body, and a proxy or error page can put anything in it.
+    // Reading models out of a failed request builds the picker from an error
+    // and the user picks a model the server never offered.
+    fetchMock.mockResolvedValue(mockRes({
+      status: 500,
+      body: { models: [{ id: 'ghost-model' }] },
+    }))
+    await expect(api.llmModels()).resolves.toEqual([])
+  })
+
   it('llmModels POSTs the pending form values when it has them, GETs otherwise', async () => {
     // The useful moment is right after pasting a key, before Save.
     fetchMock.mockResolvedValue(mockRes({ status: 200, body: { models: [] } }))

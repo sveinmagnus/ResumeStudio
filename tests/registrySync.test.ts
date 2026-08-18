@@ -174,6 +174,20 @@ describe('applyCanonicalLinks()', () => {
     const store = { ...emptyStore(), skills: [makeSkill({ id: 's1' })] }
     expect(applyCanonicalLinks(store, {})).toBe(store)
   })
+
+  it('writes back an EMPTY categories array for a store that predates them', () => {
+    // Publishing rebuilds all four registry arrays, and the result is what gets
+    // saved. Anything but a real empty array here is persisted junk in a
+    // registry the editor then tries to render.
+    const s = emptyStore()
+    s.skills = [makeSkill({ id: 's1' })]
+    delete (s as unknown as Record<string, unknown>).skill_categories
+
+    const out = applyCanonicalLinks(s, { s1: 'c-s1' })
+
+    expect(out.skill_categories).toEqual([])
+    expect(out.skills[0].canonical_id).toBe('c-s1')
+  })
 })
 
 describe('linkedNameSnapshot()', () => {

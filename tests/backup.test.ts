@@ -68,6 +68,18 @@ describe('isBackupFormat()', () => {
       sections: {},
     })).toBe(false)
   })
+
+  it('rejects a $schema that is not a string but stringifies like one', () => {
+    // The prefix test coerces with String(), which flattens ["resumestudio/v1"]
+    // to exactly our own prefix. Without the type check first, a malformed file
+    // passes the router and everything downstream reads the envelope as trusted.
+    expect(isBackupFormat({
+      $schema: ['resumestudio/v1'],
+      format_version: 1,
+      profile: null,
+      sections: {},
+    })).toBe(false)
+  })
 })
 
 describe('validateBackup()', () => {

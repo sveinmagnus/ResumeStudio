@@ -260,4 +260,52 @@ describe('enumeration across the whole of localStorage', () => {
     expect(loadPending('b')).toBeNull()
     expect(localStorage.getItem('unrelated')).toBe('keep me')
   })
+
+  it('issues deletions for prefixed keys only', () => {
+    // Asserting on the survivors only proves nothing died that this test
+    // happened to write first. The removal CALLS are the contract: an extra key
+    // in the list is invisible here and unrecoverable on a real origin, where
+    // the neighbouring keys hold the rest of the app's state.
+    savePending('a', input())
+    savePending('b', input())
+    const removeItem = vi.spyOn(Storage.prototype, 'removeItem')
+
+    clearAllCaches()
+
+    expect(removeItem).toHaveBeenCalled()
+    for (const [key] of removeItem.mock.calls) {
+      expect(key).toMatch(/^resumestudio:store-cache:v1:/)
+    }
+  })
+})
+
+describe('an unreadable slot is absent, not an incident', () => {
+  // loadPending runs on every boot and every drain tick. Routing an ordinary
+  // empty/absent slot through the catch block would log a warning per read,
+  // burying the one warning that means something.
+  const warnSpy = () => vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+  it('reads an empty cache value as "nothing cached" without reporting corruption', () => {
+    const warn = warnSpy()
+    localStorage.setItem(KEY, '')
+
+    expect(loadPending(ID)).toBeNull()
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('reads a JSON null as "nothing cached" without reporting corruption', () => {
+    const warn = warnSpy()
+    localStorage.setItem(KEY, 'null')
+
+    expect(loadPending(ID)).toBeNull()
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('reports genuinely unparseable content, so a real cache bug is visible', () => {
+    const warn = warnSpy()
+    localStorage.setItem(KEY, '{oh no')
+
+    expect(loadPending(ID)).toBeNull()
+    expect(warn).toHaveBeenCalled()
+  })
 })
