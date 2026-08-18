@@ -14,10 +14,11 @@ import { exportDocx } from '../src/lib/exporter'
 import { buildViewSections } from '../src/lib/viewFilter'
 import { withHeaderDefaults } from '../src/lib/viewHeader'
 import { DEFAULT_VIEW_STYLE, deriveTokens } from '../src/lib/viewStyle'
+import { LOCALE_CODES } from '../src/lib/locales'
 import {
   emptyStore, makeResume, makeProject, makeView, makeCoverLetter,
   makeSkill, makeSkillCategory, makeKQ, makeWork, makeSpokenLanguage, makeRecommendation,
-  makeCertification,
+  makeCertification, makePosition, makeReference,
 } from './fixtures'
 import type { ResumeStore } from '../src/types'
 
@@ -1295,5 +1296,1005 @@ describe('exportCoverLetterPdf — the filename it downloads as', () => {
     await expect(mod.exportCoverLetterPdf(store, makeCoverLetter({ name: 'Letter' } as never), 'en'))
       .resolves.toBeUndefined()
     expect(seen.name).toMatch(/Letter/)
+  })
+})
+
+/**
+ * The numbers, flags and colours the doc definition carries.
+ *
+ * pdfmake accepts `undefined` for almost every property and silently falls back
+ * to its own defaults, so a token that stops reaching a node changes the printed
+ * page without changing a single word of it. Text-only assertions cannot see
+ * that; the blocks below read the properties themselves.
+ */
+
+const T = deriveTokens(DEFAULT_VIEW_STYLE)
+
+/** Every object node in a pdfmake tree, in document order. */
+function pdfNodes(node: unknown, out: Record<string, unknown>[] = []): Record<string, unknown>[] {
+  if (Array.isArray(node)) { for (const n of node) pdfNodes(n, out); return out }
+  if (!node || typeof node !== 'object') return out
+  const rec = node as Record<string, unknown>
+  out.push(rec)
+  for (const key of ['text', 'stack', 'columns', 'content', 'canvas']) if (key in rec) pdfNodes(rec[key], out)
+  if ('table' in rec) pdfNodes((rec.table as Record<string, unknown>).body, out)
+  return out
+}
+
+/** The node whose own `text` is exactly this string (a leaf paragraph). */
+const leafSaying = (dd: Record<string, unknown>, text: string) =>
+  pdfNodes(dd.content).find((n) => n.text === text)
+
+/** The container node whose `text` is a run ARRAY mentioning `needle`. */
+const blockSaying = (dd: Record<string, unknown>, needle: string) =>
+  pdfNodes(dd.content).find((n) => Array.isArray(n.text) && JSON.stringify(n.text).includes(needle))
+
+/**
+ * Any bare string sitting where a node belongs. pdfmake tolerates one, but this
+ * module never writes one: a string node carries no font, size or colour, so it
+ * would print in pdfmake's defaults instead of the view's style.
+ */
+function bareStringNodes(node: unknown, out: string[] = []): string[] {
+  if (Array.isArray(node)) {
+    for (const n of node) { if (typeof n === 'string') out.push(n); else bareStringNodes(n, out) }
+    return out
+  }
+  if (!node || typeof node !== 'object') return out
+  const rec = node as Record<string, unknown>
+  for (const key of ['text', 'stack', 'columns', 'content', 'canvas']) {
+    if (Array.isArray(rec[key])) bareStringNodes(rec[key], out)
+  }
+  if ('table' in rec) bareStringNodes((rec.table as Record<string, unknown>).body, out)
+  return out
+}
+
+const projectView = () => makeView({ sections: [{ key: 'projects', detail: 'full', sort_order: 0 }] })
+
+describe('pdfExporter - paragraph tokens', () => {
+  const oneProject = (over: Record<string, unknown> = {}): ResumeStore => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'Jane Doe' })
+    s.projects = [makeProject({
+      id: 'p1', customer: { en: 'AcmeCorp' }, description: { en: 'Built the platform' },
+      long_description: {}, ...over,
+    })]
+    return s
+  }
+
+  it('sizes and inks a plain paragraph from the tokens, with its own bottom gap', async () => {
+    // The project short description is the one plain paragraph in the tree.
+    // Losing its size leaves pdfmake's own default, which no longer matches the
+    // density the user picked; losing its gap runs it into the body below.
+    const dd = await buildPdfDocDefinition(oneProject(), projectView(), 'en')
+    const lead = leafSaying(dd, 'Built the platform')
+    expect(lead).toBeDefined()
+    expect(lead!.fontSize).toBe(T.bodyFontSizePt)
+    expect(lead!.color).toBe('#222222')
+    expect((lead!.margin as number[])[3]).toBe(5)
+  })
+
+  it('inks rich-text paragraphs AND bullet lines with the body colour', async () => {
+    // The two richToPdf branches carry the colour separately; the bullet branch
+    // losing it prints default-coloured list lines beside inked paragraphs.
+    const dd = await buildPdfDocDefinition(
+      oneProject({ long_description: { en: '<p>Alpha</p><ul><li>Beta</li></ul>' } }), projectView(), 'en')
+    const alpha = blockSaying(dd, 'Alpha')
+    const beta = blockSaying(dd, 'Beta')
+    expect(alpha?.color).toBe('#222222')
+    expect(alpha?.fontSize).toBe(T.bodyFontSizePt)
+    expect(beta?.color).toBe('#222222')
+    expect(beta?.fontSize).toBe(T.bodyFontSizePt)
+  })
+
+  it('never puts a bare string where a styled node belongs', async () => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'Jane Doe', phone: '+47 900 00 000' })
+    s.skills = [makeSkill({ id: 'go', name: { en: 'Go' } })]
+    s.projects = [
+      makeProject({
+        id: 'p1', customer: { en: 'Acme' },
+        long_description: { en: '<p>Alpha</p><ul><li>Beta</li></ul>' },
+        highlights: [{ en: 'Cut latency in half' }],
+        skills: [{
+          id: 'ps1', skill_id: 'go', name: { en: 'Go' },
+          duration_in_years: 0, offset_in_years: 0, total_duration_in_years: 0, sort_order: 0,
+        }],
+      }),
+      // Markup that parses to no blocks at all - the empty-body early return.
+      makeProject({ id: 'p2', customer: { en: 'Beta Ltd' }, description: {}, long_description: { en: '<p></p>' } }),
+    ]
+    const dd = await buildPdfDocDefinition(s, projectView(), 'en')
+    expect(bareStringNodes(dd.content)).toEqual([])
+  })
+})
+
+describe('pdfExporter - the section heading node', () => {
+  it('gives the heading table a full-width column and bold accented text', async () => {
+    // The heading is a one-row table; without the '*' width pdfmake shrink-wraps
+    // it and the rule under the heading stops short of the text edge.
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'Jane Doe' })
+    s.projects = [makeProject({ id: 'p1', customer: { en: 'Acme' } })]
+    const dd = await buildPdfDocDefinition(s, projectView(), 'en')
+    const heading = (dd.content as Record<string, unknown>[]).find((n) => 'table' in n)!
+    expect((heading.table as { widths: unknown[] }).widths).toEqual(['*'])
+    const cell = (heading.table as { body: Record<string, unknown>[][] }).body[0][0]
+    expect(cell.text).toBe('PROJECTS')
+    expect(cell.bold).toBe(true)
+    expect(cell.fontSize).toBe(T.h2Pt)
+    expect(cell.color).toBe('#' + T.headingHex)
+  })
+})
+
+describe('pdfExporter - the summary line runs', () => {
+  const summaryView = (key: string) => makeView({ sections: [{ key, detail: 'summary', sort_order: 0 }] })
+
+  it('sets the title run bold so it reads ahead of its meta', async () => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'Jane Doe' })
+    s.certifications = [makeCertification({ id: 'c1', name: { en: 'AWS SA' }, organiser: { en: 'Amazon' } })]
+    const dd = await buildPdfDocDefinition(s, summaryView('certifications'), 'en')
+    const line = blockSaying(dd, 'AWS SA')!
+    const runs = line.text as Record<string, unknown>[]
+    expect(runs[0]).toMatchObject({ text: 'AWS SA', bold: true })
+    expect(line.fontSize).toBe(T.smallFontSizePt)
+    expect(runs[1]).toMatchObject({ color: '#666666' })
+  })
+
+  it('emits no meta run at all when the item has no meta to show', async () => {
+    // An unconditional meta run prints a dangling separator after the title.
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'Jane Doe' })
+    s.certifications = [makeCertification({ id: 'c1', name: { en: 'AWS SA' } })]
+    const dd = await buildPdfDocDefinition(s, summaryView('certifications'), 'en')
+    const runs = blockSaying(dd, 'AWS SA')!.text as Record<string, unknown>[]
+    expect(runs).toHaveLength(1)
+  })
+})
+
+describe('pdfExporter - what an item row is made of', () => {
+  const build = (s: ResumeStore, key: string, style: Record<string, unknown> = {}) =>
+    buildPdfDocDefinition(s, makeView({
+      sections: [{ key, detail: 'full', sort_order: 0, style } as never],
+    }), 'en')
+
+  /** The run array of the node whose FIRST run says exactly this. */
+  const rowStartingWith = (dd: Record<string, unknown>, first: string) =>
+    pdfNodes(dd.content)
+      .filter((n) => Array.isArray(n.text))
+      .find((n) => (n.text as Record<string, unknown>[])[0]?.text === first)
+
+  it('writes the inline layout title bold, ahead of its trailing meta', async () => {
+    // Languages render as one inline row; an unbolded name loses the only visual
+    // separation between the language and its level.
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    s.spoken_languages = [makeSpokenLanguage({ id: 'l1', name: { en: 'Norwegian' }, level: { en: 'Native' } })]
+    const dd = await build(s, 'spoken_languages')
+    const row = rowStartingWith(dd, 'Norwegian')!
+    const runs = row.text as Record<string, unknown>[]
+    expect(runs[0].bold).toBe(true)
+    expect(row.fontSize).toBe(T.bodyFontSizePt)
+    expect(row.color).toBe('#222222')
+  })
+
+  it('opens a quote attribution with the name, never with a stray separator', async () => {
+    // With no recommender name the attribution is empty and only the
+    // relationship survives; joining without dropping the empty half prints
+    // "-  . (Peer)" under the quote.
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    s.recommendations = [makeRecommendation({
+      id: 'r1', recommender_name: '', recommender_title: {}, recommender_company: '',
+      relationship: { en: 'Peer' }, text: { en: 'Great.' },
+    })]
+    const dd = await build(s, 'recommendations')
+    expect(leafSaying(dd, '— (Peer)')).toBeDefined()
+  })
+
+  it('renders no title row at all for an item whose title resolves empty', async () => {
+    // A position with neither organisation nor role name still has a body; an
+    // unconditional title row prints a blank bold line above it.
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    s.positions = [makePosition({ id: 'pos1', name: {}, organisation: {}, description: { en: 'Did things' } })]
+    const dd = await build(s, 'positions')
+    // The item did render - it is only the title row that must be absent.
+    expect(collectText(dd.content)).toContain('Did things')
+    const emptyRuns = pdfNodes(dd.content)
+      .filter((n) => Array.isArray(n.text))
+      .filter((n) => (n.text as Record<string, unknown>[]).some((r) => r?.text === ''))
+    expect(emptyRuns).toEqual([])
+  })
+
+  it('sizes a plain item title at body size and a large-title one above it', async () => {
+    // titleStyle is the descriptor's choice: Projects head each entry, a
+    // certification is a line in a list. Collapsing the two makes every section
+    // shout.
+    const certStore = emptyStore()
+    certStore.resume = makeResume({ full_name: 'X' })
+    certStore.certifications = [makeCertification({ id: 'c1', name: { en: 'AWS SA' } })]
+    const cert = await build(certStore, 'certifications')
+    expect((rowStartingWith(cert, 'AWS SA')!.text as Record<string, unknown>[])[0].fontSize)
+      .toBe(T.bodyFontSizePt)
+
+    const projStore = emptyStore()
+    projStore.resume = makeResume({ full_name: 'X' })
+    projStore.projects = [makeProject({ id: 'p1', customer: { en: 'AcmeCorp' } })]
+    const proj = await build(projStore, 'projects')
+    expect((rowStartingWith(proj, 'AcmeCorp')!.text as Record<string, unknown>[])[0].fontSize)
+      .toBe(T.h3Pt + 1)
+  })
+
+  it('leaves the title row a single run when the item carries no date', async () => {
+    // An unconditional date run prints three spaces and nothing after them.
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    s.certifications = [makeCertification({ id: 'c1', name: { en: 'AWS SA' }, issued: null })]
+    const dd = await build(s, 'certifications')
+    expect(rowStartingWith(dd, 'AWS SA')!.text).toHaveLength(1)
+  })
+
+  it('bolds a key point bullet only when the point has a label to bold', async () => {
+    // The bullet glyph and the label share one run: bolding a bare bullet makes
+    // an unlabelled list look like a list of headings.
+    const withPoints = (label: Record<string, string>) => {
+      const s = emptyStore()
+      s.resume = makeResume({ full_name: 'X' })
+      s.key_qualifications = [makeKQ({
+        id: 'kq1', summary: { en: 'Summary.' },
+        key_points: [{ id: 'kp0', name: label, long_description: { en: 'Ran it.' }, sort_order: 0, disabled: false }] as never,
+      })]
+      return build(s, 'key_qualifications')
+    }
+    expect((rowStartingWith(await withPoints({}), '• ')!.text as Record<string, unknown>[])[0].bold).toBe(false)
+    expect((rowStartingWith(await withPoints({ en: 'Cloud' }), '• Cloud')!.text as Record<string, unknown>[])[0].bold).toBe(true)
+  })
+})
+
+describe('pdfExporter - the item bullet column', () => {
+  const bulletDoc = (style: Record<string, unknown>) => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    s.work_experiences = [makeWork({
+      id: 'w1', employer: { en: 'Acme' }, long_description: { en: 'Did the work.' },
+    })]
+    return buildPdfDocDefinition(s, makeView({
+      sections: [{ key: 'work_experiences', detail: 'full', sort_order: 0, style } as never],
+    }), 'en')
+  }
+  const columnsNode = (dd: Record<string, unknown>) =>
+    (dd.content as Record<string, unknown>[]).find((n) => 'columns' in n)!
+
+  it('hangs the content off a fixed glyph column sized from the body text', async () => {
+    // The glyph column is a hanging indent: a wrong width (or a missing one)
+    // lets the content column slide under the bullet instead of aligning
+    // under the heading.
+    const dd = await bulletDoc({ item_bullets: true })
+    const cols = columnsNode(dd).columns as Record<string, unknown>[]
+    expect(cols).toHaveLength(2)
+    expect(cols[0].width).toBe(T.bodyFontSizePt * 0.9)
+    expect(cols[0].bold).toBe(true)
+    expect(cols[0].fontSize).toBe(T.h3Pt)
+    expect(cols[0].color).toBe('#' + T.headingHex)
+    expect(String(cols[0].text).length).toBeGreaterThan(0)
+    expect(cols[1].width).toBe('*')
+    expect(Array.isArray(cols[1].stack)).toBe(true)
+    expect((cols[1].stack as unknown[]).length).toBeGreaterThan(0)
+  })
+
+  it('carries the section gap on the bullet row when the heading is hidden', async () => {
+    // The bullet wrapper is the one node this module emits WITHOUT a margin, so
+    // it is where a missing zero-margin fallback shows up as NaN geometry.
+    const dd = await bulletDoc({ item_bullets: true, hide_heading: true })
+    expect(columnsNode(dd).margin).toEqual([0, T.itemGapTwips / 20, 0, 0])
+  })
+})
+
+describe('pdfExporter - the section dispatcher', () => {
+  const workStore = (over: Record<string, unknown> = {}): ResumeStore => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    s.work_experiences = [makeWork({
+      id: 'w1', employer: { en: 'Acme' }, role_title: { en: 'Architect' },
+      long_description: { en: 'Did the work.' }, ...over,
+    })]
+    return s
+  }
+  const summaryDoc = (s: ResumeStore, style: Record<string, unknown> = {}) =>
+    buildPdfDocDefinition(s, makeView({
+      sections: [{ key: 'work_experiences', detail: 'summary', sort_order: 0, style } as never],
+    }), 'en')
+
+  it('trims the short description before it becomes its own line', async () => {
+    // Leading whitespace survives into the PDF as a hanging indent on one line
+    // of a list where every other line is flush.
+    const dd = await summaryDoc(workStore({ short_description: { en: '   Ran the platform.  ' } }))
+    expect(leafSaying(dd, 'Ran the platform.')).toBeDefined()
+  })
+
+  it('styles the below-the-line short description subtle, with its own tight gap', async () => {
+    const dd = await summaryDoc(workStore({ short_description: { en: 'Ran the platform.' } }))
+    const line = leafSaying(dd, 'Ran the platform.')!
+    expect(line.color).toBe('#666666')
+    expect((line.margin as number[])[3]).toBe(3)
+  })
+
+  it('joins an inline short description to the meta only when there IS meta', async () => {
+    // No employer and no dates leaves the meta empty; joining regardless prints
+    // the summary line as "Architect -  - Ran the platform.".
+    const dd = await summaryDoc(
+      workStore({
+        employer: {}, start: null, end: null,
+        short_description: { en: 'Ran the platform.' },
+      }),
+      { short_desc_line: 'inline' },
+    )
+    const row = pdfNodes(dd.content)
+      .filter((n) => Array.isArray(n.text))
+      .find((n) => (n.text as Record<string, unknown>[])[0]?.text === 'Architect')!
+    expect((row.text as Record<string, unknown>[])[1].text).toBe(' — Ran the platform.')
+  })
+
+  it('prints no heading for a section whose every item opts out of exports', async () => {
+    // A reference kept for the consultant's own records still counts as an item,
+    // so the section survives the empty-items guard and only the per-item render
+    // can drop it. A heading over nothing looks like lost content.
+    const refsDoc = (include_in_exports: boolean, detail: 'full' | 'summary') => {
+      const s = emptyStore()
+      s.resume = makeResume({ full_name: 'X' })
+      s.references = [makeReference({ id: 'ref1', name: 'Jane Doe', include_in_exports })]
+      return buildPdfDocDefinition(s, makeView({
+        sections: [{ key: 'references', detail, sort_order: 0 }],
+      }), 'en')
+    }
+    for (const detail of ['full', 'summary'] as const) {
+      expect(collectText((await refsDoc(false, detail)).content).join(' | '), detail)
+        .not.toContain('REFERENCES')
+      // The opt-in case proves the section really is reaching the item renderer,
+      // rather than being dropped earlier as an empty section.
+      expect(collectText((await refsDoc(true, detail)).content).join(' | '), detail)
+        .toContain('REFERENCES')
+    }
+  })
+
+  it('does not repeat the first node when the heading is hidden', async () => {
+    // The first node absorbs the section gap and the REST follow it; taking the
+    // whole list instead prints the item title twice.
+    const dd = await buildPdfDocDefinition(workStore(), makeView({
+      sections: [{ key: 'work_experiences', detail: 'full', sort_order: 0, style: { hide_heading: true } } as never],
+    }), 'en')
+    const titleRows = pdfNodes(dd.content)
+      .filter((n) => Array.isArray(n.text))
+      .filter((n) => (n.text as Record<string, unknown>[])[0]?.text === 'Acme — Architect')
+    expect(titleRows).toHaveLength(1)
+  })
+})
+
+describe('pdfExporter - the skill matrix section', () => {
+  const matrixDoc = (s: ResumeStore, detail: 'full' | 'summary' = 'full', style: Record<string, unknown> = {}) =>
+    buildPdfDocDefinition(s, makeView({
+      sections: [{ key: 'skill_matrix', detail, sort_order: 0, style } as never],
+    }), 'en')
+
+  /** The matrix table node - the only table in the tree declaring a header row. */
+  const matrixTable = (dd: Record<string, unknown>) =>
+    pdfNodes(dd.content).find((n) => (n.table as { headerRows?: number } | undefined)?.headerRows === 1)
+
+  const rowsOf = (dd: Record<string, unknown>): string[][] => {
+    const table = matrixTable(dd)
+    if (!table) return []
+    return (table.table as { body: Record<string, unknown>[][] }).body
+      .map((row) => row.map((c) => String(c.text ?? '')))
+  }
+
+  it('adds the Category column when only SOME of the rows are categorised', async () => {
+    // A partly-classified registry is the normal state of a real CV. Requiring
+    // every row to have one drops the column and hides the classification work
+    // the user already did.
+    const s = emptyStore()
+    s.skill_categories = [makeSkillCategory({ id: 'cat1', name: { en: 'Languages' } })]
+    s.skills = [
+      makeSkill({ id: 'ts', name: { en: 'TypeScript' }, category_id: 'cat1', proficiency: 4 }),
+      makeSkill({ id: 'sh', name: { en: 'Bash' }, category_id: null, proficiency: 3 }),
+    ]
+    const rows = rowsOf(await matrixDoc(s))
+    const col = rows[0].indexOf('Category')
+    expect(col).toBeGreaterThan(-1)
+    expect(rows.slice(1).map((r) => r[col]).sort()).toEqual(['', 'Languages'])
+  })
+
+  it('fills the Last used cell from the skill’s most recent project', async () => {
+    // The column exists to answer "is this current?"; an empty cell reads as
+    // "never used" for a skill the CV shows three projects of.
+    const s = emptyStore()
+    s.skills = [makeSkill({ id: 'ts', name: { en: 'TypeScript' }, proficiency: 4 })]
+    s.projects = [makeProject({
+      id: 'p1', start: { year: 2020, month: 1 }, end: { year: 2023, month: 6 },
+      skills: [{
+        id: 'ps1', skill_id: 'ts', name: { en: 'TypeScript' },
+        duration_in_years: 0, offset_in_years: 0, total_duration_in_years: 0, sort_order: 0,
+      }],
+    })]
+    const rows = rowsOf(await matrixDoc(s))
+    expect(rows[0].at(-1)).toBe('Last used')
+    expect(rows[1].at(-1)).toContain('2023')
+  })
+
+  it('rules the matrix in a neutral grey, not in the accent colour', async () => {
+    // The accent belongs to the section headings; using it for table rules turns
+    // a reference table into the loudest thing on the page.
+    const s = emptyStore()
+    s.skills = [makeSkill({ id: 'ts', name: { en: 'TypeScript' }, proficiency: 4 })]
+    const layout = matrixTable(await matrixDoc(s))!.layout as Record<string, (i: number) => unknown>
+    expect(layout.hLineColor(1)).toBe('#d1d5db')
+  })
+
+  it('narrows the matrix to highlighted skills at summary detail only', async () => {
+    const s = emptyStore()
+    s.skills = [
+      makeSkill({ id: 'ts', name: { en: 'TypeScript' }, proficiency: 4, is_highlighted: true }),
+      makeSkill({ id: 'sh', name: { en: 'Bash' }, proficiency: 3, is_highlighted: false }),
+    ]
+    const summary = rowsOf(await matrixDoc(s, 'summary')).slice(1).map((r) => r[0])
+    expect(summary).toEqual(['TypeScript'])
+    const full = rowsOf(await matrixDoc(s, 'full')).slice(1).map((r) => r[0])
+    expect(full).toEqual(['TypeScript', 'Bash'])
+  })
+
+  it('renders no table and no heading when there is no skill to tabulate', async () => {
+    // A header row over an empty body is a table of nothing - worse than the
+    // section simply not appearing.
+    const s = emptyStore()
+    const dd = await matrixDoc(s)
+    expect(rowsOf(dd)).toEqual([])
+    expect(collectText(dd.content).join(' | ')).not.toContain('SKILL MATRIX')
+  })
+
+  it('heads the matrix unless the section is set to hide its heading', async () => {
+    const s = emptyStore()
+    s.skills = [makeSkill({ id: 'ts', name: { en: 'TypeScript' }, proficiency: 4 })]
+    const shown = await matrixDoc(s)
+    expect(collectText(shown.content).join(' | ')).toContain('SKILL MATRIX')
+
+    const hidden = await matrixDoc(s, 'full', { hide_heading: true })
+    expect(collectText(hidden.content).join(' | ')).not.toContain('SKILL MATRIX')
+    // The table itself must survive - hiding the heading is not hiding the data.
+    expect(rowsOf(hidden)).not.toEqual([])
+  })
+})
+
+describe('pdfExporter - the identity block styling', () => {
+  const identityDoc = (over: Record<string, unknown> = {}, header: Record<string, unknown> = {}) => {
+    const s = emptyStore()
+    s.resume = makeResume({
+      full_name: 'Kari Nordmann', title: { en: 'Solution Architect' },
+      phone: '+47 900 00 000', email: 'kari@example.com', ...over,
+    })
+    return buildPdfDocDefinition(s, makeView({ sections: [], header: withHeaderDefaults(header) }), 'en')
+  }
+
+  it('sets the name in the heading colour at the h1 size, bold', async () => {
+    // The name is the largest thing on page one; losing its size drops it to
+    // body text and the CV opens on an unremarkable line.
+    const name = (await identityDoc()).content as Record<string, unknown>[]
+    expect(name[0]).toMatchObject({ text: 'Kari Nordmann', bold: true, color: '#' + T.headingHex })
+    expect(name[0].fontSize).toBe(T.h1Pt)
+  })
+
+  it('sets the title one point above the small size, in its own softer ink', async () => {
+    const dd = await identityDoc()
+    const title = (dd.content as Record<string, unknown>[])[1]
+    expect(title.text).toBe('Solution Architect')
+    expect(title.color).toBe('#444444')
+    expect(title.fontSize).toBe(T.smallFontSizePt + 1)
+  })
+
+  it('honours an explicit name and title size over the tokens', async () => {
+    const dd = await identityDoc({}, {
+      name_style: { size_pt: 30, font: 'condensed' },
+      title_style: { size_pt: 9, font: 'body' },
+    })
+    const content = dd.content as Record<string, unknown>[]
+    expect(content[0].fontSize).toBe(30)
+    expect(content[1].fontSize).toBe(9)
+  })
+
+  it('emits no title node at all when there is no title to show', async () => {
+    // An unconditional title node prints an empty line between the name and the
+    // contact details.
+    const dd = await identityDoc({ title: {} })
+    const titled = (dd.content as Record<string, unknown>[]).filter((n) => n.color === '#444444')
+    expect(titled).toEqual([])
+  })
+
+  it('colours a contact label faint and its value subtle', async () => {
+    // The label is chrome and the value is the content; one colour for both
+    // makes "Phone:" compete with the number.
+    const dd = await identityDoc()
+    const runs = pdfNodes(dd.content).filter((n) => typeof n.text === 'string')
+    expect(runs.find((r) => r.text === 'Phone: ')?.color).toBe('#888888')
+    expect(runs.find((r) => r.text === '+47 900 00 000')?.color).toBe('#666666')
+  })
+
+  it('emits no label run for a field whose label the user blanked everywhere', async () => {
+    // Clearing the label in every language is how a user asks for bare values;
+    // pushing the run regardless leaves an empty styled run before each one.
+    const blank = Object.fromEntries(LOCALE_CODES.map((c) => [c, '']))
+    const dd = await identityDoc({}, {
+      fields: [{ key: 'phone', show: true, label: blank, same_line: false, sort_order: 0 }],
+    })
+    const runs = pdfNodes(dd.content).filter((n) => typeof n.text === 'string')
+    expect(runs.filter((r) => r.text === '')).toEqual([])
+    expect(runs.some((r) => r.text === '+47 900 00 000')).toBe(true)
+  })
+})
+
+/** A PNG whose IHDR declares `w` x `h`; only the header is ever read. */
+function pngHeader(w: number, h: number): string {
+  const bytes = new Uint8Array(40)
+  bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 0)
+  bytes.set([0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52], 8)
+  const be = (o: number, v: number) => {
+    bytes[o] = (v >>> 24) & 0xff; bytes[o + 1] = (v >>> 16) & 0xff
+    bytes[o + 2] = (v >>> 8) & 0xff; bytes[o + 3] = v & 0xff
+  }
+  be(16, w); be(20, h)
+  let binary = ''
+  for (const b of bytes) binary += String.fromCharCode(b)
+  return `data:image/png;base64,${btoa(binary)}`
+}
+
+/** Every node in the tree that carries an `image`. */
+const imageNodes = (dd: Record<string, unknown>) =>
+  pdfNodes(dd.content).filter((n) => typeof n.image === 'string')
+
+describe('pdfExporter - where the photo sits relative to the identity', () => {
+  const build = (photo_placement: string) => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'Jane Doe', profile_photo: pngHeader(100, 120) })
+    return buildPdfDocDefinition(s, makeView({
+      sections: [], header: withHeaderDefaults({ photo_placement: photo_placement as never }),
+    }), 'en')
+  }
+  const columnRoles = (dd: Record<string, unknown>) => {
+    const node = (dd.content as Record<string, unknown>[]).find((n) => 'columns' in n)!
+    return (node.columns as Record<string, unknown>[])
+      .map((c) => (imageNodes({ content: [c] }).length ? 'photo' : 'identity'))
+  }
+
+  it('keeps the name-level placements on the side they name', async () => {
+    // left_of_name / right_of_name share the column layout with left / right;
+    // folding them into the fallback drops the photo to the bottom of the
+    // header instead of beside the name.
+    expect(columnRoles(await build('left_of_name'))).toEqual(['photo', 'identity'])
+    expect(columnRoles(await build('right_of_name'))).toEqual(['identity', 'photo'])
+  })
+
+  it('gives the identity column the flexible width in both column layouts', async () => {
+    for (const placement of ['left', 'right']) {
+      const node = ((await build(placement)).content as Record<string, unknown>[]).find((n) => 'columns' in n)!
+      const cols = node.columns as Record<string, unknown>[]
+      const identity = cols.find((c) => !imageNodes({ content: [c] }).length)!
+      expect(identity.width, placement).toBe('*')
+      expect((identity.stack as unknown[]).length, placement).toBeGreaterThan(0)
+    }
+  })
+
+  it('puts a "below" photo AFTER the identity, with its own breathing room', async () => {
+    // 'below' is the fallback branch; treating it like 'above' silently moves
+    // the photo to the top of the page for every view that chose it.
+    const dd = await build('below')
+    const nodes = dd.content as Record<string, unknown>[]
+    const photoAt = nodes.findIndex((n) => typeof n.image === 'string')
+    const nameAt = nodes.findIndex((n) => n.text === 'Jane Doe')
+    expect(photoAt).toBeGreaterThan(nameAt)
+    expect(nodes[photoAt].margin).toEqual([0, 6, 0, 8])
+    expect(nodes[photoAt].width).toBe(100)
+  })
+})
+
+describe('pdfExporter - masking a non-square photo', () => {
+  beforeEach(() => { vi.resetModules() })
+  afterEach(() => { vi.doUnmock('../src/lib/image') })
+
+  const MASKED = pngHeader(40, 40)
+
+  /**
+   * The real mask draws on a canvas, which jsdom never loads an image into, so
+   * it is stubbed here. What matters is WHETHER it is called, and that its
+   * result is what gets embedded.
+   */
+  const loadWithMask = async (mask: (url: string, shape: string) => Promise<string>) => {
+    const actual = await vi.importActual<typeof import('../src/lib/image')>('../src/lib/image')
+    vi.doMock('../src/lib/image', () => ({ ...actual, applyShapeMaskToDataUrl: mask }))
+    return import('../src/lib/pdfExporter')
+  }
+
+  const run = async (
+    opts: { photo: string | null; shape: string; placement: string },
+    mask: (url: string, shape: string) => Promise<string> = async () => MASKED,
+  ) => {
+    const calls: Array<[string, string]> = []
+    const { buildPdfDocDefinition: build } = await loadWithMask((url, shape) => {
+      calls.push([url, shape]); return mask(url, shape)
+    })
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'Jane Doe', profile_photo: opts.photo })
+    const dd = await build(s, makeView({
+      sections: [],
+      header: withHeaderDefaults({
+        photo_placement: opts.placement as never, photo_shape: opts.shape as never,
+      }),
+    }), 'en')
+    return { calls, dd }
+  }
+
+  it('masks the photo, and embeds the MASKED bytes, for a non-square shape', async () => {
+    const photo = pngHeader(100, 120)
+    const { calls, dd } = await run({ photo, shape: 'circle', placement: 'left' })
+    expect(calls).toEqual([[photo, 'circle']])
+    expect(imageNodes(dd)[0].image).toBe(MASKED)
+  })
+
+  it('leaves a square photo alone - masking it would be a needless re-encode', async () => {
+    const photo = pngHeader(100, 120)
+    const { calls, dd } = await run({ photo, shape: 'square', placement: 'left' })
+    expect(calls).toEqual([])
+    expect(imageNodes(dd)[0].image).toBe(photo)
+  })
+
+  it('does not mask a photo the header is not going to show', async () => {
+    const { calls } = await run({ photo: pngHeader(100, 120), shape: 'circle', placement: 'none' })
+    expect(calls).toEqual([])
+  })
+
+  it('does not reach for a mask when there is no photo at all', async () => {
+    const { calls } = await run({ photo: null, shape: 'circle', placement: 'left' })
+    expect(calls).toEqual([])
+  })
+
+  it('falls back to the unmasked photo when masking fails', async () => {
+    // A stored image the browser cannot decode must not cost the user their
+    // photo - a square-cornered picture beats no picture.
+    const photo = pngHeader(100, 120)
+    const { dd } = await run(
+      { photo, shape: 'circle', placement: 'left' },
+      () => Promise.reject(new Error('canvas unavailable')),
+    )
+    expect(imageNodes(dd)[0].image).toBe(photo)
+  })
+})
+
+describe('pdfExporter - the introduction paragraphs', () => {
+  const introDoc = (text: string) => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'Jane Doe' })
+    return buildPdfDocDefinition(s, makeView({ sections: [], introduction: { en: text } }), 'en')
+  }
+
+  it('opens the intro with a gap, spaces its paragraphs and closes with a bigger one', async () => {
+    // The closing gap separates the intro from the first section heading; using
+    // the paragraph gap there makes the intro read as part of that section.
+    const dd = await introDoc('First para.\n\nSecond para.')
+    const first = leafSaying(dd, 'First para.')!
+    const last = leafSaying(dd, 'Second para.')!
+    expect(first.margin).toEqual([0, 4, 0, T.paraGapPt])
+    expect(last.margin).toEqual([0, 0, 0, 12])
+    expect(first.italics).toBe(true)
+    expect(first.color).toBe('#333333')
+    expect(first.fontSize).toBe(T.bodyFontSizePt)
+  })
+
+  it('gives a single-paragraph intro the closing gap, not the paragraph gap', async () => {
+    const dd = await introDoc('Only para.')
+    expect((leafSaying(dd, 'Only para.')!.margin as number[])[3]).toBe(12)
+  })
+})
+
+describe('pdfExporter - the footer rule and its lines', () => {
+  const footerDoc = (footer: Record<string, unknown>) => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'Ada Lovelace' })
+    return buildPdfDocDefinition(s, makeView({
+      sections: [],
+      footer: { copyright_custom: {}, note: {}, note_placement: 'after', ...footer } as never,
+    }), 'en')
+  }
+  const canvasNode = (dd: Record<string, unknown>) =>
+    (dd.content as Record<string, unknown>[]).find((n) => 'canvas' in n)
+
+  it('draws the rule the full width of the text column', async () => {
+    // The rule spans the CONTENT box, so both page margins come off the A4
+    // width; adding one instead of subtracting it runs the line off the page.
+    const dd = await footerDoc({ separator: 'line', copyright: 'person' })
+    const line = (canvasNode(dd)!.canvas as Record<string, unknown>[])[0]
+    const expected = 595.28 - T.pageMarginTwips.left / 20 - T.pageMarginTwips.right / 20
+    expect(line).toMatchObject({ type: 'line', x1: 0, y1: 0, y2: 0 })
+    expect(line.x2).toBeCloseTo(expected, 6)
+    expect(line.lineColor).toBe('#' + T.accentHex)
+  })
+
+  it('weights the rule by the separator style the view picked', async () => {
+    const thin = (canvasNode(await footerDoc({ separator: 'line', copyright: 'person' }))!.canvas as Record<string, unknown>[])[0]
+    const thick = (canvasNode(await footerDoc({ separator: 'thick', copyright: 'person' }))!.canvas as Record<string, unknown>[])[0]
+    expect(thin.lineWidth).toBe(0.6)
+    expect(thick.lineWidth).toBe(1.6)
+  })
+
+  it('dashes only the dashed styles, each with its own pattern', async () => {
+    const dashOf = async (separator: string) =>
+      ((canvasNode(await footerDoc({ separator, copyright: 'person' }))!.canvas as Record<string, unknown>[])[0]).dash
+    expect(await dashOf('dotted')).toEqual({ length: 1, space: 2 })
+    expect(await dashOf('dashed')).toEqual({ length: 4, space: 3 })
+    expect(await dashOf('line')).toBeUndefined()
+  })
+
+  it('leaves room under the rule only when there is a line to sit there', async () => {
+    const withText = canvasNode(await footerDoc({ separator: 'line', copyright: 'person' }))!
+    expect(withText.margin).toEqual([0, 16, 0, 6])
+    const bare = canvasNode(await footerDoc({ separator: 'line', copyright: 'none' }))!
+    expect(bare.margin).toEqual([0, 16, 0, 0])
+  })
+
+  it('draws no rule at all for the "none" separator, and pushes the text down instead', async () => {
+    const dd = await footerDoc({ separator: 'none', copyright: 'person' })
+    expect(canvasNode(dd)).toBeUndefined()
+    const line = pdfNodes(dd.content).find((n) => String(n.text).includes('Ada Lovelace') && n.alignment === 'center')!
+    expect((line.margin as number[])[1]).toBe(16)
+  })
+})
+
+describe('pdfExporter - the document defaults', () => {
+  it('carries the view font, size, leading and ink as the document default', async () => {
+    // Every node that sets none of these inherits them; an empty defaultStyle
+    // hands the whole document to pdfmake's built-in 12pt Roboto.
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'Jane Doe' })
+    const dd = await buildPdfDocDefinition(s, makeView({ sections: [] }), 'en')
+    const def = dd.defaultStyle as Record<string, unknown>
+    expect(def.fontSize).toBe(T.bodyFontSizePt)
+    expect(def.lineHeight).toBe(T.lineHeight)
+    expect(def.color).toBe('#222222')
+    expect(String(def.font).length).toBeGreaterThan(0)
+  })
+
+  it('builds a document for a store with no resume record, header and footer alike', async () => {
+    // The picker can hand a half-restored store to the preview; reaching into a
+    // missing resume there throws instead of rendering the sections that DO
+    // exist.
+    const s: ResumeStore = { ...emptyStore(), resume: null }
+    s.projects = [makeProject({ id: 'p1', customer: { en: 'AcmeCorp' } })]
+    const dd = await buildPdfDocDefinition(s, makeView({
+      sections: [{ key: 'projects', detail: 'full', sort_order: 0 }],
+      footer: { separator: 'line', copyright: 'person', copyright_custom: {}, note: {}, note_placement: 'after' },
+    }), 'en')
+    const text = collectText(dd.content).join(' | ')
+    expect(text).toContain('AcmeCorp')
+    expect((dd.content as Record<string, unknown>[]).some((n) => 'canvas' in n)).toBe(false)
+  })
+})
+
+describe('pdfExporter - the cover letter block by block', () => {
+  const size = T.bodyFontSizePt
+  const fullLetter = () => {
+    const store: ResumeStore = {
+      ...emptyStore(),
+      resume: makeResume({ full_name: 'Ada Lovelace', email: 'ada@x.io', phone: '+47 900 00 000', website_url: null }),
+    }
+    const letter = makeCoverLetter({
+      company: { en: 'Equinor' }, recipient: { en: 'Hiring Manager' },
+      role_applied: { en: 'Architect' }, greeting: { en: 'Dear Manager,' },
+      body: { en: 'First paragraph.' }, closing: { en: 'Sincerely,' },
+      place_dated: 'Oslo, 1 May 2026',
+    })
+    return buildCoverLetterPdfDef(store, letter, 'en') as Record<string, unknown>
+  }
+  const blocks = (dd: Record<string, unknown>) => dd.content as Record<string, unknown>[]
+  const saying = (dd: Record<string, unknown>, text: string) =>
+    blocks(dd).filter((n) => n.text === text)
+
+  it('sets the letterhead name in the accent, above the body size', async () => {
+    // The letterhead IS the branding on a letter that carries no logo; at body
+    // size and body colour it reads as the first line of the letter instead.
+    const dd = fullLetter()
+    expect(blocks(dd)[0]).toMatchObject({ text: 'Ada Lovelace', bold: true })
+    expect(blocks(dd)[0].color).toBe('#' + T.accentHex)
+    expect(blocks(dd)[0].fontSize).toBe(size + 5)
+    expect(blocks(dd)[0].margin).toEqual([0, 0, 0, 2])
+    expect(String(blocks(dd)[0].font).length).toBeGreaterThan(0)
+  })
+
+  it('sets the contact line a point BELOW the body, so it supports the name', async () => {
+    const contact = blocks(fullLetter())[1]
+    expect(String(contact.text)).toContain('ada@x.io')
+    expect(String(contact.text)).toContain('+47 900 00 000')
+    expect(contact.fontSize).toBe(size - 1)
+    expect(contact.color).toBe('#333333')
+    expect(contact.margin).toEqual([0, 0, 0, 16])
+  })
+
+  it('spaces the dateline and the recipient block apart from what follows', async () => {
+    const dd = fullLetter()
+    expect(saying(dd, 'Oslo, 1 May 2026')[0]).toMatchObject({ fontSize: size, margin: [0, 0, 0, 16] })
+    const recipient = saying(dd, 'Hiring Manager\nEquinor')[0]
+    expect(recipient).toBeDefined()
+    expect(recipient).toMatchObject({ fontSize: size, margin: [0, 0, 0, 16] })
+  })
+
+  it('bolds the subject line so the reader can route the letter', async () => {
+    const dd = fullLetter()
+    const subject = blocks(dd).find((n) => String(n.text).startsWith('Application for'))!
+    expect(subject).toMatchObject({ bold: true, fontSize: size, margin: [0, 0, 0, 14] })
+    expect(saying(dd, 'Dear Manager,')[0]).toMatchObject({ fontSize: size, margin: [0, 0, 0, 10] })
+  })
+
+  it('closes with the sign-off and the name under it, bold and tight', async () => {
+    const dd = fullLetter()
+    expect(saying(dd, 'Sincerely,')[0]).toMatchObject({ fontSize: size, margin: [0, 6, 0, 0] })
+    // Twice: once in the letterhead, once as the signature.
+    const names = saying(dd, 'Ada Lovelace')
+    expect(names).toHaveLength(2)
+    expect(names[1]).toMatchObject({ bold: true, fontSize: size, margin: [0, 2, 0, 0] })
+  })
+
+  it('carries the letter font, size, leading and ink as the document default', async () => {
+    const def = fullLetter().defaultStyle as Record<string, unknown>
+    expect(def.fontSize).toBe(size)
+    expect(def.lineHeight).toBe(T.lineHeight)
+    expect(def.color).toBe('#222222')
+    expect(String(def.font).length).toBeGreaterThan(0)
+  })
+
+  it('emits no empty block for a part the letter simply does not have', async () => {
+    // With no resume behind it and only a body written, every optional block is
+    // empty. An unconditional push prints each one as a blank line, which on a
+    // one-page letter is most of the page.
+    const store: ResumeStore = { ...emptyStore(), resume: null }
+    const dd = buildCoverLetterPdfDef(
+      store, makeCoverLetter({ body: { en: 'Body only.' }, place_dated: 'Oslo, 1 May 2026' }), 'en',
+    ) as Record<string, unknown>
+    const texts = blocks(dd).map((n) => String(n.text))
+    expect(texts).toEqual(['Oslo, 1 May 2026', 'Body only.'])
+  })
+
+  it('still prints a sign-off when the letter has one but the store has no name', async () => {
+    // The closing is the user's own words; dropping it because there is no name
+    // to sign with loses text they wrote.
+    const store: ResumeStore = { ...emptyStore(), resume: null }
+    const dd = buildCoverLetterPdfDef(
+      store, makeCoverLetter({ body: { en: 'Body.' }, closing: { en: 'Sincerely,' } }), 'en',
+    ) as Record<string, unknown>
+    expect(blocks(dd).map((n) => String(n.text))).toContain('Sincerely,')
+  })
+
+  it('borrows the referenced view’s accent so letter and CV read as one submission', async () => {
+    const store = emptyStore()
+    store.resume = makeResume({ full_name: 'Ada Lovelace' })
+    store.views = [makeView({ id: 'v1', style: { ...DEFAULT_VIEW_STYLE, accent_color: '#aa1122' } })]
+    const dd = buildCoverLetterPdfDef(
+      store, makeCoverLetter({ view_id: 'v1', body: { en: 'Body.' } }), 'en',
+    ) as Record<string, unknown>
+    expect(String((dd.content as Record<string, unknown>[])[0].color).toLowerCase()).toBe('#aa1122')
+  })
+})
+
+describe('exportPdf - the file it hands the browser', () => {
+  beforeEach(() => { vi.resetModules(); __resetPdfMakeForTests() })
+  const FONT_MODULES = [
+    'pdfmake/build/fonts/Roboto',
+    'pdfmake/build/standard-fonts/Times',
+    'pdfmake/build/standard-fonts/Helvetica',
+    'pdfmake/build/standard-fonts/Courier',
+  ]
+  afterEach(() => {
+    vi.doUnmock('pdfmake/build/pdfmake')
+    for (const m of FONT_MODULES) vi.doUnmock(m)
+  })
+
+  function stubPdfMake() {
+    const seen: { name?: string; doc?: Record<string, unknown>; fonts: string[] } = { fonts: [] }
+    for (const m of FONT_MODULES) {
+      const family = m.split('/').pop()!
+      vi.doMock(m, () => ({ default: { vfs: {}, fonts: { [family]: {} } } }))
+    }
+    vi.doMock('pdfmake/build/pdfmake', () => ({
+      default: {
+        addFontContainer(container: { fonts: Record<string, unknown> }) {
+          seen.fonts.push(...Object.keys(container.fonts))
+        },
+        createPdf(doc: Record<string, unknown>) {
+          seen.doc = doc
+          return {
+            async download(name: string) { seen.name = name },
+            async getBlob() { return new Blob() },
+            async open() {},
+          }
+        },
+      },
+    }))
+    return seen
+  }
+
+  it('downloads the built document under a name from the person and the view', async () => {
+    const seen = stubPdfMake()
+    const mod = await import('../src/lib/pdfExporter')
+    const store = { ...emptyStore(), resume: makeResume({ full_name: 'Ada Lovelace' }) }
+    store.projects = [makeProject({ id: 'p1', customer: { en: 'AcmeCorp' } })]
+    await mod.exportPdf(store, makeView({
+      name: 'Board CV', sections: [{ key: 'projects', detail: 'full', sort_order: 0 }],
+    }), 'en')
+    expect(seen.name).toMatch(/Ada_Lovelace/)
+    expect(seen.name).toMatch(/Board_CV/)
+    expect(seen.name).toMatch(/\.pdf$/)
+    // The document that was laid out is the real one, not an empty shell.
+    expect(JSON.stringify(seen.doc)).toContain('AcmeCorp')
+  })
+
+  it('exports a store with no resume record instead of throwing', async () => {
+    const seen = stubPdfMake()
+    const mod = await import('../src/lib/pdfExporter')
+    const store: ResumeStore = { ...emptyStore(), resume: null }
+    await expect(mod.exportPdf(store, makeView({ name: 'Board CV' }), 'en')).resolves.toBeUndefined()
+    expect(seen.name).toMatch(/Board_CV/)
+  })
+
+  it('caches pdfmake until the test seam drops it', async () => {
+    // The library and its font vfs are ~2 MB; re-registering them per export
+    // would re-pay that on every click. The seam exists so a suite can re-stub,
+    // and it has to actually clear the cache to do that.
+    const seen = stubPdfMake()
+    const mod = await import('../src/lib/pdfExporter')
+    const store = { ...emptyStore(), resume: makeResume({ full_name: 'Ada Lovelace' }) }
+    await mod.countPdfPages(store, makeView(), 'en')
+    const once = seen.fonts.length
+    expect(once).toBeGreaterThan(0)
+    await mod.countPdfPages(store, makeView(), 'en')
+    expect(seen.fonts).toHaveLength(once)
+    mod.__resetPdfMakeForTests()
+    await mod.countPdfPages(store, makeView(), 'en')
+    expect(seen.fonts).toHaveLength(once * 2)
+  })
+})
+
+describe('pdfExporter - an image whose header declares a zero dimension', () => {
+  // A truncated or hand-edited PNG can carry a 0 in its IHDR. Dividing by it
+  // gives Infinity, the scale collapses, and the photo prints as a 1pt dot -
+  // so the missing dimension has to fall back to the box, not be used as-is.
+  const photoBox = async (src: string) => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'Jane Doe', profile_photo: src })
+    const dd = await buildPdfDocDefinition(s, makeView({
+      sections: [], header: withHeaderDefaults({ photo_placement: 'left' }),
+    }), 'en')
+    return imageNodes(dd)[0]
+  }
+
+  it('falls back to the box WIDTH when the file declares none', async () => {
+    // 0 x 200 into the 100 x 120 photo box: width becomes 100, height wins the
+    // scale at 0.6, so the photo prints 60 x 120.
+    expect(await photoBox(pngHeader(0, 200))).toMatchObject({ width: 60, height: 120 })
+  })
+
+  it('falls back to the box HEIGHT when the file declares none', async () => {
+    // 200 x 0: height becomes 120, width wins the scale at 0.5 -> 100 x 60.
+    expect(await photoBox(pngHeader(200, 0))).toMatchObject({ width: 100, height: 60 })
+  })
+})
+
+describe('pdfExporter - a registry section a view happens to list', () => {
+  it('contributes nothing at all for a section the catalog cannot render', async () => {
+    // The Industry registry passes the exportable filter (it has a store key)
+    // but its catalog entry has neither a summary nor a full renderer - it
+    // exists for editor titles only. It must drop out silently rather than
+    // leaving a heading or an unstyled node in the flow.
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'Jane Doe' })
+    s.industries = [{ id: 'ind1', name: { en: 'Energy' }, sort_order: 0 } as never]
+    const dd = await buildPdfDocDefinition(s, makeView({
+      sections: [{ key: 'industries', detail: 'full', sort_order: 0 }],
+    }), 'en')
+    expect(bareStringNodes(dd.content)).toEqual([])
+    expect(collectText(dd.content)).not.toContain('Energy')
   })
 })
