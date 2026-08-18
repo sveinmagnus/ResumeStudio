@@ -1039,3 +1039,149 @@ describe('buildViewText — the tag line and the quote attribution', () => {
     expect(text).not.toContain('Jane Boss — ')
   })
 })
+
+describe('buildViewText — the tag line under an item', () => {
+  const render = (skills: unknown[]) => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    s.projects = [makeProject({ id: 'p1', customer: { en: 'Acme' }, skills: skills as never })]
+    return buildViewText(s, makeView({
+      sections: [{ key: 'projects', detail: 'full', sort_order: 0 } as never],
+    }), 'en')
+  }
+
+  it('labels the tag list, and omits the line entirely when there are no tags', () => {
+    // Label and tags are one line: an empty tag list would leave the label
+    // stranded, and losing the label leaves a bare comma list under the
+    // description with nothing saying what it is.
+    const withTags = render([{
+      id: 'ps1', skill_id: 's1', name: { en: 'Go' },
+      duration_in_years: 0, offset_in_years: 0, total_duration_in_years: 0, sort_order: 0,
+    }])
+    expect(withTags).toContain('Skills: Go')
+
+    const without = render([])
+    expect(without).not.toContain('Skills:')
+    expect(without.split(String.fromCharCode(10)).some((l) => l.trim().endsWith(':'))).toBe(false)
+  })
+})
+
+describe('buildViewText — the section loop', () => {
+  const NL = String.fromCharCode(10)
+  const build = (fill: (s: ResumeStore) => void, section: string, detail = 'full', style: Record<string, unknown> = {}) => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    fill(s)
+    return buildViewText(s, makeView({
+      sections: [{ key: section, detail, sort_order: 0, style } as never],
+    }), 'en')
+  }
+  const project = (s: ResumeStore) => {
+    s.projects = [makeProject({
+      id: 'p1', customer: { en: 'Acme' }, description: { en: 'Payments' },
+      long_description: { en: 'Ran the rebuild.' }, short_description: { en: 'Ran it.' },
+    })]
+  }
+
+  it('renders a SUMMARY section as one line per item, not as full blocks', () => {
+    const summary = build(project, 'projects', 'summary')
+    expect(summary).toMatch(/^- /m)
+    expect(summary).not.toContain('Ran the rebuild.')
+
+    const full = build(project, 'projects', 'full')
+    expect(full).toContain('Ran the rebuild.')
+  })
+
+  it('puts the short description BELOW the summary line by default, and inline when asked', () => {
+    const below = build(project, 'projects', 'summary')
+    const lines = below.split(NL)
+    const i = lines.findIndex((l) => l.startsWith('- '))
+    expect(lines[i + 1].trim()).toBe('Ran it.')
+
+    const inline = build(project, 'projects', 'summary', { short_desc_line: 'inline' })
+    expect(inline).toMatch(new RegExp('^- [^' + NL + ']*Ran it[.]', 'm'))
+  })
+
+  it('trims the short description it appends', () => {
+    const padded = build((s) => {
+      project(s)
+      s.projects[0].short_description = { en: '   Ran it.   ' }
+    }, 'projects', 'summary', { short_desc_line: 'inline' })
+    expect(padded).not.toContain('  Ran it.')
+    expect(padded).toContain('Ran it.')
+  })
+
+  it('omits a section whose items all decline to render', () => {
+    // A reference not cleared for export returns null from the descriptor; a
+    // heading with nothing under it would promise a section the export has none of.
+    const out = build((s) => {
+      s.references = [makeReference({ id: 'r1', name: 'Jane', include_in_exports: false })]
+    }, 'references')
+    expect(out).not.toMatch(/REFERENCES/i)
+  })
+
+  it('skips an item the descriptor declines in SUMMARY detail too', () => {
+    // The summary path reads the descriptor's answer before using it; a
+    // reference not cleared for export returns null there as well.
+    const out = build((s) => {
+      s.references = [
+        makeReference({ id: 'r1', name: 'Jane', include_in_exports: false }),
+        makeReference({ id: 'r2', name: 'Ola', include_in_exports: true }),
+      ]
+    }, 'references', 'summary')
+    expect(out).toContain('Ola')
+    expect(out).not.toContain('Jane')
+  })
+
+  it('shows the SHORT profile text in summary detail and the long one in full', () => {
+    // Profiles always render through full() (alwaysFull), so the detail level is
+    // what picks which prose — that choice is made when the catalog context is built.
+    const fill = (s: ResumeStore) => {
+      s.key_qualifications = [makeKQ({
+        id: 'kq1', tag_line: { en: 'Architect' },
+        summary: { en: 'The long profile.' }, summary_short: { en: 'The short line.' },
+      } as never)]
+    }
+    expect(build(fill, 'key_qualifications', 'summary')).toContain('The short line.')
+    expect(build(fill, 'key_qualifications', 'summary')).not.toContain('The long profile.')
+    expect(build(fill, 'key_qualifications', 'full')).toContain('The long profile.')
+  })
+
+  it('underlines a heading to its own width', () => {
+    const out = build(project, 'projects').split(NL)
+    const i = out.findIndex((l) => l === 'PROJECTS')
+    expect(i).toBeGreaterThan(-1)
+    expect(out[i + 1]).toBe('-'.repeat('PROJECTS'.length))
+  })
+})
+
+describe('buildViewText — the matrix heading, underline included', () => {
+  const store = (): ResumeStore => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    s.skills = [makeSkill({ id: 's1', name: { en: 'Go' }, total_duration_in_years: 8, proficiency: 4 })]
+    return s
+  }
+  const view = (over: Record<string, unknown> = {}) => makeView({
+    sections: buildViewSections().map((sec) =>
+      sec.key === 'skill_matrix' ? { ...sec, detail: 'full' as const, style: { ...sec.style, ...over } } : sec),
+  })
+
+  it('writes no underline when the matrix heading is hidden', () => {
+    // An underline with no heading above it reads as a rule the user did not ask
+    // for — and it is what a heading gate that fires on the empty string leaves.
+    const lines = buildViewText(store(), view({ hide_heading: true }), 'en').split(String.fromCharCode(10))
+    expect(lines.some((l) => /^SKILL MATRIX$/.test(l))).toBe(false)
+    expect(lines.some((l) => /^-{4,}$/.test(l.trim()))).toBe(false)
+    expect(lines.some((l) => l.includes('Go'))).toBe(true)
+  })
+
+  it('writes no empty Markdown heading when the matrix heading is hidden', () => {
+    const md = buildViewMarkdown(store(), view({ hide_heading: true }), 'en').split(String.fromCharCode(10))
+    expect(md.some((l) => l.startsWith('## '))).toBe(false)
+    expect(md.some((l) => l.startsWith('| '))).toBe(true)
+
+    const shown = buildViewMarkdown(store(), view(), 'en').split(String.fromCharCode(10))
+    expect(shown.some((l) => /^## \S/.test(l))).toBe(true)
+  })
+})
