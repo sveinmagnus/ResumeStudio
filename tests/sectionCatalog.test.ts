@@ -1560,12 +1560,17 @@ describe('SECTION_CATALOG — a project’s joined name lists', () => {
     expect(s.parts.find((p) => p.key === 'title')!.value).toBe('Architect')
   })
 
-  it('gives a DOCX project with no highlights no bullet points at all', () => {
-    // Highlights become bullets under the project; inventing one for a project
-    // that recorded none puts a line in the Word export with nothing in it.
-    expect(proj({ customer: { en: 'Acme' } }, docx).points).toEqual([])
-    expect(proj({ customer: { en: 'Acme' }, highlights: [{ en: 'Cut build time in half.' }] }, docx).points)
+  it('gives a project with no highlights no bullet points, even when the view asks for them', () => {
+    // Highlights are an opt-in group now, and become bullets under the project.
+    // Inventing one for a project that recorded none puts a line in the export
+    // with nothing in it.
+    const withGroup = { ...docx, extras: new Set(['highlights']) }
+    expect(proj({ customer: { en: 'Acme' } }, withGroup).points).toEqual([])
+    expect(proj({ customer: { en: 'Acme' }, highlights: [{ en: 'Cut build time in half.' }] }, withGroup).points)
       .toEqual([{ label: '', body: 'Cut build time in half.' }])
+    // …and nothing at all when the view did not ask.
+    expect(proj({ customer: { en: 'Acme' }, highlights: [{ en: 'Cut build time in half.' }] }, docx).points)
+      .toEqual([])
   })
 })
 
@@ -1581,10 +1586,16 @@ describe('SECTION_CATALOG — a profile’s tag line as meta', () => {
     expect(v.title).toBe('')
   })
 
-  it('carries the tag line as meta on DOCX when the view asks for it', () => {
-    const v = SECTION_CATALOG.key_qualifications.full!(
-      item({ tag_line: { en: 'Cloud architect' }, summary: { en: 'Builds things.' } }) as never, { ...docx, kq })!
-    expect(v.meta).toEqual(['Cloud architect'])
+  it('carries the tag line as the TITLE when the view asks for it', () => {
+    // The target no longer decides which facts an item carries — the tag line is
+    // the profile's heading on every export, and meta stays empty.
+    for (const base of [docx, html]) {
+      const v = SECTION_CATALOG.key_qualifications.full!(
+        item({ tag_line: { en: 'Cloud architect' }, summary: { en: 'Builds things.' } }) as never,
+        { ...base, kq })!
+      expect(v.title).toBe('Cloud architect')
+      expect(v.meta).toEqual([])
+    }
   })
 
   it('keeps the HTML profile’s meta empty — the tag line is its heading there', () => {
@@ -1649,10 +1660,10 @@ describe('SECTION_CATALOG — employment prose and DOCX ordering', () => {
     expect(neither.body).toBe('')
   })
 
-  it('asks the DOCX path to sort employment by start date', () => {
-    // Word output is chronological regardless of the arranged store order; a
-    // false here silently reorders every exported employment history.
-    expect(SECTION_CATALOG.work_experiences.docxSortByStart).toBe(true)
+  it('does not ask one target to sort employment differently from another', () => {
+    // A per-target sort flag is exactly the drift the extras rework removed: the
+    // arranged order is the user's, and every export has to honour the same one.
+    expect(SECTION_CATALOG.work_experiences.docxSortByStart).toBeUndefined()
   })
 })
 
@@ -1681,18 +1692,26 @@ describe('SECTION_CATALOG — certification expiry and credential link', () => {
   it('says nothing about expiry for a certification that never expires', () => {
     // The mention is parenthetical text glued onto the issue date; emitting it
     // unconditionally prints "(expires )" beside every permanent certificate.
+    const withExpiry = { ...docx, extras: new Set(['expiry']) }
     const issued = SECTION_CATALOG.certifications.full!(item(cert) as never, html)!.date
     expect(issued).not.toBe('')
-    expect(SECTION_CATALOG.certifications.full!(item(cert) as never, docx)!.date).toBe(issued)
-    expect(SECTION_CATALOG.certifications.full!({ ...cert, expires: { year: 2023, month: 3 } } as never, docx)!.date)
-      .toMatch(/2023/)
+    expect(SECTION_CATALOG.certifications.full!(item(cert) as never, withExpiry)!.date).toBe(issued)
+    expect(SECTION_CATALOG.certifications.full!(
+      { ...cert, expires: { year: 2023, month: 3 } } as never, withExpiry)!.date).toMatch(/2023/)
+    // Not asked for → the issue date alone, whatever the certificate carries.
+    expect(SECTION_CATALOG.certifications.full!(
+      { ...cert, expires: { year: 2023, month: 3 } } as never, docx)!.date).toBe(issued)
   })
 
   it('adds no credential line for a certification without a credential URL', () => {
-    expect(SECTION_CATALOG.certifications.full!(item(cert) as never, docx)!.extraLines).toEqual([])
+    const withLinks = { ...docx, extras: new Set(['links']) }
+    expect(SECTION_CATALOG.certifications.full!(item(cert) as never, withLinks)!.extraLines).toEqual([])
     expect(SECTION_CATALOG.certifications.full!(
-      { ...cert, credential_url: 'https://example.test/c/1' } as never, docx)!.extraLines)
+      { ...cert, credential_url: 'https://example.test/c/1' } as never, withLinks)!.extraLines)
       .toEqual(['https://example.test/c/1'])
+    // Links are opt-in: a view that did not ask gets none.
+    expect(SECTION_CATALOG.certifications.full!(
+      { ...cert, credential_url: 'https://example.test/c/1' } as never, docx)!.extraLines).toEqual([])
   })
 })
 
@@ -1737,9 +1756,13 @@ describe('SECTION_CATALOG — publications', () => {
   })
 
   it('adds no link line for a publication without a URL', () => {
-    expect(SECTION_CATALOG.publications.full!(item(pub) as never, docx)!.extraLines).toEqual([])
-    expect(SECTION_CATALOG.publications.full!({ ...pub, url: 'https://example.test/p' } as never, docx)!.extraLines)
+    const withLinks = { ...docx, extras: new Set(['links']) }
+    expect(SECTION_CATALOG.publications.full!(item(pub) as never, withLinks)!.extraLines).toEqual([])
+    expect(SECTION_CATALOG.publications.full!(
+      { ...pub, url: 'https://example.test/p' } as never, withLinks)!.extraLines)
       .toEqual(['https://example.test/p'])
+    expect(SECTION_CATALOG.publications.full!(
+      { ...pub, url: 'https://example.test/p' } as never, docx)!.extraLines).toEqual([])
   })
 })
 

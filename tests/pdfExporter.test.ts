@@ -1394,7 +1394,8 @@ function bareStringNodes(node: unknown, out: string[] = []): string[] {
   return out
 }
 
-const projectView = () => makeView({ sections: [{ key: 'projects', detail: 'full', sort_order: 0 }] })
+const projectView = () =>
+  makeView({ sections: [{ key: 'projects', detail: 'full', sort_order: 0, style: { extras: ['lead'] } }] })
 
 describe('pdfExporter - paragraph tokens', () => {
   const oneProject = (over: Record<string, unknown> = {}): ResumeStore => {
@@ -1484,7 +1485,11 @@ describe('pdfExporter - the summary line runs', () => {
     const runs = line.text as Record<string, unknown>[]
     expect(runs[0]).toMatchObject({ text: 'AWS SA', bold: true })
     expect(line.fontSize).toBe(T.smallFontSizePt)
-    expect(runs[1]).toMatchObject({ color: '#666666' })
+    // Everything after the title is subordinate: the joiner carries no ink of
+    // its own, and every remaining slot is muted so only the name reads black.
+    expect(runs.filter((r) => r.bold)).toHaveLength(1)
+    expect(runs.filter((r) => String(r.text).includes('Amazon')))
+      .toEqual([expect.objectContaining({ color: '#666666' })])
   })
 
   it('emits no meta run at all when the item has no meta to show', async () => {
@@ -1712,7 +1717,7 @@ describe('pdfExporter - the section dispatcher', () => {
     }), 'en')
     const titleRows = pdfNodes(dd.content)
       .filter((n) => Array.isArray(n.text))
-      .filter((n) => (n.text as Record<string, unknown>[])[0]?.text === 'Acme — Architect')
+      .filter((n) => (n.text as Record<string, unknown>[]).some((r) => r.bold && r.text === 'Acme'))
     expect(titleRows).toHaveLength(1)
   })
 })

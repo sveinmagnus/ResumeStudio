@@ -1694,9 +1694,17 @@ describe('exportDocx — the item builders, with the document to themselves', ()
     })]
     return s
   }
-  const xmlFor = async (over: Record<string, unknown> = {}, style: Record<string, unknown> = {}) => {
+  // The grade is an opt-in content group, so the section asks for it — these
+  // tests are about the LAYOUT of an item that fills every slot.
+  const xmlFor = async (
+    over: Record<string, unknown> = {},
+    style: Record<string, unknown> = {},
+    extras: string[] = ['grade'],
+  ) => {
     await exportDocx(eduStore(over), makeView({
-      sections: [{ key: 'educations', detail: 'full', sort_order: 0, style } as never],
+      sections: [{
+        key: 'educations', detail: 'full', sort_order: 0, style: { ...style, extras },
+      } as never],
     }), 'en')
     return documentXml(lastBlob!)
   }
@@ -1721,9 +1729,19 @@ describe('exportDocx — the item builders, with the document to themselves', ()
   })
 
   it('drops the meta line entirely when the item has no meta', async () => {
-    const xml = await xmlFor({ degree: {} })
-    expect(bodyParas(xml)).toHaveLength(4)
+    // No grade group either, so the only italics left would be a meta line.
+    const xml = await xmlFor({ degree: {}, grade: '', start: null, end: null }, {}, [])
+    expect(bodyParas(xml)).toHaveLength(3)
     expect(xml).not.toContain('<w:i/>')
+  })
+
+  it('omits the grade line when the view did not ask for it', () => {
+    // Optional facts are per view now: a section that never enabled the group
+    // must not print the grade just because the record carries one.
+    return xmlFor({}, {}, []).then((xml) => {
+      expect(xml).not.toContain('Grade: A')
+      expect(bodyParas(xml)).toHaveLength(4)
+    })
   })
 
   it('writes the grade as a subtle extra line under the body', async () => {
@@ -1744,7 +1762,9 @@ describe('exportDocx — the item builders, with the document to themselves', ()
     expect(numOf(title, 'w:before')).toBe(140)
     expect(numOf(title, 'w:after')).toBe(40)
     expect(title).toContain('<w:b/>')
-    expect(sizesOf(title)).toEqual([t.bodyFontSizePt * 2, t.smallFontSizePt * 2])
+    // The date run rides in the same paragraph only when the view shows dates;
+    // the title itself is always at the body size.
+    expect(sizesOf(title)[0]).toBe(t.bodyFontSizePt * 2)
   })
 
   it('leaves the top gap off an item whose descriptor asks for none', async () => {
@@ -1842,7 +1862,10 @@ describe('exportDocx — points, tags and the special layouts', () => {
 
   // ─── Tags ────────────────────────────────────────────────────────────────
 
-  const projectXml = async (over: Record<string, unknown> = {}) => {
+  const projectXml = async (
+    over: Record<string, unknown> = {},
+    style: Record<string, unknown> = { tag_style: 'inline' },
+  ) => {
     const s = emptyStore()
     s.resume = null
     s.skills = [makeSkill({ id: 'go', name: { en: 'Go' } })]
@@ -1855,7 +1878,7 @@ describe('exportDocx — points, tags and the special layouts', () => {
       ...over,
     })]
     await exportDocx(s, makeView({
-      sections: [{ key: 'projects', detail: 'full', sort_order: 0 } as never],
+      sections: [{ key: 'projects', detail: 'full', sort_order: 0, style } as never],
     }), 'en')
     return documentXml(lastBlob!)
   }
@@ -1874,7 +1897,7 @@ describe('exportDocx — points, tags and the special layouts', () => {
 
   it('writes no tag line at all for an item with no tags', async () => {
     const xml = await projectXml({ skills: [] })
-    expect(bodyParas(xml)).toHaveLength(3)
+    expect(textsOf(xml)).toEqual(['PROJECTS', 'Acme', 'Jan 2022 – Jun 2023', 'Did it.'])
     expect(strayText(xml)).toEqual([])
   })
 
@@ -1886,7 +1909,9 @@ describe('exportDocx — points, tags and the special layouts', () => {
     s.skill_categories = [makeSkillCategory({ id: 'cat1', name: { en: 'Languages' } })]
     s.skills = [makeSkill({ id: 'ts', name: { en: 'TypeScript' }, category_id: 'cat1', is_highlighted: true })]
     await exportDocx(s, makeView({
-      sections: [{ key: 'technology_categories', detail: 'full', sort_order: 0 } as never],
+      sections: [{
+        key: 'technology_categories', detail: 'full', sort_order: 0, style: { tag_style: 'inline' },
+      } as never],
     }), 'en')
     const xml = await documentXml(lastBlob!)
     expect(textsOf(paraOf(xml, 'TypeScript'))).toEqual(['TypeScript'])
@@ -1896,7 +1921,8 @@ describe('exportDocx — points, tags and the special layouts', () => {
   it('leads a project body with its short description as its own paragraph', async () => {
     // The DOCX project layout is the only one with a plain lead-in line; folded
     // into the rich body it would take the body's spacing and lose its own.
-    const xml = await projectXml({ description: { en: 'Payments platform' } })
+    const xml = await projectXml(
+      { description: { en: 'Payments platform' } }, { tag_style: 'inline', extras: ['lead'] })
     const paras = bodyParas(xml)
     const lead = paraOf(xml, 'Payments platform')
     expect(numOf(lead, 'w:after')).toBe(80)
