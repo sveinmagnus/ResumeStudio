@@ -2733,3 +2733,37 @@ describe('buildViewHtml — a profile in summary detail shows the SHORT prose', 
     expect(render('full')).toContain('The long profile.')
   })
 })
+
+describe('buildViewHtml — a section the catalog has no summary renderer for', () => {
+  it('renders nothing, rather than crashing, when Industries is set to summary detail', () => {
+    // Industries counts as an exportable section (it owns a store array), but
+    // its catalog descriptor is title-only — no summary() and no full(). The
+    // view editor will happily offer "Summary" for it, so the render path has
+    // to tolerate a descriptor that declines: the alternative is a thrown
+    // TypeError that blanks the whole preview and every export built from it.
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    s.industries = [makeIndustry({ id: 'i1', name: { en: 'Finance' } })]
+    const html = buildViewHtml(s, makeView({
+      sections: [{ key: 'industries', detail: 'summary', sort_order: 0 } as never],
+    }), 'en').replace(/<style[\s\S]*?<\/style>/g, '')
+    expect(html).not.toContain('<section')
+    expect(html).not.toContain('Finance')
+  })
+})
+
+describe('applyView — a profile with no competency bundle', () => {
+  it('shows no competencies at all when the selected profile lists none', () => {
+    // Competencies are scoped strictly to the profile's bundle. A profile
+    // saved before bundles existed (or one whose list is empty) must show
+    // NOTHING — falling back to "every competency in the library" would put
+    // another profile's strengths under this one's heading.
+    const s = emptyStore()
+    s.key_qualifications = [makeKQ({ id: 'kq1', competency_ids: undefined as never })]
+    s.key_competencies = [
+      makeKeyCompetency({ id: 'c1', title: { en: 'Leadership' } }),
+      makeKeyCompetency({ id: 'c2', title: { en: 'Architecture' } }),
+    ]
+    expect(applyView(s, makeView({})).key_competencies).toEqual([])
+  })
+})

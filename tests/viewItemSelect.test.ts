@@ -289,3 +289,17 @@ describe('typeGroups() — the Role facet reads role IDS, not role rows', () => 
     expect(g.map((x) => x.value)).toEqual([''])
   })
 })
+
+describe('typeGroups() — an item saved before the role links existed', () => {
+  it('buckets an item whose role field is absent entirely under "No type"', () => {
+    // Not the same as an empty list: the field is missing, which is how every
+    // item written before role links shipped reaches the facet. Reading it as
+    // undefined would throw and take the whole section's filter with it.
+    const roles = [role('pm', 'PM')]
+    const work = facet(typeGroups('work_experiences', [{ id: 'w1' }], 'en', { roles }), 'Role')!
+    expect(work.groups.find((g) => g.value === '')!.ids).toEqual(['w1'])
+
+    const proj = facet(typeGroups('projects', [{ id: 'p1' }], 'en', { roles }), 'Role')!
+    expect(proj.groups.find((g) => g.value === '')!.ids).toEqual(['p1'])
+  })
+})

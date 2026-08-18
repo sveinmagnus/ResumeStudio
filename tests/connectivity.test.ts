@@ -241,3 +241,38 @@ describe('polling only runs while we think we are offline', () => {
     expect(b).toEqual(['online', 'offline'])
   })
 })
+
+describe('connectivity — starting is idempotent, and it really starts', () => {
+  beforeEach(() => {
+    __resetConnectivityForTests()
+    vi.useFakeTimers()
+    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true)
+  })
+  afterEach(() => {
+    vi.runOnlyPendingTimers()
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+    __resetConnectivityForTests()
+  })
+
+  it('registers the window listeners on the FIRST subscribe', () => {
+    // The whole machine hangs off these two events; if start bails out before
+    // registering them, going offline is never noticed and the app keeps trying
+    // to save into a dead connection.
+    const add = vi.spyOn(window, 'addEventListener')
+    subscribeOnline(() => {})
+    const events = add.mock.calls.map((c) => c[0])
+    expect(events).toContain('offline')
+    expect(events).toContain('online')
+  })
+
+  it('does not stack a second poll timer when subscribed twice', () => {
+    // Each subscriber starts the machine; without the idempotence guard every
+    // panel that mounts adds another 15-second health probe against the server.
+    const setIntervalSpy = vi.spyOn(globalThis, 'setInterval')
+    const a = subscribeOnline(() => {})
+    const b = subscribeOnline(() => {})
+    expect(setIntervalSpy.mock.calls.length).toBeLessThanOrEqual(1)
+    a(); b()
+  })
+})

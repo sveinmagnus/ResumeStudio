@@ -975,3 +975,164 @@ describe('sanitizeRich — the tag allowlist', () => {
     expect(out).toContain('Alpha')
   })
 })
+
+/**
+ * The canonicalisation's quieter half: what must NOT become a break.
+ *
+ * Pretty-printed markup puts whitespace — often a newline — between tags. HTML
+ * has always rendered that as nothing, so treating it as a break would split a
+ * sentence in two every time a value passed through a formatter.
+ */
+describe('sanitizeRich — whitespace between tags is layout, not a break', () => {
+  const NL = String.fromCharCode(10)
+
+  it('keeps a newline that sits BETWEEN two inline tags inside one paragraph', () => {
+    expect(sanitizeRich(`<p><strong>a</strong>${NL}<strong>b</strong></p>`))
+      .toBe(`<p><strong>a</strong>${NL}<strong>b</strong></p>`)
+  })
+
+  it('keeps such a paragraph as ONE paragraph even with real text either side', () => {
+    const out = sanitizeRich(`<p>a <strong>b</strong>${NL}<strong>c</strong> d</p>`)
+    expect(out.match(/<p>/g) ?? []).toHaveLength(1)
+  })
+
+  it('keeps a newline between two inline tags inside a LIST ITEM as layout', () => {
+    // Inside a list a real break becomes a <br>; this one is not a real break,
+    // so promoting it would draw a line the author never typed.
+    expect(sanitizeRich(`<ul><li><strong>a</strong>${NL}<strong>b</strong></li></ul>`))
+      .toBe(`<ul><li><strong>a</strong>${NL}<strong>b</strong></li></ul>`)
+  })
+
+  it('keeps a plain space between two inline tags inside a list item', () => {
+    // The between-items whitespace drop is scoped to the children of the <ul>
+    // itself; inside an <li> the space is the space between two words.
+    expect(sanitizeRich('<ul><li><strong>a</strong> <strong>b</strong></li></ul>'))
+      .toBe('<ul><li><strong>a</strong> <strong>b</strong></li></ul>')
+  })
+
+  it('trims the space a split leaves at the edge of the SECOND half', () => {
+    // The break lands before an inline element, so the leading space belongs to
+    // the text inside it — an untrimmed edge shows up as a stray indent.
+    expect(sanitizeRich(`<p>a${NL}<strong> x</strong></p>`))
+      .toBe('<p>a</p><p><strong>x</strong></p>')
+  })
+})
+
+describe('sanitizeRich — the inline wrappers a split leaves behind', () => {
+  it('drops an inline wrapper the split emptied', () => {
+    // The break sits at the END of the bold run, so the rebuilt <strong> in the
+    // second paragraph gets nothing — shipping it would wrap the next words in
+    // a bold tag the author had already closed.
+    expect(sanitizeRich('<p><strong>a<br></strong>b</p>'))
+      .toBe('<p><strong>a</strong></p><p>b</p>')
+  })
+
+  it('drops one left holding only whitespace', () => {
+    expect(sanitizeRich('<p><strong>a<br> </strong>b</p>'))
+      .toBe('<p><strong>a</strong></p><p>b</p>')
+  })
+})
+
+describe('sanitizeRich — collapsing breaks across whitespace', () => {
+  it('collapses two <br> separated by a space, as a paste routinely carries', () => {
+    // Word and Google Docs write the blank line as "<br> <br>"; without looking
+    // past the whitespace the run survives and every paste grows a blank line.
+    expect(sanitizeRich('<ul><li>a<br> <br>b</li></ul>')).toBe('<ul><li>a <br>b</li></ul>')
+  })
+})
+
+describe('sanitizeRich — the allowlist inside a list item', () => {
+  it('unwraps a disallowed element nested in an <li>', () => {
+    // SECURITY: <li> content is not paragraph-split, so it is the path where an
+    // un-unwrapped tag would survive into the stored value and every export.
+    expect(sanitizeRich('<ul><li><span>hi</span></li></ul>')).toBe('<ul><li>hi</li></ul>')
+    expect(sanitizeRich('<ul><li><a href="http://x">link</a></li></ul>'))
+      .toBe('<ul><li>link</li></ul>')
+  })
+})
+
+describe('hasMarkup — the empty value', () => {
+  it('is false for an empty string rather than probing it', () => {
+    expect(hasMarkup('')).toBe(false)
+  })
+})
+
+describe('plainToRichHtml — when a single line still needs its paragraph', () => {
+  it('wraps a line that carries a trailing newline', () => {
+    // Unwrapping is for text with no break in it at all; a value ending in a
+    // newline has one, and splicing it into the caret's paragraph would lose it.
+    expect(plainToRichHtml('a\n')).toBe('<p>a</p>')
+  })
+})
+
+/**
+ * The run-grouping inside a pasted container.
+ *
+ * A container's children mix bare text with blocks. Each contiguous inline run
+ * becomes its own paragraph, and a run with nothing visible in it is dropped
+ * rather than shipped as an empty paragraph the user has to delete by hand.
+ */
+describe('cleanPastedHtml — grouping a container’s children', () => {
+  it('drops an inner container holding only whitespace, joining the text around it', () => {
+    expect(cleanPastedHtml('<div>Alpha<div> </div>Beta</div>')).toBe('AlphaBeta')
+  })
+
+  it('drops an inner container holding only an empty inline wrapper', () => {
+    // An emptied <i> is not content — Word leaves these behind constantly.
+    expect(cleanPastedHtml('<div>Alpha<div><i></i></div>Beta</div>')).toBe('AlphaBeta')
+  })
+
+  it('keeps an inner container whose only content is a BREAK', () => {
+    // A break IS content: it is the blank line the author put between two
+    // paragraphs, and dropping it merges them into one.
+    expect(cleanPastedHtml('<div>Alpha<div><br></div>Beta</div>'))
+      .toBe('<p>Alpha</p><p>Beta</p>')
+  })
+
+  it('keeps a run that mixes text with whitespace rather than dropping the lot', () => {
+    // The run has content if ANY node does; requiring all of them loses the
+    // words next to a stray space.
+    expect(cleanPastedHtml('<div>Alpha<span> </span><p>Beta</p></div>'))
+      .toBe('<p>Alpha</p><p>Beta</p>')
+  })
+
+  it('makes a paragraph of each run either side of a block child', () => {
+    expect(cleanPastedHtml('<div>Alpha<p>X</p>Beta</div>'))
+      .toBe('<p>Alpha</p><p>X</p><p>Beta</p>')
+  })
+
+  it('does not break a run at an INLINE child', () => {
+    // Only block-level children end a run; splitting at an <em> would put every
+    // emphasised phrase on its own line.
+    expect(cleanPastedHtml('<div>Alpha<em>x</em>Beta</div>')).toBe('Alpha<em>x</em>Beta')
+  })
+})
+
+describe('cleanPastedHtml — elements the normaliser must leave alone', () => {
+  it('keeps a <br> so the sanitiser can turn it into a paragraph boundary', () => {
+    // Rebuilding a <br> from its (empty) formatting flags would delete it, and
+    // the two lines the author wrote would run together.
+    expect(cleanPastedHtml('<p>Alpha<br>Beta</p>')).toBe('<p>Alpha</p><p>Beta</p>')
+  })
+
+  it('keeps a header cell for the row handler to join', () => {
+    // <th> is left to the <tr> branch like <td>; unwrapping it first would lift
+    // its text out of the cell list and lose the column heading.
+    expect(cleanPastedHtml('<table><tr><th>Head</th><td>Cell</td></tr></table>'))
+      .toBe('Head Cell')
+  })
+})
+
+describe('cleanPastedHtml — reading a style declaration', () => {
+  it('falls back to the tag when the declaration has no value', () => {
+    // An empty declaration is not an override: <b> with a blank font-weight is
+    // still the bold the author applied.
+    expect(cleanPastedHtml('<p><b style="font-weight: ">X</b></p>')).toBe('<strong>X</strong>')
+  })
+
+  it('does not read a weight that merely CONTAINS a bold number', () => {
+    // The match is anchored at the start of the value, so a stray digit run
+    // cannot bold a paste.
+    expect(cleanPastedHtml('<span style="font-weight:1600">x</span>')).toBe('x')
+  })
+})

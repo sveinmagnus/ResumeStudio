@@ -369,3 +369,27 @@ describe('searchStore — what comes first', () => {
     expect(searchStore(s, 'kubernetes', 'en').some((h) => h.section === 'views')).toBe(false)
   })
 })
+
+describe('searchStore — the shapes a walked store can actually arrive in', () => {
+  it('keeps a denylisted key out of the index even when its value arrives as a LIST', () => {
+    // The denylist is what stops a base64 photo blob and rows of uuids from
+    // filling the Ctrl+K results. An array's elements have no key of their own,
+    // so they are collected under the PARENT's key — drop that and a denied
+    // field becomes searchable the moment an import writes it as a list
+    // instead of a scalar, which is exactly the data this walk is generic for.
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'Kari Nordmann' })
+    ;(s.resume as unknown as Record<string, unknown>).profile_photo =
+      ['data:image/png;base64,iVBORw0KGgoAAAA']
+    expect(searchStore(s, 'base64', 'en')).toEqual([])
+  })
+
+  it('searches a resume saved before skill categories existed', () => {
+    // Older resumes reach here with the array absent rather than empty; the
+    // category pass must not take the rest of the search down with it.
+    const s = emptyStore()
+    delete (s as { skill_categories?: unknown }).skill_categories
+    s.projects = [makeProject({ id: 'p1', customer: { en: 'Kubernetes AS' } })]
+    expect(searchStore(s, 'kubernetes', 'en').map((h) => h.id)).toEqual(['p1'])
+  })
+})

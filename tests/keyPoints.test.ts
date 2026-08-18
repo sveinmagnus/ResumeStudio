@@ -154,3 +154,20 @@ describe('key points — the source text and the reply shapes', () => {
     expect(out).toEqual([{ label: '', body: 'Kept.' }])
   })
 })
+
+describe('buildKeyPointsPrompt — the source it shows the model', () => {
+  it('trims the flattened source rather than carrying its padding', () => {
+    // The source is interpolated straight into the prompt; leading blank lines
+    // push the instruction away from the text it applies to, which is exactly
+    // what a small model loses track of.
+    const prompt = buildKeyPointsPrompt({ en: '   Ran the platform rebuild.   ' }, 'en', 'plain')
+    expect(prompt).toContain('Ran the platform rebuild.')
+    expect(prompt).not.toContain('   Ran the platform rebuild.')
+  })
+
+  it('reads the requested locale, not whichever slot is filled', () => {
+    const prompt = buildKeyPointsPrompt({ en: 'English text.', no: 'Norsk tekst.' }, 'no', 'plain')
+    expect(prompt).toContain('Norsk tekst.')
+    expect(prompt).not.toContain('English text.')
+  })
+})
