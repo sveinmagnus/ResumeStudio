@@ -1185,3 +1185,72 @@ describe('cleanPastedHtml — which runs survive the wrap', () => {
     expect(richToPlain(out)).toContain('Real text')
   })
 })
+
+/**
+ * The canonical form, at its edges.
+ *
+ * A sanitised value has to encode "new line" exactly ONE way, because the same
+ * value is drawn by four renderers: a stray break, an empty inline wrapper or a
+ * leading space at a paragraph edge each render differently in the editor, the
+ * HTML preview, the PDF and Word.
+ */
+describe('sanitizeRich — the empty inline wrappers a split leaves behind', () => {
+  const nl = String.fromCharCode(10)
+
+  it('drops an inline wrapper left holding nothing', () => {
+    // Splitting a formatted line rebuilds the formatting around each half; the
+    // half with no text keeps an empty <strong>, which renders as a stray gap.
+    expect(sanitizeRich('<p><strong></strong>Real text</p>')).not.toContain('<strong>')
+    expect(sanitizeRich('<p><em>   </em>Real text</p>')).not.toContain('<em>')
+  })
+
+  it('drops one nested inside another', () => {
+    // The prune recurses: Word nests spans and emphasis several deep, and only
+    // the innermost is empty at first.
+    const out = sanitizeRich('<p><strong><em></em></strong>Real text</p>')
+    expect(out).not.toContain('<em>')
+    expect(out).not.toContain('<strong>')
+  })
+
+  it('keeps a wrapper that still has text', () => {
+    expect(sanitizeRich('<p><strong>Bold</strong> and plain</p>')).toContain('<strong>Bold</strong>')
+  })
+
+  it('trims the whitespace a split leaves at each paragraph edge', () => {
+    // The leading space is invisible in the editor and shows up as an indent in
+    // the PDF, which is the kind of difference nobody can explain later.
+    const out = sanitizeRich(`<p>  First line${nl}Second line  </p>`)
+    expect(out).not.toContain('<p> ')
+    expect(out).not.toContain(' </p>')
+    expect(richToPlain(out)).toContain('First line')
+    expect(richToPlain(out)).toContain('Second line')
+  })
+})
+
+describe('sanitizeRich — a newline inside a list stays a break', () => {
+  const nl = String.fromCharCode(10)
+
+  it('turns a newline next to text into a <br>, not a new bullet', () => {
+    // Splitting inside a list item would invent a bullet the user never wrote.
+    const out = sanitizeRich(`<ul><li>First half${nl}second half</li></ul>`)
+    expect(out).toContain('<br>')
+    expect(out.match(/<li>/g)).toHaveLength(1)
+  })
+
+  it('drops the layout whitespace BETWEEN list items', () => {
+    // Pretty-printed markup carries indentation between <li> tags; HTML renders
+    // it as nothing, and carrying it into the canonical value would make an
+    // idempotent re-sanitise produce a different string.
+    const out = sanitizeRich(`<ul>${nl}  <li>One</li>${nl}  <li>Two</li>${nl}</ul>`)
+    expect(out).toBe(sanitizeRich(out))
+    expect(out).not.toContain('<br>')
+  })
+
+  it('leaves a whitespace-only newline outside a list alone', () => {
+    // The newline between two pretty-printed paragraph tags has always
+    // rendered as nothing in HTML — it is not a break the user typed.
+    const out = sanitizeRich(`<p>One</p>${nl}<p>Two</p>`)
+    expect(out).not.toContain('<br>')
+    expect(out.match(/<p>/g)).toHaveLength(2)
+  })
+})
