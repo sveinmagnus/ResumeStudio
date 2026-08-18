@@ -487,3 +487,41 @@ describe('the item diff reports only what actually changed', () => {
     expect(describeSnapshotChanges(a as never, b as never, 'en').some((c) => c.kind === 'edited')).toBe(true)
   })
 })
+
+describe('describeSnapshotChanges — the wording and the no-change case', () => {
+  it('humanises a field key that has no curated label', () => {
+    // The History modal prints these; a raw key like 'external_url' reads as a
+    // bug next to the curated labels beside it.
+    const prev = emptyStore()
+    prev.projects = [makeProject({ id: 'p1', customer: { en: 'Acme' }, external_url: 'https://a.test' })]
+    const next = emptyStore()
+    next.projects = [makeProject({ id: 'p1', customer: { en: 'Acme' }, external_url: 'https://b.test' })]
+    const [change] = describeSnapshotChanges(prev, next, 'en')
+    expect(change.details!.join(' ')).toMatch(/^External url/)
+  })
+
+  it('reports NOTHING for an item that only moved', () => {
+    // sort_order is not a content change: listing every reorder would bury the
+    // edits the user is looking for.
+    const prev = emptyStore()
+    prev.projects = [
+      makeProject({ id: 'p1', customer: { en: 'Acme' }, sort_order: 0 }),
+      makeProject({ id: 'p2', customer: { en: 'Beta' }, sort_order: 1 }),
+    ]
+    const next = emptyStore()
+    next.projects = [
+      { ...prev.projects[0], sort_order: 1 },
+      { ...prev.projects[1], sort_order: 0 },
+    ]
+    expect(describeSnapshotChanges(prev, next, 'en')).toEqual([])
+  })
+
+  it('falls through the title fields to the first one the item actually has', () => {
+    // Not every section has a 'customer'; the list is walked in order so each
+    // section lands on its own natural title.
+    const prev = emptyStore()
+    const next = emptyStore()
+    next.work_experiences = [makeWork({ id: 'w1', employer: { en: 'Cartavio' }, role_title: { en: 'Architect' } })]
+    expect(describeSnapshotChanges(prev, next, 'en')[0].label).toBe('Cartavio')
+  })
+})
