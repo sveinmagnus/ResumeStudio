@@ -1428,3 +1428,77 @@ describe('parseRichBlocks — inline formatting', () => {
     expect(parseRichBlocks('<p><strong></strong></p>')).toEqual([])
   })
 })
+
+/**
+ * The plain-text projection.
+ *
+ * `richToPlain` feeds the ATS export, every AI prompt and the drift comparison.
+ * A model shown mangled indentation reports a list as prose; an ATS parser shown
+ * a run-together paragraph reads two jobs as one.
+ */
+describe('richToPlain — list rendering', () => {
+  const nl = String.fromCharCode(10)
+
+  it('bullets an unordered list and numbers an ordered one', () => {
+    expect(richToPlain('<ul><li>One</li><li>Two</li></ul>')).toBe(`• One${nl}• Two`)
+    expect(richToPlain('<ol><li>One</li><li>Two</li></ol>')).toBe(`1. One${nl}2. Two`)
+  })
+
+  it('numbers ordered items by their position among the ITEMS', () => {
+    // Whitespace between items must not shift the count. (It does still leave a
+    // stray leading space on the continuation line — asserted loosely here so
+    // this test pins the NUMBERING rather than locking in that wart.)
+    const out = richToPlain(`<ol>${nl}  <li>One</li>${nl}  <li>Two</li>${nl}</ol>`)
+    expect(out.split(nl).map((l) => l.trim())).toEqual(['1. One', '2. Two'])
+  })
+
+  it('indents a nested list one level deeper, on its own line', () => {
+    const out = richToPlain('<ul><li>Outer<ul><li>Inner</li></ul></li></ul>')
+    expect(out).toBe(`• Outer${nl}  • Inner`)
+  })
+
+  it('keeps the item text on the marker line, not below it', () => {
+    // The inline content and any sub-list are separated deliberately; losing that
+    // split puts the sub-items on the same line as their parent.
+    const out = richToPlain('<ul><li>Parent text<ul><li>Child</li></ul></li></ul>')
+    expect(out.split(nl)[0]).toBe('• Parent text')
+  })
+})
+
+describe('richToPlain — whitespace', () => {
+  const nl = String.fromCharCode(10)
+
+  it('renders a source newline as a space, the way HTML does', () => {
+    expect(richToPlain(`<p>One${nl}two</p>`)).toBe('One two')
+  })
+
+  it('collapses a run of spaces that FOLLOWS text', () => {
+    expect(richToPlain('<p>One    two</p>')).toBe('One two')
+  })
+
+  it('preserves the leading indentation of a nested item', () => {
+    // The collapse is deliberately anchored to a preceding non-space, so the
+    // two-space indent that marks depth survives.
+    const out = richToPlain('<ul><li>A<ul><li>B<ul><li>C</li></ul></li></ul></li></ul>')
+    expect(out.split(nl).map((l) => l.match(/^ */)![0].length)).toEqual([0, 2, 4])
+  })
+
+  it('separates paragraphs by a single blank line at most', () => {
+    const out = richToPlain('<p>One</p><p></p><p></p><p>Two</p>')
+    expect(out).not.toMatch(new RegExp(nl + '{3,}'))
+  })
+
+  it('turns a break into a real newline', () => {
+    expect(richToPlain('<p>One<br>Two</p>')).toBe(`One${nl}Two`)
+  })
+
+  it('returns a plain string untouched, without a DOM round trip', () => {
+    // The fast path is what keeps every prompt build cheap; it must not trim or
+    // reflow a value that has no markup in it.
+    expect(richToPlain('  Already plain.  ')).toBe('  Already plain.  ')
+  })
+
+  it('is empty for an empty value', () => {
+    expect(richToPlain('')).toBe('')
+  })
+})
