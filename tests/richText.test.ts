@@ -1338,3 +1338,93 @@ describe('sanitizeRich — break normalisation', () => {
     expect(out.match(/<p>/g)).toHaveLength(2)
   })
 })
+
+/**
+ * The block/run structure the exporters walk.
+ *
+ * `parseRichBlocks` is what the DOCX and PDF builders read, and the HTML preview
+ * is built from the same value by a different path — so a difference here shows
+ * up as a CV that looks one way on screen and another in the file the client
+ * receives.
+ */
+describe('parseRichBlocks — lists', () => {
+  it('numbers the items of an ordered list from one', () => {
+    const blocks = parseRichBlocks('<ol><li>First</li><li>Second</li><li>Third</li></ol>')
+    expect(blocks.map((b) => b.index)).toEqual([1, 2, 3])
+    expect(blocks.every((b) => b.ordered)).toBe(true)
+  })
+
+  it('restarts the count for a second list', () => {
+    // Two separate lists are two separate sequences; continuing the count would
+    // print "4." under a heading that starts a new list.
+    const blocks = parseRichBlocks('<ol><li>A</li></ol><p>Between</p><ol><li>B</li></ol>')
+    const items = blocks.filter((b) => b.kind === 'list-item')
+    expect(items.map((b) => b.index)).toEqual([1, 1])
+  })
+
+  it('marks an unordered list as unordered and still counts it', () => {
+    const blocks = parseRichBlocks('<ul><li>One</li><li>Two</li></ul>')
+    expect(blocks.every((b) => b.ordered === false)).toBe(true)
+    expect(blocks.map((b) => b.index)).toEqual([1, 2])
+  })
+
+  it('gives a nested list a deeper level, restarting its numbering', () => {
+    const blocks = parseRichBlocks('<ul><li>Outer<ul><li>Inner</li></ul></li></ul>')
+    const levels = blocks.filter((b) => b.kind === 'list-item').map((b) => b.level)
+    expect(levels).toEqual([0, 1])
+  })
+
+  it('drops a stray list item with no list around it', () => {
+    // A bare <li> has no bullet to belong to; emitting one would draw a marker
+    // at a level nothing established.
+    expect(parseRichBlocks('<li>Orphan</li>').filter((b) => b.kind === 'list-item')).toEqual([])
+  })
+
+  it('keeps loose text pasted into a list ABOVE the items it precedes', () => {
+    // The text sits in the run buffer when the first <li> arrives; flushing it
+    // there is what stops it being emitted after the items the author wrote it
+    // above.
+    const blocks = parseRichBlocks('<ul>Intro line<li>First item</li></ul>')
+    const texts = blocks.map((b) => b.runs.map((r) => r.text).join(''))
+    expect(texts[0]).toContain('Intro line')
+    expect(texts[1]).toContain('First item')
+  })
+})
+
+describe('parseRichBlocks — inline formatting', () => {
+  it('carries bold, italic and underline onto the run', () => {
+    const [block] = parseRichBlocks('<p><strong>b</strong><em>i</em><u>u</u></p>')
+    expect(block.runs.map((r) => [r.text, !!r.bold, !!r.italic, !!r.underline])).toEqual([
+      ['b', true, false, false],
+      ['i', false, true, false],
+      ['u', false, false, true],
+    ])
+  })
+
+  it('treats the legacy tags as their modern equivalents', () => {
+    // Word and older stored values use <b>/<i>; the renderers only look at the
+    // flags, so both spellings have to arrive the same.
+    const [block] = parseRichBlocks('<p><b>bold</b><i>ital</i></p>')
+    expect(block.runs[0].bold).toBe(true)
+    expect(block.runs[1].italic).toBe(true)
+  })
+
+  it('inherits an outer flag into a nested one rather than replacing it', () => {
+    const [block] = parseRichBlocks('<p><strong>bold <em>and italic</em></strong></p>')
+    const nested = block.runs.find((r) => r.text.includes('and italic'))!
+    expect(nested.bold).toBe(true)
+    expect(nested.italic).toBe(true)
+  })
+
+  it('emits a break inside a list item as a newline run', () => {
+    // The one place a break survives canonicalisation; every renderer draws it
+    // as a real line break inside the bullet.
+    const nl = String.fromCharCode(10)
+    const [item] = parseRichBlocks(`<ul><li>First half${nl}second half</li></ul>`)
+    expect(item.runs.map((r) => r.text).join('')).toContain(nl)
+  })
+
+  it('drops a block whose runs are all empty', () => {
+    expect(parseRichBlocks('<p><strong></strong></p>')).toEqual([])
+  })
+})
