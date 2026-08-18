@@ -13,10 +13,24 @@ import {
   emptyStore, makeProject, makeWork, makeEducation, makeView,
   makeKQ, makeReference, makeResume, makeSpokenLanguage,
   makeKeyCompetency, makeRecommendation, makeSkill, makeSkillCategory, makeCoverLetter,
+  makeIndustry, makePresentation,
 } from './fixtures'
 import { withHeaderDefaults, withFooterDefaults } from '../src/lib/viewHeader'
 import { DEFAULT_VIEW_STYLE, deriveTokens } from '../src/lib/viewStyle'
 import type { ResumeStore } from '../src/types'
+
+/**
+ * The shape mask is the one export step that needs a real canvas, and jsdom has
+ * none — so the branch deciding whether a circular profile photo reaches Word
+ * as a circle could never be exercised. Stubbing the mask itself, and nothing
+ * else in lib/image, makes that DECISION testable while the rest of the image
+ * plumbing (header parsing, byte handling) stays real.
+ */
+const maskSpy = vi.hoisted(() => vi.fn())
+vi.mock('../src/lib/image', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/lib/image')>()),
+  applyShapeMaskToDataUrl: maskSpy,
+}))
 
 /** A view with every section enabled at full detail. */
 const fullView = () => makeView({ sections: buildViewSections() })
@@ -1578,3 +1592,1084 @@ describe('exportDocx — the geometry around the header', () => {
     for (const p of contact.slice(0, -1)) expect(p).toMatch(/w:after="30"/)
   })
 })
+
+// ─── Shared readers for the suites below ────────────────────────────────────
+
+/** Every `<w:p>` element in the body, in document order. */
+const bodyParas = (xml: string): string[] =>
+  xml.slice(xml.indexOf('<w:body>')).match(/<w:p(?:\/>|(?: [^>]*)?>[\s\S]*?<\/w:p>)/g) ?? []
+
+const paraOf = (xml: string, text: string): string => {
+  const p = bodyParas(xml).find((x) => x.includes(text))
+  if (p === undefined) throw new Error(`no paragraph containing ${text}`)
+  return p
+}
+
+const numOf = (fragment: string, name: string): number | null => {
+  const m = new RegExp(`${name}="(-?[0-9.]+)"`).exec(fragment)
+  return m ? Number(m[1]) : null
+}
+
+const sizesOf = (fragment: string): number[] =>
+  [...fragment.matchAll(/<w:sz w:val="([\d.]+)"\/>/g)].map((m) => Number(m[1]))
+
+const textsOf = (fragment: string): string[] =>
+  [...fragment.matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map((m) => m[1])
+
+/**
+ * Text that escaped a `<w:t>` element.
+ *
+ * `docx` serialises a raw string handed to a `children` array as a bare text
+ * node — it does not throw and the file still opens, so Word shows a stray
+ * word floating outside every run. Nothing else in a resume document writes
+ * text outside `<w:t>`, which makes this a cheap standing check that each
+ * children array only ever holds real components.
+ */
+const strayText = (xml: string): string[] =>
+  [...xml.slice(xml.indexOf('<w:body>'))
+    .replace(/<w:t(?: [^>]*)?>[\s\S]*?<\/w:t>/g, '<w:t/>')
+    .matchAll(/>([^<]+)</g)]
+    .map((m) => m[1])
+    .filter((s) => s.trim().length > 0)
+
+/** The part carrying the document's default run properties. */
+async function stylesXml(blob: Blob): Promise<string> {
+  const files = unzipSync(new Uint8Array(await blob.arrayBuffer()))
+  const part = files['word/styles.xml']
+  if (!part) throw new Error('no word/styles.xml in the archive')
+  return new TextDecoder().decode(part)
+}
+
+/**
+ * The generic item layout, read through Education.
+ *
+ * Education is the plainest descriptor that fills every slot at once — a title
+ * with a date, a meta line, a rich body and an extra line — and it takes the
+ * body title size rather than the large one, so it also pins the sizing branch
+ * that Projects and Work Experience hide. The resume is dropped so the section
+ * is the WHOLE document: paragraph COUNT then becomes an assertion, which is
+ * the only way to see a builder that emits a blank paragraph nobody asked for.
+ */
+describe('exportDocx — the item builders, with the document to themselves', () => {
+  const eduStore = (over: Record<string, unknown> = {}): ResumeStore => {
+    const s = emptyStore()
+    s.resume = null
+    s.educations = [makeEducation({
+      school: { en: 'NTNU' },
+      degree: { en: 'MSc Informatics' },
+      grade: 'A',
+      description: { en: '<p>Thesis on compilers.</p>' },
+      ...over,
+    })]
+    return s
+  }
+  const xmlFor = async (over: Record<string, unknown> = {}, style: Record<string, unknown> = {}) => {
+    await exportDocx(eduStore(over), makeView({
+      sections: [{ key: 'educations', detail: 'full', sort_order: 0, style } as never],
+    }), 'en')
+    return documentXml(lastBlob!)
+  }
+  const t = deriveTokens(DEFAULT_VIEW_STYLE)
+
+  it('lays the whole item out in five paragraphs and nothing else', async () => {
+    // Heading, title, meta, body, grade. Every "emit it anyway" branch below
+    // adds a sixth, so this count is what makes the omission tests real.
+    const xml = await xmlFor()
+    expect(bodyParas(xml)).toHaveLength(5)
+    expect(strayText(xml)).toEqual([])
+  })
+
+  it('sets the meta line in italics, subdued, at the body size', async () => {
+    // The meta line is the item's second voice — the degree under the school.
+    // Losing the italics or the grey makes it read as a second title.
+    const meta = paraOf(await xmlFor(), 'MSc Informatics')
+    expect(meta).toContain('<w:i/>')
+    expect(meta).toContain('w:color w:val="666666"')
+    expect(numOf(meta, 'w:after')).toBe(80)
+    expect(sizesOf(meta)).toEqual([t.bodyFontSizePt * 2])
+  })
+
+  it('drops the meta line entirely when the item has no meta', async () => {
+    const xml = await xmlFor({ degree: {} })
+    expect(bodyParas(xml)).toHaveLength(4)
+    expect(xml).not.toContain('<w:i/>')
+  })
+
+  it('writes the grade as a subtle extra line under the body', async () => {
+    // extraLines is where a grade, a credential URL or a referee's phone
+    // number lives; dropping the loop loses the fact, not just its styling.
+    const xml = await xmlFor()
+    const grade = paraOf(xml, 'Grade: A')
+    expect(grade).toContain('w:color w:val="666666"')
+    expect(numOf(grade, 'w:after')).toBe(40)
+    expect(bodyParas(xml).indexOf(grade)).toBe(4)
+  })
+
+  it('gives the title the descriptor’s own top gap, bold, at the body size', async () => {
+    // spacingBefore is per descriptor (200 on a project, 140 here): it is the
+    // air BETWEEN items, so a lost value runs the list together, and a title
+    // promoted to the large size makes every section look like Projects.
+    const title = paraOf(await xmlFor(), 'NTNU')
+    expect(numOf(title, 'w:before')).toBe(140)
+    expect(numOf(title, 'w:after')).toBe(40)
+    expect(title).toContain('<w:b/>')
+    expect(sizesOf(title)).toEqual([t.bodyFontSizePt * 2, t.smallFontSizePt * 2])
+  })
+
+  it('leaves the top gap off an item whose descriptor asks for none', async () => {
+    // Education asks for 140, a showcase category for 0 — and 0 has to become
+    // "no attribute", not a literal zero and not some stand-in truthy value.
+    const s = emptyStore()
+    s.resume = null
+    s.skill_categories = [makeSkillCategory({ id: 'cat1', name: { en: 'Languages' } })]
+    s.skills = [makeSkill({ id: 'ts', name: { en: 'TypeScript' }, category_id: 'cat1', is_highlighted: true })]
+    await exportDocx(s, makeView({
+      sections: [{ key: 'technology_categories', detail: 'full', sort_order: 0 } as never],
+    }), 'en')
+    expect(paraOf(await documentXml(lastBlob!), 'Languages')).not.toContain('w:before=')
+  })
+
+  it('emits no paragraph for a body whose markup carries no words', async () => {
+    // `<p></p>` survives as a truthy value in the store, so the body guard sees
+    // content and the block parser sees none. The early return is what keeps an
+    // empty paragraph — real vertical space in Word — out of the document.
+    const xml = await xmlFor({ description: { en: '<p></p>' } })
+    expect(bodyParas(xml)).toHaveLength(4)
+    expect(strayText(xml)).toEqual([])
+  })
+
+  it('replaces a hidden heading with a spacer carrying the heading’s own top gap', async () => {
+    // The spacer exists so a heading-less section still opens with the air the
+    // heading would have provided; its run is deliberately 1pt so the spacer
+    // contributes no line height of its own.
+    const xml = await xmlFor({}, { hide_heading: true })
+    const [spacer] = bodyParas(xml)
+    expect(xml).not.toContain('EDUCATION')
+    expect(numOf(spacer, 'w:before')).toBe(t.itemGapTwips * 2)
+    expect(numOf(spacer, 'w:after')).toBe(0)
+    expect(sizesOf(spacer)).toEqual([2])
+    expect(textsOf(spacer)).toEqual([''])
+  })
+})
+
+/**
+ * The remaining item layouts — points, tags, the inline line and the quote.
+ *
+ * Same discipline as above: no resume and one section, so the paragraph count
+ * is part of the assertion and a branch that emits an empty run shows up.
+ */
+describe('exportDocx — points, tags and the special layouts', () => {
+  const t = deriveTokens(DEFAULT_VIEW_STYLE)
+
+  const kqXml = async (
+    points: Array<{ label?: Record<string, string>; body: Record<string, string> }>,
+  ) => {
+    const s = emptyStore()
+    s.resume = null
+    s.key_qualifications = [makeKQ({
+      id: 'kq1', tag_line: {}, summary: { en: 'Summary.' },
+      key_points: points.map((p, i) => ({
+        id: `kp${i}`, name: p.label ?? {}, long_description: p.body, sort_order: i, disabled: false,
+      })) as never,
+    })]
+    await exportDocx(s, makeView({
+      sections: [{ key: 'key_qualifications', detail: 'full', sort_order: 0 } as never],
+    }), 'en')
+    return documentXml(lastBlob!)
+  }
+
+  it('writes an unlabelled point as glyph then text, with nothing wedged between', async () => {
+    // The glyph run and the body run sit next to each other; a separator run
+    // leaking in here prints as a bullet with a hole after it.
+    const xml = await kqXml([{ body: { en: 'Ran it.' } }])
+    const point = paraOf(xml, 'Ran it.')
+    expect(textsOf(point)).toEqual(['• ', 'Ran it.'])
+    expect(numOf(point, 'w:after')).toBe(60)
+    expect(point).not.toContain('<w:b/>')
+  })
+
+  it('bolds a point’s label and separates it from the text with a dash', async () => {
+    const point = paraOf(await kqXml([{ label: { en: 'Cloud' }, body: { en: 'Ran it.' } }]), 'Ran it.')
+    expect(textsOf(point)).toEqual(['• Cloud', ' — ', 'Ran it.'])
+    expect(point).toContain('<w:b/>')
+  })
+
+  it('joins the paragraphs of one point with exactly one space', async () => {
+    // A point is ONE bullet line, so a two-paragraph body is flattened; the
+    // separator belongs between the halves, not in front of the first.
+    const point = paraOf(await kqXml([{ body: { en: 'First.\n\nSecond.' } }]), 'First.')
+    expect(textsOf(point)).toEqual(['• ', 'First.', ' ', 'Second.'])
+  })
+
+  it('gives a profile with a hidden tag line no title paragraph at all', async () => {
+    // The DOCX profile block is heading-less by default. Emitting the title
+    // anyway puts an empty paragraph — real space in Word — above the prose.
+    const xml = await kqXml([])
+    expect(bodyParas(xml)).toHaveLength(2)
+    expect(textsOf(xml)).toEqual(['PROFESSIONAL SUMMARY', 'Summary.'])
+  })
+
+  // ─── Tags ────────────────────────────────────────────────────────────────
+
+  const projectXml = async (over: Record<string, unknown> = {}) => {
+    const s = emptyStore()
+    s.resume = null
+    s.skills = [makeSkill({ id: 'go', name: { en: 'Go' } })]
+    s.projects = [makeProject({
+      id: 'p1', customer: { en: 'Acme' }, description: {}, long_description: { en: '<p>Did it.</p>' },
+      skills: [{
+        id: 'ps1', skill_id: 'go', name: { en: 'Go' },
+        duration_in_years: 0, offset_in_years: 0, total_duration_in_years: 0, sort_order: 0,
+      }],
+      ...over,
+    })]
+    await exportDocx(s, makeView({
+      sections: [{ key: 'projects', detail: 'full', sort_order: 0 } as never],
+    }), 'en')
+    return documentXml(lastBlob!)
+  }
+
+  it('labels the tag line, italicises the label only, and sets both at the meta size', async () => {
+    // Without the label the skills print as a bare comma list with nothing
+    // saying what they are; at body size they compete with the description.
+    const tags = paraOf(await projectXml(), 'Go')
+    expect(textsOf(tags)).toEqual(['Skills: ', 'Go'])
+    expect(numOf(tags, 'w:before')).toBe(60)
+    expect(numOf(tags, 'w:after')).toBe(100)
+    expect(sizesOf(tags)).toEqual([t.metaFontSizePt * 2, t.metaFontSizePt * 2])
+    expect(tags).toContain('<w:i/>')
+    expect(tags).toContain('w:color w:val="666666"')
+  })
+
+  it('writes no tag line at all for an item with no tags', async () => {
+    const xml = await projectXml({ skills: [] })
+    expect(bodyParas(xml)).toHaveLength(3)
+    expect(strayText(xml)).toEqual([])
+  })
+
+  it('writes the showcase tags with no label, and no stray text in its place', async () => {
+    // The Skills Showcase deliberately carries an EMPTY tags label — the
+    // category name above the list already says what it is.
+    const s = emptyStore()
+    s.resume = null
+    s.skill_categories = [makeSkillCategory({ id: 'cat1', name: { en: 'Languages' } })]
+    s.skills = [makeSkill({ id: 'ts', name: { en: 'TypeScript' }, category_id: 'cat1', is_highlighted: true })]
+    await exportDocx(s, makeView({
+      sections: [{ key: 'technology_categories', detail: 'full', sort_order: 0 } as never],
+    }), 'en')
+    const xml = await documentXml(lastBlob!)
+    expect(textsOf(paraOf(xml, 'TypeScript'))).toEqual(['TypeScript'])
+    expect(strayText(xml)).toEqual([])
+  })
+
+  it('leads a project body with its short description as its own paragraph', async () => {
+    // The DOCX project layout is the only one with a plain lead-in line; folded
+    // into the rich body it would take the body's spacing and lose its own.
+    const xml = await projectXml({ description: { en: 'Payments platform' } })
+    const paras = bodyParas(xml)
+    const lead = paraOf(xml, 'Payments platform')
+    expect(numOf(lead, 'w:after')).toBe(80)
+    expect(paras.indexOf(lead)).toBeLessThan(paras.indexOf(paraOf(xml, 'Did it.')))
+  })
+
+  // ─── Bullets and dates ───────────────────────────────────────────────────
+
+  const eduOnly = (style: Record<string, unknown>) => {
+    const s = emptyStore()
+    s.resume = null
+    s.educations = [makeEducation({ school: { en: 'NTNU' }, degree: {}, description: {} })]
+    return exportDocx(s, makeView({
+      sections: [{ key: 'educations', detail: 'full', sort_order: 0, style } as never],
+    }), 'en')
+  }
+
+  it('bolds the bullet glyph so it matches the title it rides with', async () => {
+    await eduOnly({ item_bullets: true, bullet_style: 'disc' })
+    const title = paraOf(await documentXml(lastBlob!), 'NTNU')
+    const glyphRun = title.split('</w:r>').find((r) => r.includes('•'))
+    expect(glyphRun).toContain('<w:b/>')
+  })
+
+  it('writes no stray text where the bullet and the date runs are absent', async () => {
+    // Both are conditional spreads into the title's children array; a raw value
+    // reaching one lands in Word as text outside any run — it still opens, so
+    // nothing but this notices.
+    await eduOnly({ hide_dates: true })
+    const xml = await documentXml(lastBlob!)
+    expect(strayText(xml)).toEqual([])
+    expect(textsOf(xml)).toEqual(['EDUCATION', 'NTNU'])
+  })
+
+  // ─── Inline and quote ────────────────────────────────────────────────────
+
+  it('sets the inline language line at the body size, bold, tightly spaced', async () => {
+    const s = emptyStore()
+    s.resume = null
+    s.spoken_languages = [makeSpokenLanguage({ name: { en: 'Norwegian' }, level: { en: 'Native' } })]
+    await exportDocx(s, makeView({
+      sections: [{ key: 'spoken_languages', detail: 'full', sort_order: 0 } as never],
+    }), 'en')
+    const line = paraOf(await documentXml(lastBlob!), 'Norwegian')
+    expect(numOf(line, 'w:after')).toBe(30)
+    expect(line).toContain('<w:b/>')
+    expect(sizesOf(line)).toEqual([t.bodyFontSizePt * 2, t.bodyFontSizePt * 2])
+  })
+
+  it('drops an empty attribution rather than opening the line with a separator', async () => {
+    // A quote whose only attribution fact is the relationship must read
+    // "— (Former manager)", not a dash followed by a dangling middot.
+    const s = emptyStore()
+    s.resume = null
+    s.recommendations = [makeRecommendation({
+      id: 'r1', recommender_name: '', recommender_title: {}, recommender_company: '',
+      relationship: { en: 'Former manager' }, text: { en: '<p>Excellent.</p>' },
+    } as never)]
+    await exportDocx(s, makeView({
+      sections: [{ key: 'recommendations', detail: 'full', sort_order: 0 } as never],
+    }), 'en')
+    const tail = paraOf(await documentXml(lastBlob!), 'Former manager')
+    expect(textsOf(tail)).toEqual(['— (Former manager)'])
+    expect(numOf(tail, 'w:after')).toBe(120)
+  })
+})
+
+/**
+ * The identity block in the units Word reads.
+ *
+ * The existing identity tests read the run TEXT — which name, which order.
+ * These read the numbers around it: an export where the name sets at the body
+ * size, or where every contact line takes the block's closing gap, still says
+ * all the right words.
+ */
+describe('exportDocx — the identity block, measured', () => {
+  const t = deriveTokens(DEFAULT_VIEW_STYLE)
+  /** Languages stay in the HEADER but not as a section, so the CV is header-only. */
+  const headerOnlySections = () =>
+    buildViewSections().map((s) => (s.key === 'spoken_languages' ? { ...s, detail: 'off' as const } : s))
+
+  const idStore = (): ResumeStore => {
+    const s = emptyStore()
+    s.resume = makeResume({
+      full_name: 'Kari Nordmann', title: { en: 'Solution Architect' },
+      phone: '+47 900 00 000', email: 'kari@example.com',
+    })
+    s.spoken_languages = [makeSpokenLanguage({ name: { en: 'Norwegian' }, level: { en: 'Native' } })]
+    return s
+  }
+  const xmlFor = async (header: Record<string, unknown> = {}) => {
+    await exportDocx(idStore(), makeView({
+      sections: headerOnlySections(),
+      header: withHeaderDefaults(header as never),
+    }), 'en')
+    return documentXml(lastBlob!)
+  }
+
+  it('sets the name at the h1 token size, bold, over its own gap', async () => {
+    const name = paraOf(await xmlFor(), 'Kari Nordmann')
+    expect(sizesOf(name)).toEqual([t.h1Pt * 2])
+    expect(name).toContain('<w:b/>')
+    expect(numOf(name, 'w:after')).toBe(60)
+  })
+
+  it('honours a per-view name size instead of the token', async () => {
+    // The header's name_style is how a view presents the same person bigger or
+    // smaller; falling back to the token would silently ignore the setting.
+    const name = paraOf(await xmlFor({ name_style: { size_pt: 30, font: 'condensed' } }), 'Kari Nordmann')
+    expect(sizesOf(name)).toEqual([60])
+  })
+
+  it('sets the title one point over the small size, with a wider gap below', async () => {
+    const title = paraOf(await xmlFor(), 'Solution Architect')
+    expect(sizesOf(title)).toEqual([(t.smallFontSizePt + 1) * 2])
+    expect(numOf(title, 'w:after')).toBe(120)
+  })
+
+  it('honours a per-view title size instead of the derived one', async () => {
+    const title = paraOf(await xmlFor({ title_style: { size_pt: 20, font: 'body' } }), 'Solution Architect')
+    expect(sizesOf(title)).toEqual([40])
+  })
+
+  it('sets every run of a contact line at the meta size', async () => {
+    // Label, separator and value are three separate runs; they have to agree,
+    // or the line steps up and down mid-sentence.
+    const contact = paraOf(await xmlFor(), '+47 900 00 000')
+    expect(sizesOf(contact)).toEqual(Array(sizesOf(contact).length).fill(t.metaFontSizePt * 2))
+    expect(sizesOf(contact).length).toBeGreaterThan(1)
+  })
+
+  it('writes no label run when a field’s label has been blanked', async () => {
+    // Blanking a label ("just print the number") is a real setting; emitting an
+    // empty run for it leaves a stray space where the label used to be.
+    const fields = withHeaderDefaults({}).fields.map((f) =>
+      (f.key === 'phone' ? { ...f, label: { en: '' } } : f))
+    const contact = paraOf(await xmlFor({ fields }), '+47 900 00 000')
+    expect(textsOf(contact)).toEqual(['+47 900 00 000', ' | ', 'Email: ', 'kari@example.com'])
+  })
+
+  it('gives the LAST contact line the closing gap and the earlier ones a tight one', async () => {
+    // Phone and email share line one; the languages line is line two. Giving
+    // every line the closing gap spreads the contact details out like a list,
+    // and giving none of them it glues the header to the first section.
+    const xml = await xmlFor()
+    expect(numOf(paraOf(xml, '+47 900 00 000'), 'w:after')).toBe(30)
+    expect(numOf(paraOf(xml, 'Norwegian (Native)'), 'w:after')).toBe(200)
+  })
+})
+
+/**
+ * The header images: where they sit, how they are spaced, and whether the
+ * circle a user chose survives the trip into Word.
+ */
+describe('exportDocx — header image placement, spacing and masking', () => {
+  // The module mock is created once for the file, so its call log outlives a
+  // test; "was never called" only means anything from a clean slate.
+  beforeEach(() => { maskSpy.mockReset() })
+
+  /** A PNG whose IHDR declares `w`×`h`; the exporter only reads that header. */
+  const pngSized = (w: number, h: number): string => {
+    const bytes = new Uint8Array(40)
+    bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 0)
+    bytes.set([0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52], 8)
+    const be = (offset: number, value: number) => {
+      bytes[offset] = (value >>> 24) & 0xff
+      bytes[offset + 1] = (value >>> 16) & 0xff
+      bytes[offset + 2] = (value >>> 8) & 0xff
+      bytes[offset + 3] = value & 0xff
+    }
+    be(16, w)
+    be(20, h)
+    let binary = ''
+    for (const b of bytes) binary += String.fromCharCode(b)
+    return `data:image/png;base64,${btoa(binary)}`
+  }
+  const EMU_PER_PX = 9525
+  const extents = (xml: string): Array<{ w: number; h: number }> =>
+    [...xml.matchAll(/<wp:extent cx="(\d+)" cy="(\d+)"/g)]
+      .map((m) => ({ w: Number(m[1]) / EMU_PER_PX, h: Number(m[2]) / EMU_PER_PX }))
+
+  const exportWith = async (
+    header: Record<string, unknown>, resume: Record<string, unknown> = {},
+  ) => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'Kari Nordmann', ...resume })
+    await exportDocx(s, makeView({
+      sections: buildViewSections(), header: withHeaderDefaults(header as never),
+    }), 'en')
+    return documentXml(lastBlob!)
+  }
+
+  it('aligns a left-placed logo left rather than falling through to another edge', async () => {
+    // Three placements, one fall-through: 'left' is the one no earlier test
+    // covers, so an inverted right-check reads as correct.
+    const xml = await exportWith({ logo_placement: 'left' }, { company_logo: PNG_1x1 })
+    expect(paraOf(xml, 'w:drawing')).toContain('<w:jc w:val="left"/>')
+  })
+
+  it('spaces the logo banner from the identity block below it', async () => {
+    const xml = await exportWith({ logo_placement: 'center' }, { company_logo: PNG_1x1 })
+    expect(numOf(paraOf(xml, 'w:drawing'), 'w:after')).toBe(140)
+  })
+
+  it('omits a stored logo entirely when its placement is none', async () => {
+    // A view turning the logo off is a presentation decision, not a data one —
+    // the logo stays on the resume and must not reappear in the export.
+    const xml = await exportWith({ logo_placement: 'none' }, { company_logo: PNG_1x1 })
+    expect(xml).not.toContain('w:drawing')
+  })
+
+  it('puts an "above" photo before the name, with its own gap under it', async () => {
+    const xml = await exportWith(
+      { photo_placement: 'above', photo_shape: 'square' }, { profile_photo: PNG_1x1 })
+    const photo = paraOf(xml, 'w:drawing')
+    expect(bodyParas(xml).indexOf(photo)).toBeLessThan(bodyParas(xml).indexOf(paraOf(xml, 'Kari Nordmann')))
+    expect(numOf(photo, 'w:after')).toBe(100)
+    expect(numOf(photo, 'w:before')).toBeNull()
+  })
+
+  it('puts a "below" photo after the identity, gapped on both sides', async () => {
+    // 'above' and 'below' are the same two paragraphs in opposite order; a
+    // collapsed branch still produces a document with a photo in it.
+    const xml = await exportWith(
+      { photo_placement: 'below', photo_shape: 'square' }, { profile_photo: PNG_1x1 })
+    const photo = paraOf(xml, 'w:drawing')
+    expect(bodyParas(xml).indexOf(photo)).toBeGreaterThan(bodyParas(xml).indexOf(paraOf(xml, 'Kari Nordmann')))
+    expect(numOf(photo, 'w:before')).toBe(100)
+    expect(numOf(photo, 'w:after')).toBe(120)
+  })
+
+  it('scales a tall photo by its HEIGHT when that is the binding limit', async () => {
+    // The two limits are combined with a min, so the axis that binds decides.
+    // A narrow, tall photo is the only shape where the height limit wins — the
+    // existing cases all bind on width, which leaves the height term free.
+    const xml = await exportWith(
+      { photo_placement: 'above', photo_shape: 'square' }, { profile_photo: pngSized(66, 312) })
+    expect(extents(xml)).toEqual([{ w: 33, h: 156 }])
+  })
+
+  it('masks a non-square photo and embeds the MASKED image', async () => {
+    // Word cannot round an image's corners, so the circle is baked into the
+    // pixels before embedding. Embedding the original instead silently gives
+    // back the square photo the user chose to crop.
+    maskSpy.mockResolvedValue(pngSized(40, 40))
+    const xml = await exportWith(
+      { photo_placement: 'above', photo_shape: 'circle' }, { profile_photo: pngSized(100, 100) })
+    expect(maskSpy).toHaveBeenCalledWith(pngSized(100, 100), 'circle')
+    expect(extents(xml)).toEqual([{ w: 40, h: 40 }])
+  })
+
+  it('does not mask a square photo — the shape IS the original bytes', async () => {
+    const xml = await exportWith(
+      { photo_placement: 'above', photo_shape: 'square' }, { profile_photo: pngSized(100, 100) })
+    expect(maskSpy).not.toHaveBeenCalled()
+    expect(extents(xml)).toEqual([{ w: 100, h: 100 }])
+  })
+
+  it('does not mask when the placement hides the photo', async () => {
+    await exportWith({ photo_placement: 'none', photo_shape: 'circle' }, { profile_photo: pngSized(100, 100) })
+    expect(maskSpy).not.toHaveBeenCalled()
+  })
+
+  it('does not mask when there is no photo to mask', async () => {
+    // All three conditions have to hold together; any one of them relaxed sends
+    // a null image into the masker.
+    await exportWith({ photo_placement: 'left', photo_shape: 'circle' }, { profile_photo: null })
+    expect(maskSpy).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * The view introduction — the paragraph a view uses to address one reader.
+ *
+ * It has its own spacing rules (an opening gap on the first paragraph, a wider
+ * closing gap under the last) and its own voice: italic, grey, body size.
+ */
+describe('exportDocx — the view introduction', () => {
+  const t = deriveTokens(DEFAULT_VIEW_STYLE)
+  const introXml = async (text: string) => {
+    const s = emptyStore()
+    s.resume = null
+    await exportDocx(s, makeView({ sections: buildViewSections(), introduction: { en: text } }), 'en')
+    return documentXml(lastBlob!)
+  }
+
+  it('opens with a gap above the first paragraph only', async () => {
+    // The gap belongs to the block, not to each paragraph — repeated, it pushes
+    // the intro's own sentences as far apart as the intro is from the header.
+    const xml = await introXml('First line.\n\nSecond line.')
+    expect(numOf(paraOf(xml, 'First line.'), 'w:before')).toBe(80)
+    expect(numOf(paraOf(xml, 'Second line.'), 'w:before')).toBeNull()
+  })
+
+  it('closes with a wider gap under the last paragraph than between them', async () => {
+    const xml = await introXml('First line.\n\nSecond line.')
+    expect(numOf(paraOf(xml, 'First line.'), 'w:after')).toBe(t.paraGapTwips)
+    expect(numOf(paraOf(xml, 'Second line.'), 'w:after')).toBe(220)
+  })
+
+  it('sets the intro in italics, grey, at the body size', async () => {
+    // It reads as an aside to the reader; in the body voice it reads as the CV
+    // making a claim about itself.
+    const only = paraOf(await introXml('Only line.'), 'Only line.')
+    expect(only).toContain('<w:i/>')
+    expect(only).toContain('w:color w:val="333333"')
+    expect(sizesOf(only)).toEqual([t.bodyFontSizePt * 2])
+    expect(numOf(only, 'w:after')).toBe(220)
+  })
+})
+
+/**
+ * How the Skill Matrix section is wired into the document, and the geometry of
+ * the table itself.
+ *
+ * The matrix is the one section that bypasses the generic renderer — its own
+ * heading branch, its own emptiness check, its own table builder — so nothing
+ * asserted about the other sections reaches any of it.
+ */
+describe('exportDocx — the skill matrix section', () => {
+  const t = deriveTokens(DEFAULT_VIEW_STYLE)
+
+  /** A view where the matrix is the ONLY section, so the document is just it. */
+  const matrixOnly = (detail: 'full' | 'summary', style: Record<string, unknown> = {}) =>
+    makeView({
+      sections: buildViewSections().map((s) =>
+        (s.key === 'skill_matrix'
+          ? { ...s, detail, style } as never
+          : { ...s, detail: 'off' as const })),
+    })
+
+  const matrixStore = (): ResumeStore => {
+    const s = emptyStore()
+    s.resume = null
+    s.skill_categories = [makeSkillCategory({ id: 'cat1', name: { en: 'Languages' } })]
+    s.skills = [
+      makeSkill({ id: 'ts', name: { en: 'TypeScript' }, category_id: 'cat1', proficiency: 4, is_highlighted: true }),
+      makeSkill({ id: 'go', name: { en: 'Go' }, category_id: null, proficiency: 3, is_highlighted: false }),
+    ]
+    return s
+  }
+  const cells = (xml: string): string[] =>
+    [...xml.matchAll(/<w:tc>[\s\S]*?<\/w:tc>/g)]
+      .map((m) => [...m[0].matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map((x) => x[1]).join(''))
+  const rawCells = (xml: string): string[] =>
+    [...xml.matchAll(/<w:tc>[\s\S]*?<\/w:tc>/g)].map((m) => m[0])
+
+  it('lists only the highlighted skills at summary detail', async () => {
+    // Summary is the "headline competencies" mode. Showing every skill turns a
+    // six-row highlight table back into the full registry dump.
+    await exportDocx(matrixStore(), matrixOnly('summary'), 'en')
+    const c = cells(await documentXml(lastBlob!))
+    expect(c).toContain('TypeScript')
+    expect(c).not.toContain('Go')
+  })
+
+  it('lists every skill at full detail', async () => {
+    await exportDocx(matrixStore(), matrixOnly('full'), 'en')
+    const c = cells(await documentXml(lastBlob!))
+    expect(c).toContain('TypeScript')
+    expect(c).toContain('Go')
+  })
+
+  it('emits neither heading nor table when no skill qualifies', async () => {
+    // An empty matrix must vanish completely — a heading over a header row with
+    // nothing under it reads as data the CV forgot to fill in.
+    const s = matrixStore()
+    s.skills = s.skills.map((sk) => ({ ...sk, is_highlighted: false }))
+    await exportDocx(s, matrixOnly('summary'), 'en')
+    const xml = await documentXml(lastBlob!)
+    expect(xml).not.toContain('<w:tbl>')
+    expect(xml).not.toContain('SKILL MATRIX')
+  })
+
+  it('heads the matrix, or replaces the heading with a measured spacer', async () => {
+    await exportDocx(matrixStore(), matrixOnly('full'), 'en')
+    expect(await documentXml(lastBlob!)).toContain('SKILL MATRIX')
+
+    await exportDocx(matrixStore(), matrixOnly('full', { hide_heading: true }), 'en')
+    const hidden = await documentXml(lastBlob!)
+    expect(hidden).not.toContain('SKILL MATRIX')
+    expect(numOf(bodyParas(hidden)[0], 'w:before')).toBe(t.itemGapTwips * 2)
+  })
+
+  it('splits the width evenly across the columns it actually shows', async () => {
+    // Five columns at a quarter each overflow the page; the share is computed
+    // from the surviving column count for that reason.
+    await exportDocx(matrixStore(), matrixOnly('full'), 'en')
+    expect(rawCells(await documentXml(lastBlob!))[0]).toContain('w:w="20%"')
+
+    await exportDocx(matrixStore(), matrixOnly('full', { hide_dates: true }), 'en')
+    expect(rawCells(await documentXml(lastBlob!))[0]).toContain('w:w="25%"')
+  })
+
+  it('drops exactly ONE column when dates are hidden', async () => {
+    // Counting the cells is what separates "the column is gone" from "the
+    // column is there but empty" — the two look identical read as text.
+    await exportDocx(matrixStore(), matrixOnly('full', { hide_dates: true }), 'en')
+    const c = cells(await documentXml(lastBlob!))
+    expect(c.slice(0, 4)).toEqual(['Skill', 'Category', 'Experience', 'Proficiency'])
+    expect(c).toHaveLength(12)
+  })
+
+  it('keeps the Category column when only SOME rows carry one', async () => {
+    // One categorised skill among many is the normal case; requiring every row
+    // to have a category silently drops the column for almost every CV.
+    await exportDocx(matrixStore(), matrixOnly('full'), 'en')
+    const c = cells(await documentXml(lastBlob!))
+    expect(c.slice(0, 5)).toEqual(['Skill', 'Category', 'Experience', 'Proficiency', 'Last used'])
+    expect(c.slice(10, 15)).toEqual(['Go', '', '', '3/5', ''])
+  })
+
+  it('marks the header row to repeat across a page break', async () => {
+    // The matrix is the one part of a CV that can run past a page boundary, and
+    // a headerless continuation is four columns of unlabelled numbers.
+    await exportDocx(matrixStore(), matrixOnly('full'), 'en')
+    expect(await documentXml(lastBlob!)).toContain('<w:tblHeader/>')
+  })
+
+  it('pads every cell so borderless columns do not touch', async () => {
+    // TableBorders.NONE — with no rules between them, the padding is the only
+    // thing keeping one column's text off the next.
+    await exportDocx(matrixStore(), matrixOnly('full'), 'en')
+    const cell = rawCells(await documentXml(lastBlob!))[0]
+    expect(cell).toContain('<w:top w:type="dxa" w:w="40"/>')
+    expect(cell).toContain('<w:bottom w:type="dxa" w:w="40"/>')
+    expect(cell).toContain('<w:right w:type="dxa" w:w="120"/>')
+  })
+
+  it('sets cell text at the small size, not the body size', async () => {
+    await exportDocx(matrixStore(), matrixOnly('full'), 'en')
+    expect(sizesOf(rawCells(await documentXml(lastBlob!))[0])).toEqual([t.smallFontSizePt * 2])
+  })
+
+  it('prints the real last-used date rather than leaving the column blank', async () => {
+    // The Last used column is the point of the matrix: it says which skills are
+    // current. A column that always answers "" is worse than no column.
+    const s = matrixStore()
+    s.projects = [makeProject({
+      id: 'p1', customer: { en: 'Acme' },
+      start: { year: 2022, month: 1 }, end: { year: 2023, month: 5 },
+      skills: [{
+        id: 'ps1', skill_id: 'ts', name: { en: 'TypeScript' },
+        duration_in_years: 0, offset_in_years: 0, total_duration_in_years: 0, sort_order: 0,
+      }],
+    })]
+    await exportDocx(s, matrixOnly('full'), 'en')
+    expect(cells(await documentXml(lastBlob!))[9]).toBe('May 2023')
+  })
+})
+
+/**
+ * The footer rule — the horizontal line closing the document.
+ *
+ * Its style, weight and colour are a view setting, and every separator style
+ * still produces a valid document, so the only way a wrong one shows up is by
+ * reading the border element itself.
+ */
+describe('exportDocx — the footer rule', () => {
+  const t = deriveTokens(DEFAULT_VIEW_STYLE)
+  const footerXml = async (footer: Record<string, unknown>) => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'Kari Nordmann' })
+    await exportDocx(s, makeView({ sections: [], footer: withFooterDefaults(footer as never) }), 'en')
+    return documentXml(lastBlob!)
+  }
+  /** The rule paragraph: the only one with a TOP border (headings rule below). */
+  const rule = (xml: string): string => {
+    const p = bodyParas(xml).find((x) => x.includes('<w:top w:val='))
+    if (p === undefined) throw new Error('no paragraph carrying a top border')
+    return p
+  }
+
+  it('draws the rule in the accent colour, hairline thin, and carries no text', async () => {
+    // It is a rule, not a line of content: a run inside it would give the
+    // paragraph a text line's height and push the footer down a row.
+    const xml = await footerXml({ separator: 'line', copyright: 'none', note: { en: 'Confidential' } })
+    const r = rule(xml)
+    expect(r).toContain(`<w:top w:val="single" w:color="${t.accentHex}" w:sz="6" w:space="1"/>`)
+    expect(r).toMatch(/<\/w:pPr><\/w:p>$/)
+  })
+
+  it('spaces the rule off the last section, and off the footer text below it', async () => {
+    const withText = await footerXml({ separator: 'line', copyright: 'none', note: { en: 'Confidential' } })
+    expect(numOf(rule(withText), 'w:before')).toBe(280)
+    expect(numOf(rule(withText), 'w:after')).toBe(60)
+
+    // A rule with nothing under it must not reserve room for absent text.
+    const bare = await footerXml({ separator: 'line', copyright: 'none', note: {} })
+    expect(numOf(rule(bare), 'w:after')).toBe(0)
+  })
+
+  it('draws each separator style as itself, and the thick one thicker', async () => {
+    // 'thick' shares SINGLE with 'line' and differs only in weight, so a lost
+    // weight makes the two settings identical.
+    const dotted = await footerXml({ separator: 'dotted', copyright: 'none', note: { en: 'x' } })
+    expect(rule(dotted)).toContain('w:val="dotted"')
+
+    const dbl = await footerXml({ separator: 'double', copyright: 'none', note: { en: 'x' } })
+    expect(rule(dbl)).toContain('w:val="double"')
+
+    const thick = await footerXml({ separator: 'thick', copyright: 'none', note: { en: 'x' } })
+    expect(rule(thick)).toContain('w:val="single"')
+    expect(numOf(rule(thick), 'w:sz')).toBe(18)
+  })
+
+  it('draws no rule at all when the view asks for none', async () => {
+    const xml = await footerXml({ separator: 'none', copyright: 'none', note: { en: 'Confidential' } })
+    expect(xml).not.toContain('<w:top w:val=')
+    expect(xml).toContain('Confidential')
+  })
+
+  it('sets the footer text at the meta size', async () => {
+    // The footer is the smallest voice on the page; at body size it competes
+    // with the CV it is closing.
+    const xml = await footerXml({ separator: 'line', copyright: 'none', note: { en: 'Confidential' } })
+    expect(sizesOf(paraOf(xml, 'Confidential'))).toEqual([t.metaFontSizePt * 2])
+  })
+})
+
+/**
+ * Page setup and the document's default run — the two places a setting reaches
+ * every page at once without appearing in any paragraph.
+ */
+describe('exportDocx — page setup and document defaults', () => {
+  const build = async (style: Record<string, unknown> = {}) => {
+    const s = emptyStore()
+    s.resume = null
+    await exportDocx(s, makeView({
+      sections: [], style: { ...DEFAULT_VIEW_STYLE, ...style },
+    }), 'en')
+    return lastBlob!
+  }
+
+  it('sets A4 portrait, in twips', async () => {
+    // Word has no notion of "A4" here — the size is the literal page geometry,
+    // and a wrong one reprints the whole CV at the wrong margins.
+    expect(await documentXml(await build()))
+      .toContain('<w:pgSz w:w="11906" w:h="16838" w:orient="portrait"/>')
+  })
+
+  it('takes the page margins from the view’s own token, not a fixed default', async () => {
+    for (const page_margin of ['tight', 'generous'] as const) {
+      const xml = await documentXml(await build({ page_margin }))
+      const m = deriveTokens({ ...DEFAULT_VIEW_STYLE, page_margin } as never).pageMarginTwips
+      expect(xml, page_margin).toContain(
+        `<w:pgMar w:top="${m.top}" w:right="${m.right}" w:bottom="${m.bottom}" w:left="${m.left}"`)
+    }
+  })
+
+  it('declares the body font and size as the document default', async () => {
+    // Paragraphs set their own run properties, but anything docx generates for
+    // itself (an empty paragraph, a table's filler) inherits these — so a
+    // missing default is a document that changes typeface halfway down.
+    for (const body_size of ['small', 'large'] as const) {
+      const styles = await stylesXml(await build({ body_size }))
+      const t = deriveTokens({ ...DEFAULT_VIEW_STYLE, body_size } as never)
+      const defaults = styles.slice(styles.indexOf('<w:docDefaults>'), styles.indexOf('</w:docDefaults>'))
+      expect(defaults, body_size).toContain(`w:ascii="${t.bodyFontDocx}"`)
+      expect(defaults, body_size).toContain(`<w:sz w:val="${t.bodyFontSizePt * 2}"/>`)
+    }
+  })
+
+  it('exports a resume-less store, and still names the file from the view', async () => {
+    // A store can reach the exporter with no resume row (a fresh or partially
+    // loaded one). Reading through it unguarded turns Export into a crash.
+    const s = emptyStore()
+    s.resume = null
+    s.projects = [makeProject({ customer: { en: 'Acme' } })]
+    await exportDocx(s, makeView({ name: 'Board CV', sections: buildViewSections() }), 'en')
+    const anchors = (vi.mocked(HTMLAnchorElement.prototype.click).mock.instances ?? []) as HTMLAnchorElement[]
+    expect(await isZip(lastBlob!)).toBe(true)
+    expect(anchors[anchors.length - 1].download).toBe('resume_Board_CV.docx')
+  })
+
+  it('skips the whole footer for a resume-less store, rule and copyright alike', async () => {
+    // The footer's copyright names the resume's owner, so with no resume there
+    // is nobody to credit — and reaching for the name anyway is a crash on the
+    // last step of an export the user already waited for.
+    const s = emptyStore()
+    s.resume = null
+    await exportDocx(s, makeView({
+      sections: [],
+      footer: withFooterDefaults({
+        separator: 'line', copyright: 'person', note: { en: 'Confidential' },
+      } as never),
+    }), 'en')
+    const xml = await documentXml(lastBlob!)
+    expect(xml).not.toContain('Confidential')
+    expect(xml).not.toContain('<w:top w:val=')
+  })
+})
+
+/**
+ * The section dispatcher's drop paths.
+ *
+ * Each one is a section that legitimately renders NOTHING — a descriptor with
+ * no renderer, an item that declines to be exported, a short description made
+ * of spaces. Every one of them still produces a valid .docx, so the failure
+ * mode is an empty heading or a blank line, not an error.
+ */
+describe('exportDocx — sections and items that render nothing', () => {
+  const onlySection = (key: string, detail: 'full' | 'summary', style: Record<string, unknown> = {}) =>
+    makeView({ sections: [{ key, detail, sort_order: 0, style } as never] })
+
+  it('writes no Industries heading, and no stray text, for a registry with no renderer', async () => {
+    // Industries IS an exportable section but the catalog gives it no renderer,
+    // so it drops out silently. The drop returns an array straight into the
+    // document body, which is where a raw value would land as loose text.
+    const s = emptyStore()
+    s.resume = null
+    s.industries = [makeIndustry({ name: { en: 'Finance' } })]
+    await exportDocx(s, onlySection('industries', 'full'), 'en')
+    const xml = await documentXml(lastBlob!)
+    expect(strayText(xml)).toEqual([])
+    expect(bodyParas(xml)).toEqual([])
+  })
+
+  it('writes no References heading when the only reference is not for export', async () => {
+    // A private referee is a real setting, and a heading over an empty section
+    // tells the reader the CV lost something.
+    const s = emptyStore()
+    s.resume = null
+    s.references = [makeReference({ name: 'Jane Doe', include_in_exports: false })]
+    for (const detail of ['full', 'summary'] as const) {
+      await exportDocx(s, onlySection('references', detail), 'en')
+      const xml = await documentXml(lastBlob!)
+      expect(xml, detail).not.toContain('Jane Doe')
+      expect(xml, detail).not.toContain('REFERENCES')
+      expect(strayText(xml), detail).toEqual([])
+    }
+  })
+
+  const talkStore = (short: string): ResumeStore => {
+    const s = emptyStore()
+    s.resume = null
+    s.presentations = [makePresentation({
+      id: 'pr1', title: { en: 'A talk about testing' }, event: {},
+      description: {}, short_description: { en: short }, start: null, end: null,
+    } as never)]
+    return s
+  }
+
+  it('trims a padded short description instead of printing the padding', async () => {
+    // The value comes from a paste or an import as often as from typing; the
+    // padding shows up in Word as a hanging indent nobody set.
+    await exportDocx(talkStore('  One line.  '), onlySection('presentations', 'summary'), 'en')
+    const xml = await documentXml(lastBlob!)
+    expect(textsOf(paraOf(xml, 'One line.'))).toEqual(['One line.'])
+  })
+
+  it('treats a whitespace-only short description as no description at all', async () => {
+    await exportDocx(talkStore('   '), onlySection('presentations', 'summary'), 'en')
+    const xml = await documentXml(lastBlob!)
+    expect(bodyParas(xml)).toHaveLength(2)
+    expect(textsOf(xml)).toEqual(['PRESENTATIONS', 'A talk about testing'])
+  })
+
+  it('folds an inline short description in with no meta ahead of it', async () => {
+    // The item has no event and no date, so the summary line's meta is empty —
+    // joining it in anyway opens the line with a dangling dash.
+    await exportDocx(talkStore('One line.'), onlySection('presentations', 'summary', { short_desc_line: 'inline' }), 'en')
+    const xml = await documentXml(lastBlob!)
+    expect(bodyParas(xml)).toHaveLength(2)
+    expect(textsOf(xml)).toEqual(['PRESENTATIONS', 'A talk about testing', ' — One line.'])
+  })
+
+  it('puts a below-the-line short description in its own subdued paragraph', async () => {
+    await exportDocx(talkStore('One line.'), onlySection('presentations', 'summary', { short_desc_line: 'below' }), 'en')
+    const xml = await documentXml(lastBlob!)
+    const short = paraOf(xml, 'One line.')
+    expect(bodyParas(xml)).toHaveLength(3)
+    expect(short).toContain('w:color w:val="666666"')
+    expect(numOf(short, 'w:after')).toBe(60)
+  })
+})
+
+/**
+ * The cover letter's geometry.
+ *
+ * `exportCoverLetterDocx` is a second document builder — its own page, its own
+ * block spacing, its own default gap — and the existing suite reads its TEXT.
+ * A letter with every gap collapsed to one value says the same words and reads
+ * like a memo.
+ */
+describe('exportCoverLetterDocx — the letter’s measurements', () => {
+  const sz = deriveTokens(DEFAULT_VIEW_STYLE).bodyFontSizePt * 2
+  const accent = deriveTokens(DEFAULT_VIEW_STYLE).accentHex
+
+  const letterStore = (): ResumeStore => {
+    const s = emptyStore()
+    s.resume = makeResume({
+      full_name: 'Kari Nordmann', email: 'kari@example.com', phone: '+47 900 00 000', website_url: null,
+    })
+    return s
+  }
+  const filled = (over = {}) => makeCoverLetter({
+    name: 'Equinor application',
+    company: { en: 'Equinor ASA' },
+    recipient: { en: 'Hiring Manager' },
+    role_applied: { en: 'Lead Architect' },
+    greeting: { en: 'Dear Hiring Manager,' },
+    body: { en: 'First paragraph.\n\nSecond paragraph.' },
+    closing: { en: 'Yours sincerely,' },
+    place_dated: 'Oslo, 1 March 2026',
+    ...over,
+  })
+  const xmlOf = async (store = letterStore(), letter = filled()) => {
+    await exportCoverLetterDocx(store, letter, 'en')
+    return documentXml(lastBlob!)
+  }
+
+  it('sets the letterhead name larger, bold and in the accent colour', async () => {
+    // It is the letter's only piece of branding; at body weight the letter
+    // opens with a line that looks like it was pasted in.
+    const name = bodyParas(await xmlOf())[0]
+    expect(sizesOf(name)).toEqual([sz + 10])
+    expect(name).toContain('<w:b/>')
+    expect(name).toContain(`w:color w:val="${accent}"`)
+    expect(numOf(name, 'w:after')).toBe(40)
+  })
+
+  it('sets the contact line smaller and grey, then opens a gap', async () => {
+    const contact = paraOf(await xmlOf(), 'kari@example.com')
+    expect(sizesOf(contact)).toEqual([sz - 2])
+    expect(contact).toContain('w:color w:val="333333"')
+    expect(numOf(contact, 'w:after')).toBe(320)
+  })
+
+  it('spaces every block by its role in the letter', async () => {
+    // Seven different gaps, none interchangeable: the addressee block sits
+    // tight internally and open below, the salutation breathes, the paragraphs
+    // are a body. One shared value turns a letter into a list.
+    const xml = await xmlOf()
+    expect(numOf(paraOf(xml, 'Oslo, 1 March 2026'), 'w:after')).toBe(320)
+    expect(numOf(paraOf(xml, 'Hiring Manager'), 'w:after')).toBe(40)
+    expect(numOf(paraOf(xml, 'Equinor ASA'), 'w:after')).toBe(320)
+    expect(numOf(paraOf(xml, 'Lead Architect'), 'w:after')).toBe(280)
+    expect(numOf(paraOf(xml, 'Dear Hiring Manager,'), 'w:after')).toBe(200)
+    expect(numOf(paraOf(xml, 'First paragraph.'), 'w:after')).toBe(200)
+    expect(numOf(paraOf(xml, 'Yours sincerely,'), 'w:after')).toBe(40)
+  })
+
+  it('justifies the body paragraphs and nothing else', async () => {
+    const xml = await xmlOf()
+    expect(paraOf(xml, 'Second paragraph.')).toContain('<w:jc w:val="both"/>')
+    expect(paraOf(xml, 'Dear Hiring Manager,')).not.toContain('<w:jc')
+  })
+
+  it('bolds the subject and the signature, and gives the signature the default gap', async () => {
+    // The signature is the one block that names no spacing of its own, so it
+    // reads the builder's fallback — which is why the fallback has to exist.
+    const xml = await xmlOf()
+    const paras = bodyParas(xml)
+    expect(paraOf(xml, 'Lead Architect')).toContain('<w:b/>')
+    const signature = paras[paras.length - 1]
+    expect(signature).toContain('Kari Nordmann')
+    expect(signature).toContain('<w:b/>')
+    expect(numOf(signature, 'w:after')).toBe(120)
+  })
+
+  it('sets the letter body at the default size, and no stray text anywhere', async () => {
+    const xml = await xmlOf()
+    expect(sizesOf(paraOf(xml, 'First paragraph.'))).toEqual([sz])
+    expect(strayText(xml)).toEqual([])
+  })
+
+  it('borrows the referenced view’s type size so letter and CV match', async () => {
+    // The letter is posted with the CV; a letter set two points off the CV it
+    // accompanies looks like it came from somewhere else.
+    const s = letterStore()
+    const view = makeView({ id: 'v1', style: { ...DEFAULT_VIEW_STYLE, body_size: 'large' } })
+    s.views = [view]
+    const big = deriveTokens({ ...DEFAULT_VIEW_STYLE, body_size: 'large' } as never).bodyFontSizePt * 2
+    const xml = await xmlOf(s, filled({ view_id: 'v1' }))
+    expect(big).not.toBe(sz)
+    expect(sizesOf(paraOf(xml, 'First paragraph.'))).toEqual([big])
+  })
+
+  it('fixes the letter page to A4 with its own margins, not the view’s', async () => {
+    // A letter is not a CV page: it keeps ~2 cm all round whatever page margin
+    // the referenced view uses.
+    const s = letterStore()
+    s.views = [makeView({ id: 'v1', style: { ...DEFAULT_VIEW_STYLE, page_margin: 'generous' } })]
+    const xml = await xmlOf(s, filled({ view_id: 'v1' }))
+    expect(xml).toContain('<w:pgSz w:w="11906" w:h="16838" w:orient="portrait"/>')
+    expect(xml).toContain('<w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134"')
+  })
+
+  it('declares the letter’s font and size as the document default', async () => {
+    await exportCoverLetterDocx(letterStore(), filled(), 'en')
+    const styles = await stylesXml(lastBlob!)
+    const defaults = styles.slice(styles.indexOf('<w:docDefaults>'), styles.indexOf('</w:docDefaults>'))
+    expect(defaults).toContain(`w:ascii="${deriveTokens(DEFAULT_VIEW_STYLE).bodyFontDocx}"`)
+    expect(defaults).toContain(`<w:sz w:val="${sz}"/>`)
+  })
+
+  it('exports a letter for a resume-less store rather than crashing on the filename', async () => {
+    const s = emptyStore()
+    s.resume = null
+    await exportCoverLetterDocx(s, filled(), 'en')
+    const anchors = (vi.mocked(HTMLAnchorElement.prototype.click).mock.instances ?? []) as HTMLAnchorElement[]
+    expect(await isZip(lastBlob!)).toBe(true)
+    expect(anchors[anchors.length - 1].download).toBe('resume_Equinor_application.docx')
+  })
+})
+
