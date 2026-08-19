@@ -2349,3 +2349,113 @@ describe('pdfExporter - a registry section a view happens to list', () => {
     expect(collectText(dd.content)).not.toContain('Energy')
   })
 })
+
+/**
+ * The rule drawn between two items.
+ *
+ * `exportVisualParity` proves the divider control moves the PDF; it cannot say
+ * WHICH rule it drew, because any two different renderings differ. So a swapped
+ * comparison — dotted drawing the dashed pattern and vice versa — passes there
+ * and was exactly what the mutation report kept surviving. pdfmake expresses a
+ * rule as table-layout CALLBACKS, so these have to be invoked, not stringified.
+ */
+describe('buildPdfDocDefinition — the item divider', () => {
+  const twoProjects = (): ResumeStore => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    s.projects = [
+      makeProject({ id: 'p1', customer: { en: 'Acme' }, description: { en: 'First.' } }),
+      makeProject({ id: 'p2', customer: { en: 'Beta' }, description: { en: 'Second.' } }),
+    ]
+    return s
+  }
+
+  interface DividerLayout {
+    hLineWidth: (i: number) => number
+    hLineColor: () => string
+    hLineStyle: () => { dash?: { length: number; space: number } } | null
+  }
+  interface DividerNode {
+    table: { widths: unknown[]; body: unknown[] }
+    layout: DividerLayout
+  }
+
+  /** The divider is the only table that styles its horizontal lines. */
+  const divider = async (style: Record<string, unknown>): Promise<DividerNode | undefined> => {
+    const d = await buildPdfDocDefinition(twoProjects(), makeView({
+      sections: [{ key: 'projects', detail: 'full', sort_order: 0, style } as never],
+    }), 'en')
+    return (d.content as Array<Record<string, unknown>>)
+      .find((n) => n.table && (n.layout as Record<string, unknown>)?.hLineStyle) as DividerNode | undefined
+  }
+
+  it('draws one full-width solid line for the plain rule', async () => {
+    const n = (await divider({ item_divider: true, divider_style: 'line' }))!
+    expect(n.table.body).toHaveLength(1)
+    expect(n.table.widths).toEqual(['*'])
+    expect(n.layout.hLineStyle()).toBeNull()
+    // Nothing above the row, the rule below it, nothing after.
+    expect(n.layout.hLineWidth(0)).toBe(0)
+    expect(n.layout.hLineWidth(1)).toBeGreaterThan(0)
+    expect(n.layout.hLineWidth(2)).toBe(0)
+  })
+
+  it('draws the thick rule heavier than the plain one', async () => {
+    const line = (await divider({ item_divider: true, divider_style: 'line' }))!
+    const thick = (await divider({ item_divider: true, divider_style: 'thick' }))!
+    expect(thick.layout.hLineWidth(1)).toBeGreaterThan(line.layout.hLineWidth(1))
+  })
+
+  it('gives dashed and dotted their own patterns, not each other\'s', async () => {
+    const dashed = (await divider({ item_divider: true, divider_style: 'dashed' }))!
+    const dotted = (await divider({ item_divider: true, divider_style: 'dotted' }))!
+    expect(dashed.layout.hLineStyle()).toEqual({ dash: { length: 3, space: 2 } })
+    expect(dotted.layout.hLineStyle()).toEqual({ dash: { length: 1, space: 2 } })
+    // A dot is a shorter mark than a dash — swapping the two is the mistake
+    // that a "did the output change" check cannot see.
+    expect(dotted.layout.hLineStyle()!.dash!.length)
+      .toBeLessThan(dashed.layout.hLineStyle()!.dash!.length)
+  })
+
+  it('draws the double rule as two lines, each lighter than the plain one', async () => {
+    const n = (await divider({ item_divider: true, divider_style: 'double' }))!
+    const line = (await divider({ item_divider: true, divider_style: 'line' }))!
+    expect(n.table.body).toHaveLength(2)
+    expect(n.layout.hLineWidth(0)).toBe(0)
+    expect(n.layout.hLineWidth(1)).toBeGreaterThan(0)
+    expect(n.layout.hLineWidth(2)).toBeGreaterThan(0)
+    expect(n.layout.hLineWidth(3)).toBe(0)
+    expect(n.layout.hLineStyle()).toBeNull()
+    // Two hairlines read as a double rule; two heavy ones read as a mistake.
+    expect(n.layout.hLineWidth(1)).toBeLessThan(line.layout.hLineWidth(1) * 2)
+  })
+
+  it('gives the short rule a fixed width instead of the full column', async () => {
+    const n = (await divider({ item_divider: true, divider_style: 'short' }))!
+    expect(n.table.widths).toEqual([48])
+    expect(n.table.body).toHaveLength(1)
+  })
+
+  it('draws nothing for the spacing-only style, or with the divider off', async () => {
+    // 'space' asks for the gap without the rule; a zero-weight line would still
+    // be a line to a renderer that rounds up.
+    expect(await divider({ item_divider: true, divider_style: 'space' })).toBeUndefined()
+    expect(await divider({ item_divider: false, divider_style: 'line' })).toBeUndefined()
+  })
+
+  it('colours the rule with the view accent, flattened onto white', async () => {
+    const n = (await divider({ item_divider: true, divider_style: 'line' }))!
+    // Opaque: a PDF table line takes no alpha, so the tint is pre-composited.
+    expect(n.layout.hLineColor()).toMatch(/^#[0-9A-F]{6}$/)
+    expect(n.layout.hLineColor()).not.toBe('#000000')
+  })
+
+  it('puts the rule between the items, not after the last one', async () => {
+    const d = await buildPdfDocDefinition(twoProjects(), makeView({
+      sections: [{ key: 'projects', detail: 'full', sort_order: 0, style: { item_divider: true, divider_style: 'line' } } as never],
+    }), 'en')
+    const rules = (d.content as Array<Record<string, unknown>>)
+      .filter((n) => n.table && (n.layout as Record<string, unknown>)?.hLineStyle)
+    expect(rules).toHaveLength(1)
+  })
+})

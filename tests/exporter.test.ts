@@ -2730,3 +2730,78 @@ describe('exportCoverLetterDocx — the letter’s measurements', () => {
   })
 })
 
+
+/**
+ * The rule Word draws between two items.
+ *
+ * `exportVisualParity` proves the divider control moves the .docx; it cannot
+ * say WHICH rule was drawn, because any two different renderings differ — so a
+ * dotted style emitting Word's dashed border passed there. The footer separator
+ * already has this test; the item divider did not, and it is the one that
+ * repeats down the page.
+ */
+describe('exportDocx() — the item divider', () => {
+  const twoProjects = (): ResumeStore => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    s.projects = [
+      makeProject({ id: 'p1', customer: { en: 'Acme' }, description: { en: 'First.' } }),
+      makeProject({ id: 'p2', customer: { en: 'Beta' }, description: { en: 'Second.' } }),
+    ]
+    return s
+  }
+
+  const xmlFor = async (style: Record<string, unknown>): Promise<string> => {
+    await exportDocx(twoProjects(), makeView({
+      sections: [{ key: 'projects', detail: 'full', sort_order: 0, style } as never],
+    }), 'en')
+    return documentXml(lastBlob!)
+  }
+
+  /**
+   * The bordered paragraphs carrying no visible text — the free-standing rules.
+   * The section heading is bordered too, so "has a border" alone would count it.
+   */
+  const rules = (xml: string): string[] =>
+    (xml.match(/<w:p>(?:(?!<w:p>)[\s\S])*?<w:pBdr>[\s\S]*?<\/w:p>/g) ?? [])
+      .filter((p) => !/<w:t[^>]*>[^<]/.test(p))
+
+  const bottom = (rule: string): string => rule.match(/<w:bottom [^/]*\/>/)![0]
+  const szOf = (rule: string): number => Number(bottom(rule).match(/w:sz="(\d+)"/)![1])
+
+  it('draws one rule between the two items and none after the last', async () => {
+    expect(rules(await xmlFor({ item_divider: true, divider_style: 'line' }))).toHaveLength(1)
+  })
+
+  it('draws each style as its own Word border, not as its neighbour', async () => {
+    expect(bottom(rules(await xmlFor({ item_divider: true, divider_style: 'line' }))[0]))
+      .toContain('w:val="single"')
+    expect(bottom(rules(await xmlFor({ item_divider: true, divider_style: 'dashed' }))[0]))
+      .toContain('w:val="dashed"')
+    expect(bottom(rules(await xmlFor({ item_divider: true, divider_style: 'dotted' }))[0]))
+      .toContain('w:val="dotted"')
+    expect(bottom(rules(await xmlFor({ item_divider: true, divider_style: 'double' }))[0]))
+      .toContain('w:val="double"')
+  })
+
+  it('makes the thick rule heavier than the plain one, in eighths of a point', async () => {
+    // 'thick' and 'line' share the SINGLE border style: without the weight the
+    // two settings produce byte-identical documents.
+    const line = szOf(rules(await xmlFor({ item_divider: true, divider_style: 'line' }))[0])
+    const thick = szOf(rules(await xmlFor({ item_divider: true, divider_style: 'thick' }))[0])
+    expect(line).toBe(8)
+    expect(thick).toBe(16)
+  })
+
+  it('draws the short rule as a fixed-width table, since a border spans the column', async () => {
+    const xml = await xmlFor({ item_divider: true, divider_style: 'short' })
+    expect(rules(xml)).toEqual([])
+    // 48 pt in twentieths of a point.
+    expect(xml).toContain('<w:tblW w:type="dxa" w:w="960"/>')
+  })
+
+  it('draws nothing for the spacing-only style, or with the divider off', async () => {
+    expect(rules(await xmlFor({ item_divider: true, divider_style: 'space' }))).toEqual([])
+    expect(rules(await xmlFor({ item_divider: false, divider_style: 'line' }))).toEqual([])
+  })
+})
