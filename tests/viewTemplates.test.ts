@@ -155,3 +155,93 @@ describe('every template carries a complete look', () => {
     expect(getTemplate('')).toBeNull()
   })
 })
+
+/**
+ * The presets themselves.
+ *
+ * Everything above asserts that the three templates are complete and differ
+ * from each other, which holds however their values are spelled — so every
+ * individual token survived the mutation report. A template IS its values: an
+ * emptied `density` seeds a style the renderers resolve by fallback, and an
+ * emptied detail seeds a section the view editor cannot show a level for.
+ * Pinned as a table, so changing a preset is a deliberate edit here.
+ */
+describe('what each template actually seeds', () => {
+  const byId = (id: string) => VIEW_TEMPLATES.find((t) => t.id === id)!
+  const NAVY = '#002E6E'
+
+  it('compact-technical — dense, skill-forward, chips', () => {
+    const t = byId('compact-technical')
+    expect(t.style).toEqual({
+      density: 'compact', body_size: 'small', heading_font: 'sans',
+      accent_color: NAVY, page_margin: 'tight', tag_style: 'chips',
+    })
+    expect(t.header).toEqual({ photo_placement: 'right', photo_shape: 'rounded' })
+    expect(t.footer).toEqual({ separator: 'line' })
+    expect(t.section_detail).toEqual({
+      projects: 'full',
+      technology_categories: 'full',
+      positions: 'summary',
+      presentations: 'summary',
+      publications: 'summary',
+      honor_awards: 'summary',
+    })
+  })
+
+  it('formal-management — spacious, serif, inline skills', () => {
+    const t = byId('formal-management')
+    expect(t.style).toEqual({
+      density: 'spacious', body_size: 'normal', heading_font: 'serif',
+      accent_color: NAVY, page_margin: 'generous', tag_style: 'inline',
+    })
+    expect(t.header).toEqual({ photo_placement: 'left', photo_shape: 'circle' })
+    expect(t.footer).toEqual({ separator: 'double', copyright: 'person' })
+    expect(t.section_detail).toEqual({
+      key_qualifications: 'full',
+      work_experiences: 'full',
+      projects: 'summary',
+      technology_categories: 'summary',
+      courses: 'summary',
+    })
+  })
+
+  it('minimal-one-pager — summaries throughout, nothing decorative', () => {
+    const t = byId('minimal-one-pager')
+    expect(t.style).toEqual({
+      density: 'compact', body_size: 'small', heading_font: 'condensed',
+      accent_color: NAVY, page_margin: 'tight', tag_style: 'inline',
+    })
+    expect(t.header).toEqual({ photo_placement: 'none', logo_placement: 'none' })
+    expect(t.footer).toEqual({ separator: 'none', copyright: 'none' })
+    // The one template that turns sections OFF: fitting a page means dropping
+    // things, not only shortening them.
+    expect(t.section_detail).toEqual({
+      key_qualifications: 'full',
+      projects: 'summary',
+      work_experiences: 'summary',
+      educations: 'summary',
+      courses: 'summary',
+      certifications: 'summary',
+      positions: 'summary',
+      presentations: 'summary',
+      publications: 'summary',
+      honor_awards: 'summary',
+      technology_categories: 'summary',
+      key_competencies: 'summary',
+      recommendations: 'off',
+      references: 'off',
+    })
+  })
+
+  it('names and describes each one, since the picker shows only those', () => {
+    for (const t of VIEW_TEMPLATES) {
+      expect(t.name.trim(), t.id).not.toBe('')
+      expect(t.description.trim(), t.id).not.toBe('')
+    }
+    expect(new Set(VIEW_TEMPLATES.map((t) => t.name)).size).toBe(VIEW_TEMPLATES.length)
+  })
+
+  it('keeps every template on the brand accent', () => {
+    for (const t of VIEW_TEMPLATES) expect(t.style.accent_color, t.id).toBe(NAVY)
+  })
+})

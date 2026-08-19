@@ -1731,3 +1731,50 @@ describe('sanitizeRich — the structural guarantee', () => {
     expect(sanitizeRich('')).toBe('')
   })
 })
+
+/**
+ * What Word actually pastes, past the tidy case.
+ *
+ * The Word-list conversion is already covered for a well-formed paste: every
+ * paragraph carries a marker span and the first one decides the list type.
+ * Word does not always send that shape, and the report showed the code paths
+ * for the ragged versions were never distinguished — the list-type default and
+ * the marker SEARCH both survived being inverted.
+ */
+describe('cleanPastedHtml — the ragged Word-list shapes', () => {
+  const wordP = (inner: string): string =>
+    `<p class="MsoListParagraph" style="mso-list:l0 level1 lfo1">${inner}</p>`
+
+  it('defaults to a bulleted list when no item carries a marker at all', () => {
+    // Word omits the marker span in some paste paths. Guessing "numbered"
+    // would renumber a bullet list the user never numbered.
+    expect(cleanPastedHtml(wordP('First') + wordP('Second')))
+      .toBe('<ul><li>First</li><li>Second</li></ul>')
+  })
+
+  it('takes the list type from the FIRST item, not from any numbered one', () => {
+    // A "2." further down is the marker of an item, not evidence about the
+    // list: the first marker is the one that says where the list starts.
+    const html = wordP('First')
+      + wordP('<span style="mso-list:Ignore">2.<span>&nbsp;</span></span>Second')
+    expect(cleanPastedHtml(html)).toBe('<ul><li>First</li><li>Second</li></ul>')
+  })
+
+  it('finds the marker span by its style, not by being the first span', () => {
+    // Word wraps formatting in spans too. Removing the wrong one leaves the
+    // bullet glyph in the text AND strips the emphasis.
+    const html = wordP(
+      '<span style="font-weight:700">Bold</span>'
+      + '<span style="mso-list:Ignore">-<span>&nbsp;</span></span>Item',
+    )
+    expect(cleanPastedHtml(html)).toBe('<ul><li><strong>Bold</strong>Item</li></ul>')
+  })
+
+  it('unwraps a lone paragraph but never a lone list', () => {
+    // The unwrap exists so a one-line paste splices into the caret's
+    // paragraph. A list spliced into a paragraph would lose its bullets.
+    expect(cleanPastedHtml('<p>only</p>')).toBe('only')
+    expect(cleanPastedHtml('<ul><li>only</li></ul>')).toBe('<ul><li>only</li></ul>')
+    expect(cleanPastedHtml('<ol><li>only</li></ol>')).toBe('<ol><li>only</li></ol>')
+  })
+})

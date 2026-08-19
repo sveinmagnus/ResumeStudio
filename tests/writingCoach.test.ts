@@ -31,7 +31,10 @@ describe('buildCoachPrompt', () => {
 
   it('asks for the schema and both halves of the answer', () => {
     const prompt = buildCoachPrompt({ en: 'Some prose' }, 'en')
-    expect(prompt).toContain(WRITING_COACH_SCHEMA)
+    // Named concretely: `toContain(CONST)` passes for an emptied constant,
+    // and the schema id is the contract the reply is read against.
+    expect(WRITING_COACH_SCHEMA).toBe('resumestudio-rewrite/v1')
+    expect(prompt).toContain('resumestudio-rewrite/v1')
     expect(prompt).toContain('"rewrite"')
     expect(prompt).toContain('"asks"')
   })
@@ -57,6 +60,15 @@ describe('buildCoachPrompt', () => {
   it('does not throw on an empty locale (the button is what gates this)', () => {
     expect(() => buildCoachPrompt({}, 'en')).not.toThrow()
   })
+
+  it('says the description is empty rather than handing over a blank', () => {
+    // A prompt that ends "--- DESCRIPTION ---" with nothing under it reads as
+    // a truncated message, and a model asked to rewrite nothing invents.
+    for (const source of [{}, { en: '' }, { en: '<p></p>' }, { no: 'Norsk' }]) {
+      expect(buildCoachPrompt(source, 'en')).toContain('(empty)')
+    }
+    expect(buildCoachPrompt({ en: 'Real prose.' }, 'en')).not.toContain('(empty)')
+  })
 })
 
 describe('validateCoachResponse', () => {
@@ -80,9 +92,10 @@ describe('validateCoachResponse', () => {
       rewrite: 'Text',
       asks: ['Real question?', '', '   ', 42, null, 'Another?', 'a', 'b', 'c', 'd', 'e'],
     })
-    expect(res.asks.length).toBeLessThanOrEqual(6)
-    expect(res.asks).not.toContain('')
-    expect(res.asks[0]).toBe('Real question?')
+    // The whole list, not its first entry and its length: a non-string coerced
+    // to anything truthy survives the filter and fills the cap with rubbish,
+    // pushing the real questions out.
+    expect(res.asks).toEqual(['Real question?', 'Another?', 'a', 'b', 'c', 'd'])
   })
 
   it('trims each ask, and keeps exactly six when more are offered', () => {
@@ -154,6 +167,15 @@ describe('buildDraftPrompt — the empty-entry starting point', () => {
 
   it('says so plainly when there is nothing filled in yet', () => {
     expect(buildDraftPrompt([], 'Projects', 'en')).toContain('(nothing filled in yet)')
+  })
+
+  it('gives each identity fact its own line', () => {
+    // Run together, "Customer: StatoilRole: Architect" is one unreadable fact
+    // and the model has to guess where one ends.
+    const prompt = buildDraftPrompt(['Customer: Statoil', 'Role: Architect'], 'Projects', 'en')
+    const lines = prompt.split(/\r?\n/)
+    expect(lines).toContain('Customer: Statoil')
+    expect(lines).toContain('Role: Architect')
   })
 
   it('is a multi-line instruction, not a single sentence', () => {
