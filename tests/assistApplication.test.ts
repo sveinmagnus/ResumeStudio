@@ -323,6 +323,16 @@ describe('letter angles — tidying the drafted body', () => {
     }
   })
 
+  it('strips a sign-off that has no name line under it', () => {
+    // The name line is optional in the pattern: a model that signs off without
+    // one would otherwise leave "Kind regards," dangling at the end of a body
+    // that already has its own closing beneath it.
+    for (const bye of ['Sincerely,', 'Mvh', 'Kind regards,']) {
+      expect(bodyOf(`I am writing about the role.\n\n${bye}`), bye)
+        .toBe('I am writing about the role.')
+    }
+  })
+
   it('unwraps a fenced code block', () => {
     expect(bodyOf('```\nI am writing about the role.\n```')).toBe('I am writing about the role.')
     expect(bodyOf('```text\nI am writing about the role.\n```')).toBe('I am writing about the role.')
