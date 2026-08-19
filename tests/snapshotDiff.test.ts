@@ -4,6 +4,7 @@ import {
   emptyStore, makeProject, makeRole, makeResume, makeSkill, makeSkillCategory, makeWork,
   makeView,
 } from './fixtures'
+import type { ResumeStore } from '../src/types'
 
 describe('describeSnapshotChanges', () => {
   it('reports an added item with its title', () => {
@@ -523,5 +524,125 @@ describe('describeSnapshotChanges — the wording and the no-change case', () =>
     const next = emptyStore()
     next.work_experiences = [makeWork({ id: 'w1', employer: { en: 'Cartavio' }, role_title: { en: 'Architect' } })]
     expect(describeSnapshotChanges(prev, next, 'en')[0].label).toBe('Cartavio')
+  })
+})
+
+/**
+ * The words the History modal actually prints.
+ *
+ * The section names and the per-field labels are the whole readable product of
+ * this module, and every one of them survived the mutation report: emptied, a
+ * line reads ": +8 chars" and the restore decision is made on nothing. They are
+ * pinned here as a table rather than one test each, so adding a section shows
+ * up as a failing list instead of a silently unnamed row.
+ */
+describe('describeSnapshotChanges — the labels it prints', () => {
+  const SECTION_LABELS: Array<[string, string]> = [
+    ['projects', 'Project'],
+    ['work_experiences', 'Employment'],
+    ['educations', 'Education'],
+    ['courses', 'Course'],
+    ['certifications', 'Certification'],
+    ['key_qualifications', 'Profile'],
+    ['key_competencies', 'Key competency'],
+    ['recommendations', 'Recommendation'],
+    ['positions', 'Position'],
+    ['presentations', 'Presentation'],
+    ['publications', 'Publication'],
+    ['honor_awards', 'Award'],
+    ['references', 'Reference'],
+    ['spoken_languages', 'Language'],
+    ['skills', 'Skill'],
+    ['roles', 'Role'],
+    ['industries', 'Industry'],
+    ['skill_categories', 'Skill category'],
+    ['views', 'View'],
+  ]
+
+  it('names every section it walks, in display order', () => {
+    const next = emptyStore() as unknown as Record<string, unknown[]>
+    for (const [key] of SECTION_LABELS) next[key] = [{ id: `${key}-1`, name: { en: 'Something' } }]
+    const changes = describeSnapshotChanges(emptyStore(), next as unknown as ResumeStore, 'en')
+    expect(changes.map((c) => c.section)).toEqual(SECTION_LABELS.map(([, label]) => label))
+  })
+
+  const FIELD_LABELS: Array<[string, string]> = [
+    ['long_description', 'Description'], ['description', 'Description'],
+    ['summary', 'Summary'], ['abstract', 'Abstract'], ['text', 'Testimonial'],
+    ['tag_line', 'Tag line'], ['customer', 'Customer'],
+    ['customer_anonymized', 'Anonymized customer'], ['employer', 'Employer'],
+    ['role_title', 'Role / title'], ['title', 'Title'], ['name', 'Name'],
+    ['degree', 'Degree'], ['school', 'School'], ['grade', 'Grade'],
+    ['organiser', 'Organiser'], ['organisation', 'Organisation'],
+    ['issuer', 'Issuer'], ['event', 'Event'], ['publisher', 'Publisher'],
+    ['industry', 'Industry'], ['relationship', 'Relationship'],
+    ['level', 'Level'], ['highlights', 'Highlights'], ['roles', 'Roles'],
+    ['skills', 'Skills'], ['key_points', 'Key points'], ['start', 'Start date'],
+    ['end', 'End date'], ['expires', 'Expiry'], ['issued', 'Issued'],
+    ['completed', 'Completed'], ['date', 'Date'], ['category', 'Category'],
+    ['percent_allocated', 'Allocation %'], ['team_size', 'Team size'],
+    ['co_authors', 'Co-authors'], ['email', 'Email'], ['phone', 'Phone'],
+    ['nationality', 'Nationality'], ['place_of_residence', 'Place of residence'],
+    ['linkedin_url', 'LinkedIn'], ['website_url', 'Website'],
+    ['full_name', 'Full name'], ['company_name', 'Company'],
+    ['introduction', 'Introduction'], ['sections', 'Sections'],
+    ['style', 'Styling'], ['header', 'Header'], ['footer', 'Footer'],
+  ]
+
+  it('gives every curated field its own name instead of the raw key', () => {
+    for (const [key, label] of FIELD_LABELS) {
+      const prev = emptyStore()
+      const next = emptyStore()
+      prev.projects = [{ id: 'p1', customer: { en: 'Acme' }, [key]: 'a' } as never]
+      next.projects = [{ id: 'p1', customer: { en: 'Acme' }, [key]: 'ab' } as never]
+      const [change] = describeSnapshotChanges(prev, next, 'en')
+      expect(change.details, key).toEqual([`${label}: +1 chars`])
+    }
+  })
+})
+
+describe('describeSnapshotChanges — the counting and locale edges', () => {
+  const proj = (over: Record<string, unknown>) => ({ ...makeProject({ id: 'p1' }), ...over })
+  const pair = (a: Record<string, unknown>, b: Record<string, unknown>) => {
+    const prev = emptyStore(); prev.projects = [a as never]
+    const next = emptyStore(); next.projects = [b as never]
+    return describeSnapshotChanges(prev, next, 'en')
+  }
+
+  it('counts an HTML entity as the one character it renders as', () => {
+    // "&amp;" is five characters of storage and one of reading; the delta is
+    // about what the user sees, which is the same thing the tag strip is for.
+    const c = pair(
+      proj({ customer: { en: 'Acme' }, long_description: { en: '<p>Ben &amp; Co</p>' } }),
+      proj({ customer: { en: 'Acme' }, long_description: { en: '<p>Ben &amp; Co!</p>' } }),
+    )
+    expect(c[0].details).toEqual(['Description (English): +1 chars'])
+  })
+
+  it('reports a language whose text was deleted outright', () => {
+    // The Norwegian column is gone from the newer snapshot, which is exactly
+    // the loss someone opens the history to check for.
+    const c = pair(
+      proj({ customer: { en: 'Acme' }, long_description: { en: 'Hello', no: 'Hei' } }),
+      proj({ customer: { en: 'Acme' }, long_description: { en: 'Hello' } }),
+    )
+    expect(c[0].details).toEqual(['Description (Norsk): −3 chars'])
+  })
+
+  it('falls past a title field explicitly set to null', () => {
+    // An imported item can carry `customer: null` rather than omitting it.
+    const prev = emptyStore()
+    const next = emptyStore()
+    next.projects = [proj({ customer: null, name: { en: 'Fallback name' } }) as never]
+    expect(describeSnapshotChanges(prev, next, 'en')[0].label).toBe('Fallback name')
+  })
+
+  it('reads titles in English when no locale is given', () => {
+    // The default is a real choice, not "whichever column was written first":
+    // here the Norwegian slot comes first in the object.
+    const prev = emptyStore()
+    const next = emptyStore()
+    next.projects = [proj({ customer: { no: 'Norsk navn', en: 'English name' } }) as never]
+    expect(describeSnapshotChanges(prev, next)[0].label).toBe('English name')
   })
 })
