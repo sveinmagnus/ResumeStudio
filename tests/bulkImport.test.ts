@@ -630,6 +630,14 @@ describe('mapBulkItems — registry interning', () => {
     expect(out.additions.skills[0].name).toEqual({ en: 'Kubernetes' })
   })
 
+  it('trims the name it stores, not just the key it matches on', () => {
+    // A padded name matches an existing entry either way, but a NEW entry
+    // keeps whatever it was given — and " Kubernetes " then shows up in the
+    // registry, the skill matrix and every export as its own skill.
+    const out = mapProjects(store(), [{ customer: 'Acme', skills: ['  Kubernetes  '], roles: ['  Architect  '] }])
+    expect(out.additions.skills[0].name).toEqual({ en: 'Kubernetes' })
+    expect(out.additions.roles[0].name).toEqual({ en: 'Architect' })
+  })
   it('interns one name ONCE across several items', () => {
     const out = mapProjects(store(), [
       { customer: 'Acme', skills: ['Kubernetes'] },

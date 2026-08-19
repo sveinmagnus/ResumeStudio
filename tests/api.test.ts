@@ -730,6 +730,16 @@ describe('api — the ones that must throw on a bad response', () => {
     await expect(api.patchResume('r1', { name: 'x' })).rejects.toThrow(UnauthorizedError)
   })
 
+  it('maps a 401 on the endpoints that raise their own error type too', async () => {
+    // Both of these build a message of their own for a failure, so the 401
+    // check has to come FIRST or an expired session reads as a broken folder
+    // picker and a broken model — neither of which re-prompts for the token.
+    fetchMock.mockResolvedValue(mockRes({ status: 401 }))
+    await expect(api.browseFolders('/')).rejects.toThrow(UnauthorizedError)
+    fetchMock.mockResolvedValue(mockRes({ status: 401 }))
+    await expect(api.llmComplete('prompt')).rejects.toThrow(UnauthorizedError)
+  })
+
   it('maps a 404 to NotFoundError on the endpoints that address one resume', async () => {
     fetchMock.mockResolvedValue(mockRes({ status: 404 }))
     await expect(api.patchResume('r1', { name: 'x' })).rejects.toThrow(NotFoundError)
@@ -1104,5 +1114,132 @@ describe('api — the updater endpoints', () => {
     // A VPS reports updates as unsupported and 403s the install.
     fetchMock.mockResolvedValue(mockRes({ status: 403, body: { error: 'not supported here' } }))
     await expect(api.installUpdate()).rejects.toThrow(/not supported here/)
+  })
+})
+
+/**
+ * Which URL each call actually addresses.
+ *
+ * Nearly every endpoint path in this module survived the mutation report: the
+ * tests assert what a call RETURNS from a mocked response, which holds whatever
+ * URL was requested. A wrong path is not an error the user sees — `safe()`
+ * turns a 404 into the fallback, so the feature simply reports itself as
+ * unavailable. This is the one place the paths are stated.
+ */
+describe('api — the endpoint each call addresses', () => {
+  const ok = (body: unknown = {}) => mockRes({ status: 200, body })
+
+  const routes: Array<[string, () => Promise<unknown>, string, string]> = [
+    ['health', () => api.health(), 'GET', '/api/health'],
+    ['listResumes', () => api.listResumes(), 'GET', '/api/resumes'],
+    ['storageStats', () => api.storageStats(), 'GET', '/api/resumes/storage'],
+    ['listSnapshots', () => api.listSnapshots('r1'), 'GET', '/api/resumes/r1/snapshots'],
+    ['getSnapshot', () => api.getSnapshot('r1', 7), 'GET', '/api/resumes/r1/snapshots/7'],
+    ['listRegistry', () => api.listRegistry(), 'GET', '/api/registry'],
+    ['translateStatus', () => api.translateStatus(), 'GET', '/api/translate/status'],
+    ['translate', () => api.translate('hi', 'en', 'no'), 'POST', '/api/translate'],
+    ['backupStatus', () => api.backupStatus(), 'GET', '/api/backup/status'],
+    ['backupNow', () => api.backupNow(), 'POST', '/api/backup/now'],
+    ['restoreBackup', () => api.restoreBackup(), 'POST', '/api/backup/restore'],
+    ['getSettings', () => api.getSettings(), 'GET', '/api/settings'],
+    ['browseFolders', () => api.browseFolders(), 'POST', '/api/settings/folders'],
+    ['saveSettings', () => api.saveSettings({}), 'PUT', '/api/settings'],
+    ['testTranslate', () => api.testTranslate(), 'POST', '/api/settings/translate/test'],
+    ['hostnameStatus', () => api.hostnameStatus('resumestudio.local'), 'POST', '/api/settings/hostname'],
+    ['hostnameSetup', () => api.hostnameSetup('install', 'resumestudio.local'), 'POST', '/api/settings/hostname'],
+    ['llmStatus', () => api.llmStatus(), 'GET', '/api/llm/status'],
+    ['testLlm', () => api.testLlm(), 'POST', '/api/settings/llm/test'],
+    ['updateStatus', () => api.updateStatus(), 'GET', '/api/update/status'],
+    ['checkForUpdate', () => api.checkForUpdate(), 'POST', '/api/update/check'],
+    ['installUpdate', () => api.installUpdate(), 'POST', '/api/update/install'],
+  ]
+
+  for (const [name, call, method, path] of routes) {
+    it(`${name} calls ${method} ${path}`, async () => {
+      fetchMock.mockResolvedValue(ok({ entries: [], snapshots: [], resumes: [], text: 'x', translated: 'x' }))
+      await call()
+      const [url, init] = callArgs()
+      expect(url).toBe(path)
+      expect((init?.method ?? 'GET').toUpperCase()).toBe(method)
+    })
+  }
+
+  it('llmComplete and summarize post to their own endpoints', async () => {
+    fetchMock.mockResolvedValue(ok({ text: 'answer' }))
+    await api.llmComplete('prompt')
+    expect(callArgs()[0]).toBe('/api/llm/complete')
+
+    fetchMock.mockClear()
+    fetchMock.mockResolvedValue(ok({ text: 'answer' }))
+    await api.summarize('long text', 'en')
+    expect(callArgs()[0]).toBe('/api/summarize')
+  })
+
+  it('logs out and imports a backup through fetch directly, not the JSON helper', async () => {
+    // Both bypass `request` — logout ignores the answer, and the import sends
+    // multipart form data, so neither can inherit the helper's path handling.
+    fetchMock.mockResolvedValue(ok())
+    await api.logout()
+    expect(callArgs()[0]).toBe('/api/auth/logout')
+
+    fetchMock.mockClear()
+    fetchMock.mockResolvedValue(ok({ imported: 0 }))
+    await api.importBackupFile(new File(['{}'], 'backup.json'))
+    expect(callArgs()[0]).toBe('/api/backup/import')
+  })
+
+  it('escapes an id rather than splicing it into the path', async () => {
+    // An id with a slash would otherwise address a different route entirely.
+    fetchMock.mockResolvedValue(ok({ data: emptyStore(), meta: META }))
+    await api.loadResume('a/b c')
+    expect(callArgs()[0]).toBe('/api/resumes/a%2Fb%20c')
+  })
+
+  it('narrows the registry listing by kind through the query string', async () => {
+    fetchMock.mockResolvedValue(ok({ entries: [] }))
+    await api.listRegistry('skill')
+    expect(callArgs()[0]).toBe('/api/registry?kind=skill')
+  })
+})
+
+/**
+ * The two hostname calls behind Settings' `.local` set-up button (§14).
+ *
+ * Neither was called by any test. They are `safe()`-wrapped on purpose: the
+ * panel shows a Set-up button when the answer is null, so an exception here
+ * would replace a working panel with an error boundary.
+ */
+describe('api — the local-hostname calls', () => {
+  it('asks for the status of a candidate name', async () => {
+    fetchMock.mockResolvedValue(mockRes({ status: 200, body: { installed: true, resolves: true } }))
+    await expect(api.hostnameStatus('resumestudio.local'))
+      .resolves.toMatchObject({ installed: true })
+    expect(JSON.parse(callArgs()[1].body as string))
+      .toEqual({ action: 'status', hostname: 'resumestudio.local' })
+  })
+
+  it('passes install and uninstall through as the action', async () => {
+    fetchMock.mockResolvedValue(mockRes({ status: 200, body: { ok: true } }))
+    await api.hostnameSetup('install', 'resumestudio.local')
+    expect(JSON.parse(callArgs()[1].body as string))
+      .toEqual({ action: 'install', hostname: 'resumestudio.local' })
+
+    fetchMock.mockClear()
+    fetchMock.mockResolvedValue(mockRes({ status: 200, body: { ok: true } }))
+    await api.hostnameSetup('uninstall', 'resumestudio.local')
+    expect(JSON.parse(callArgs()[1].body as string))
+      .toEqual({ action: 'uninstall', hostname: 'resumestudio.local' })
+  })
+
+  it('reads a refusal as "not installed" rather than throwing', async () => {
+    // A VPS build 403s both; the panel must still render.
+    for (const status of [403, 500]) {
+      fetchMock.mockResolvedValue(mockRes({ status }))
+      await expect(api.hostnameStatus('x.local')).resolves.toBeNull()
+      await expect(api.hostnameSetup('install', 'x.local')).resolves.toBeNull()
+    }
+    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'))
+    await expect(api.hostnameStatus('x.local')).resolves.toBeNull()
+    await expect(api.hostnameSetup('install', 'x.local')).resolves.toBeNull()
   })
 })

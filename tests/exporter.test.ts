@@ -2805,3 +2805,94 @@ describe('exportDocx() — the item divider', () => {
     expect(rules(await xmlFor({ item_divider: false, divider_style: 'line' }))).toEqual([])
   })
 })
+
+/**
+ * The aligned-columns summary layout.
+ *
+ * "Summaries: free-flowing or aligned columns" is a view control, and until now
+ * the only thing asserting the aligned half in Word was that its output differs
+ * from the other half. So the column widths, which column is the title, and the
+ * per-row rule that carries the divider all survived the report. A grid whose
+ * date columns take a third of the page each is not a grid.
+ */
+describe('exportDocx() — the tabulated summary grid', () => {
+  const twoProjects = (): ResumeStore => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    s.projects = [
+      makeProject({
+        id: 'p1', customer: { en: 'Acme' }, description: { en: 'Payments' },
+        start: { year: 2021, month: 1 }, end: { year: 2023, month: 6 },
+      }),
+      makeProject({
+        id: 'p2', customer: { en: 'Beta' }, description: { en: 'Data mesh' },
+        start: { year: 2019, month: 3 }, end: null,
+      }),
+      makeProject({
+        id: 'p3', customer: { en: 'Gamma' }, description: { en: 'Undated' },
+        start: null, end: null,
+      }),
+    ]
+    return s
+  }
+
+  interface Cell { width: string; text: string; bold: boolean; bottom: string }
+
+  /** The grid as rows of cells: width, text, weight and the rule beneath. */
+  const grid = async (style: Record<string, unknown>): Promise<Cell[][]> => {
+    await exportDocx(twoProjects(), makeView({
+      sections: [{ key: 'projects', detail: 'summary', sort_order: 0, style: { tabulate: true, ...style } } as never],
+    }), 'en')
+    const xml = await documentXml(lastBlob!)
+    const tbl = xml.slice(xml.indexOf('<w:tbl>'), xml.indexOf('</w:tbl>') + 8)
+    return tbl.split('<w:tr>').slice(1).map((row) => row.split('<w:tc>').slice(1).map((c) => ({
+      width: (c.match(/<w:tcW w:type="pct" w:w="([^"]+)"/) ?? [])[1] ?? '',
+      text: (c.match(/<w:t xml:space="preserve">([^<]*)</) ?? [])[1] ?? '',
+      bold: /<w:b\/>/.test(c),
+      bottom: (c.match(/<w:tcBorders>[\s\S]*?<w:bottom w:val="([^"]+)"/) ?? [])[1] ?? '',
+    })))
+  }
+
+  it('gives the date columns a narrow share and splits the rest between the wide ones', async () => {
+    // Three narrow columns capped at 12 % each, the remaining 64 % halved.
+    const rows = await grid({})
+    expect(rows).toHaveLength(3)
+    for (const row of rows) {
+      expect(row.map((c) => c.width)).toEqual(['12%', '12%', '12%', '32%', '32%'])
+    }
+  })
+
+  it('bolds the title column and nothing else', async () => {
+    const rows = await grid({})
+    for (const row of rows) {
+      expect(row.filter((c) => c.bold)).toHaveLength(1)
+      expect(row.find((c) => c.bold)!.text).toMatch(/Payments|Data mesh|Undated/)
+    }
+  })
+
+  it('puts a middot in the separator column only when both dates are there', async () => {
+    // The column exists so the range markers line up down the grid; drawn for
+    // an open-ended range it reads as a missing end date.
+    const rows = await grid({})
+    expect(rows[0].map((c) => c.text)).toEqual(['Jan 2021', '·', 'Jun 2023', 'Payments', 'Acme'])
+    // An ongoing range still has two ends to mark — "Present" is the end.
+    expect(rows[1].map((c) => c.text)).toEqual(['Mar 2019', '·', 'Present', 'Data mesh', 'Beta'])
+    // An undated item has nothing to range: the column stays blank so the
+    // grid keeps its shape without drawing a marker between two absences.
+    expect(rows[2].map((c) => c.text)).toEqual(['', '', '', 'Undated', 'Gamma'])
+  })
+
+  it('carries the divider as the row rule, and never under the last row', async () => {
+    // In a grid the between-items rule IS the cell border; a rule under the
+    // last row reads as a table footer.
+    const on = await grid({ item_divider: true, divider_style: 'line' })
+    expect(on[0].every((c) => c.bottom === 'single')).toBe(true)
+    expect(on[1].every((c) => c.bottom === 'single')).toBe(true)
+    expect(on[2].every((c) => c.bottom === 'none')).toBe(true)
+  })
+
+  it('draws no row rule at all when the view turns the divider off', async () => {
+    const off = await grid({ item_divider: false })
+    expect(off.flat().every((c) => c.bottom === 'none')).toBe(true)
+  })
+})

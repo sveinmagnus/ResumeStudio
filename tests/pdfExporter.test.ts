@@ -2459,3 +2459,101 @@ describe('buildPdfDocDefinition — the item divider', () => {
     expect(rules).toHaveLength(1)
   })
 })
+
+/**
+ * The aligned-columns summary layout, in the PDF.
+ *
+ * The Word twin of this grid is asserted in exporter.test.ts. Here the same
+ * decisions are table-layout callbacks, so the rule between rows, the column
+ * padding and the flexible/auto split all have to be invoked to be seen — which
+ * is why every one of them survived the mutation report while the control was
+ * only ever checked for "the output moved".
+ */
+describe('buildPdfDocDefinition — the tabulated summary grid', () => {
+  const projects = (): ResumeStore => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    s.projects = [
+      makeProject({
+        id: 'p1', customer: { en: 'Acme' }, description: { en: 'Payments' },
+        start: { year: 2021, month: 1 }, end: { year: 2023, month: 6 },
+      }),
+      makeProject({
+        id: 'p2', customer: { en: 'Beta' }, description: { en: 'Undated' },
+        start: null, end: null,
+      }),
+    ]
+    return s
+  }
+
+  interface GridNode {
+    table: { widths: string[]; body: Array<Array<{ text: string; bold?: boolean }>> }
+    layout: {
+      hLineWidth: (i: number) => number
+      hLineStyle: () => { dash?: { length: number; space: number } } | null
+      paddingLeft: (i: number) => number
+    }
+  }
+
+  /** The grid is the multi-column table; the heading and the rules are one. */
+  const grid = async (style: Record<string, unknown>): Promise<GridNode> => {
+    const d = await buildPdfDocDefinition(projects(), makeView({
+      sections: [{ key: 'projects', detail: 'summary', sort_order: 0, style: { tabulate: true, ...style } } as never],
+    }), 'en')
+    return (d.content as Array<Record<string, unknown>>)
+      .find((n) => n.table && ((n.table as { widths: unknown[] }).widths?.length ?? 0) > 1) as unknown as GridNode
+  }
+
+  it('sizes the date columns to their content and lets the text columns flex', () => {
+    // 'auto' on a date keeps "Jan 2021" on one line; '*' on the title gives it
+    // whatever is left. Flexing a date column wastes a third of the page.
+    return grid({}).then((g) => {
+      expect(g.table.widths).toEqual(['auto', 'auto', 'auto', '*', '*'])
+    })
+  })
+
+  it('bolds the title cell and nothing else in the row', async () => {
+    const g = await grid({})
+    for (const row of g.table.body) {
+      expect(row.filter((c) => c.bold)).toHaveLength(1)
+      expect(row.find((c) => c.bold)!.text).toMatch(/Payments|Undated/)
+    }
+  })
+
+  it('marks the range only when there are two ends to mark', async () => {
+    const g = await grid({})
+    expect(g.table.body[0].map((c) => c.text)).toEqual(['Jan 2021', '·', 'Jun 2023', 'Payments', 'Acme'])
+    expect(g.table.body[1].map((c) => c.text)).toEqual(['', '', '', 'Undated', 'Beta'])
+  })
+
+  it('rules between the rows and never around the grid', async () => {
+    // A line at the top or bottom edge turns the grid into a boxed table,
+    // which is not what the divider control asked for.
+    const g = await grid({ item_divider: true, divider_style: 'line' })
+    expect(g.layout.hLineWidth(0)).toBe(0)
+    expect(g.layout.hLineWidth(1)).toBeGreaterThan(0)
+    expect(g.layout.hLineWidth(g.table.body.length)).toBe(0)
+  })
+
+  it('draws no rule at all when the view turns the divider off', async () => {
+    const g = await grid({ item_divider: false })
+    for (let i = 0; i <= g.table.body.length; i++) expect(g.layout.hLineWidth(i)).toBe(0)
+  })
+
+  it('carries the divider style into the row rule, as the free-standing one does', async () => {
+    expect((await grid({ item_divider: true, divider_style: 'dashed' })).layout.hLineStyle())
+      .toEqual({ dash: { length: 3, space: 2 } })
+    expect((await grid({ item_divider: true, divider_style: 'dotted' })).layout.hLineStyle())
+      .toEqual({ dash: { length: 1, space: 2 } })
+    expect((await grid({ item_divider: true, divider_style: 'line' })).layout.hLineStyle())
+      .toBeNull()
+  })
+
+  it('hangs the first column on the margin and gutters the rest', async () => {
+    // An indented first column reads as the whole section being indented.
+    const g = await grid({})
+    expect(g.layout.paddingLeft(0)).toBe(0)
+    expect(g.layout.paddingLeft(1)).toBeGreaterThan(0)
+    expect(g.layout.paddingLeft(3)).toBeGreaterThan(0)
+  })
+})

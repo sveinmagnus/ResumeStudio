@@ -68,9 +68,8 @@ export type BulkSectionKey =
  *  - list   — an array of plain strings (skills, roles, co-authors)
  *  - enum   — one of `values`
  *  - bool   — true/false
- *  - number — a number
  */
-type FieldKind = 'text' | 'rich' | 'plain' | 'date' | 'list' | 'enum' | 'bool' | 'number'
+type FieldKind = 'text' | 'rich' | 'plain' | 'date' | 'list' | 'enum' | 'bool'
 
 export interface BulkField {
   name: string
@@ -825,9 +824,6 @@ export function validateBulkImport(json: unknown, expectedSection: BulkSectionKe
           case 'bool':
             if (typeof val !== 'boolean') issues.push({ path, reason: 'expected true or false' })
             break
-          case 'number':
-            if (!Number.isFinite(Number(val))) issues.push({ path, reason: 'expected a number' })
-            break
         }
       }
     })
@@ -1015,7 +1011,6 @@ const KIND_DOC: Record<FieldKind, string> = {
   list: 'array of strings',
   enum: 'one of the listed values',
   bool: 'true or false',
-  number: 'number',
 }
 
 /** An illustrative value for a field, used in the generated example. */
@@ -1031,7 +1026,6 @@ function exampleFor(field: BulkField, locales: string[]): string {
     case 'list': return '["…", "…"]'
     case 'enum': return `"${field.values?.[0] ?? '…'}"`
     case 'bool': return 'false'
-    case 'number': return '0'
   }
 }
 
