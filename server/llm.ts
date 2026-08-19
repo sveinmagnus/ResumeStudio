@@ -289,14 +289,25 @@ const LANGUAGES: Record<string, LangEntry> = {
   uk: { name: 'Ukrainian (українська)', directive: 'Напишіть усю відповідь українською мовою.' },
 }
 
+/**
+ * The entry for a locale, or null. `Object.hasOwn`, not `LANGUAGES[locale]` —
+ * `locale` comes off the request body, and an inherited key reads a FUNCTION
+ * out of the map: `LANGUAGES['toString'].name` is the string `'toString'`, so
+ * the optional chain never fires and the prompt ends up instructing the model
+ * to "translate into toString". The three readers below share this one guard.
+ */
+function langEntry(locale: string): LangEntry | null {
+  return Object.hasOwn(LANGUAGES, locale) ? LANGUAGES[locale] : null
+}
+
 /** The English name of a locale's language, or null when we don't know it. */
 export function languageNameOf(locale: string): string | null {
-  return LANGUAGES[locale]?.name ?? null
+  return langEntry(locale)?.name ?? null
 }
 
 /** The language name for a prompt, with a safe fallback for unknown codes. */
 export function languageName(locale: string): string {
-  return LANGUAGES[locale]?.name ?? 'the same language as the input'
+  return langEntry(locale)?.name ?? 'the same language as the input'
 }
 
 /**
@@ -305,7 +316,7 @@ export function languageName(locale: string): string {
  * code we don't know, so callers can append it unconditionally.
  */
 export function languageDirective(locale: string): string {
-  return LANGUAGES[locale]?.directive ?? ''
+  return langEntry(locale)?.directive ?? ''
 }
 
 /** Raised for any upstream/LLM failure; carries a safe HTTP status. */

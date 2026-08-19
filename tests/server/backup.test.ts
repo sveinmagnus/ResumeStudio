@@ -107,6 +107,16 @@ describe('parseStoreBackup', () => {
     const bad = { ...buildStoreBackup([]), resumes: [{ id: 'x' }] }
     expect(() => parseStoreBackup(bad)).toThrow(UnreadableBackupError)
   })
+  it('throws for a resume id that is not filename-safe', () => {
+    // This legacy format merges through the same `restoreResumes` as the
+    // per-resume files, so an id carrying path separators would reach
+    // `resumeFileName` on the next write pass and escape the sync folder. The
+    // entry is otherwise perfectly well-formed — the id alone must reject it.
+    for (const id of ['x/../../../../tmp/pwn', '../../evil', 'a/b', 'a\\b']) {
+      const bad = buildStoreBackup([entry({ id })])
+      expect(() => parseStoreBackup(bad)).toThrow(UnreadableBackupError)
+    }
+  })
 })
 
 describe('backupSignature', () => {

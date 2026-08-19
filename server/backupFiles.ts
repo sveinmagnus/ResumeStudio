@@ -63,6 +63,7 @@ import type { RegistryEntry } from './registryDb.js'
 import {
   isStoreBackup, parseStoreBackup, parseStoreRegistry, UnreadableBackupError,
 } from './backup.js'
+import { isValidResumeId } from './resumeId.js'
 
 /**
  * The configured sync folder, or null when sync is off. Read lazily per call —
@@ -204,8 +205,17 @@ export function slugForResume(name: string): string {
   return slug || 'resume'
 }
 
-/** The file a resume is stored as: `<slug>__<id>.json`. Stable for a given (name, id). */
+/**
+ * The file a resume is stored as: `<slug>__<id>.json`. Stable for a given
+ * (name, id).
+ *
+ * Throws on an id outside `isValidResumeId`. Both inbound parsers already
+ * reject those, so nothing reaches here — this is the second lock on the same
+ * door, at the interpolation site, because the result is joined onto the sync
+ * directory and one unvalidated `../` writes outside it.
+ */
 export function resumeFileName(id: string, name: string): string {
+  if (!isValidResumeId(id)) throw new Error('Resume id is not filename-safe')
   return `${slugForResume(name)}__${id}.json`
 }
 
@@ -295,10 +305,23 @@ function schemaOf(json: unknown): string {
   return isObj(json) && typeof json.$schema === 'string' ? json.$schema : ''
 }
 
-/** Is this a valid-enough resume entry to merge? Mirrors `parseStoreBackup`'s row check. */
+/**
+ * Is this a valid-enough resume entry to merge? Mirrors `parseStoreBackup`'s
+ * row check.
+ *
+ * The id is charset-checked, not merely non-empty. It is the ONE field in this
+ * file that becomes a filesystem path: `restoreResumes` stores it verbatim and
+ * the next write pass hands it to `resumeFileName` → `path.join(dir, …)`, so
+ * `x/../../../../tmp/pwn` writes outside the sync folder — on every machine
+ * syncing it, since the watcher merges and the scheduler republishes with no
+ * user action. Rejected rather than sanitised: an id is an identity, and
+ * silently rewriting one would merge a person's CV into the wrong row. A file
+ * that fails here simply isn't ours, so it falls through `reconcileSources`
+ * untouched and an upload carrying nothing else 422s.
+ */
 function isResumeEntry(e: unknown): e is ResumeBackupEntry {
   return isObj(e) &&
-    typeof e.id === 'string' && !!e.id &&
+    isValidResumeId(e.id) &&
     typeof e.saved_at === 'string' &&
     isObj(e.data)
 }

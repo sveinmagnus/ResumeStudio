@@ -156,9 +156,20 @@ const DEEPL_TARGET: Record<string, string> = { ...DEEPL_SOURCE, en: 'EN-GB' }
 const GOOGLE_MAP: Record<string, string> = { en: 'en', no: 'no', se: 'sv', dk: 'da', de: 'de', fr: 'fr', es: 'es' }
 const AZURE_MAP: Record<string, string> = { en: 'en', no: 'nb', se: 'sv', dk: 'da', de: 'de', fr: 'fr', es: 'es' }
 
-const mapWith = (m: Record<string, string>, code: string): string => m[code] ?? code.toLowerCase()
+/**
+ * `Object.hasOwn`, not `??` — the same rule as `toServiceLocale` above, for the
+ * same reason: `code` comes off the request body, and every object literal
+ * inherits `toString`/`constructor`/`valueOf`, so `m['toString']` reads a
+ * FUNCTION back out. That is neither null nor undefined, so `??` passes it
+ * straight through as the locale code: `JSON.stringify` then drops the key
+ * entirely (Google/DeepL silently translate from the wrong language) and
+ * `encodeURIComponent` stringifies the function body into Azure's query.
+ */
+const mapWith = (m: Record<string, string>, code: string): string =>
+  Object.hasOwn(m, code) ? m[code] : code.toLowerCase()
 /** DeepL's variant of {@link mapWith} — unknown codes upper-case, not lower. */
-const mapDeepL = (m: Record<string, string>, code: string): string => m[code] ?? code.toUpperCase()
+const mapDeepL = (m: Record<string, string>, code: string): string =>
+  Object.hasOwn(m, code) ? m[code] : code.toUpperCase()
 
 /** Raised for any upstream/translation failure; carries a safe HTTP status. */
 export class TranslateError extends Error {

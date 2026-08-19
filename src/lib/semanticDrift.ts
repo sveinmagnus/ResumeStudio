@@ -23,12 +23,7 @@
 import type { ResumeStore } from '../types'
 import { buildBilingualDigest } from './cvDigest'
 import { findingsResponseSpec } from './assistFindings'
-import { LOCALE_LABELS } from './locales'
-
-/** The language's own name, for the prompt. Falls back to the bare code. */
-function label(locale: string): string {
-  return LOCALE_LABELS[locale]?.name ?? locale
-}
+import { localeName as label } from './locales'
 
 export function buildSemanticDriftPrompt(
   data: ResumeStore,

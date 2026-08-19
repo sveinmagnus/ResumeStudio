@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import {
   resolveConfig, isLlmConfigured, isHighEndConfigured, llmInfo, chatComplete, LlmError,
+  languageNameOf, languageName, languageDirective,
   type LlmConfig,
 } from '../../server/llm'
 
@@ -247,5 +248,30 @@ describe('chatComplete()', () => {
     mockFetch({ ok: false, status: 401 })
     const err = await chatComplete(ASK, { maxTokens: 50 }).catch((e: unknown) => e)
     expect((err as LlmError).message).toMatch(/rejected the API key/i)
+  })
+})
+
+describe('the language table — inherited keys', () => {
+  // The locale reaches these off the request body (POST /api/translate), and
+  // `LANGUAGES[locale]?.name` reads a FUNCTION for an inherited key: its
+  // `.name` is a string, so the optional chain never fires and the fallback
+  // never runs. languageNameOf answering non-null is the one that matters —
+  // it is the guard translateLlm uses to REFUSE a locale it can't name.
+  const INHERITED = ['toString', 'constructor', 'valueOf', 'hasOwnProperty']
+
+  it('languageNameOf returns null so an unnamed locale is refused', () => {
+    for (const key of INHERITED) expect(languageNameOf(key), key).toBeNull()
+    expect(languageNameOf('no')).toContain('Norwegian')
+  })
+
+  it('languageName falls back instead of naming a function', () => {
+    for (const key of INHERITED) {
+      expect(languageName(key), key).toBe('the same language as the input')
+    }
+  })
+
+  it('languageDirective is empty for an unknown locale', () => {
+    for (const key of INHERITED) expect(languageDirective(key), key).toBe('')
+    expect(languageDirective('no')).toContain('bokm')
   })
 })

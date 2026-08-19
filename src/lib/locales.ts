@@ -39,6 +39,20 @@ export const LOCALE_LABELS: Record<string, { name: string; flag: string }> = {
 export const LOCALE_CODES: string[] = Object.keys(LOCALE_LABELS)
 
 /**
+ * The language's own name for a code, falling back to the bare code.
+ *
+ * One helper because three call sites (the bulk-import instructions, the
+ * semantic-drift prompt, the snapshot diff) each wrote `LOCALE_LABELS[c]?.name
+ * ?? c`, and all three carried the same hole: codes reach them from stored
+ * `supported_locales`, so an inherited key ('toString') reads a FUNCTION out of
+ * the map, whose `.name` is the string 'toString' — the optional chain never
+ * fires and the fallback never runs. See lib/lookup.ts.
+ */
+export function localeName(code: string): string {
+  return lookup(LOCALE_LABELS, code, { name: code, flag: '' }).name
+}
+
+/**
  * App locale code → BCP-47 language tag for HTML `lang` attributes.
  * The CVpartner-derived codes `se`/`dk` are *country* codes, not language
  * codes (BCP-47 `se` is Northern Sami; `dk` is unassigned) — map them to

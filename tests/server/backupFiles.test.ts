@@ -494,3 +494,116 @@ describe('recordDeletion', () => {
     }
   })
 })
+
+// ─── Resume id / path traversal ─────────────────────────────────────────────
+//
+// The resume id is the ONE field on the inbound path that becomes a filesystem
+// path: it arrives inside an imported or synced file, `restoreResumes` stores
+// it verbatim, and the next write pass builds `<slug>__<id>.json` and joins it
+// onto the sync folder. An id carrying `..` and a separator therefore escapes
+// that folder — on every machine sharing it, since the watcher merges inbound
+// files and the scheduler republishes with no user action.
+//
+// Three locks, one per layer, each tested here: the id charset, the filename
+// builder, and the write pass itself.
+
+/** Backslash by char code, matching how this file writes every awkward literal. */
+const BS = String.fromCharCode(92)
+
+const TRAVERSAL_IDS = [
+  'x/../../../../tmp/pwn',
+  '../../evil',
+  `..${BS}..${BS}evil`,
+  'a/b',
+  `a${BS}b`,
+  'has space',
+  'x'.repeat(65),
+  '',
+]
+
+describe('resume id validation (path traversal)', () => {
+  it('accepts the ids the app actually mints', () => {
+    // uuidv4 output, plus the short ids the fixtures and older data use.
+    for (const id of ['3f2504e0-4f89-11d3-9a0c-0305e82c3301', 'r1', 'abc-123', 'A_b-9']) {
+      expect(resumeFileName(id, 'Ada')).toBe(`ada__${id}.json`)
+    }
+  })
+
+  it('refuses to build a filename from a traversing id', () => {
+    for (const id of TRAVERSAL_IDS) {
+      expect(() => resumeFileName(id, 'Ada')).toThrow(/not filename-safe/)
+    }
+  })
+
+  it('drops a resume file whose embedded id is not filename-safe', () => {
+    // The file parses as JSON and carries our $schema — the id is the only
+    // thing wrong with it, and it must be enough to reject the whole entry.
+    const scan = reconcileSources([{
+      name: 'evil__x.json',
+      json: {
+        $schema: 'resumestudio-resume/v1',
+        format_version: 1,
+        resume: { ...entry(), id: 'x/../../../../tmp/pwn' },
+        registry: [],
+      },
+    }])
+    expect(scan.resumes).toEqual([])
+    expect(scan.filesByResumeId.size).toBe(0)
+  })
+
+  it('keeps the good resumes in an upload that also carries a poisoned one', () => {
+    const scan = reconcileSources([
+      { name: 'a__r1.json', json: buildResumeFile(entry(), []) },
+      {
+        name: 'evil__x.json',
+        json: {
+          $schema: 'resumestudio-resume/v1', format_version: 1,
+          resume: { ...entry(), id: '../../../../evil' }, registry: [],
+        },
+      },
+    ])
+    expect(scan.resumes.map((r) => r.id)).toEqual(['r1'])
+  })
+
+  it('writeResumeFiles never writes outside the backup dir', () => {
+    // The end-to-end proof: even handed an entry the parsers would have
+    // rejected, the write pass must not touch anything above `dir`.
+    const root = tmp()
+    const dir = path.join(root, 'sync')
+    fs.mkdirSync(dir)
+    const outside = path.join(root, 'outside')
+    fs.mkdirSync(outside)
+
+    // The id has to make `..` a segment of its OWN to traverse: `../x` only
+    // yields a literal directory named `<slug>__..`, which fails as ENOENT and
+    // would let this test pass against vulnerable code. `x/../../outside/pwn`
+    // resolves to `<root>/outside/pwn.json` — a directory that EXISTS, so
+    // nothing but the guard stands between it and the write.
+    // The FILESYSTEM is the assertion that matters here, so run the write
+    // without letting the throw short-circuit it: a future change that swaps
+    // the exception for a skip-and-continue must still be caught by this test.
+    let threw: unknown = null
+    try {
+      writeResumeFiles(dir, [entry({ id: 'x/../../outside/pwn', name: 'Ada' })], [])
+    } catch (err) { threw = err }
+
+    // Nothing landed above the sync folder, under either the final name or the
+    // `.tmp` staging name the atomic write uses.
+    expect(fs.readdirSync(outside)).toEqual([])
+    expect(fs.readdirSync(root).sort()).toEqual(['outside', 'sync'])
+    expect((threw as Error | null)?.message).toMatch(/not filename-safe/)
+  })
+
+  it('a poisoned entry cannot silently divert a whole write pass', () => {
+    const dir = tmp()
+    // A good entry first, so we can prove the failure is loud rather than a
+    // partially-written folder that looks fine.
+    expect(() => writeResumeFiles(dir, [
+      entry({ id: 'r1' }),
+      entry({ id: 'x/../../../../tmp/pwn', name: 'Evil' }),
+    ], [])).toThrow(/not filename-safe/)
+    for (const name of fs.readdirSync(dir)) {
+      expect(path.resolve(dir, name).startsWith(path.resolve(dir))).toBe(true)
+    }
+  })
+})

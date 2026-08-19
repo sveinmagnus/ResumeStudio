@@ -533,3 +533,48 @@ describe('DeepL locale codes', () => {
     expect(body.target_lang).toBe('EN-GB')
   })
 })
+
+describe('the per-provider locale maps — inherited keys', () => {
+  // `toServiceLocale` (LibreTranslate) already guarded this; the Google, Azure
+  // and DeepL maps went through `mapWith`/`mapDeepL`, which still used `??`.
+  // Same request-body input, same hole, three providers further down.
+  const INHERITED = ['toString', 'constructor', 'valueOf', 'hasOwnProperty']
+
+  it('Google sends the bare code, not a function', async () => {
+    vi.stubEnv('TRANSLATE_PROVIDER', 'google')
+    vi.stubEnv('GOOGLE_TRANSLATE_API_KEY', 'gkey')
+    for (const key of INHERITED) {
+      const fn = mockFetch({ ok: true, json: async () => ({ data: { translations: [{ translatedText: 'x' }] } }) })
+      await translate('Hello', key, 'no')
+      const body = JSON.parse((fn.mock.calls[0][1] as RequestInit).body as string)
+      // Without the guard `source` held a FUNCTION, which JSON.stringify drops
+      // entirely — so Google silently auto-detected instead of erroring.
+      expect(body.source, key).toBe(key.toLowerCase())
+    }
+  })
+
+  it('Azure sends the bare code, not a stringified function', async () => {
+    vi.stubEnv('TRANSLATE_PROVIDER', 'azure')
+    vi.stubEnv('AZURE_TRANSLATOR_KEY', 'akey')
+    for (const key of INHERITED) {
+      const fn = mockFetch({ ok: true, json: async () => ([{ translations: [{ text: 'x' }] }]) })
+      await translate('Hello', key, 'no')
+      const url = fn.mock.calls[0][0] as string
+      // encodeURIComponent(fn) wrote `function toString() { [native code] }`
+      // into the query — encoded, so never injection, but never a locale either.
+      expect(url, key).toContain(`from=${key.toLowerCase()}`)
+      expect(url, key).not.toContain('native')
+    }
+  })
+
+  it('DeepL sends the upper-cased bare code', async () => {
+    vi.stubEnv('TRANSLATE_PROVIDER', 'deepl')
+    vi.stubEnv('DEEPL_API_KEY', 'dkey')
+    for (const key of INHERITED) {
+      const fn = mockFetch({ ok: true, json: async () => ({ translations: [{ text: 'x' }] }) })
+      await translate('Hello', key, 'no')
+      const body = JSON.parse((fn.mock.calls[0][1] as RequestInit).body as string)
+      expect(body.source_lang, key).toBe(key.toUpperCase())
+    }
+  })
+})

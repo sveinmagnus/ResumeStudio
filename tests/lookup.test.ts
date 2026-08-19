@@ -14,13 +14,14 @@
  */
 import { describe, it, expect } from 'vitest'
 import { lookup } from '../src/lib/lookup'
-import { presentLabel, fmtDate } from '../src/lib/locales'
+import { presentLabel, fmtDate, localeName } from '../src/lib/locales'
 import { fmtYears } from '../src/lib/exportStrings'
 import { dividerSpec, deriveTokens, bulletGlyph, DEFAULT_VIEW_STYLE } from '../src/lib/viewStyle'
 import { slotsFor } from '../src/lib/itemLayout'
 import { sectionIconSvg } from '../src/lib/sectionIcon'
 import { renderKeyFor } from '../src/lib/viewSectionPlan'
 import { extrasFor } from '../src/lib/sectionExtras'
+import { availableSortModes } from '../src/lib/sectionSort'
 import type { ViewStyle } from '../src/types'
 
 /** The inherited names a crafted import can name for free. */
@@ -101,5 +102,37 @@ describe('the callers cannot be handed a function', () => {
       expect(Array.isArray(extrasFor(key)), key).toBe(true)
       expect(sectionIconSvg(key, '002E6E'), key).toBeNull()
     }
+  })
+})
+
+// A later sweep found four more call sites still indexing their map directly.
+// Three were the same one-liner copied around (`LOCALE_LABELS[c]?.name ?? c`),
+// which is why there is now one `localeName` for all of them.
+describe('the locale and sort helpers cannot be handed a function', () => {
+  it('localeName falls back to the bare code', () => {
+    for (const key of INHERITED) {
+      // The live case is `constructor`: `LOCALE_LABELS['constructor'].name` is
+      // 'Object', so the optional chain never fires, the `?? code` fallback
+      // never runs, and 'Object' is laundered into a prompt as a language name.
+      // The other inherited names alias their own `.name`, which is how this
+      // hid — it looked correct for six keys out of seven.
+      expect(localeName(key), key).toBe(key)
+    }
+    expect(localeName('en')).toBe('English')
+    expect(localeName('zz')).toBe('zz')
+  })
+
+  it('availableSortModes offers only the two universal modes', () => {
+    // Unlike localeName this one is a CONSISTENCY fix, not a live bug: the
+    // function read out of DATE_CAPS has no `.start`/`.end`/`.single`, so the
+    // old direct index already degraded correctly. Pinned because that is an
+    // accident of which sub-fields happen to exist on Function.prototype — add
+    // a `name` or a `length` cap to DATE_CAPS and the accident stops holding.
+    for (const key of INHERITED) {
+      expect(availableSortModes(key), key).toEqual(['custom', 'alpha'])
+    }
+    expect(availableSortModes('projects')).toEqual(
+      ['custom', 'alpha', 'start', 'start_asc', 'end', 'end_asc'],
+    )
   })
 })

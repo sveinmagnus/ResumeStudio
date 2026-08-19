@@ -38,7 +38,7 @@ import type {
   Course, Certification, Presentation, Publication, HonorAward,
   Recommendation, Reference, KeyQualification, KeyCompetency,
 } from '../types'
-import { LOCALE_LABELS } from './locales'
+import { localeName } from './locales'
 import {
   isPlainObject, str, strOrNull, norm, toNames, toYearMonth, checkDate,
   type ImportIssue,
@@ -1038,7 +1038,7 @@ function exampleFor(field: BulkField, locales: string[]): string {
 export function bulkInstructions(spec: BulkSectionSpec, locales: string[]): string {
   const langs = locales.length ? locales : ['en']
   const localeList = langs
-    .map((l) => `${l} (${LOCALE_LABELS[l]?.name ?? l})`)
+    .map((l) => `${l} (${localeName(l)})`)
     .join(', ')
   const multi = langs.length > 1
 

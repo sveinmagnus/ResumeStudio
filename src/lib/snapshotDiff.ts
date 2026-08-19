@@ -13,7 +13,7 @@
  */
 
 import type { ResumeStore, LocalizedString } from '../types'
-import { LOCALE_LABELS } from './locales'
+import { localeName } from './locales'
 import { lookup } from './lookup'
 
 export interface SnapshotChange {
@@ -96,10 +96,6 @@ const SKIP_KEYS = new Set([
 
 function fieldLabel(key: string): string {
   return lookup(FIELD_LABELS, key, key.replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase()))
-}
-
-function localeName(code: string): string {
-  return LOCALE_LABELS[code]?.name ?? code
 }
 
 /** Strip HTML so char counts reflect visible text, not markup. */

@@ -13,6 +13,7 @@
 
 import type { YearMonth, SortMode } from '../types'
 import { SECTION_CATALOG, type AnyItem } from './sectionCatalog'
+import { lookup } from './lookup'
 
 // The canonical definition lives in `types` so `ViewSection` can reference it
 // without a runtime import; re-exported here for importers that reach for it
@@ -56,14 +57,26 @@ const DATE_CAPS: Record<string, { start?: boolean; end?: boolean; single?: strin
   recommendations:  { single: 'date' },
 }
 
+/**
+ * A section's date capabilities, `{}` for one we don't list.
+ *
+ * Through `lookup` because `section` comes from stored view/resume config: a
+ * bare `DATE_CAPS[section]` on an inherited key ('toString') reads a FUNCTION,
+ * which is truthy — so `?.single ?? 'date'` below would sort on a field named
+ * after a function rather than falling back. See lib/lookup.ts.
+ */
+function capsFor(section: string): { start?: boolean; end?: boolean; single?: string } {
+  return lookup(DATE_CAPS, section, {})
+}
+
 /** Which sort modes a section offers, in display order. Each date mode is
  *  offered newest-first then oldest-first. */
 export function availableSortModes(section: string): SortMode[] {
   const modes: SortMode[] = ['custom', 'alpha']
-  const cap = DATE_CAPS[section]
-  if (cap?.start)  modes.push('start', 'start_asc')
-  if (cap?.end)    modes.push('end', 'end_asc')
-  if (cap?.single) modes.push('date', 'date_asc')
+  const cap = capsFor(section)
+  if (cap.start)  modes.push('start', 'start_asc')
+  if (cap.end)    modes.push('end', 'end_asc')
+  if (cap.single) modes.push('date', 'date_asc')
   return modes
 }
 
@@ -138,7 +151,7 @@ export function sortItems<T extends Sortable>(
     case 'date':
     case 'date_asc': {
       const dir = mode === 'date_asc' ? 'asc' : 'desc'
-      const field = DATE_CAPS[section]?.single ?? 'date'
+      const field = capsFor(section).single ?? 'date'
       // Undated items float to the top (new items surface until dated).
       return arr.sort((a, b) => byDate(ymKey(a[field]), ymKey(b[field]), dir))
     }

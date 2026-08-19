@@ -21,6 +21,7 @@ import fs from 'fs'
 import path from 'path'
 import type { ResumeBackupEntry } from './db.js'
 import type { RegistryEntry } from './registryDb.js'
+import { isValidResumeId } from './resumeId.js'
 
 /** Stable filename so the same file is overwritten/synced in place. */
 export const BACKUP_FILENAME = 'resume-studio-backup.json'
@@ -88,10 +89,15 @@ export function parseStoreBackup(json: unknown): ResumeBackupEntry[] {
   }
   // Defensive per-row validation: a malformed entry would otherwise corrupt the
   // merge. Keep it cheap — just the fields the merge depends on.
+  //
+  // The id is charset-checked (see isValidResumeId), not merely a string: this
+  // format merges through the same `restoreResumes` as the per-resume files, so
+  // an id carrying path separators would reach `resumeFileName` on the next
+  // write pass and escape the sync folder. Same rule, same reason, both readers.
   for (const e of json.resumes) {
     if (
       !e || typeof e !== 'object' ||
-      typeof (e as ResumeBackupEntry).id !== 'string' ||
+      !isValidResumeId((e as ResumeBackupEntry).id) ||
       typeof (e as ResumeBackupEntry).saved_at !== 'string' ||
       typeof (e as ResumeBackupEntry).data !== 'object'
     ) {
