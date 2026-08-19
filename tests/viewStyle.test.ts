@@ -565,6 +565,23 @@ describe('dividerSpec()', () => {
     expect(s.colorHex).not.toBe('002E6E')
   })
 
+  it('tints each style at its own strength, faintest first', () => {
+    // The alpha table is what separates a hairline from a heavy rule visually,
+    // and the flattened twin is the only colour the PDF and Word ever see. A
+    // single alpha for all of them makes six choices look like two.
+    const alphaOf = (style: string) => spec(style).colorCss.slice(-2)
+    expect(alphaOf('line')).toBe('1a')
+    expect(alphaOf('thick')).toBe('1a')
+    expect(alphaOf('dashed')).toBe('40')
+    expect(alphaOf('double')).toBe('40')
+    expect(alphaOf('dotted')).toBe('55')
+    expect(alphaOf('short')).toBe('55')
+    // Composited, a stronger alpha is a DARKER opaque colour on white.
+    const lum = (style: string) => parseInt(spec(style).colorHex.slice(0, 2), 16)
+    expect(lum('dotted')).toBeLessThan(lum('line'))
+    expect(lum('dashed')).toBeLessThan(lum('line'))
+  })
+
   it('rejects an INHERITED key, not just an unknown one', () => {
     // SECURITY: `divider_style` comes from stored view JSON, so a crafted
     // import can name 'toString'. Every lookup map inherits that key and

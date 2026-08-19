@@ -261,6 +261,9 @@ describe('skillMatrixRows — the usage scan', () => {
     const row = skillMatrixRows(s, makeView(), 'en').find((r) => r.name === 'Go')!
     expect(row.ongoing).toBe(true)
     expect(fmtLastUsed(row, 'en', 'my')).toBe(xs('ongoing', 'en'))
+    // An ongoing row reports NO date: "Ongoing" is the answer, and a date
+    // beside it would read as the day the export was taken.
+    expect(row.lastUsed).toBeNull()
   })
 
   it('reports the LATEST end date across several projects', () => {

@@ -28,6 +28,13 @@ describe('parseEuropassDate', () => {
     ['2018-06', { year: 2018, month: 6 }],
     ['2018-06-15', { year: 2018, month: 6 }],
     ['2018', { year: 2018, month: null }],
+    // The STRING form validates its month too, not only the object form:
+    // an out-of-range month there would reach YearMonth and print as a name
+    // the month table has no entry for.
+    ['2018-13', { year: 2018, month: null }],
+    ['2018-00', { year: 2018, month: null }],
+    ['2018-01', { year: 2018, month: 1 }],
+    ['2018-12', { year: 2018, month: 12 }],
     [{ year: 2018, month: 6 }, { year: 2018, month: 6 }],
     [{ year: '2018', month: '--06' }, { year: 2018, month: 6 }], // XML attribute form
     [{ year: '2018', month: '' }, { year: 2018, month: null }],
@@ -267,6 +274,29 @@ describe('importFromEuropassJson — the alternate shapes real exports use', () 
   const profile = (over: Record<string, unknown>) => importFromEuropassJson({
     profile: { personalInformation: { firstName: 'Kari', lastName: 'Nordmann' }, ...over },
   } as never)
+
+  describe('language levels', () => {
+    const langs = (l: Record<string, unknown>) =>
+      profile({ languageSkills: { otherLanguages: [l] } }).spoken_languages
+
+    it('reads the level from listening, then overall, then a plain level', () => {
+      // Three shapes across real exports. Each has to be reachable in turn, or
+      // a language arrives with a name and no proficiency at all.
+      expect(langs({ language: 'German', listening: 'B2' })[0].level.en).toBe('B2')
+      expect(langs({ language: 'German', overall: 'C1' })[0].level.en).toBe('C1')
+      expect(langs({ language: 'German', level: 'A2' })[0].level.en).toBe('A2')
+    })
+
+    it('prefers the more specific field when several are present', () => {
+      expect(langs({ language: 'German', listening: 'B2', overall: 'C1', level: 'A2' })[0].level.en)
+        .toBe('B2')
+      expect(langs({ language: 'German', overall: 'C1', level: 'A2' })[0].level.en).toBe('C1')
+    })
+
+    it('leaves the level empty rather than inventing one', () => {
+      expect(langs({ language: 'German' })[0].level).toEqual({})
+    })
+  })
 
   describe('work experience', () => {
     const work = (w: Record<string, unknown>) => profile({ workExperiences: [w] }).work_experiences

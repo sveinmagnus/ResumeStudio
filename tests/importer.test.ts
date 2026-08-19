@@ -383,6 +383,25 @@ describe('importFromCVPartner — projects', () => {
     expect(store.projects[0].end).toBeNull()
   })
 
+  it('treats an ABSENT year_to as ongoing too, in every dated section', () => {
+    // A current role is the common case in a consultant's CV, and CVpartner
+    // omits the key rather than sending an empty string for it. Parsing an
+    // absent year yields NaN, which reads as a real date to everything
+    // downstream and sorts the current job to the far past.
+    const store = importFromCVPartner({
+      project_experiences: [{ _id: 'p1', customer: { en: 'X' }, year_from: '2021' }],
+      work_experiences: [{ _id: 'w1', employer: { en: 'Cartavio' }, year_from: '2019' }],
+      educations: [{ _id: 'e1', school: { en: 'MIT' }, year_from: '2015' }],
+    })
+    expect(store.projects[0].end).toBeNull()
+    expect(store.work_experiences[0].end).toBeNull()
+    expect(store.educations[0].end).toBeNull()
+    // …and the start is still read, so "ongoing" is a range, not a blank.
+    expect(store.projects[0].start).toEqual({ year: 2021, month: null })
+    expect(store.work_experiences[0].start).toEqual({ year: 2019, month: null })
+    expect(store.educations[0].start).toEqual({ year: 2015, month: null })
+  })
+
   it('handles missing month with month=null', () => {
     const store = importFromCVPartner({
       project_experiences: [

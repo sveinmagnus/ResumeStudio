@@ -260,6 +260,13 @@ describe('importFromLinkedIn — the file mappings', () => {
   const zip = (files: Record<string, string>) => importFromLinkedIn(files)
   const csv = (header: string, ...rows: string[]) => [header, ...rows].join('\n')
 
+  it('dedupes a skill that LinkedIn spells two ways', () => {
+    // The check and the fold have to agree: matching on one casing and
+    // remembering another lets the second spelling straight through.
+    const store = zip({ 'Skills.csv': csv('Name', 'React', 'react', 'REACT', 'Vue') })
+    expect(store.skills.map((sk) => sk.name.en)).toEqual(['React', 'Vue'])
+  })
+
   it('skips blank CSV lines rather than importing empty rows', () => {
     const store = zip({
       'Positions.csv': csv('Company Name,Title', 'Acme,Architect', '   ,   ', ',', 'Beta,Dev'),

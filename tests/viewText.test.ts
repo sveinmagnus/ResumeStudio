@@ -67,6 +67,9 @@ describe('buildViewText', () => {
       expect(txt).toContain('• AcmeCo')
       // …and a following content line is indented two spaces to line up.
       expect(txt).toMatch(/\n {2}Built the platform/)
+      // The glyph REPLACES the first line's own position; indenting the whole
+      // block instead prints the heading a second time, indented.
+      expect(txt).not.toMatch(/\n {2}AcmeCo/)
     })
 
     it('is absent by default', () => {

@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { SECTION_CATALOG, summaryTitleMeta, type CatalogCtx, type ItemView } from '../src/lib/sectionCatalog'
+import {
+  SECTION_CATALOG, summaryTitleMeta, isEmptyItemView,
+  type CatalogCtx, type ItemView,
+} from '../src/lib/sectionCatalog'
 import { extrasFor } from '../src/lib/sectionExtras'
 import {
   makeProject, makeWork, makeEducation, makeKQ, makeReference,
@@ -1785,5 +1788,65 @@ describe('SECTION_CATALOG — a reference’s name and affiliation', () => {
 
     const both = SECTION_CATALOG.references.summary!(item({ ...ref, title: 'CTO', company: 'BigCo' }) as never, html)!
     expect(both.parts.find((p) => p.key === 'org')!.value).toBe('CTO, BigCo')
+  })
+})
+
+/**
+ * The emptiness rule every adapter asks instead of inventing its own.
+ *
+ * A descriptor may legitimately return a view with nothing in it — a profile in
+ * summary mode whose short summary was never written. The paged and text
+ * adapters then emit no paragraphs and the section disappears; the HTML adapter
+ * used to build a div of whitespace, which is truthy, so the preview showed a
+ * heading the exports did not have. The predicate that fixed that had no test
+ * of its own: the mutation report could turn it into a constant either way.
+ */
+describe('isEmptyItemView', () => {
+  const blank = (): ItemView => ({
+    layout: 'default', title: '', date: '', meta: [], body: '', plainBody: '',
+    extraLines: [], tags: [], tagsLabel: '', points: [], attribution: '',
+    attributionMeta: [], titleStyle: 'body', spacingBefore: 0,
+  })
+
+  it('is empty when every slot is', () => {
+    expect(isEmptyItemView(blank())).toBe(true)
+  })
+
+  it('is NOT empty when any single slot carries something', () => {
+    // One case per slot: an OR where an AND belongs (or a dropped clause) makes
+    // a whole class of item vanish from the preview and only the preview.
+    const filled: Array<[string, Partial<ItemView>]> = [
+      ['title', { title: 'Acme' }],
+      ['date', { date: '2024' }],
+      ['body', { body: '<p>Text</p>' }],
+      ['plainBody', { plainBody: 'Short line' }],
+      ['attribution', { attribution: 'Ada Lovelace' }],
+      ['meta', { meta: ['Tech lead'] }],
+      ['extraLines', { extraLines: ['https://example.test'] }],
+      ['tags', { tags: ['Go'] }],
+      ['points (label)', { points: [{ label: 'Team', body: '' }] }],
+      ['points (body)', { points: [{ label: '', body: 'Six people' }] }],
+      ['attributionMeta', { attributionMeta: ['(former manager)'] }],
+    ]
+    for (const [name, over] of filled) {
+      expect(isEmptyItemView({ ...blank(), ...over }), name).toBe(false)
+    }
+  })
+
+  it('ignores the slots that are styling rather than content', () => {
+    // A blank item still carries a layout and a title size; counting those
+    // would make every item non-empty and the guard a no-op.
+    expect(isEmptyItemView({ ...blank(), layout: 'quote' })).toBe(true)
+    expect(isEmptyItemView({ ...blank(), titleStyle: 'large', spacingBefore: 140 })).toBe(true)
+    // The tags LABEL without any tag is a label for nothing.
+    expect(isEmptyItemView({ ...blank(), tagsLabel: 'Skills: ' })).toBe(true)
+  })
+
+  it('reads a list of empty strings as nothing, not as something', () => {
+    // `meta` and `extraLines` routinely hold blanks for absent facts; a
+    // length check instead of a content check would keep every item.
+    expect(isEmptyItemView({ ...blank(), meta: ['', ''], extraLines: [''] })).toBe(true)
+    expect(isEmptyItemView({ ...blank(), attributionMeta: ['', ''] })).toBe(true)
+    expect(isEmptyItemView({ ...blank(), points: [{ label: '', body: '' }] })).toBe(true)
   })
 })
