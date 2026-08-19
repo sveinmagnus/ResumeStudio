@@ -32,7 +32,12 @@ describe('font catalog', () => {
 
   it('offers install info only for fonts that need installing', () => {
     expect(fontInstallInfo('condensed')?.url).toContain('fonts.google.com')
-    expect(fontInstallInfo('georgia')).toBeNull() // ubiquitous system font
+    expect(fontInstallInfo('condensed')?.label).toBe(fontById('condensed').label)
+    // Georgia is the 'serif' entry — a ubiquitous system font, so no offer.
+    // Asking by family name instead of by id proves only that the id is
+    // unknown, which every string satisfies.
+    expect(fontInstallInfo('serif')).toBeNull()
+    expect(fontInstallInfo('arial')).toBeNull()
   })
 
   it('lists options grouped sans → serif → mono', () => {
@@ -64,7 +69,45 @@ describe('font catalog', () => {
   })
 
   it('has sensible defaults', () => {
-    expect(CATALOG_DEFAULT_FONTS).toEqual({ heading: DEFAULT_HEADING_FONT, body: DEFAULT_BODY_FONT })
+    // Named concretely, not against the constants: comparing a constant to
+    // itself holds however the brand pair is spelled, including not at all.
+    expect(DEFAULT_HEADING_FONT).toBe('condensed')
+    expect(DEFAULT_BODY_FONT).toBe('sans')
+    expect(CATALOG_DEFAULT_FONTS).toEqual({ heading: 'condensed', body: 'sans' })
+  })
+
+  it('gives every entry the three names its render engines look up', () => {
+    // A blank cssStack renders the browser default, a blank docxName makes
+    // Word substitute — neither errors, so nothing else would notice.
+    const ids = new Set<string>()
+    const labels = new Set<string>()
+    for (const f of FONT_CATALOG) {
+      expect(f.id, 'id').not.toBe('')
+      expect(f.label, f.id).not.toBe('')
+      expect(f.cssStack, f.id).not.toBe('')
+      expect(f.docxName, f.id).not.toBe('')
+      ids.add(f.id)
+      labels.add(f.label)
+    }
+    expect(ids.size).toBe(FONT_CATALOG.length)
+    expect(labels.size).toBe(FONT_CATALOG.length)
+  })
+
+  it('asks the browser for the same family Word is told to use', () => {
+    // The preview is the promise; if its first-choice family is not the font
+    // named in the .docx, the two disagree by construction.
+    for (const f of FONT_CATALOG) {
+      const first = f.cssStack.split(',')[0].trim().replace(/^['"]|['"]$/g, '')
+      expect(first, f.id).toBe(f.docxName)
+    }
+  })
+
+  it('ends every stack with the generic family its category promises', () => {
+    const generic = { sans: 'sans-serif', serif: 'serif', mono: 'monospace' } as const
+    for (const f of FONT_CATALOG) {
+      const last = f.cssStack.split(',').pop()!.trim()
+      expect(last, f.id).toBe(generic[f.category])
+    }
   })
 })
 
@@ -77,5 +120,20 @@ describe('the id index behind fontById', () => {
 
   it('falls back rather than returning nothing for an unknown id', () => {
     expect(fontById('no-such-font')?.id).toBeTruthy()
+  })
+
+  it('treats an absent value as unset rather than looking one up', () => {
+    // A view with no font stored reaches here as null/undefined, not as ''.
+    expect(fontById(null).id).toBe(DEFAULT_BODY_FONT)
+    expect(fontById(undefined).id).toBe(DEFAULT_BODY_FONT)
+    expect(fontById('').id).toBe(DEFAULT_BODY_FONT)
+  })
+
+  it('uses the caller\'s fallback before the catalog default', () => {
+    // Headings fall back to the heading default, not the body one.
+    expect(fontById(null, DEFAULT_HEADING_FONT).id).toBe(DEFAULT_HEADING_FONT)
+    expect(fontById('no-such-font', 'times').id).toBe('times')
+    // ...and a fallback that is itself unknown still yields a usable font.
+    expect(fontById('no-such-font', 'also-missing').id).toBe(DEFAULT_BODY_FONT)
   })
 })

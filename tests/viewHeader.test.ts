@@ -201,10 +201,16 @@ describe('resolveHeaderFieldValue()', () => {
   })
 
   it('returns "" for null scalars', () => {
+    // Every scalar slot, not a sample of two: an unset field must drop out of
+    // the header line, and each slot reads its own resume field.
     const store = emptyStore()
-    const r = makeResume({ phone: null, linkedin_url: null })
-    expect(resolveHeaderFieldValue('phone', r, store, 'en')).toBe('')
-    expect(resolveHeaderFieldValue('linkedin', r, store, 'en')).toBe('')
+    const r = makeResume({
+      phone: null, email: null, linkedin_url: null,
+      website_url: null, twitter: null, date_of_birth: null,
+    })
+    for (const key of ['phone', 'email', 'linkedin', 'website', 'twitter', 'date_of_birth'] as const) {
+      expect(resolveHeaderFieldValue(key, r, store, 'en'), key).toBe('')
+    }
   })
 })
 
@@ -291,6 +297,12 @@ describe('buildCopyrightLine()', () => {
     const r = makeResume({ full_name: 'Ada Lovelace' })
     const footer = withFooterDefaults({ copyright: 'person' })
     expect(buildCopyrightLine(footer, r, 2026, 'en')).toBe('© 2026 Ada Lovelace')
+  })
+  it('returns empty when the chosen holder is unset rather than blank', () => {
+    // A resume with no name at all must not print a bare "© 2026".
+    const r = makeResume({ full_name: null, company_name: null })
+    expect(buildCopyrightLine(withFooterDefaults({ copyright: 'person' }), r, 2026, 'en')).toBe('')
+    expect(buildCopyrightLine(withFooterDefaults({ copyright: 'company' }), r, 2026, 'en')).toBe('')
   })
   it('uses the company name', () => {
     const r = makeResume({ company_name: 'Cartavio AS' })

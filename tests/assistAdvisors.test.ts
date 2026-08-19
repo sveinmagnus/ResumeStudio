@@ -1651,13 +1651,35 @@ describe('the two whole-CV prompts describe their own scope', () => {
     expect(prompt).not.toContain('projects: ')
   })
 
+  it('voicePass gives each section its own line in the editable list', () => {
+    // Run together, "projects: long_description educations: description" reads
+    // as one section owning every field named after it.
+    const lines = buildVoicePassPrompt(emptyStore(), 'en')
+      .split(/\r?\n/).filter((l) => /^ {2}\w+: /.test(l))
+    expect(lines).toContain('  projects: long_description, short_description')
+    expect(lines).toContain('  educations: description, short_description')
+    expect(lines.length).toBe(CV_SECTIONS.length)
+  })
+
+  it('voicePass drops a section with no prose field rather than listing a blank one', () => {
+    // A trailing "  languages:" would read as permission to edit all of it.
+    const prompt = buildVoicePassPrompt(emptyStore(), 'en', { sections: ['languages', 'projects'] })
+    expect(prompt).not.toMatch(/^ {2}languages:/m)
+    expect(prompt).toContain('  projects: long_description, short_description')
+  })
+
   it('cvReview lists the registry skills so the model can spot prose naming others', () => {
     const s = emptyStore()
-    s.skills = [makeSkill({ id: 's1', name: { en: 'Kubernetes' } }), makeSkill({ id: 's2', name: {} })]
+    s.skills = [
+      makeSkill({ id: 's1', name: { en: 'Kubernetes' } }),
+      makeSkill({ id: 's2', name: {} }),
+      makeSkill({ id: 's3', name: { en: 'Terraform' } }),
+    ]
     const line = buildCvReviewPrompt(s, 'en')
       .split(/\r?\n/).find((l) => l.startsWith('Skills currently in the registry:'))!
-    // A nameless registry entry must not become an empty item in the list.
-    expect(line).toBe('Skills currently in the registry: Kubernetes')
+    // A nameless registry entry must not become an empty item in the list, and
+    // the names have to stay separable — "KubernetesTerraform" is one skill.
+    expect(line).toBe('Skills currently in the registry: Kubernetes, Terraform')
   })
 
   it('cvReview reads the CV in the requested locale and leaves the short lines out', () => {

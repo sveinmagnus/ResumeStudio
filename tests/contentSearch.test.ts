@@ -238,6 +238,17 @@ describe('searchStore — gate, header and order', () => {
     expect(() => searchStore(s, 'Nordmann', 'en')).not.toThrow()
   })
 
+  it('names a nameless header hit after the page it opens', () => {
+    // The hit is a row in the results list; with no full_name it still has to
+    // say where it leads, and it is not a title match — the name matched
+    // nothing, the email did.
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: '', email: 'ada@example.com' })
+    const [hit] = searchStore(s, 'example.com', 'en')
+    expect(hit.section).toBe('header')
+    expect(hit.title).toBe('Personal Details')
+  })
+
   it('orders hits deterministically for equal relevance', () => {
     // Two identical matches must not swap places between renders.
     const s = emptyStore()

@@ -92,6 +92,16 @@ describe('posting term extraction', () => {
     expect(terms).toContain('Terraform')
   })
 
+  it('splits a run that spans a full stop, and keeps reading the next sentence', () => {
+    // A full stop is a word character to the run pattern (so "Node.js" holds
+    // together), which makes "Kubernetes. Azure DevOps" look like one term.
+    // Scanning has to resume just after the stop, or the phrase that opens the
+    // next sentence is swallowed by the one that ended the last.
+    const s = emptyStore()
+    expect(extractPostingTerms('We run Kubernetes. Azure DevOps builds it.', s, 'en'))
+      .toEqual(['Kubernetes', 'Azure DevOps'])
+  })
+
   it('picks up registry ROLES the posting mentions, not only skills', () => {
     // Roles are half the registry evidence and were never read here.
     const s = emptyStore()
