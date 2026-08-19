@@ -4,6 +4,8 @@ import { computeCompleteness, computeSectionCoverage, collectTrackedFields } fro
 import {
   emptyStore, makeProject, makeWork, makeEducation, makeKQ, makeCourse, makeSkill, makeRole,
   makeSkillCategory, makeCertification, makeResume, makeIndustry, makeCoverLetter,
+  makeKeyCompetency, makeRecommendation, makeSpokenLanguage, makePosition,
+  makePresentation, makePublication, makeAward, makeReference,
 } from './fixtures'
 
 describe('collectTrackedFields()', () => {
@@ -660,4 +662,59 @@ describe('completenessBySection — the order of the drill-down', () => {
     expect(rows.length).toBeGreaterThan(3)
     expect(rows.map((r) => r.label)).toEqual([...rows.map((r) => r.label)].sort((a, b) => a.localeCompare(b)))
   })
+})
+
+/**
+ * The per-section probe, one section at a time.
+ *
+ * `computeSectionCoverage` answers "how much of this section exists in this
+ * language", and the answer is a switch naming the fields that count per
+ * section. Every one of those field names survived the mutation report: the
+ * existing tests exercise Projects, Education and Employment, so a typo in any
+ * other section's list reports it as permanently 0 % — a panel telling the
+ * consultant to translate something they already translated.
+ */
+describe('computeSectionCoverage — the field each section counts', () => {
+  const coverage = (key: string, items: unknown[]): { total: number; populated: number } => {
+    const store = { ...emptyStore(), [key]: items } as unknown as Parameters<typeof computeSectionCoverage>[0]
+    const row = computeSectionCoverage(store, 'no').find((r) => r.key === key)!
+    return { total: row.total, populated: row.populated }
+  }
+
+  /**
+   * Each case: the section, an item filled ONLY in Norwegian, and the same
+   * item with that field cleared. Filled must count; cleared must not.
+   */
+  const cases: Array<[string, Record<string, unknown>, string[]]> = [
+    ['key_qualifications', makeKQ({ id: 'k1' }), ['summary', 'tag_line', 'label']],
+    ['key_competencies', makeKeyCompetency({ id: 'c1' }), ['title', 'description']],
+    ['recommendations', makeRecommendation({ id: 'r1' }), ['text', 'relationship']],
+    ['projects', makeProject({ id: 'p1' }), ['customer', 'description', 'long_description']],
+    ['work_experiences', makeWork({ id: 'w1' }), ['employer', 'role_title', 'long_description']],
+    ['educations', makeEducation({ id: 'e1' }), ['school', 'degree', 'description']],
+    ['courses', makeCourse({ id: 'co1' }), ['name', 'program', 'description']],
+    ['certifications', makeCertification({ id: 'ce1' }), ['name', 'organiser', 'description']],
+    ['spoken_languages', makeSpokenLanguage({ id: 'l1' }), ['name', 'level']],
+    ['positions', makePosition({ id: 'po1' }), ['name', 'organisation', 'description']],
+    ['presentations', makePresentation({ id: 'pr1' }), ['title', 'event', 'description']],
+    ['publications', makePublication({ id: 'pu1' }), ['title', 'publisher', 'abstract']],
+    ['honor_awards', makeAward({ id: 'a1' }), ['name', 'issuer', 'description']],
+    ['references', makeReference({ id: 'rf1' }), ['relationship']],
+    ['cover_letters', makeCoverLetter({ id: 'cl1' }), ['body', 'role_applied']],
+  ]
+
+  for (const [key, base, fields] of cases) {
+    it(`counts ${key} by ${fields.join(' / ')}`, () => {
+      // Blank every localized field, then fill exactly one at a time.
+      const blank: Record<string, unknown> = { ...base }
+      for (const f of fields) blank[f] = {}
+      expect(coverage(key, [blank]), `${key} with none of its fields`)
+        .toEqual({ total: 1, populated: 0 })
+
+      for (const field of fields) {
+        expect(coverage(key, [{ ...blank, [field]: { no: 'Noe tekst' } }]), `${key}.${field}`)
+          .toEqual({ total: 1, populated: 1 })
+      }
+    })
+  }
 })

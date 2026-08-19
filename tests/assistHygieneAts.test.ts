@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { emptyStore, makeProject, makeRole, makeSkill, makeResume, makeView, makeSkillCategory,
+import {
+  emptyStore, makeProject, makeRole, makeSkill, makeResume, makeView, makeSkillCategory,
+  makeIndustry,
 } from './fixtures'
 import type { ResumeStore, ResumeView } from '../src/types'
 import { buildViewSections } from '../src/lib/viewFilter'
@@ -554,6 +556,20 @@ describe('registry hygiene — categories and prompt', () => {
       const s = emptyStore()
       s.skills = [makeSkill(), makeSkill()]
       expect(hasRegistryContent(s)).toBe(true)
+    })
+
+    it('counts the three registries TOGETHER, not one against another', () => {
+      // Two entries in different registries are still two entries. Summing
+      // them wrongly makes the button vanish on a registry that has plenty.
+      const one = emptyStore()
+      one.skills = [makeSkill()]
+      one.roles = [makeRole()]
+      expect(hasRegistryContent(one)).toBe(true)
+
+      const other = emptyStore()
+      other.roles = [makeRole()]
+      other.industries = [makeIndustry()]
+      expect(hasRegistryContent(other)).toBe(true)
     })
   })
 })

@@ -38,7 +38,7 @@ import { countRegistryReferences, mergeRegistry, type RegistryKind } from './mer
 import { assignSkillCategory, categoryNameIndex, skillCategoryList } from './skillCategorize'
 import { resolve } from './locales'
 
-export const HYGIENE_SCHEMA = 'resumestudio-registry/v1'
+export const HYGIENE_SCHEMA = 'resumestudio-registry-hygiene/v1'
 
 const KINDS: readonly RegistryKind[] = ['skills', 'roles', 'industries']
 

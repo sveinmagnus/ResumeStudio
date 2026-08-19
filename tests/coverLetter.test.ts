@@ -3,6 +3,7 @@ import {
   bodyParagraphs, resolveLetterParts, buildCoverLetterText, buildCoverLetterPrompt,
   defaultDateline,
 } from '../src/lib/coverLetter'
+import { LOCALE_CODES } from '../src/lib/locales'
 import { emptyStore, makeResume, makeCoverLetter, makeView, makeProject, makeSkill } from './fixtures'
 import type { ResumeStore } from '../src/types'
 
@@ -55,6 +56,31 @@ describe('resolveLetterParts()', () => {
   it('localizes the subject prefix per language', () => {
     const letter = makeCoverLetter({ role_applied: { en: 'Architect', no: 'Arkitekt' } })
     expect(resolveLetterParts(storeWith(), letter, 'no').subject).toBe('Søknad på stillingen Arkitekt')
+  })
+
+  it('has a subject prefix for every offered locale, each in its own language', () => {
+    // The subject line is EXPORT chrome — it lands in the .pdf, the .docx and
+    // the .txt — so it is under the same locale-coverage contract as every
+    // heading (CLAUDE.md §12). It lives in a private map this suite is the
+    // only reader of, and `resolve` never throws, so an untranslated locale
+    // would ship a Norwegian letter headed in English.
+    const letter = makeCoverLetter({ role_applied: { en: 'Architect' } })
+    const prefixes = new Map<string, string>()
+    for (const code of LOCALE_CODES) {
+      const subject = resolveLetterParts(storeWith(), letter, code).subject
+      expect(subject.endsWith(' Architect'), code).toBe(true)
+      const prefix = subject.slice(0, -' Architect'.length)
+      expect(prefix.trim(), code).not.toBe('')
+      prefixes.set(code, prefix)
+    }
+    // Only the four languages that genuinely share a word may share one.
+    const english = prefixes.get('en')!
+    const alsoEnglish = [...prefixes].filter(([code, p]) => code !== 'en' && p === english)
+    expect(alsoEnglish, 'locales falling back to the English prefix').toEqual([])
+  })
+
+  it('writes no subject line at all when no role is named', () => {
+    expect(resolveLetterParts(storeWith(), makeCoverLetter({ role_applied: {} }), 'no').subject).toBe('')
   })
 
   it('trims every field it lifts, and drops the ones left empty', () => {

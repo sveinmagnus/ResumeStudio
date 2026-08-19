@@ -110,6 +110,33 @@ describe('diffStores', () => {
     // A section added since this map was written still names itself.
     expect(sectionLabel('brand_new_section')).toBe('brand_new_section')
   })
+
+  it('gives every mapped section its own name, not the raw key', () => {
+    // The conflict modal is a list of section names; an emptied one renders a
+    // blank row that the user has to guess at before choosing keep or discard.
+    // Pinned as a table so a renamed section fails here rather than silently.
+    const labels: Array<[string, string]> = [
+      ['skills', 'Skills'],
+      ['roles', 'Roles'],
+      ['key_qualifications', 'Key qualifications'],
+      ['projects', 'Projects'],
+      ['work_experiences', 'Work experience'],
+      ['educations', 'Education'],
+      ['courses', 'Courses'],
+      ['certifications', 'Certifications'],
+      ['spoken_languages', 'Languages'],
+      ['skill_categories', 'Skill categories'],
+      ['positions', 'Positions'],
+      ['presentations', 'Presentations'],
+      ['honor_awards', 'Awards'],
+      ['publications', 'Publications'],
+      ['references', 'References'],
+      ['views', 'Resume views'],
+    ]
+    for (const [key, label] of labels) expect(sectionLabel(key), key).toBe(label)
+    // Each name is distinct, or two sections read as one in the list.
+    expect(new Set(labels.map(([, l]) => l)).size).toBe(labels.length)
+  })
 })
 
 describe('the profile fields the conflict panel surfaces', () => {

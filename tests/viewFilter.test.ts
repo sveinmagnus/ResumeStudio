@@ -857,6 +857,28 @@ describe('buildViewHtml()', () => {
       expect(html).toContain("default-src 'none'")
     })
 
+    it('states every CSP directive, not just the default one', () => {
+      // This is the document's defence in depth behind the render-time
+      // escaping, and each directive closes a distinct hole. Emptied, a
+      // directive falls back to `default-src 'none'` for some and to the
+      // browser's permissive default for others (`base-uri`, `form-action`
+      // are NOT covered by default-src) — so the policy quietly gets weaker
+      // while a "has a CSP" check keeps passing.
+      const html = buildViewHtml(emptyStore(), makeView({ sections: buildViewSections() }), 'en')
+      const csp = /<meta http-equiv="Content-Security-Policy" content="([^"]+)"/.exec(html)![1]
+      expect(csp.split('; ')).toEqual([
+        "default-src 'none'",
+        "style-src 'unsafe-inline'",
+        "font-src 'self'",
+        "img-src 'self' data:",
+        "base-uri 'none'",
+        "form-action 'none'",
+      ])
+      // No directive permits script, in any form.
+      expect(csp).not.toMatch(/script-src/)
+      expect(csp).not.toMatch(/unsafe-eval/)
+    })
+
     // ── CSS-injection / <style> breakout via view style+header config ──
     // These fields come from the view, which can originate from an untrusted
     // backup / snapshot import (the editor UI validates, the import path does

@@ -18,7 +18,7 @@
 import type { ResumeStore, ResumeView } from '../types'
 import { buildTailorCatalog } from './viewTailor'
 
-export const PAGE_FIT_SCHEMA = 'resumestudio-fit/v1'
+export const PAGE_FIT_SCHEMA = 'resumestudio-pagefit/v1'
 
 export interface FitSuggestion {
   /** Catalog id of the item to drop. */
