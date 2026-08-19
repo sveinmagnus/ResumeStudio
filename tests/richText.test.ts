@@ -1778,3 +1778,42 @@ describe('cleanPastedHtml — the ragged Word-list shapes', () => {
     expect(cleanPastedHtml('<ol><li>only</li></ol>')).toBe('<ol><li>only</li></ol>')
   })
 })
+
+/**
+ * Formatting carried by the BLOCK rather than by a run inside it.
+ *
+ * `<p style="font-weight:700">` is how Word and Google Docs mark a whole
+ * paragraph bold — there is no `<strong>` anywhere in it. The paste path has a
+ * branch that lifts those flags onto a wrapper inside the block, and the
+ * mutation report showed no test reached it: every existing case puts the
+ * formatting on an inline element. Dropped, a bold paragraph pastes as plain
+ * text and the emphasis is gone with no way to tell it was ever there.
+ */
+describe('cleanPastedHtml — a block that is itself formatted', () => {
+  it('keeps a paragraph whose own style is bold, italic or underlined', () => {
+    expect(cleanPastedHtml('<p style="font-weight:700">Bold para</p>'))
+      .toBe('<strong>Bold para</strong>')
+    expect(cleanPastedHtml('<p style="font-style:italic">Ital para</p>'))
+      .toBe('<em>Ital para</em>')
+    expect(cleanPastedHtml('<p style="text-decoration:underline">Under para</p>'))
+      .toBe('<u>Under para</u>')
+  })
+
+  it('keeps a list item whose own style carries the formatting', () => {
+    expect(cleanPastedHtml('<ul><li style="font-weight:700">Bold item</li></ul>'))
+      .toBe('<ul><li><strong>Bold item</strong></li></ul>')
+  })
+
+  it('nests several flags rather than keeping only one', () => {
+    expect(cleanPastedHtml('<p style="font-weight:700;font-style:italic">Both</p>'))
+      .toBe('<strong><em>Both</em></strong>')
+  })
+
+  it('leaves an unformatted block alone', () => {
+    // The wrapper is added only when there is a flag to carry; an unconditional
+    // one would wrap every pasted paragraph in empty emphasis.
+    expect(cleanPastedHtml('<p style="color:red">Plain para</p>')).toBe('Plain para')
+    expect(cleanPastedHtml('<ul><li style="color:red">Plain item</li></ul>'))
+      .toBe('<ul><li>Plain item</li></ul>')
+  })
+})

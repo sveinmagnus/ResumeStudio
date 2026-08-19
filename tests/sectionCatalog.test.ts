@@ -1011,6 +1011,28 @@ describe('SECTION_CATALOG — every target carries the same facts', () => {
     expect(html.spacingBefore).toBe(0)
   })
 
+  it('applies that per-target layout in EVERY descriptor that branches on it', () => {
+    // Three descriptors read `ctx.target`, and only Projects was checked. An
+    // inverted test in either of the others gives the Word file body-sized
+    // headings and the preview large ones — the exact defect `ctx.target`
+    // exists to keep contained to layout, silently reversed.
+    for (const key of ['projects', 'work_experiences', 'educations']) {
+      const item = POPULATED.find(([k]) => k === key)![1]
+      const docx = SECTION_CATALOG[key].full!(item as never, ctxFor('docx', key))!
+      const html = SECTION_CATALOG[key].full!(item as never, ctxFor('html', key))!
+      expect(docx.spacingBefore, `${key} docx`).toBeGreaterThan(0)
+      expect(html.spacingBefore, `${key} html`).toBe(0)
+    }
+    // Only the two item-heavy sections get the larger heading; Education keeps
+    // the body size, so "docx means large" is not the rule.
+    const eduDocx = SECTION_CATALOG.educations.full!(
+      POPULATED.find(([k]) => k === 'educations')![1] as never, ctxFor('docx', 'educations'))!
+    expect(eduDocx.titleStyle).toBe('body')
+    const workDocx = SECTION_CATALOG.work_experiences.full!(
+      POPULATED.find(([k]) => k === 'work_experiences')![1] as never, ctxFor('docx', 'work_experiences'))!
+    expect(workDocx.titleStyle).toBe('large')
+  })
+
   it('leaves every declared group with something to switch on', () => {
     // A group that changes no output is a checkbox that lies.
     for (const [key, item] of POPULATED) {
@@ -1848,5 +1870,46 @@ describe('isEmptyItemView', () => {
     expect(isEmptyItemView({ ...blank(), meta: ['', ''], extraLines: [''] })).toBe(true)
     expect(isEmptyItemView({ ...blank(), attributionMeta: ['', ''] })).toBe(true)
     expect(isEmptyItemView({ ...blank(), points: [{ label: '', body: '' }] })).toBe(true)
+  })
+})
+
+/**
+ * The country code an import can carry, and what happens when it is junk.
+ *
+ * `Intl.DisplayNames.of()` throws a RangeError on a structurally invalid region
+ * subtag — and `location_country_code` is free-text in imported CVpartner and
+ * LinkedIn data, so "1A" or "X!" reaches here. The guard around it had no test:
+ * the mutation report could delete the catch entirely and nothing noticed,
+ * which is a thrown RangeError out of a descriptor and no export at all.
+ */
+describe('the project country code', () => {
+  const ctx = (): CatalogCtx => ({
+    locale: 'en', hideDates: false, dateFormat: 'month-year',
+    target: 'html', extras: new Set(['location']),
+  })
+  const shown = (code: unknown): string[] => {
+    const v = SECTION_CATALOG.projects.full!(
+      makeProject({ location_country_code: code } as never) as never, ctx())!
+    return [...v.meta, ...v.extraLines].filter(Boolean)
+  }
+
+  it('names the country from a real code, in either case', () => {
+    expect(shown('NO')).toContain('Norway')
+    expect(shown('no')).toContain('Norway')
+  })
+
+  it('falls back to the raw code rather than throwing on an invalid one', () => {
+    // Each of these makes Intl.DisplayNames throw. An export that dies here
+    // dies for the whole document, over one field nobody was looking at.
+    for (const junk of ['1A', 'X!', '??']) {
+      expect(shown(junk), junk).toContain(junk)
+    }
+  })
+
+  it('passes anything that is not a two-letter code straight through', () => {
+    // Only a 2-character value is a candidate subtag; a spelled-out country
+    // is already the answer.
+    expect(shown('Norway')).toContain('Norway')
+    expect(shown('')).toEqual([])
   })
 })

@@ -430,6 +430,15 @@ describe('bulkInstructions()', () => {
     for (const f of spec.fields) expect(md, f.name).toContain(`\`${f.name}\``)
   })
 
+  it('still names a language when the resume declares none', () => {
+    // A resume with no supported_locales yet reaches here with an empty list.
+    // Instructions that name no language ask the model to guess which column
+    // to fill, and it fills whichever it likes.
+    const md = bulkInstructions(spec, [])
+    expect(md).toContain('en')
+    expect(md).toMatch(/English/i)
+  })
+
   it('asks a multi-language resume for per-locale objects naming its locales', () => {
     const md = bulkInstructions(spec, ['no', 'en'])
     expect(md).toContain('written in 2 languages')
