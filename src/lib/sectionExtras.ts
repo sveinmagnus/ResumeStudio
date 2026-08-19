@@ -78,11 +78,6 @@ export function extrasFor(sectionKey: string): ExtraGroup[] {
   return lookup(SECTION_EXTRAS, sectionKey, [])
 }
 
-/** Does this section offer any optional groups? */
-export function hasExtras(sectionKey: string): boolean {
-  return extrasFor(sectionKey).length > 0
-}
-
 /**
  * RENDER BOUNDARY: coerce a stored `extras` list to the keys this section
  * actually declares. A view arrives from an untrusted import (a backup file,

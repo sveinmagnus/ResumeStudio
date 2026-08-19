@@ -126,9 +126,8 @@ export function fullItemLayout(
   v: { meta: readonly string[]; date: string }, layout: FullLayout,
 ): FullItemLayout {
   const dateFirst = layout === 'title-date-org' || layout === 'lead-date-org'
-  const parts = v.meta.filter(Boolean)
   return {
-    metaParts: (dateFirst ? [v.date, ...parts] : [...parts, v.date]).filter(Boolean),
+    metaParts: (dateFirst ? [v.date, ...v.meta] : [...v.meta, v.date]).filter(Boolean),
     metaFirst: layout === 'lead-org-date' || layout === 'lead-date-org',
   }
 }
