@@ -140,9 +140,12 @@ Before filing something as a bug, rule out the harness. Common false alarms:
   change in the order of Hooks" comparing the *old* module's hook sequence to
   the *new* one. A full reload (or restart the dev server) clears it. If the
   production **build** is clean and unit tests pass, the code is fine.
-- **Port collisions** from the launcher injecting an env var (a dev server and
-  API fighting over one port) → spurious save failures. Known-quirk, not your
-  change.
+- **Port collisions** between the dev server and the API are *not* a free pass
+  any more: `scripts/dev-server.mjs` pins the API to `RESUME_SERVER_PORT ?? 3001`
+  before handing off, so an injected `PORT` (the in-app preview sends 5173) moves
+  the CLIENT only. If `/api` calls fail against the wrong port today, treat it as
+  real — you started the server some other way, or set `PORT` expecting it to
+  move the API. `RESUME_SERVER_PORT` is the lever.
 - **Stale local/persisted state** — localStorage cache, a DB row from a prior
   manual `PUT`, a service worker. Clear it and retry.
 - **Pop-up blockers / permissions** for print/export/clipboard flows.

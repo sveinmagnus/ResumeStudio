@@ -163,9 +163,12 @@ touch undo, change `UndoHistory` and its tests, not the timing glue.
    - `loadStore` resets to 0, `replaceData` bumps.
    Add a case for your action, including its no-op.
 
-## 10. Gotcha for live verification
+## 10. Live verification
 
-Auto-save can't be verified inside the Claude preview tool as-is: it injects
-`PORT=5173`, which the Express server also tries to bind, colliding with Vite →
-spurious save 500s. Run the server manually on 3001 to test save end-to-end
-(see CLAUDE.md known quirks). Don't mistake those 500s for a code bug.
+Auto-save is verifiable inside the Claude preview tool: `npm run dev` routes the
+API through `scripts/dev-server.mjs`, which pins it to `RESUME_SERVER_PORT ??
+3001` before starting Express, so the `PORT=5173` the preview injects moves the
+CLIENT only and Vite's `/api` proxy still finds the server.
+
+Which means a save 500 there is a real finding, not the harness. Move the API
+with `RESUME_SERVER_PORT`, never `PORT` — `PORT` is the client's.

@@ -22,11 +22,11 @@ prescriptive.
   the picker aggregates skills across everyone into a skill × person grid
   (proficiency per holder; a present-but-unrated ✓ for CVpartner's 0s; a
   shared-only filter for team overlap vs single-holder bus-factor risks; click a
-  name to open that CV). **Interim data source**: groups by normalized
-  `skillKey` across each resume's own registry, fetched client-side (fine at
-  small-team scale). The panel also hosts **"Share registries across resumes"**
+  name to open that CV). **Data source**: groups by normalized `skillKey` across
+  each resume's own registry, fetched client-side — deliberately simple, and
+  sized for a small team rather than an org. The panel also hosts **"Share registries across resumes"**
   (below).
-- **Cross-resume shared registries** (Stage 3, additive-link path) — skills/roles/industries/categories can be
+- **Cross-resume shared registries** (the additive-link design) — skills/roles/industries/categories can be
   linked to an instance-level canonical registry so a **rename in one resume
   propagates to all**. Reached WITHOUT a destructive migration: an additive
   `canonical_id?` on each registry entry (the split: shared identity is the
@@ -40,8 +40,11 @@ prescriptive.
   overlay, raw set — no auto-save); `useCanonicalRegistrySync` (EditorRoute —
   debounced rename→canonical push, NAME only, never per-resume `category_id`).
   The overlay is authoritative, so a locally-diverged name self-heals to
-  canonical on load. Remaining: backup portability (embed+re-intern), a
-  registry conflict surface, desktop-merge.
+  canonical on load. Backups are portable: a resume file embeds the canonical
+  entries it references and `lib/registryReintern.ts` re-interns them on import,
+  so one file can rebuild the registry it depends on in a fresh instance. A
+  divergence surfaces as `RegistryConflictNotice`, and the desktop sync merges
+  registries by key (`db.mergeRegistry`, driven by `backupWatcher`).
 - **Auto-save** to an Express + SQLite backend (debounced ~1s) — sends the
   resume payload + locales in a single PUT per mutation. **Per-id
   localStorage fallback** so a server outage never costs work.
@@ -78,8 +81,8 @@ prescriptive.
   `{ id, resume_id, name: LocalizedString, sort_order }`, shape v6,
   `ResumeStore.skill_categories`) linked from `Skill.category_id`, replacing
   both the old free-text `Skill.category` string AND the separate "Skills
-  Showcase" feature's own curated `technology_categories[]` groups (roadmap:
-  showcase unification, 2026-07). **`category_id` is a skill's SINGLE grouping
+  Showcase" feature's own curated `technology_categories[]` groups (see the
+  2026-07 showcase unification below). **`category_id` is a skill's SINGLE grouping
   concept** — the old `skill_type` enum was removed earlier and stays gone;
   only importers/backups may carry legacy `category`/`technology_categories`
   leftovers, converted on load by `migrate.ts → unifyShowcaseCategories` (shape
@@ -739,10 +742,9 @@ in their own chunks. **Stryker** mutation testing
 gate — it answers the question coverage cannot: not "did this line run" but
 "would any test have noticed if it were wrong".
 
-**Deferred / dropped:** **A4 Phase 2** (content-addressed asset table) was
-deliberately deferred — measurement infra shipped; build the table only when
-real data warrants. **F4** (application log) was dropped as out of scope.
-(**F8 cover letter** was later un-dropped and shipped — see above.)
+**Deferred and dropped work is not catalogued here** — `plans/open-items.md`
+is its single home, with the trigger condition for each deferral and the closed
+decisions that must not be re-proposed. This file records only what exists.
 
 The **v0.3.1 UX/accessibility wave** (12 `ux/*` branches) shipped: programmatic
 labels + per-locale `lang` everywhere (`bcp47()`), live regions for save

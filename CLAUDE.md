@@ -389,7 +389,8 @@ server/              ← Express API + SQLite persistence
 └── routes/          ← auth, resume, registry, translate, llm, summarize, backup, settings, update
 
 scripts/             ← build-desktop (assembles the portable release/ folder, per target
-                        OS), check-bundle-size + check-control-chars (CI gates), dev-server
+                        OS), check-bundle-size + check-control-chars + check-arch-map
+                        (CI gates — the last asserts this very map is complete), dev-server
                         (pins the API port — see §11), mutation-run, and the two codegen
                         steps: gen-section-icons, build-skill-taxonomy
 tests/               ← Vitest (lib/store/components/server); e2e/ holds the Playwright
@@ -900,8 +901,10 @@ tailoring + ATS text/Markdown, LinkedIn/Europass/AI import, the Quadim
 skill-taxonomy integration, the showcase→category unification, the Industry
 registry + generic `mergeRegistry`, career timeline, global search, cross-resume
 shared registries, the Profiles rework and profile bundles, cover letters, the
-v0.3.1 UX/accessibility wave, and the v0.10 advanced-assist tier (twelve assists
-+ the bilingual glossary).
+v0.3.1 UX/accessibility wave, the v0.10 advanced-assist tier (twelve assists +
+the bilingual glossary), and the 1.0.1 export parity work — one set of facts and
+one set of style choices across the preview, PDF, Word and ATS text, with the
+optional extras chosen per view (`lib/sectionExtras.ts`) rather than per target.
 
 **Two things are settled and are not open questions:**
 
