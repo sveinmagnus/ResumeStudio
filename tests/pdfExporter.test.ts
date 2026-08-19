@@ -2482,6 +2482,10 @@ describe('buildPdfDocDefinition — the tabulated summary grid', () => {
         id: 'p2', customer: { en: 'Beta' }, description: { en: 'Undated' },
         start: null, end: null,
       }),
+      makeProject({
+        id: 'p3', customer: { en: 'Gamma' }, description: { en: 'Ended' },
+        start: null, end: { year: 2020, month: 3 },
+      }),
     ]
     return s
   }
@@ -2516,7 +2520,7 @@ describe('buildPdfDocDefinition — the tabulated summary grid', () => {
     const g = await grid({})
     for (const row of g.table.body) {
       expect(row.filter((c) => c.bold)).toHaveLength(1)
-      expect(row.find((c) => c.bold)!.text).toMatch(/Payments|Undated/)
+      expect(row.find((c) => c.bold)!.text).toMatch(/Payments|Undated|Ended/)
     }
   })
 
@@ -2524,6 +2528,9 @@ describe('buildPdfDocDefinition — the tabulated summary grid', () => {
     const g = await grid({})
     expect(g.table.body[0].map((c) => c.text)).toEqual(['Jan 2021', '·', 'Jun 2023', 'Payments', 'Acme'])
     expect(g.table.body[1].map((c) => c.text)).toEqual(['', '', '', 'Undated', 'Beta'])
+    // One end and not the other: the marker needs BOTH sides, or it reads as
+    // an open-ended range the item never claimed.
+    expect(g.table.body[2].map((c) => c.text)).toEqual(['', '', 'Mar 2020', 'Ended', 'Gamma'])
   })
 
   it('rules between the rows and never around the grid', async () => {
@@ -2555,5 +2562,71 @@ describe('buildPdfDocDefinition — the tabulated summary grid', () => {
     expect(g.layout.paddingLeft(0)).toBe(0)
     expect(g.layout.paddingLeft(1)).toBeGreaterThan(0)
     expect(g.layout.paddingLeft(3)).toBeGreaterThan(0)
+  })
+})
+
+/**
+ * Inline formatting on a PDF run.
+ *
+ * The Word exporter has asserted bold / italic / underline on its runs since
+ * the rich-text work; the PDF side never did, and the mutation report showed
+ * `decoration` was reached by no test at all — in the body renderer OR in the
+ * key-points one. Underline is in the editor's allowlist, so a consultant who
+ * underlines a phrase sees it in the preview and in Word; losing it here is
+ * silent, because a `decoration: undefined` run renders perfectly well.
+ */
+describe('buildPdfDocDefinition — inline formatting on a run', () => {
+  /** Every `{ text: … }` node in the tree, so a run can be found by its text. */
+  const runs = (node: unknown, out: Array<Record<string, unknown>> = []): Array<Record<string, unknown>> => {
+    if (Array.isArray(node)) { node.forEach((n) => runs(n, out)); return out }
+    if (!node || typeof node !== 'object') return out
+    const rec = node as Record<string, unknown>
+    if (typeof rec.text === 'string') out.push(rec)
+    for (const v of Object.values(rec)) if (v && typeof v === 'object') runs(v, out)
+    return out
+  }
+
+  const bodyRuns = async (html: string): Promise<Array<Record<string, unknown>>> => {
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    s.projects = [makeProject({ id: 'p1', customer: { en: 'Acme' }, long_description: { en: html } })]
+    const d = await buildPdfDocDefinition(s, makeView({
+      sections: [{ key: 'projects', detail: 'full', sort_order: 0 } as never],
+    }), 'en')
+    return runs(d.content)
+  }
+
+  it('carries bold, italic and underline, each onto its own run', async () => {
+    const out = await bodyRuns('<p>plain <strong>bold</strong> <em>ital</em> <u>und</u></p>')
+    const of = (text: string) => out.find((r) => r.text === text)!
+    expect(of('bold').bold).toBe(true)
+    expect(of('ital').italics).toBe(true)
+    expect(of('und').decoration).toBe('underline')
+    // …and the plain run carries none of them, so each flag comes from the run
+    // rather than being set across the paragraph.
+    expect(of('plain ').bold).toBeFalsy()
+    expect(of('plain ').italics).toBeFalsy()
+    expect(of('plain ').decoration).toBeUndefined()
+  })
+
+  it('carries the same formatting into a key point', async () => {
+    // Key points are built by their own renderer, which had its own copy of
+    // the run mapping — and its own way to lose one of the three.
+    const s = emptyStore()
+    s.resume = makeResume({ full_name: 'X' })
+    s.key_qualifications = [makeKQ({
+      id: 'k1',
+      key_points: [{
+        id: 'kp1', sort_order: 0, disabled: false,
+        name: { en: 'Scale' },
+        long_description: { en: '<p>Ran <u>twelve</u> <strong>teams</strong>.</p>' },
+      }],
+    })]
+    const d = await buildPdfDocDefinition(s, makeView({
+      sections: [{ key: 'key_qualifications', detail: 'full', sort_order: 0 } as never],
+    }), 'en')
+    const out = runs(d.content)
+    expect(out.find((r) => r.text === 'twelve')!.decoration).toBe('underline')
+    expect(out.find((r) => r.text === 'teams')!.bold).toBe(true)
   })
 })

@@ -2192,6 +2192,17 @@ describe('exportDocx — header image placement, spacing and masking', () => {
     await exportWith({ photo_placement: 'left', photo_shape: 'circle' }, { profile_photo: null })
     expect(maskSpy).not.toHaveBeenCalled()
   })
+
+  it('falls back to the unmasked photo when masking fails, rather than losing the export', async () => {
+    // The mask needs a real canvas, which the desktop build has and a headless
+    // context may not. A rounded corner is worth less than the document: the
+    // failure path has to embed the original bytes and carry on.
+    maskSpy.mockRejectedValue(new Error('no canvas here'))
+    const xml = await exportWith(
+      { photo_placement: 'above', photo_shape: 'circle' }, { profile_photo: pngSized(100, 100) })
+    expect(maskSpy).toHaveBeenCalled()
+    expect(extents(xml)).toEqual([{ w: 100, h: 100 }])
+  })
 })
 
 /**
@@ -2832,11 +2843,15 @@ describe('exportDocx() — the tabulated summary grid', () => {
         id: 'p3', customer: { en: 'Gamma' }, description: { en: 'Undated' },
         start: null, end: null,
       }),
+      makeProject({
+        id: 'p4', customer: { en: 'Delta' }, description: { en: 'Ended' },
+        start: null, end: { year: 2020, month: 3 },
+      }),
     ]
     return s
   }
 
-  interface Cell { width: string; text: string; bold: boolean; bottom: string }
+  interface Cell { width: string; text: string; color: string; bold: boolean; bottom: string }
 
   /** The grid as rows of cells: width, text, weight and the rule beneath. */
   const grid = async (style: Record<string, unknown>): Promise<Cell[][]> => {
@@ -2848,6 +2863,7 @@ describe('exportDocx() — the tabulated summary grid', () => {
     return tbl.split('<w:tr>').slice(1).map((row) => row.split('<w:tc>').slice(1).map((c) => ({
       width: (c.match(/<w:tcW w:type="pct" w:w="([^"]+)"/) ?? [])[1] ?? '',
       text: (c.match(/<w:t xml:space="preserve">([^<]*)</) ?? [])[1] ?? '',
+      color: (c.match(/<w:color w:val="([^"]+)"/) ?? [])[1] ?? '',
       bold: /<w:b\/>/.test(c),
       bottom: (c.match(/<w:tcBorders>[\s\S]*?<w:bottom w:val="([^"]+)"/) ?? [])[1] ?? '',
     })))
@@ -2856,9 +2872,23 @@ describe('exportDocx() — the tabulated summary grid', () => {
   it('gives the date columns a narrow share and splits the rest between the wide ones', async () => {
     // Three narrow columns capped at 12 % each, the remaining 64 % halved.
     const rows = await grid({})
-    expect(rows).toHaveLength(3)
+    expect(rows).toHaveLength(4)
     for (const row of rows) {
       expect(row.map((c) => c.width)).toEqual(['12%', '12%', '12%', '32%', '32%'])
+    }
+  })
+
+  it('leaves the title in ink and greys the rest of the row', async () => {
+    // The grid's point is that the title reads as the item and the columns
+    // around it read as its metadata. Colouring the title too, or leaving the
+    // dates in body ink, flattens the row into one undifferentiated line.
+    const rows = await grid({})
+    for (const row of rows) {
+      const title = row.find((c) => c.bold)!
+      expect(title.color, 'title cell').toBe('')
+      for (const c of row.filter((x) => x !== title)) {
+        expect(c.color, `${title.text} / ${c.text}`).not.toBe('')
+      }
     }
   })
 
@@ -2866,7 +2896,7 @@ describe('exportDocx() — the tabulated summary grid', () => {
     const rows = await grid({})
     for (const row of rows) {
       expect(row.filter((c) => c.bold)).toHaveLength(1)
-      expect(row.find((c) => c.bold)!.text).toMatch(/Payments|Data mesh|Undated/)
+      expect(row.find((c) => c.bold)!.text).toMatch(/Payments|Data mesh|Undated|Ended/)
     }
   })
 
@@ -2880,6 +2910,9 @@ describe('exportDocx() — the tabulated summary grid', () => {
     // An undated item has nothing to range: the column stays blank so the
     // grid keeps its shape without drawing a marker between two absences.
     expect(rows[2].map((c) => c.text)).toEqual(['', '', '', 'Undated', 'Gamma'])
+    // One end and not the other needs BOTH sides checked, or the marker reads
+    // as an open-ended range the item never claimed.
+    expect(rows[3].map((c) => c.text)).toEqual(['', '', 'Mar 2020', 'Ended', 'Delta'])
   })
 
   it('carries the divider as the row rule, and never under the last row', async () => {
@@ -2888,7 +2921,8 @@ describe('exportDocx() — the tabulated summary grid', () => {
     const on = await grid({ item_divider: true, divider_style: 'line' })
     expect(on[0].every((c) => c.bottom === 'single')).toBe(true)
     expect(on[1].every((c) => c.bottom === 'single')).toBe(true)
-    expect(on[2].every((c) => c.bottom === 'none')).toBe(true)
+    expect(on[2].every((c) => c.bottom === 'single')).toBe(true)
+    expect(on[3].every((c) => c.bottom === 'none')).toBe(true)
   })
 
   it('draws no row rule at all when the view turns the divider off', async () => {
