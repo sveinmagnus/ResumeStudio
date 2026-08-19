@@ -210,11 +210,12 @@ tests/           Vitest specs (see CI for the live count) — pure libs, store, 
 | `npm run test:e2e` | Build, then run the Playwright smoke + accessibility suites |
 | `npm run lint` | ESLint — a CI gate, not a style pass (see `eslint.config.js`) |
 | `npm run check:bundle` | Assert the initial-payload budget and that the heavy chunks stayed lazy |
+| `npm run check:arch` | Assert every module is named in CLAUDE.md's architecture map |
 | `npm run dev:translate` | Start the bundled LibreTranslate Docker service (`translate:down` stops it) |
 
-CI (`.github/workflows/ci.yml`) runs lint + check:text + typecheck + test +
-build + check:bundle on every push and PR, plus the coverage ratchet, the
-Playwright suites on Chromium/Firefox/WebKit, CodeQL, and gitleaks.
+CI (`.github/workflows/ci.yml`) runs lint + check:text + check:arch + typecheck
++ test + build + check:bundle on every push and PR, plus the coverage ratchet,
+the Playwright suites on Chromium/Firefox/WebKit, CodeQL, and gitleaks.
 
 ---
 

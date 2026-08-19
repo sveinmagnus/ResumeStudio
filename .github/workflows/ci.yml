@@ -46,6 +46,13 @@ jobs:
       - name: No raw control characters
         run: npm run check:text
 
+      # CLAUDE.md's architecture map calls itself one line per file, and an agent
+      # trusts that before opening anything — a module missing from it reads as a
+      # module that does not exist, so the next one gets written beside it. The
+      # map was short by 48 of ~100 lib modules before this ran.
+      - name: Architecture map is complete
+        run: npm run check:arch
+
       - name: Typecheck
         run: npm run typecheck
 

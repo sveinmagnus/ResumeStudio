@@ -702,7 +702,11 @@ crafted view crashing the exporter). A **local name for the desktop build**
 (`resumestudio.localhost`, no setup; `resumestudio.local` behind one elevated
 hosts-file write — `server/localHost.ts`) and **port 80 before 1923**. **Intel
 macOS release assets**, without which the updater failed closed on every Intel
-Mac. The 1.0.0 cycle before it was a quality milestone rather than a feature
+Mac. A **completeness gate on the architecture map** (`npm run check:arch`) —
+CLAUDE.md §3 calls itself one line per file, and it was short by 48 of ~100 lib
+modules, so the claim became a CI check rather than a promise.
+
+The 1.0.0 cycle before it was a quality milestone rather than a feature
 release: AA contrast fixed on all three paper surfaces (the jsdom axe suite
 could not see it — no layout engine), unlabelled view-editor controls named,
 and the legal/policy texts written (LICENSE, PRIVACY, SECURITY,

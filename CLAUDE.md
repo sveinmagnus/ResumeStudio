@@ -189,7 +189,10 @@ Wishlist: §12.
   enforces a ratchet (global 78 % statements / 81 % lines, `src/lib` 86 % / 89 %)
   set just below current so it catches decay, not noise; `npm run test:mutation` (Stryker, `src/lib` only) is
   an **audit you run before a release**, not a CI gate — it reports which
-  assertions aren't there. `npm run check:text` fails on a raw control character
+  assertions aren't there. `npm run check:arch` fails when a module is
+  missing from the §3 architecture map, because a map that quietly stops being
+  complete makes a module read as one that does not exist — the next reader
+  writes a second one beside it. `npm run check:text` fails on a raw control character
   anywhere git tracks — ESLint covers the same ground for `.ts`/`.tsx` only, and
   the last stray NUL landed in CLAUDE.md, outside its reach. `.gitattributes`
   backs it up on git's side (`diff` keeps a file textual to `git diff`/`git grep`
@@ -247,6 +250,12 @@ Wishlist: §12.
 
 One-line-per-file navigation aid. Where a file is subtle, the noted skill or
 CLAUDE.md section carries the detail.
+
+**This is a gate, not a promise.** `npm run check:arch` fails if a module under
+`src/lib`, `src/store`, `server/` or `scripts/` is not named below, so adding
+one means adding its line here. `src/components` is grouped by role instead —
+folding a family into one phrase is the right altitude for ~80 files, so that
+half stays a matter of review.
 
 ```
 src/
@@ -355,6 +364,9 @@ server/              ← Express API + SQLite persistence
 ├── registryDb.ts (instance-level cross-resume registry: canonical entries,
 │   promoteFromResumes, mergeRegistry for desktop sync) · skillKey.ts
 │   (server mirror of the client skill key; cross-check test guards drift)
+├── resumeId.ts (isValidResumeId — the ONE charset rule for an inbound id, which
+│   is also the only untrusted field that becomes a FILENAME. Zero imports so
+│   both inbound parsers can share it without a cycle)
 ├── backupFiles.ts (THE sync-folder layout: one `<slug>__<id>.json` per resume +
 │   resume-studio-registry.json + tombstones; scan/reconcile/write/recordDeletion) ·
 │   backupZip.ts (the same files as one manual-export archive) ·
@@ -592,7 +604,7 @@ Navigation: `setActiveSection(key)` / `setExpandedItem(id)`. Undo/redo: `useUndo
 2. Add the empty array to both `emptyStore()` and `freshStore()` in `lib/freshStore.ts`.
 3. Add an entry to `SECTIONS` in `lib/sections.ts`. Sidebar *group* order comes from `GROUP_ORDER` (export-first); SECTIONS order drives the view editor's default section sequence. If the section is edited on another section's page, extend `canonicalSectionKey()`.
 4. Add the icon import to `Sidebar.tsx`'s `ICON_MAP`.
-5. Create the editor component and wire it into `App.tsx`'s `EditorRoute` switch (the key is auto a valid URL segment; EditorRoute validates against SECTIONS).
+5. Create the editor component and wire it into `App.tsx`'s `EditorRoute` switch (the key is auto a valid URL segment; EditorRoute validates against SECTIONS). Any new `lib/`, `store/`, `server/` or `scripts/` module also needs its line in the §3 map — `npm run check:arch` will tell you.
 6. If sortable by `sort_order`, wrap `<EditorCard>`s in `<SortableList section="…" ids={…}>`. Else pass `sortable={false}` to each card.
 7. If it should appear in Resume View exports: add **one descriptor** to `lib/sectionCatalog.ts` (title/subtitle + `summary()`/`full()` data views). Every render path (HTML/PDF, DOCX, text/Markdown) consumes the catalog through its generic adapter. Descriptors return **data only** — adapters own escaping; never build markup in a descriptor. **`ctx.target` selects LAYOUT ONLY** (title sizing, spacing, title composition) — never which FACTS an item carries. Optional facts are per-VIEW, declared as a group in `lib/sectionExtras.ts` and read via `ctx.extras`; see the note below on why. Views pick it up via `isExportableSection` + `normalizeViewSections`; give it a `defaultViewDetail` if not `full`. A **synthetic** section (derives its items instead of owning a store array, like `promoted_projects`) is declared once in `lib/viewSectionPlan.ts` — add its `RENDER_KEY` entry and a `sectionItems` branch there, never a `key === '…'` check in a renderer. See the **export-pipeline** and **security** skills.
 8. If you add a configurable **style/header field** to a view, it is untrusted-import surface — sanitise at the render boundary (`viewStyle.ts → deriveTokens` / `viewHeader.ts → withHeaderDefaults`) and add a breakout regression test. See the security skill.
@@ -837,6 +849,7 @@ npm run test:e2e         # build + Playwright (smoke + a11y, three engines)
 npm run lint             # eslint (CI gate)   npm run lint:fix     # eslint --fix
 npm run check:bundle     # initial-payload budget (needs a build first)
 npm run check:text       # raw control characters anywhere git tracks (CI gate)
+npm run check:arch       # every module is named in the §3 architecture map (CI gate)
 npm run test:mutation    # Stryker over src/lib — slow, pre-release audit
 npm start                # production server (NODE_ENV=production)
 npm run desktop          # build client + run the desktop launcher from source (tsx)
@@ -846,7 +859,7 @@ npm run gen:taxonomy     # rebuild the slim Quadim skill-taxonomy JSON
 ```
 
 ### Verifying changes
-After any significant change: 1. `npm run lint` (clean) → 2. `npm run check:text` (clean) → 3. `npm run typecheck` (clean) → 4. `npm test` (green) → 5. `npm run build` (clean — catches what tsc misses) → 6. `npm run check:bundle` → 7. for UI, click through the affected flow. CI runs steps 1–6 in that order, plus the coverage ratchet, the Playwright suites on three engines, CodeQL, gitleaks, and an advisory depcheck. Before committing anything touching HTML/string templating, the server, auth, persistence, imports, or exports, run through the **security skill** (`.claude/skills/security-review.md`).
+After any significant change: 1. `npm run lint` (clean) → 2. `npm run check:text` (clean) → 3. `npm run check:arch` (clean — only bites if you added a module) → 4. `npm run typecheck` (clean) → 5. `npm test` (green) → 6. `npm run build` (clean — catches what tsc misses) → 7. `npm run check:bundle` → 8. for UI, click through the affected flow. CI runs steps 1–7 in that order, plus the coverage ratchet, the Playwright suites on three engines, CodeQL, gitleaks, and an advisory depcheck. Before committing anything touching HTML/string templating, the server, auth, persistence, imports, or exports, run through the **security skill** (`.claude/skills/security-review.md`).
 
 ### Server / env
 - Copy `.env.example` to `.env`; set `RESUME_API_TOKEN` for a deployed instance (empty disables auth — fine for local dev).

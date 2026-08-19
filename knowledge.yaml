@@ -14,7 +14,7 @@ units:
   # ── Instruction layer (eager — Claude Code auto-loads CLAUDE.md) ──────────
   - id: claude-instructions
     path: CLAUDE.md
-    intent: "How must an agent work in this codebase? Architecture map, data model, store patterns, conventions (incl. the v0.3.1 accessibility invariants, the three-surface contrast rule, and the version/build-channel source-of-truth rules), and what not to change. Holds invariants only — the exhaustive feature catalog is in feature-map."
+    intent: "How must an agent work in this codebase? Architecture map (complete by CI gate — see arch-map-policy), data model, store patterns, conventions (incl. the v0.3.1 accessibility invariants, the three-surface contrast rule, and the version/build-channel source-of-truth rules), and what not to change. Holds invariants only — the exhaustive feature catalog is in feature-map."
     scope: global
     audience: [agent, developer]
     validated: "2026-08-19"
@@ -147,7 +147,7 @@ units:
 
   - id: skill-software-testing
     path: .claude/skills/software-testing.md
-    intent: "How to write tests that find bugs here — the six-step lint/check:text/typecheck/test/build/check:bundle gate in ci.yml order, regression discipline, telling a real failure from harness noise, and live verification."
+    intent: "How to write tests that find bugs here — the seven-step lint/check:text/check:arch/typecheck/test/build/check:bundle gate in ci.yml order, regression discipline, telling a real failure from harness noise, and live verification."
     scope: project
     audience: [agent]
     validated: "2026-08-19"
@@ -319,6 +319,25 @@ units:
       token_estimate: 2400
       priority: supplementary
 
+  - id: arch-map-policy
+    kind: policy
+    path: scripts/check-arch-map.mjs
+    intent: "What keeps CLAUDE.md's architecture map complete, and what does it deliberately not check? Asserts every module under src/lib, src/store, server/ and scripts/ is named in §3, scoped per map region so a duplicated basename cannot vouch for its twin. The reverse direction — a name in the map whose file is gone — is explicitly out of scope and stays a review concern."
+    format: text
+    scope: project
+    audience: [agent, developer]
+    validated: "2026-08-19"
+    update_frequency: rarely
+    depends_on: [claude-instructions, ci-policy]
+    triggers: [architecture-map, check-arch, docs-drift, new-module, gate]
+    not_for: ["what a module does", "component structure"]
+    content_structure:
+      primary: code
+      density: normal
+    hints:
+      token_estimate: 1100
+      priority: supplementary
+
   - id: coverage-and-bundle-policy
     kind: policy
     path: vite.config.ts
@@ -341,7 +360,7 @@ units:
   - id: ci-policy
     kind: policy
     path: .github/workflows/ci.yml
-    intent: "What checks must pass on every push and PR? (lint + check:text + typecheck + test + build + check:bundle, plus coverage thresholds, the Playwright e2e job on three engines, and advisory depcheck). Hardened with least-privilege token, concurrency, and per-job timeouts."
+    intent: "What checks must pass on every push and PR? (lint + check:text + check:arch + typecheck + test + build + check:bundle, plus coverage thresholds, the Playwright e2e job on three engines, and advisory depcheck). Hardened with least-privilege token, concurrency, and per-job timeouts."
     format: yaml
     scope: project
     audience: [developer, agent]
@@ -508,6 +527,11 @@ relationships:
   # that explains the gate have to move together.
   - from: coverage-and-bundle-policy
     to: skill-software-testing
+    type: governs
+  # The map is a claim CLAUDE.md makes about itself; the gate is what keeps the
+  # claim true, so the two have to be read together.
+  - from: arch-map-policy
+    to: claude-instructions
     type: governs
   - from: release-policy
     to: skill-ci-and-release

@@ -37,8 +37,11 @@ otherwise.
 npm run lint && npm run typecheck && npm test && npm run build && npm run check:bundle
 ```
 
-`npm run check:text` also runs in CI and catches raw control characters
-anywhere git tracks — including Markdown, which ESLint does not cover.
+Two more run in CI and are worth a local pass first, since both fail on things
+the others cannot see: `npm run check:text` catches raw control characters
+anywhere git tracks — including Markdown, which ESLint does not cover — and
+`npm run check:arch` catches a module that never made it into CLAUDE.md's
+architecture map.
 
 ### 2. The gates CI does *not* run
 

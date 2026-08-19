@@ -22,17 +22,20 @@ same order `.github/workflows/ci.yml` runs, so a local pass predicts a green CI.
    type system can't see, so a lint failure is usually a real defect.
 2. **Control characters** (`npm run check:text`) — a raw NUL makes git and grep
    treat the whole file as binary, which is how an edit escapes review.
-3. **Typecheck** (`npm run typecheck` / `tsc --noEmit`) — covers *all* tsconfig
+3. **Architecture map** (`npm run check:arch`) — every module under `src/lib`,
+   `src/store`, `server/` and `scripts/` is named in CLAUDE.md §3. It only fires
+   when you added a module, and the fix is one line in the map.
+4. **Typecheck** (`npm run typecheck` / `tsc --noEmit`) — covers *all* tsconfig
    projects (client *and* server). Clean types are table stakes, not done.
-4. **Tests** (`npm test`) — the behavioural contract.
-5. **Build** (`npm run build`) — the prod bundler catches what `tsc` cannot:
+5. **Tests** (`npm test`) — the behavioural contract.
+6. **Build** (`npm run build`) — the prod bundler catches what `tsc` cannot:
    missing exports from third-party packages, broken dynamic imports, lazy-chunk
    problems. *Never skip the build because typecheck was clean.*
-6. **Bundle budget** (`npm run check:bundle`, needs step 5's output) — asserts
+7. **Bundle budget** (`npm run check:bundle`, needs step 6's output) — asserts
    the initial payload and that the heavy chunks are still lazy. A static import
    of `lib/exporter` or `lib/pdfExporter` fails here, not earlier.
 
-For user-facing changes, add a **7th step: live verification** (§5). "Tests
+For user-facing changes, add an **8th step: live verification** (§5). "Tests
 pass" ≠ "the feature works."
 
 CI additionally runs the coverage ratchet, the Playwright suites on three

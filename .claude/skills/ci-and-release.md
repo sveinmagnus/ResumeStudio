@@ -15,14 +15,15 @@ build & release invariants), and the `software-testing` skill (the local gate).
 
 | Job | Steps | Local equivalent |
 |---|---|---|
-| **verify** | `npm ci` → `npm run lint` → `npm run check:text` → `npm run typecheck` → `npm test` → `npm run build` → `npm run check:bundle` | the §11 gate, in order |
+| **verify** | `npm ci` → `npm run lint` → `npm run check:text` → `npm run check:arch` → `npm run typecheck` → `npm test` → `npm run build` → `npm run check:bundle` | the §11 gate, in order |
 | **coverage** | `npm run test:coverage` (thresholds in `vite.config.ts`) | `npm run test:coverage` |
 | **e2e smoke** | build → `npx playwright install --with-deps chromium firefox webkit` → `npx playwright test` | `npm run test:e2e` |
 | **depcheck** (advisory, `continue-on-error`) | `npx depcheck@1.4.7` | `npx depcheck@1.4.7` |
 
 **Triage order = the gate order** (each catches what the previous misses):
-lint → check:text → typecheck → test → build → check:bundle → e2e. Reproduce locally with the *same* command the
-job ran before touching anything — CI failures here are almost always real, not
+lint → check:text → check:arch → typecheck → test → build → check:bundle → e2e.
+Reproduce locally with the *same* command the job ran before touching anything —
+CI failures here are almost always real, not
 environmental (the harness noise in `software-testing` §6 is about *local* runs).
 
 - **verify red** → run `npm run typecheck` (covers client **and** server
@@ -30,12 +31,18 @@ environmental (the harness noise in `software-testing` §6 is about *local* runs
   `tsc` can't: missing third-party exports, broken dynamic imports, lazy-chunk
   regressions (see the `export-pipeline` skill — `exporter`/`pdfmake` must stay
   split chunks).
+- **check:arch red** → the cheapest failure on the list, and never ambiguous:
+  you added a module and CLAUDE.md §3 does not name it. The output says which
+  file and which region of the map it belongs in. Add the line rather than
+  reaching for an exception — the check is worth having only because the map has
+  none.
 - **e2e red** → the job boots the REAL prod server and runs BOTH suites in
   `e2e/` on all three engines: `smoke.spec.ts` (create → edit/auto-save/reload →
   view preview → unknown-id bounce) and `a11y.spec.ts` (axe with real layout,
   plus keyboard-only journeys). The job name says "smoke" but the command is a
   bare `npx playwright test`, so an accessibility regression reports here too —
-  check which spec failed before assuming a functional break. Failure artifacts: the job uploads `test-results/` as
+  check which spec failed before assuming a functional break. Failure artifacts:
+  the job uploads `test-results/` as
   `playwright-traces` on failure (7-day retention) — open the trace before
   guessing. Keep this suite thin (happy paths only); a flaky assertion here is
   usually a missing readiness wait, not a product bug (`software-testing` §5).

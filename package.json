@@ -12,6 +12,7 @@
     "build": "vite build",
     "check:bundle": "node scripts/check-bundle-size.mjs",
     "check:text": "node scripts/check-control-chars.mjs",
+    "check:arch": "node scripts/check-arch-map.mjs",
     "start": "NODE_ENV=production tsx server/index.ts",
     "desktop": "npm run build && tsx server/desktop/launcher.ts",
     "build:desktop": "npm run build && node scripts/build-desktop.mjs",
