@@ -24,31 +24,21 @@
  * human takes.
  */
 import { test, expect, type BrowserContext, type Page } from '@playwright/test'
-import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
 import { createResume } from './helpers'
+import { firstVisit, signIn, signOut, startServer, type ServerHandle } from './serverHarness'
 
-// Every test below stands on the one before it — an account exists because the
-// previous test created it. Serial mode reports the first break and skips the
-// rest, instead of a cascade of failures about the same cause.
-test.describe.configure({ mode: 'serial' })
-
-/**
- * Not applicable on WebKit, and it is the harness rather than the app that is
- * wrong here.
+/*
+ * Serial, because every test below stands on the one before it — an account
+ * exists because the previous test created it. Serial mode reports the first
+ * break and skips the rest, instead of a cascade of failures about one cause.
  *
- * A production server marks the session cookie `Secure`, and this harness — like
- * the suite-wide one — serves plain http on a loopback address. Chromium and
- * Firefox treat 127.0.0.1 as a trustworthy origin and keep the cookie; WebKit
- * does not, so the session never sticks: bootstrap succeeds, the app asks for a
- * sign-in, and signing in sets the same discarded cookie. Measured, not assumed
- * — dropping `Secure` from the same server carried WebKit through the journey.
- *
- * A real deployment terminates TLS in front (DEPLOYING.md §5), where the flag is
- * exactly right. Testing it properly needs a certificate this harness has no
- * business owning; asserting Chromium's cookie policy on Safari would only teach
- * us to ignore a red suite. The Safari-over-plain-http case is reported instead.
+ * The budget is generous because WebKit is: measured here, a click Chromium
+ * settles in under a second costs it four to ten, so the journey below spends
+ * roughly a minute per test on that engine. A timeout tuned to Chromium reports
+ * WebKit as broken when it is only slow — which is the reading that got this
+ * suite skipped on WebKit, so the number is load-bearing.
  */
-test.skip(({ browserName }) => browserName === 'webkit', 'WebKit refuses a Secure cookie over http')
+test.describe.configure({ mode: 'serial', timeout: 180_000 })
 
 const PORT = 3211
 const BASE = `http://127.0.0.1:${PORT}`
@@ -71,7 +61,7 @@ const RESUME_NAME = 'Owner Only CV'
 /** Content inside that resume, distinct from any account display name. */
 const FULL_NAME = 'Olav Nordmann'
 
-let server: ChildProcess | null = null
+let server: ServerHandle | null = null
 let ownerContext: BrowserContext
 let memberContext: BrowserContext
 let ownerPage: Page
@@ -80,101 +70,19 @@ let memberPage: Page
 /** Read off the server's console in `beforeAll`, spent by the first test. */
 let bootstrapCode = ''
 
-/**
- * Start a genuinely fresh server and resolve with the one-time code it prints.
- *
- * No token and no `RESUME_SETUP`: an empty database with neither is what a
- * first-time operator following DEPLOYING.md §3 actually has, and it is the case
- * the accounts feature has to be reachable from — the instance is in `open`
- * mode, so nothing answers 401 and no sign-in gate is ever mounted.
- *
- * The banner is written from inside the `listen` callback, so the code arriving
- * is also the readiness signal — there is nothing left to poll for.
- */
-function startFreshServer(): Promise<string> {
-  return new Promise<string>((resolve, reject) => {
-    const child = spawn('npx tsx server/index.ts', {
-      shell: true,
-      env: {
-        ...process.env,
-        NODE_ENV: 'production',
-        PORT: String(PORT),
-        RESUME_DB_PATH: ':memory:',
-        // Makes the invite and reset links absolute, which is what an owner
-        // copies out of the team screen and hands over.
-        RESUME_APP_BASE_URL: BASE,
-      },
-    })
-    server = child
-
-    let out = ''
-    const read = (buf: Buffer) => {
-      out += buf.toString()
-      const m = /\b([0-9A-Z]{5}(?:-[0-9A-Z]{5}){3})\b/.exec(out)
-      if (m) resolve(m[1])
-    }
-    child.stdout?.on('data', read)
-    child.stderr?.on('data', read)
-    child.on('exit', (code) => reject(new Error(`server exited (${code}):\n${out}`)))
-    setTimeout(() => reject(new Error(`no bootstrap code within 60s. Server said:\n${out}`)), 60_000)
-  })
-}
-
-function stopServer(): void {
-  const child = server
-  server = null
-  if (!child?.pid) return
-  // The server runs under a shell, so killing the shell alone leaves node
-  // holding the port and the next run fails at boot. Synchronous because the
-  // test process can exit before an async kill has run — which is how the port
-  // stayed bound after the first failing run here.
-  if (process.platform === 'win32') {
-    spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' })
-  } else {
-    child.kill('SIGTERM')
-  }
-}
-
-/**
- * Open the app once in a fresh browser profile and let it settle.
- *
- * A first visit to an origin registers the service worker, which claims the
- * open page as soon as it activates; `swRegister.ts` reloads on
- * `controllerchange`, so roughly a second after the first paint the document is
- * replaced and anything typed into it is gone. Every screen a first-time
- * visitor types into — setup, sign-in, an invitation — is inside that window.
- *
- * Absorbed here rather than asserted, because a suite racing one defect cannot
- * report any other. It is filed separately as the defect it is.
- */
-async function firstVisit(page: Page): Promise<void> {
-  // The app's reload can land mid-navigation, which Playwright reports as
-  // "interrupted by another navigation". One retry is enough: the worker claims
-  // a profile once, so the second attempt has nothing left to race.
-  const open = async () => {
-    try {
-      await page.goto('/')
-    } catch {
-      await page.goto('/')
-    }
-  }
-
-  await open()
-  await page
-    .waitForFunction(
-      () => !('serviceWorker' in navigator) || !!navigator.serviceWorker.controller,
-      null,
-      { timeout: 20_000 },
-    )
-    .catch(() => { /* no worker here: nothing will claim the page, nothing to wait for */ })
-  // Taking the next navigation ourselves guarantees the document every test
-  // below works in is one the worker was already controlling.
-  await open()
-}
-
 test.beforeAll(async ({ browser }) => {
   test.setTimeout(120_000)
-  bootstrapCode = await startFreshServer()
+  // No token and no `RESUME_SETUP`: an empty database with neither is what a
+  // first-time operator following DEPLOYING.md §3 actually has, and it is the
+  // case the accounts feature has to be reachable from — the instance is in
+  // `open` mode, so nothing answers 401 and no sign-in gate is ever mounted.
+  server = await startServer({
+    port: PORT,
+    // Makes the invite and reset links absolute, which is what an owner copies
+    // out of the team screen and hands over.
+    env: { RESUME_APP_BASE_URL: BASE },
+  })
+  bootstrapCode = server.bootstrapCode
   ownerContext = await browser.newContext({ baseURL: BASE })
   memberContext = await browser.newContext({ baseURL: BASE })
   ownerPage = await ownerContext.newPage()
@@ -186,22 +94,8 @@ test.beforeAll(async ({ browser }) => {
 test.afterAll(async () => {
   await ownerContext?.close()
   await memberContext?.close()
-  stopServer()
+  server?.stop()
 })
-
-// ─── Shared steps ────────────────────────────────────────────────────────────
-
-async function signIn(page: Page, login: string, password: string): Promise<void> {
-  await page.getByLabel('Username or email address').fill(login)
-  await page.getByLabel('Password', { exact: true }).fill(password)
-  await page.getByRole('button', { name: 'Sign in' }).click()
-}
-
-async function signOut(page: Page, displayName: string): Promise<void> {
-  await page.getByRole('button', { name: displayName }).click()
-  await page.getByRole('button', { name: 'Sign out' }).click()
-  await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible()
-}
 
 // ─── First run ───────────────────────────────────────────────────────────────
 
@@ -232,16 +126,12 @@ test('a fresh instance offers setup, and the one-time code creates the owner', a
   await expect(carryOn).toBeEnabled()
   await carryOn.click()
 
-  /**
-   * The app should be on screen by now, and it is not: Continue leaves the
-   * operator on the recovery-codes panel with nothing else to click.
-   * `AcceptInviteScreen` calls `navigate('/')` after its identical panel;
-   * `AuthGate`'s only drops the gate, which was enough while the gate was an
-   * overlay on top of the app and is a dead end now that `/setup` is a route of
-   * its own. Reported rather than fixed — the navigation below stands in for the
-   * one the app owes the user, so the rest of the journey can be verified.
-   */
-  await ownerPage.goto('/')
+  // Continue has to leave `/setup` as well as drop the gate: the gate used to be
+  // an overlay on top of the app, where clearing a flag was enough, and `/setup`
+  // is a route of its own now — clearing the flag alone re-renders the same
+  // screen with the codes still in its state, and the only way out is the
+  // address bar.
+  await expect(ownerPage).toHaveURL(new RegExp(`^${BASE}/$`))
   // Signed in, on an instance that still has no resumes.
   await expect(ownerPage.getByRole('heading', { name: 'Cartavio Resume Studio' })).toBeVisible()
   // And the setup notice is gone: an instance with accounts is not offering to
@@ -252,7 +142,6 @@ test('a fresh instance offers setup, and the one-time code creates the owner', a
 // ─── A resume of one's own ───────────────────────────────────────────────────
 
 test('a resume the owner creates is private until they say otherwise', async () => {
-  test.setTimeout(60_000)
   await createResume(ownerPage)
   // The editor knows who is looking, which it never could before accounts.
   await expect(ownerPage.getByRole('button', { name: OWNER.displayName })).toBeVisible()
@@ -277,7 +166,6 @@ test('a resume the owner creates is private until they say otherwise', async () 
 // ─── Sign out, and back in by either identifier ──────────────────────────────
 
 test('sign-in takes the username or the email address, and refuses both alike', async () => {
-  test.setTimeout(90_000)
   await ownerPage.goto('/profile')
   await expect(ownerPage.getByRole('heading', { name: 'Your account' })).toBeVisible()
   // The codes really were a one-time showing: the profile reports a count.
@@ -313,14 +201,16 @@ test('sign-in takes the username or the email address, and refuses both alike', 
 // ─── Inviting somebody ───────────────────────────────────────────────────────
 
 test('the owner mints an invitation and the invitee redeems it in their own browser', async () => {
-  test.setTimeout(60_000)
   await ownerPage.getByRole('button', { name: OWNER.displayName }).click()
   await ownerPage.getByRole('link', { name: 'Team' }).click()
   await expect(ownerPage.getByRole('heading', { name: 'Team' })).toBeVisible()
 
   await ownerPage.getByRole('button', { name: 'Create an invitation' }).click()
   const inviteLink = await ownerPage.getByLabel('Invitation link').inputValue()
-  expect(inviteLink).toContain('/accept?token=')
+  // ABSOLUTE, because the server was told its own address. A relative path is
+  // what the route falls back to when it does not know it, and an owner pasting
+  // that into a chat window hands over something nobody else can open.
+  expect(inviteLink).toBe(`${BASE}/accept?token=${inviteLink.split('token=')[1]}`)
 
   // A different browser context: no cookie, no cache, nothing carried over —
   // which is what the person receiving the link actually has.
@@ -348,7 +238,6 @@ test('the owner mints an invitation and the invitee redeems it in their own brow
 // ─── Scoping, with two people signed in at once ──────────────────────────────
 
 test('a member cannot see the owner resume until it is shared, and then only reads it', async () => {
-  test.setTimeout(90_000)
   // Wait for the picker to have ANSWERED before asserting an absence: the
   // fresh-install screen only renders once the list came back empty, so the
   // loading state cannot be mistaken for "they cannot see it".
@@ -402,12 +291,11 @@ test('a member cannot see the owner resume until it is shared, and then only rea
 // ─── Getting back in ─────────────────────────────────────────────────────────
 
 test('an owner-issued reset link sets a new password and ends the old session', async () => {
-  test.setTimeout(90_000)
   await ownerPage.goto('/admin')
   const memberCard = ownerPage.locator('section').filter({ hasText: `@${MEMBER.username}` })
   await memberCard.getByRole('button', { name: 'Reset link' }).click()
   const resetLink = await ownerPage.getByLabel(`Reset link for ${MEMBER.displayName}`).inputValue()
-  expect(resetLink).toContain('/reset?token=')
+  expect(resetLink).toBe(`${BASE}/reset?token=${resetLink.split('token=')[1]}`)
 
   await memberPage.goto(resetLink)
   await expect(memberPage.getByRole('heading', { name: 'Set a new password' })).toBeVisible()
