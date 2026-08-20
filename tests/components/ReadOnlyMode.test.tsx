@@ -142,7 +142,7 @@ describe('<AppHeader> under readOnly', () => {
   const header = () => render(
     <AppHeader
       resumeId="r1"
-      section={{ key: 'projects', label: 'Projects', group: 'Experience', icon: 'Briefcase' }}
+      section={{ key: 'projects', label: 'Projects', group: 'experience', icon: 'Briefcase' }}
       saveState="idle"
       cacheSavedAt={null}
       onRetry={vi.fn()}
