@@ -11,12 +11,14 @@ import { resolveConfirm } from '../helpers/confirm'
 const configured = (over: Partial<Extract<BackupStatus, { configured: true }>> = {}): BackupStatus => ({
   configured: true,
   dir: 'C:\\Drive\\ResumeStudio',
-  file: 'C:\\Drive\\ResumeStudio\\resume-studio-backup.json',
   exists: true,
   lastBackupAt: '2026-05-31T11:59:00Z',
   upToDate: true,
   resumeCount: 2,
   backupResumeCount: 2,
+  fileCount: 2,
+  legacyFile: null,
+  unreadable: [],
   ...over,
 })
 
@@ -47,7 +49,7 @@ describe('<SyncPanel>', () => {
 
   it('"Back up now" calls the API and re-reads status', async () => {
     const statusSpy = vi.spyOn(api, 'backupStatus').mockResolvedValue(configured({ upToDate: false }))
-    const nowSpy = vi.spyOn(api, 'backupNow').mockResolvedValue({ file: 'x', bytes: 100, resumeCount: 2 })
+    const nowSpy = vi.spyOn(api, 'backupNow').mockResolvedValue({ bytes: 100, resumeCount: 2, removed: 0 })
     render(<SyncPanel onRestored={() => {}} onUnauthorized={() => {}} />)
 
     const btn = await screen.findByRole('button', { name: /back up now/i })

@@ -17,7 +17,7 @@ units:
     intent: "How must an agent work in this codebase? Architecture map (complete by CI gate — see arch-map-policy), data model, store patterns, conventions (incl. the v0.3.1 accessibility invariants, the three-surface contrast rule, and the version/build-channel source-of-truth rules), and what not to change. Holds invariants only — the exhaustive feature catalog is in feature-map."
     scope: global
     audience: [agent, developer]
-    validated: "2026-08-19"
+    validated: "2026-08-20"
     update_frequency: weekly
     triggers: [conventions, architecture, data-model, store, persistence, sections, accessibility, routing, export-parity, lookup]
     content_structure:

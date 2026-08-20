@@ -11,6 +11,7 @@ const status = (over: Partial<UpdateStatus> = {}): UpdateStatus => ({
   supported: true,
   state: 'available',
   currentVersion: '0.1.0',
+  versionLabel: 'v0.1.0',
   latestVersion: '0.2.0',
   updateAvailable: true,
   downloadable: true,

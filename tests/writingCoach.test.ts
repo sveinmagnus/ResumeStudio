@@ -10,6 +10,7 @@ import {
   InvalidCoachResponseError,
   buildDraftPrompt,
 } from '../src/lib/writingCoach'
+import type { LocalizedString } from '../src/types'
 
 describe('hasCoachableSource', () => {
   it('is true when the locale has prose', () => {
@@ -64,7 +65,8 @@ describe('buildCoachPrompt', () => {
   it('says the description is empty rather than handing over a blank', () => {
     // A prompt that ends "--- DESCRIPTION ---" with nothing under it reads as
     // a truncated message, and a model asked to rewrite nothing invents.
-    for (const source of [{}, { en: '' }, { en: '<p></p>' }, { no: 'Norsk' }]) {
+    const sources: LocalizedString[] = [{}, { en: '' }, { en: '<p></p>' }, { no: 'Norsk' }]
+    for (const source of sources) {
       expect(buildCoachPrompt(source, 'en')).toContain('(empty)')
     }
     expect(buildCoachPrompt({ en: 'Real prose.' }, 'en')).not.toContain('(empty)')

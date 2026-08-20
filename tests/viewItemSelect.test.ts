@@ -5,6 +5,7 @@ import {
   type SelectableItem, type FacetGroupSet,
 } from '../src/lib/viewItemSelect'
 import type { Role } from '../src/types'
+import { makeRole } from './fixtures'
 
 const pos = (id: string, position_type?: string | null): SelectableItem => ({ id, position_type })
 const pub = (id: string, publication_type: string): SelectableItem => ({ id, publication_type })
@@ -13,8 +14,7 @@ const work = (id: string, employment_type: string | null, role_ids: string[] = [
 const proj = (id: string, roleIds: string[]): SelectableItem =>
   ({ id, roles: roleIds.map((role_id) => ({ role_id })) })
 
-const role = (id: string, name: string): Role =>
-  ({ id, resume_id: 'r', name: { en: name }, sort_order: 0 } as Role)
+const role = (id: string, name: string): Role => makeRole({ id, name: { en: name } })
 
 /** Find one facet's groups by heading. */
 const facet = (sets: FacetGroupSet[], name: string) => sets.find((s) => s.name === name)

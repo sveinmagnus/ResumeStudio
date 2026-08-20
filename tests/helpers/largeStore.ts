@@ -17,6 +17,7 @@ import {
   emptyStore, makeResume, makeProject, makeWork, makeEducation, makeSkill,
   makeSkillCategory, makeRole, makeIndustry, makeKQ, makeKeyCompetency,
   makeCourse, makeCertification, makeReference,
+  makeProjectSkill, makeProjectRole, makeProjectIndustry,
 } from '../fixtures'
 import type { LocalizedString, ResumeStore } from '../../src/types'
 
@@ -105,16 +106,15 @@ export function makeLargeStore(opts: LargeStoreOptions = {}): ResumeStore {
         id: `p${i}`,
         customer: localized(`Customer ${i}`, locales),
         description: localized(PARAGRAPH, locales),
-        skills: skills.slice(i % 40, (i % 40) + 8).map((s) => ({
-          skill_id: s.id, name: s.name, proficiency: 3, sort_order: 0,
-        })),
-        roles: roles.slice(i % 10, (i % 10) + 2).map((r) => ({
-          role_id: r.id, name: r.name, sort_order: 0,
-        })),
-        industries: [{ industry_id: industries[i % industries.length].id, name: industries[i % industries.length].name, sort_order: 0 }],
+        skills: skills.slice(i % 40, (i % 40) + 8).map((s) => makeProjectSkill({ skill_id: s.id, name: s.name })),
+        roles: roles.slice(i % 10, (i % 10) + 2).map((r) => makeProjectRole({ role_id: r.id, name: r.name })),
+        industries: [makeProjectIndustry({
+          industry_id: industries[i % industries.length].id,
+          name: industries[i % industries.length].name,
+        })],
       }),
     ),
-    work_experience: Array.from({ length: 8 }, (_, i) =>
+    work_experiences: Array.from({ length: 8 }, (_, i) =>
       makeWork({ id: `w${i}`, description: localized(PARAGRAPH, locales) }),
     ),
     educations: Array.from({ length: 3 }, (_, i) => makeEducation({ id: `e${i}` })),

@@ -661,7 +661,7 @@ describe('achievement mining', () => {
 
   it('joins a new competency to the resume its siblings belong to', () => {
     const s = storeWithProject()
-    s.resume.id = 'resume-99'
+    s.resume!.id = 'resume-99'
     const mine = () => validateMining({
       achievements: [entry({ target: 'competency', item_id: pid(s), detail: 'Owns cadence.' })],
     }, s, 'en').achievements

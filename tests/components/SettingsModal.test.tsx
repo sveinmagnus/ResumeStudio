@@ -22,6 +22,7 @@ const managedStatus = (over: Partial<SettingsStatus['settings']> = {}): Settings
     google_api_key_set: false,
     azure_api_key_set: false,
     azure_region: '',
+    translate_languages: [],
     local_hostname: '',
     local_port: 0,
     backup_dir: '',
@@ -54,7 +55,7 @@ describe('<SettingsModal>', () => {
   it('opens on the Version tab', async () => {
     vi.spyOn(api, 'getSettings').mockResolvedValue(managedStatus())
     vi.spyOn(api, 'updateStatus').mockResolvedValue({
-      supported: true, state: 'idle', currentVersion: '1.2.3', latestVersion: null,
+      supported: true, state: 'idle', currentVersion: '1.2.3', versionLabel: 'v1.2.3', latestVersion: null,
       updateAvailable: false, downloadable: false, progress: 0, lastCheckedAt: null,
       notes: '', htmlUrl: null, error: null,
     })
@@ -70,6 +71,7 @@ describe('<SettingsModal>', () => {
       managed: false,
       settings: managedStatus().settings,
       translate: { configured: true },
+      llm: { configured: false },
     })
     render(<SettingsModal onClose={() => {}} onChanged={() => {}} onUnauthorized={() => {}} />)
     await openTab(/translation/i)
@@ -103,7 +105,7 @@ describe('<SettingsModal>', () => {
     resetStore()
     useStore.setState({ data: { ...emptyStore(), resume: makeResume() }, hasData: true })
     vi.spyOn(api, 'getSettings').mockResolvedValue(managedStatus())
-    const spy = vi.spyOn(backup, 'downloadBackup').mockImplementation(() => {})
+    const spy = vi.spyOn(backup, 'downloadBackup').mockResolvedValue()
     render(<SettingsModal onClose={() => {}} onChanged={() => {}} onUnauthorized={() => {}} />)
     await openTab(/sync/i)
     await userEvent.click(await screen.findByRole('button', { name: /save this resume to a file/i }))

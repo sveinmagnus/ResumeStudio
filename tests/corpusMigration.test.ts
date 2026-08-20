@@ -26,8 +26,6 @@ import { parseStoreBackup } from '../server/backup'
 import { importFromCVPartner, isCVPartnerFormat } from '../src/lib/importer'
 import { applyView, buildViewHtml, buildViewSections } from '../src/lib/viewFilter'
 import { buildViewText } from '../src/lib/viewText'
-import { withHeaderDefaults, withFooterDefaults } from '../src/lib/viewHeader'
-import { DEFAULT_VIEW_STYLE, deriveTokens } from '../src/lib/viewStyle'
 import { makeView } from './fixtures'
 import type { ResumeStore } from '../src/types'
 
@@ -89,7 +87,7 @@ function loadAll(): Loaded[] {
     // A CVpartner export is not a backup — it goes through the importer, which
     // is itself a path a real user takes on day one.
     if (isCVPartnerFormat(raw)) {
-      out.push({ file, label: 'cvpartner-import', store: importFromCVPartner(raw), sourceShape: 0 })
+      out.push({ file, label: 'cvpartner-import', store: importFromCVPartner(raw as Record<string, unknown>), sourceShape: 0 })
       continue
     }
 
@@ -98,7 +96,7 @@ function loadAll(): Loaded[] {
     // working, and it is the format an existing sync folder still holds.
     const entries = parseStoreBackup(raw)
     entries.forEach((entry, i) => {
-      const store = entry.data as ResumeStore
+      const store = entry.data as unknown as ResumeStore
       out.push({
         file,
         label: `resume ${i + 1}`,
@@ -212,17 +210,13 @@ describe.skipIf(!hasCorpus)('migration rehearsal on real exports', () => {
         const filtered = applyView(migrated, view)
         expect(filtered).toBeTruthy()
 
-        const html = buildViewHtml(migrated, view, locale, {
-          header: withHeaderDefaults(view.header),
-          footer: withFooterDefaults(view.footer),
-          tokens: deriveTokens(DEFAULT_VIEW_STYLE),
-        })
+        const html = buildViewHtml(migrated, view, locale)
         expect(html.length).toBeGreaterThan(500)
         // The tell-tale of a field the renderer reached for and did not find.
         expect(html).not.toContain('undefined')
         expect(html).not.toContain('[object Object]')
 
-        const text = buildViewText(migrated, view, locale, 'text')
+        const text = buildViewText(migrated, view, locale)
         expect(text.length).toBeGreaterThan(200)
         expect(text).not.toContain('undefined')
       })

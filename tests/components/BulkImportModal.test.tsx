@@ -14,7 +14,7 @@ import { emptyStore, makeResume, makeCourse, makeSkill } from '../fixtures'
 const coursesSpec = bulkSpec('courses') as BulkSectionSpec
 const projectsSpec = bulkSpec('projects') as BulkSectionSpec
 
-function seed(over: Parameters<typeof useStore.setState>[0] = {}) {
+function seed(over: Partial<ReturnType<typeof useStore.getState>> = {}) {
   useStore.setState({
     data: { ...emptyStore(), resume: makeResume({ id: 'r1', supported_locales: ['no', 'en'] }) },
     hasData: true,

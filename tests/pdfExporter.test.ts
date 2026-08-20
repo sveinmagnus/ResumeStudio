@@ -347,7 +347,7 @@ describe('skill matrix table (PDF)', () => {
   })
 
   /** The matrix table node's body rows, as plain text. */
-  const matrixRows = (dd: { content: unknown }): string[][] => {
+  const matrixRows = (dd: Record<string, unknown>): string[][] => {
     const found: string[][] = []
     const walk = (n: unknown): void => {
       if (Array.isArray(n)) { n.forEach(walk); return }
@@ -368,7 +368,7 @@ describe('skill matrix table (PDF)', () => {
   }
 
   /** The same rows as objects, for the assertions that are about formatting. */
-  const matrixCells = (dd: { content: unknown }): Array<Array<Record<string, unknown>>> => {
+  const matrixCells = (dd: Record<string, unknown>): Array<Array<Record<string, unknown>>> => {
     const found: Array<Array<Record<string, unknown>>> = []
     const walk = (n: unknown): void => {
       if (Array.isArray(n)) { n.forEach(walk); return }
@@ -525,7 +525,7 @@ describe('renderItemPdf — the item layouts', () => {
     for (const v of Object.values(rec)) if (v && typeof v === 'object') runs(v, out)
     return out
   }
-  const texts = (d: { content: unknown }) => runs(d.content).map((r) => String(r.text))
+  const texts = (d: Record<string, unknown>) => runs(d.content).map((r) => String(r.text))
 
   it('puts the date beside the title, in a smaller faint run', async () => {
     // The DOCX and HTML adapters put the date in the meta line; the PDF sets it
@@ -763,7 +763,7 @@ describe('pdfExporter — tags, extra lines and the heading rule', () => {
     for (const v of Object.values(rec)) if (v && typeof v === 'object') runs(v, out)
     return out
   }
-  const texts = (d: { content: unknown }) => runs(d.content).map((r) => String(r.text))
+  const texts = (d: Record<string, unknown>) => runs(d.content).map((r) => String(r.text))
 
   const projectStore = (over: Record<string, unknown> = {}): ResumeStore => {
     const s = emptyStore()

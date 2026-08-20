@@ -150,7 +150,7 @@ describe('runCheck → Install/Cancel offer when an update is found', () => {
 
   it('prompts "New version X available" and does not install on Cancel', async () => {
     // User clicks Cancel
-    const confirm = vi.fn(async () => false)
+    const confirm = vi.fn(async (_title: string, _message: string) => false)
     wireUpdate(confirm)
     await runCheck(true)
     expect(confirm).toHaveBeenCalledTimes(1)
@@ -158,7 +158,7 @@ describe('runCheck → Install/Cancel offer when an update is found', () => {
   })
 
   it('de-dups the daily (background) offer per version, but a manual check always prompts', async () => {
-    const confirm = vi.fn(async () => false)
+    const confirm = vi.fn(async (_title: string, _message: string) => false)
     wireUpdate(confirm)
     // Background → offers once
     await runCheck(false)

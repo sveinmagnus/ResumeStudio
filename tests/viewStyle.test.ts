@@ -14,13 +14,13 @@ import type { ResolvedSectionStyle } from '../src/lib/viewStyle'
 
 describe('item bullets', () => {
   it('default off, disc glyph', () => {
-    const r = resolveSectionStyle(DEFAULT_VIEW_STYLE, null)
+    const r = resolveSectionStyle(DEFAULT_VIEW_STYLE, undefined)
     expect(r.item_bullets).toBe(false)
     expect(r.bullet_style).toBe('disc')
   })
 
   it('inherits the view-wide default when the section is silent', () => {
-    const r = resolveSectionStyle({ ...DEFAULT_VIEW_STYLE, item_bullets: true, bullet_style: 'arrow' }, null)
+    const r = resolveSectionStyle({ ...DEFAULT_VIEW_STYLE, item_bullets: true, bullet_style: 'arrow' }, undefined)
     expect(r.item_bullets).toBe(true)
     expect(r.bullet_style).toBe('arrow')
   })
@@ -45,7 +45,7 @@ describe('item bullets', () => {
 // ─── kqVisibility (profile Summary/Full mode) ─────────────────────────────────
 
 describe('kqVisibility()', () => {
-  const style = resolveSectionStyle(DEFAULT_VIEW_STYLE, null)
+  const style = resolveSectionStyle(DEFAULT_VIEW_STYLE, undefined)
 
   it('Summary mode shows the short summary, not the long one', () => {
     const v = kqVisibility(style, 'summary')
@@ -270,7 +270,7 @@ describe('withResolvedFonts()', () => {
     const out = withResolvedFonts(style('inherit', 'inherit'))
     expect(out.heading_font).not.toBe('inherit')
     expect(out.body_font).not.toBe('inherit')
-    expect(resolveFontCss(out.body_font, out.body_font)).toContain('Ubuntu')
+    expect(resolveFontCss(out.body_font!, out.body_font!)).toContain('Ubuntu')
   })
 
   it('carries every other style field through untouched', () => {

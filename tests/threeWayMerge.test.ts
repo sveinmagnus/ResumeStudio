@@ -421,7 +421,7 @@ describe('mergeStores — structural tolerance', () => {
     const mine = clone(base)
     const theirs = clone(base)
     delete (theirs as Partial<ResumeStore>).skill_categories
-    mine.skill_categories = [{ id: 'c1', name: { en: 'Cloud' }, sort_order: 0 }]
+    mine.skill_categories = [makeSkillCategory({ id: 'c1', name: { en: 'Cloud' } })]
 
     const res = mergeStores(base, mine, theirs)
     expect(res.conflicts).toEqual([])

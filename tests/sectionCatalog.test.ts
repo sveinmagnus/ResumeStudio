@@ -106,21 +106,21 @@ describe('work / education summary — Title = role/degree, Org = employer/schoo
       employer: { en: 'BigCo' }, role_title: { en: 'Engineer' },
       start: { year: 2020, month: 1 }, end: { year: 2022, month: 6 },
     })
-    const s = SECTION_CATALOG.work_experiences.summary!(w, html)!
+    const s = SECTION_CATALOG.work_experiences.summary!(w as never, html)!
     expect(s.parts.find((p) => p.key === 'title')?.value).toBe('Engineer')
     expect(s.parts.find((p) => p.key === 'org')?.value).toBe('BigCo')
   })
 
   it('work summary falls back to the employer as Title when no role is recorded', () => {
     const w = makeWork({ employer: { en: 'BigCo' }, role_title: {} })
-    const s = SECTION_CATALOG.work_experiences.summary!(w, html)!
+    const s = SECTION_CATALOG.work_experiences.summary!(w as never, html)!
     expect(s.parts.find((p) => p.key === 'title')?.value).toBe('BigCo')
     expect(s.parts.find((p) => p.key === 'org')).toBeUndefined()
   })
 
   it('education summary puts the degree in Title and the school in Org', () => {
     const e = makeEducation({ school: { en: 'NTNU' }, degree: { en: 'MSc Computer Science' } })
-    const s = SECTION_CATALOG.educations.summary!(e, html)!
+    const s = SECTION_CATALOG.educations.summary!(e as never, html)!
     expect(s.parts.find((p) => p.key === 'title')?.value).toBe('MSc Computer Science')
     expect(s.parts.find((p) => p.key === 'org')?.value).toBe('NTNU')
   })
@@ -252,10 +252,10 @@ describe('key_qualifications — Summary vs Full mode', () => {
   // alwaysFull, so both modes route through full(); the mode arrives as kq.
   const kq = makeKQ({
     summary: { en: 'The long profile.' }, summary_short: { en: 'The short summary.' },
-    key_points: [{ id: 'p', name: { en: 'A point' }, long_description: { en: 'detail' }, sort_order: 0 }],
+    key_points: [{ id: 'p', name: { en: 'A point' }, long_description: { en: 'detail' }, sort_order: 0, disabled: false }],
   }) as unknown as Record<string, unknown>
-  const summaryMode: CatalogCtx = { ...html, kq: { label: true, tagline: true, short: true, long: false } }
-  const fullMode: CatalogCtx = { ...html, kq: { label: true, tagline: true, short: false, long: true } }
+  const summaryMode: CatalogCtx = { ...html, kq: { tagline: true, short: true, long: false } }
+  const fullMode: CatalogCtx = { ...html, kq: { tagline: true, short: false, long: true } }
 
   it('is alwaysFull so Summary mode still routes through full()', () => {
     expect(SECTION_CATALOG.key_qualifications.alwaysFull).toBe(true)
@@ -490,7 +490,6 @@ describe('editor titles and subtitles (parity with the old switches)', () => {
  * contract that anonymized views rely on.
  */
 describe('the simple sections', () => {
-  const text: CatalogCtx = { locale: 'en', hideDates: false, target: 'text' }
   const noDates: CatalogCtx = { locale: 'en', hideDates: true, target: 'docx' }
   /** Same target, with the section's optional groups switched on. */
   const withAll = (base: CatalogCtx, ...keys: string[]): CatalogCtx =>
@@ -592,8 +591,8 @@ describe('the simple sections', () => {
     })
 
     it('emits the talk URL as an extra line only when the group asks', () => {
-      expect(SECTION_CATALOG.presentations.full!(talk, text)!.extraLines).toEqual([])
-      expect(SECTION_CATALOG.presentations.full!(talk, withAll(text, 'links'))!.extraLines)
+      expect(SECTION_CATALOG.presentations.full!(talk, html)!.extraLines).toEqual([])
+      expect(SECTION_CATALOG.presentations.full!(talk, withAll(html, 'links'))!.extraLines)
         .toEqual(['https://talks.example/pg'])
     })
 
@@ -781,7 +780,6 @@ describe('SECTION_CATALOG — editor titles and subtitles', () => {
  * link, an allocation, a contact route for a reference.
  */
 describe('SECTION_CATALOG — the extra render details', () => {
-  const text: CatalogCtx = { locale: 'en', hideDates: false, target: 'text' }
   /** These details are all optional groups now — this switches them on. */
   const on = (base: CatalogCtx, ...keys: string[]): CatalogCtx =>
     ({ ...base, extras: new Set(keys) })
@@ -889,14 +887,14 @@ describe('SECTION_CATALOG — the extra render details', () => {
     })
 
     it('lists title and company as meta, and contact details as extra lines', () => {
-      const v = SECTION_CATALOG.references.full!(ref(), on(text, 'contact'))!
+      const v = SECTION_CATALOG.references.full!(ref(), on(html, 'contact'))!
       expect(v.meta).toEqual(['CTO', 'BigCo'])
       expect(v.extraLines).toEqual(['Worked together', 'jane@x.io', '+47 900'])
     })
 
     it('withholds the contact details until the view asks, on every target', () => {
       // Someone else's inbox and phone number: the default is to leave them out.
-      for (const target of [html, text]) {
+      for (const target of [html, docx]) {
         const v = SECTION_CATALOG.references.full!(ref(), target)!
         expect(v.meta).toEqual(['CTO', 'BigCo'])
         expect(v.extraLines).toEqual([])
@@ -904,7 +902,7 @@ describe('SECTION_CATALOG — the extra render details', () => {
     })
 
     it('drops an absent contact route rather than leaving a blank line', () => {
-      const v = SECTION_CATALOG.references.full!(ref({ email: '', phone: '' }), on(text, 'contact'))!
+      const v = SECTION_CATALOG.references.full!(ref({ email: '', phone: '' }), on(html, 'contact'))!
       expect(v.extraLines).toEqual(['Worked together'])
     })
   })
@@ -1234,7 +1232,7 @@ describe('SECTION_CATALOG — the HTML view carries its own facts', () => {
  * call or an inverted title fallback went unnoticed.
  */
 describe('SECTION_CATALOG — every summary line', () => {
-  const ctx: CatalogCtx = { locale: 'en', hideDates: false, target: 'text' }
+  const ctx: CatalogCtx = { locale: 'en', hideDates: false, target: 'html' }
   const summary = (key: string, it: Record<string, unknown>) =>
     SECTION_CATALOG[key].summary!(it as never, ctx)!
   const values = (key: string, it: Record<string, unknown>) =>
@@ -1321,7 +1319,7 @@ describe('SECTION_CATALOG — every summary line', () => {
  * or " · 2020". Every descriptor filters its own array for that reason, and none
  * of those filters was asserted.
  */
-describe.each(['text', 'html', 'docx'] as const)(
+describe.each(['html', 'docx'] as const)(
   'SECTION_CATALOG (%s) — no descriptor emits a blank meta entry', (target) => {
   const ctx: CatalogCtx = { locale: 'en', hideDates: false, target }
   const view = (key: string, it: Record<string, unknown>) => SECTION_CATALOG[key].full!(it as never, ctx)!
@@ -1367,7 +1365,7 @@ describe.each(['text', 'html', 'docx'] as const)(
 })
 
 describe('SECTION_CATALOG — the descriptors that decline to render', () => {
-  const ctx: CatalogCtx = { locale: 'en', hideDates: false, target: 'text' }
+  const ctx: CatalogCtx = { locale: 'en', hideDates: false, target: 'html' }
   const full = (key: string, it: Record<string, unknown>) => SECTION_CATALOG[key].full!(it as never, ctx)
 
   it('renders a key competency with only ONE of title and body', () => {
@@ -1401,7 +1399,7 @@ describe('SECTION_CATALOG — the descriptors that decline to render', () => {
 })
 
 describe('SECTION_CATALOG — the name lists a project draws on', () => {
-  const ctx: CatalogCtx = { locale: 'en', hideDates: false, target: 'text' }
+  const ctx: CatalogCtx = { locale: 'en', hideDates: false, target: 'html' }
   const full = (it: Record<string, unknown>) => SECTION_CATALOG.projects.full!(it as never, ctx)!
   const summary = (it: Record<string, unknown>) => SECTION_CATALOG.projects.summary!(it as never, ctx)!
 
@@ -1465,7 +1463,7 @@ describe('SECTION_CATALOG — the name lists a project draws on', () => {
 })
 
 describe('SECTION_CATALOG — a profile’s key points', () => {
-  const ctx: CatalogCtx = { locale: 'en', hideDates: false, target: 'text', kq: { tagline: false, short: false, long: true } }
+  const ctx: CatalogCtx = { locale: 'en', hideDates: false, target: 'html', kq: { tagline: false, short: false, long: true } }
   const full = (it: Record<string, unknown>) => SECTION_CATALOG.key_qualifications.full!(it as never, ctx)!
 
   it('keeps a point with only a label or only a body, and drops an empty one', () => {
@@ -1490,7 +1488,7 @@ describe('SECTION_CATALOG — a profile’s key points', () => {
 })
 
 describe('SECTION_CATALOG — co-authors and the date slot', () => {
-  const ctx: CatalogCtx = { locale: 'en', hideDates: false, target: 'text' }
+  const ctx: CatalogCtx = { locale: 'en', hideDates: false, target: 'html' }
 
   it('drops a blank co-author name, and says nothing when there are none', () => {
     const line = (co: unknown) =>
@@ -1688,7 +1686,7 @@ describe('SECTION_CATALOG — employment prose and DOCX ordering', () => {
   it('does not ask one target to sort employment differently from another', () => {
     // A per-target sort flag is exactly the drift the extras rework removed: the
     // arranged order is the user's, and every export has to honour the same one.
-    expect(SECTION_CATALOG.work_experiences.docxSortByStart).toBeUndefined()
+    expect('docxSortByStart' in SECTION_CATALOG.work_experiences).toBe(false)
   })
 })
 

@@ -36,7 +36,7 @@ function storeWith(longDescription: string) {
   return store
 }
 
-const view = () => makeView({ sections: [{ key: 'work_experiences', detail: 'full', enabled: true }] })
+const view = () => makeView({ sections: [{ key: 'work_experiences', detail: 'full', sort_order: 0 }] })
 
 describe('paragraph spacing — every encoding of a break behaves the same', () => {
   for (const [label, value] of Object.entries(ENCODINGS)) {
@@ -98,7 +98,7 @@ describe('a plain-text intro is paragraphs too', () => {
   it('splits on newlines in HTML and text, like every other field', () => {
     const store = storeWith('<p>body</p>')
     const v = makeView({
-      sections: [{ key: 'work_experiences', detail: 'full', enabled: true }],
+      sections: [{ key: 'work_experiences', detail: 'full', sort_order: 0 }],
       introduction: { en: 'Intro one.\nIntro two.' },
     })
     expect(buildViewHtml(store, v, 'en'))

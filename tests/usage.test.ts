@@ -3,7 +3,7 @@ import {
   usageOfSkill, usageOfRole, usageOfIndustry, isSkillUnused, isRoleUnused,
 } from '../src/lib/usage'
 import {
-  emptyStore, makeSkill, makeRole, makeIndustry, makeProject, makeWork, makePosition,
+  emptyStore, makeSkill, makeRole, makeIndustry, makeProject, makeWork, makePosition, makeProjectSkill, makeProjectRole, makeProjectIndustry
 } from './fixtures'
 import type { ResumeStore } from '../src/types'
 
@@ -148,12 +148,12 @@ describe('usageOfIndustry / industry references', () => {
   const store = (): ResumeStore => {
     const s = emptyStore()
     s.projects = [
-      makeProject({ id: 'p1', industries: [{ industry_id: 'i1', name: { en: 'Energy' } }] }),
+      makeProject({ id: 'p1', industries: [makeProjectIndustry({ industry_id: 'i1', name: { en: 'Energy' } })] }),
       makeProject({
         id: 'p2',
         industries: [
-          { industry_id: 'i2', name: { en: 'Retail' } },
-          { industry_id: 'i1', name: { en: 'Energy' } },
+          makeProjectIndustry({ industry_id: 'i2', name: { en: 'Retail' } }),
+          makeProjectIndustry({ industry_id: 'i1', name: { en: 'Energy' } }),
         ],
       }),
       makeProject({ id: 'p3', industries: [] }),
@@ -172,7 +172,7 @@ describe('usageOfIndustry / industry references', () => {
 
   it('lists a project once even when the same industry is linked twice', () => {
     const s = store()
-    s.projects[0].industries.push({ industry_id: 'i1', name: { en: 'Energy' } })
+    s.projects[0].industries.push(makeProjectIndustry({ industry_id: 'i1', name: { en: 'Energy' } }))
     expect(usageOfIndustry(s, 'i1').projects.map((p) => p.id)).toEqual(['p1', 'p2'])
   })
 })
@@ -185,7 +185,7 @@ describe('isRoleUnused — every reference kind holds a role back', () => {
   })
 
   it('is held by a project role link', () => {
-    const s = withRole({ projects: [makeProject({ roles: [{ role_id: 'r1', name: { en: 'Dev' }, description: {} }] })] })
+    const s = withRole({ projects: [makeProject({ roles: [makeProjectRole({ role_id: 'r1', name: { en: 'Dev' } })] })] })
     expect(isRoleUnused(s, 'r1')).toBe(false)
     expect(isRoleUnused(s, 'other')).toBe(true)
   })
@@ -211,7 +211,7 @@ describe('isRoleUnused — every reference kind holds a role back', () => {
 describe('isSkillUnused', () => {
   it('is held by exactly the skill linked, not by a sibling link', () => {
     const s = emptyStore()
-    s.projects = [makeProject({ skills: [{ skill_id: 's1', name: { en: 'Go' }, proficiency: 0 }] })]
+    s.projects = [makeProject({ skills: [makeProjectSkill({ skill_id: 's1', name: { en: 'Go' } })] })]
     expect(isSkillUnused(s, 's1')).toBe(false)
     expect(isSkillUnused(s, 's2')).toBe(true)
   })

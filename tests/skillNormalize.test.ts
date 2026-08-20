@@ -181,7 +181,7 @@ describe('normalizeImportedSkills touches only what it must', () => {
     const store = emptyStore()
     store.skills.push(makeSkill({ id: 'ts', name: { en: 'typescript' } }))
     store.projects.push(makeProject({
-      skills: [{ skill_id: 'ts', name: { en: 'TS' }, proficiency: 2 } as ProjectSkill],
+      skills: [ps('ts', { en: 'TS' })],
     }))
     const { store: out } = normalizeImportedSkills(store, TAXONOMY, CLASS)
     expect(out.projects[0].skills[0].name).toEqual({ en: 'TypeScript' })

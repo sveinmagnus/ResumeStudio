@@ -18,7 +18,7 @@ function seedEmptyResume() {
       work_experiences: [], educations: [], courses: [], certifications: [],
       spoken_languages: [], positions: [],
       presentations: [], honor_awards: [], publications: [], references: [],
-      views: [], skill_categories: [],
+      views: [], skill_categories: [], industries: [], cover_letters: [],
     },
     hasData: true,
     primaryLocale: 'en',

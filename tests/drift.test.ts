@@ -7,7 +7,7 @@
 import { describe, it, expect } from 'vitest'
 import { computeDrift, extractNumbers, wordCount, numberDiff, driftDismissKey } from '../src/lib/drift'
 import { emptyStore, makeProject, makeResume, makeEducation, makeKQ } from './fixtures'
-import type { ResumeStore } from '../src/types'
+import type { Project, ResumeStore } from '../src/types'
 
 describe('extractNumbers()', () => {
   it('pulls digit runs and canonicalizes separators', () => {
@@ -108,7 +108,7 @@ describe('wordCount()', () => {
  * length cases must use prose.
  */
 function storeWith(en: string, no: string, prose = false): ResumeStore {
-  const text = prose
+  const text: Partial<Project> = prose
     ? { long_description: { en, no }, description: {} }
     : { long_description: {}, description: { en, no } }
   return {

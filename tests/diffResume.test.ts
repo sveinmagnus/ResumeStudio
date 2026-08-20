@@ -87,7 +87,7 @@ describe('diffStores', () => {
 
   it('reports skill category additions under the "Skill categories" section', () => {
     const mine = emptyStore()
-    mine.skill_categories.push(makeSkillCategory({ id: 'cat1', name: { en: 'Languages' } }))
+    mine.skill_categories!.push(makeSkillCategory({ id: 'cat1', name: { en: 'Languages' } }))
     const theirs = emptyStore()
     const d = diffStores(mine, theirs)
     expect(d.sections).toContainEqual(expect.objectContaining({ section: 'Skill categories', added: 1, removed: 0, changed: 0 }))

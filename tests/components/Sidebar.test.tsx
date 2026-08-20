@@ -37,7 +37,7 @@ describe('<Sidebar>', () => {
     // white-screens the whole editor. A store that predates a section's array
     // (added in a later version, loaded before defaults backfill it) must render
     // the section with a 0 count, not crash.
-    const store = emptyStore() as Record<string, unknown>
+    const store = emptyStore() as unknown as Record<string, unknown>
     delete store.cover_letters
     delete store.views
     useStore.setState({

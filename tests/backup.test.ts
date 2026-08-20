@@ -10,7 +10,7 @@ import { CURRENT_SHAPE_VERSION } from '../src/lib/migrate'
 import {
   emptyStore, makeProject, makeWork, makeEducation, makeKQ,
   makeReference, makeSpokenLanguage, makeSkill, makeRole, makeIndustry,
-  makeView, makeSkillCategory,
+  makeView, makeSkillCategory, makeProjectIndustry,
 } from './fixtures'
 
 describe('isBackupFormat()', () => {
@@ -312,7 +312,7 @@ describe('round-trip (exportToBackup → importFromBackup)', () => {
     store.roles.push(makeRole({ name: { en: 'SRE' }, starred: true }))
     store.industries.push(makeIndustry({ id: 'fin', name: { en: 'Finance', no: 'Finans' } }))
     store.key_qualifications.push(makeKQ())
-    store.projects.push(makeProject({ starred: true, customer: { en: 'X', no: 'Y' }, industry_id: 'fin' }))
+    store.projects.push(makeProject({ starred: true, customer: { en: 'X', no: 'Y' }, industries: [makeProjectIndustry({ industry_id: 'fin', name: { en: 'Finance' } })] }))
     store.work_experiences.push(makeWork({ employer: { en: 'Old Co' }, end: { year: 2018, month: 12 } }))
     store.educations.push(makeEducation({ grade: 'A+', exchange: true }))
     store.spoken_languages.push(makeSpokenLanguage())
@@ -344,7 +344,7 @@ describe('round-trip (exportToBackup → importFromBackup)', () => {
 
   it('preserves skill_categories entities and Skill.category_id links', () => {
     const store = emptyStore()
-    store.skill_categories.push(makeSkillCategory({ id: 'cat1', name: { en: 'Languages', no: 'Sprak' } }))
+    store.skill_categories!.push(makeSkillCategory({ id: 'cat1', name: { en: 'Languages', no: 'Sprak' } }))
     store.skills.push(makeSkill({ id: 's1', name: { en: 'TypeScript' }, category_id: 'cat1', is_highlighted: true }))
     const restored = importFromBackup(exportToBackup(store))
     expect(restored).toEqual(store)
@@ -440,7 +440,7 @@ describe('isMergeableBackupFormat()', () => {
 
 describe('normalizeStoreShape()', () => {
   it('fills every missing top-level collection so migrations never hit an absent array', () => {
-    const store = normalizeStoreShape({ resume: null, projects: [makeProject('p1')] })
+    const store = normalizeStoreShape({ resume: null, projects: [makeProject({ id: 'p1' })] })
     // A field the raw data omitted entirely is present and empty.
     expect(store.industries).toEqual([])
     expect(store.cover_letters).toEqual([])

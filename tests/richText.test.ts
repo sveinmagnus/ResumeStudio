@@ -1349,9 +1349,10 @@ describe('sanitizeRich — break normalisation', () => {
  */
 describe('parseRichBlocks — lists', () => {
   it('numbers the items of an ordered list from one', () => {
-    const blocks = parseRichBlocks('<ol><li>First</li><li>Second</li><li>Third</li></ol>')
-    expect(blocks.map((b) => b.index)).toEqual([1, 2, 3])
-    expect(blocks.every((b) => b.ordered)).toBe(true)
+    const items = parseRichBlocks('<ol><li>First</li><li>Second</li><li>Third</li></ol>')
+      .filter((b) => b.kind === 'list-item')
+    expect(items.map((b) => b.index)).toEqual([1, 2, 3])
+    expect(items.every((b) => b.ordered)).toBe(true)
   })
 
   it('restarts the count for a second list', () => {
@@ -1363,9 +1364,10 @@ describe('parseRichBlocks — lists', () => {
   })
 
   it('marks an unordered list as unordered and still counts it', () => {
-    const blocks = parseRichBlocks('<ul><li>One</li><li>Two</li></ul>')
-    expect(blocks.every((b) => b.ordered === false)).toBe(true)
-    expect(blocks.map((b) => b.index)).toEqual([1, 2])
+    const items = parseRichBlocks('<ul><li>One</li><li>Two</li></ul>')
+      .filter((b) => b.kind === 'list-item')
+    expect(items.every((b) => b.ordered === false)).toBe(true)
+    expect(items.map((b) => b.index)).toEqual([1, 2])
   })
 
   it('gives a nested list a deeper level, restarting its numbering', () => {

@@ -13,7 +13,7 @@ import { emptyStore } from '../fixtures'
 
 const META = (over: Partial<ResumeMeta> = {}): ResumeMeta => ({
   id: 'r1', name: 'My CV', primary_locale: 'en', secondary_locale: null,
-  saved_at: '2026-06-01T00:00:00Z', created_at: '2026-06-01T00:00:00Z', ...over,
+  saved_at: '2026-06-01T00:00:00Z', created_at: '2026-06-01T00:00:00Z', version: 1, ...over,
 })
 
 describe('<ResumeList>', () => {

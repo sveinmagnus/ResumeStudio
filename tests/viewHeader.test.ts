@@ -205,7 +205,7 @@ describe('resolveHeaderFieldValue()', () => {
     // the header line, and each slot reads its own resume field.
     const store = emptyStore()
     const r = makeResume({
-      phone: null, email: null, linkedin_url: null,
+      phone: null, email: '', linkedin_url: null,
       website_url: null, twitter: null, date_of_birth: null,
     })
     for (const key of ['phone', 'email', 'linkedin', 'website', 'twitter', 'date_of_birth'] as const) {
@@ -300,7 +300,7 @@ describe('buildCopyrightLine()', () => {
   })
   it('returns empty when the chosen holder is unset rather than blank', () => {
     // A resume with no name at all must not print a bare "© 2026".
-    const r = makeResume({ full_name: null, company_name: null })
+    const r = makeResume({ full_name: '', company_name: null })
     expect(buildCopyrightLine(withFooterDefaults({ copyright: 'person' }), r, 2026, 'en')).toBe('')
     expect(buildCopyrightLine(withFooterDefaults({ copyright: 'company' }), r, 2026, 'en')).toBe('')
   })
@@ -447,8 +447,10 @@ describe('the default field spec', () => {
 })
 
 describe('headerFieldLabel — a present key is an opinion', () => {
+  // `label` absent is a real stored shape (an older view), which the type
+  // does not admit but `headerFieldLabel` handles.
   const field = (label?: Record<string, string>): HeaderField =>
-    ({ key: 'phone', show: true, same_line: false, sort_order: 0, label })
+    ({ key: 'phone', show: true, same_line: false, sort_order: 0, label }) as HeaderField
 
   it('uses the stored label for the requested locale', () => {
     expect(headerFieldLabel(field({ en: 'Tel: ' }), 'en')).toBe('Tel: ')
@@ -499,7 +501,7 @@ describe('withHeaderDefaults — the untrusted-import boundary', () => {
   })
 
   it('keeps a supplied field list', () => {
-    const fields = [{ key: 'email' as const, show: true, same_line: false, sort_order: 0 }]
+    const fields = [{ key: 'email' as const, show: true, same_line: false, sort_order: 0, label: {} }]
     expect(withHeaderDefaults({ fields }).fields).toEqual(fields)
   })
 
@@ -621,8 +623,8 @@ describe('buildHeaderLines — visibility and line grouping', () => {
   it('renders in sort_order, not array order', () => {
     const header = withHeaderDefaults({
       fields: [
-        { key: 'email', show: true, same_line: false, sort_order: 1 },
-        { key: 'phone', show: true, same_line: false, sort_order: 0 },
+        { key: 'email', show: true, same_line: false, sort_order: 1, label: {} },
+        { key: 'phone', show: true, same_line: false, sort_order: 0, label: {} },
       ],
     })
     expect(buildHeaderLines(header, resume(), emptyStore(), 'en').flat().map((s) => s.value))

@@ -6,10 +6,10 @@ import {
 import type { AssistStatus } from '../src/lib/api'
 
 const local = (model: string): AssistStatus =>
-  ({ configured: true, provider: 'ollama', model, local: true })
+  ({ configured: true, provider: 'ollama', model, local: true, highEnd: false })
 const remote = (model: string, provider = 'openai'): AssistStatus =>
-  ({ configured: true, provider, model, local: false })
-const off: AssistStatus = { configured: false, provider: '', model: '', local: false }
+  ({ configured: true, provider, model, local: false, highEnd: false })
+const off: AssistStatus = { configured: false, provider: '', model: '', local: false, highEnd: false }
 
 describe('paramsOf()', () => {
   it('reads the parameter count out of an Ollama tag', () => {

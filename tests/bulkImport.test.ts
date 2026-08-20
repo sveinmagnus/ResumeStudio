@@ -334,7 +334,7 @@ describe('findDuplicates()', () => {
   })
 
   it('does not flag the same name at a different date', () => {
-    const existing = [makeCourse({ name: { en: 'Kubernetes 101' }, end: { year: 2019 } })]
+    const existing = [makeCourse({ name: { en: 'Kubernetes 101' }, end: { year: 2019, month: null } })]
     const incoming = [spec.make({ name: 'Kubernetes 101', completed: { year: 2024 } }, ctx)]
     expect(findDuplicates(incoming, existing as unknown as Record<string, unknown>[], spec).size).toBe(0)
   })

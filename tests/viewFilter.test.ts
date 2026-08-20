@@ -14,6 +14,7 @@ import {
   makeKeyCompetency, makeRecommendation, makeSkill, makeSkillCategory,
   makeCourse, makePosition, makeIndustry,
 } from './fixtures'
+import type { ResumeStore } from '../src/types'
 
 // A 1x1 transparent PNG data URL (valid for the isDataImage guard + img embedding).
 const PNG_1x1 =
@@ -543,7 +544,7 @@ describe('buildViewHtml()', () => {
       start: { year: 2020, month: 1 }, end: null,
     }))
     const view = makeView({
-      sections: [{ key: 'work_experiences', detail: 'full' as const, sort_order: 0, style: { date_position: 'leading' } }],
+      sections: [{ key: 'work_experiences', detail: 'full' as const, sort_order: 0, style: { date_position: 'leading' as never } }],
     })
     const html = buildViewHtml(store, view, 'en')
     // The meta div (role · dates) appears before the <h3> employer title.

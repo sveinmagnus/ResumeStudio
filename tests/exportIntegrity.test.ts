@@ -167,7 +167,7 @@ function maximalStore(over: Partial<ResumeStore> = {}): ResumeStore {
     key_qualifications: [makeKQ({ id: 'kq1', competency_ids: ['kc1'] })],
     key_competencies: [competency],
     projects: [makeProject({ id: 'p1', customer: { en: 'Acme', no: 'Acme' } })],
-    work_experience: [makeWork({ id: 'w1' })],
+    work_experiences: [makeWork({ id: 'w1' })],
     educations: [makeEducation({ id: 'e1' })],
     skills: [makeSkill({ id: 's1', name: { en: 'TypeScript' }, category_id: 'sc1' })],
     skill_categories: [cat],
@@ -178,7 +178,7 @@ function maximalStore(over: Partial<ResumeStore> = {}): ResumeStore {
     positions: [makePosition({ id: 'po1' })],
     presentations: [makePresentation({ id: 'pr1' })],
     publications: [makePublication({ id: 'pu1' })],
-    honors_awards: [makeAward({ id: 'ha1' })],
+    honor_awards: [makeAward({ id: 'ha1' })],
     references: [makeReference({ id: 'rf1' })],
     recommendations: [makeRecommendation({ id: 'rc1' })],
     spoken_languages: [makeSpokenLanguage({ id: 'sl1' })],
@@ -208,7 +208,7 @@ describe('DOCX package integrity', () => {
     // path (canvas, absent in jsdom) out of it.
     const view = makeView({
       sections: buildViewSections(),
-      header: { photo_placement: 'left', photo_shape: 'square', logo_placement: 'left' },
+      header: { ...makeView().header, photo_placement: 'left', photo_shape: 'square', logo_placement: 'left' },
     })
     await exportDocx(store, view, 'en')
     const files = await archiveOf(lastBlob!)

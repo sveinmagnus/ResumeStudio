@@ -4,7 +4,7 @@ import {
   countSkillReferences, countRoleReferences, countIndustryReferences,
 } from '../src/lib/merge'
 import {
-  emptyStore, makeSkill, makeRole, makeIndustry, makeProject, makeWork, makePosition,
+  emptyStore, makeSkill, makeRole, makeIndustry, makeProject, makeWork, makePosition, makeProjectSkill, makeProjectRole, makeProjectIndustry
 } from './fixtures'
 import type { ResumeStore } from '../src/types'
 
@@ -265,15 +265,15 @@ describe('mergeRegistryEntries — industries', () => {
       makeIndustry({ id: 'dst', name: { en: 'Energy', no: 'Energi' } }),
     ]
     s.projects = [
-      makeProject({ id: 'p1', industries: [{ industry_id: 'src', name: { en: 'Oil & Gas' } }] }),
+      makeProject({ id: 'p1', industries: [makeProjectIndustry({ industry_id: 'src', name: { en: 'Oil & Gas' } })] }),
       makeProject({
         id: 'both',
         industries: [
-          { industry_id: 'dst', name: { en: 'Energy' } },
-          { industry_id: 'src', name: { en: 'Oil & Gas' } },
+          makeProjectIndustry({ industry_id: 'dst', name: { en: 'Energy' } }),
+          makeProjectIndustry({ industry_id: 'src', name: { en: 'Oil & Gas' } }),
         ],
       }),
-      makeProject({ id: 'untouched', industries: [{ industry_id: 'other', name: { en: 'Retail' } }] }),
+      makeProject({ id: 'untouched', industries: [makeProjectIndustry({ industry_id: 'other', name: { en: 'Retail' } })] }),
     ]
     return s
   }
@@ -281,7 +281,7 @@ describe('mergeRegistryEntries — industries', () => {
   it('repoints the link and refreshes the denormalized name snapshot', () => {
     const out = mergeIndustries(store(), 'src', 'dst')
     const p1 = out.projects.find((p) => p.id === 'p1')!
-    expect(p1.industries).toEqual([{ industry_id: 'dst', name: { en: 'Energy', no: 'Energi' } }])
+    expect(p1.industries).toEqual([expect.objectContaining({ industry_id: 'dst', name: { en: 'Energy', no: 'Energi' } })])
   })
 
   it('collapses a project that already listed the target — no double link', () => {
@@ -294,7 +294,7 @@ describe('mergeRegistryEntries — industries', () => {
     const before = store()
     const out = mergeIndustries(before, 'src', 'dst')
     const p = out.projects.find((p) => p.id === 'untouched')!
-    expect(p.industries).toEqual([{ industry_id: 'other', name: { en: 'Retail' } }])
+    expect(p.industries).toEqual([expect.objectContaining({ industry_id: 'other', name: { en: 'Retail' } })])
     expect(p).toBe(before.projects[2])
   })
 
@@ -313,7 +313,7 @@ describe('mergeRegistryEntries — role links beyond projects', () => {
   const store = (): ResumeStore => {
     const s = emptyStore()
     s.roles = [makeRole({ id: 'src', name: { en: 'Dev' } }), makeRole({ id: 'dst', name: { en: 'Engineer' } })]
-    s.projects = [makeProject({ id: 'p1', roles: [{ role_id: 'src', name: { en: 'Dev' }, description: {} }] })]
+    s.projects = [makeProject({ id: 'p1', roles: [makeProjectRole({ role_id: 'src', name: { en: 'Dev' } })] })]
     s.work_experiences = [
       makeWork({ id: 'w1', role_ids: ['src'] }),
       makeWork({ id: 'w2', role_ids: ['dst', 'src'] }),
@@ -354,14 +354,14 @@ describe('mergeRegistryEntries — skills', () => {
     s.skills = [makeSkill({ id: 'src', name: { en: 'React.js' } }), makeSkill({ id: 'dst', name: { en: 'React' } })]
     s.projects = [makeProject({
       skills: [
-        { skill_id: 'src', name: { en: 'React.js' }, proficiency: 3 },
-        { skill_id: 'keep', name: { en: 'Go' }, proficiency: 1 },
+        makeProjectSkill({ skill_id: 'src', name: { en: 'React.js' } }),
+        makeProjectSkill({ skill_id: 'keep', name: { en: 'Go' } }),
       ],
     })]
     const out = mergeSkills(s, 'src', 'dst')
     expect(out.projects[0].skills).toEqual([
-      { skill_id: 'dst', name: { en: 'React' }, proficiency: 3 },
-      { skill_id: 'keep', name: { en: 'Go' }, proficiency: 1 },
+      expect.objectContaining({ skill_id: 'dst', name: { en: 'React' } }),
+      expect.objectContaining({ skill_id: 'keep', name: { en: 'Go' } }),
     ])
     expect(countSkillReferences(s, 'src')).toBe(1)
   })
@@ -373,13 +373,13 @@ describe('mergeRegistry — a merge touches the merged link and nothing beside i
     s.roles = [makeRole({ id: 'src', name: { en: 'Dev' } }), makeRole({ id: 'dst', name: { en: 'Engineer' } })]
     s.projects = [makeProject({
       roles: [
-        { role_id: 'src', name: { en: 'Dev' }, description: {} },
-        { role_id: 'keep', name: { en: 'Tester' }, description: {} },
+        makeProjectRole({ role_id: 'src', name: { en: 'Dev' } }),
+        makeProjectRole({ role_id: 'keep', name: { en: 'Tester' } }),
       ],
     })]
     expect(mergeRoles(s, 'src', 'dst').projects[0].roles).toEqual([
-      { role_id: 'dst', name: { en: 'Engineer' }, description: {} },
-      { role_id: 'keep', name: { en: 'Tester' }, description: {} },
+      expect.objectContaining({ role_id: 'dst', name: { en: 'Engineer' } }),
+      expect.objectContaining({ role_id: 'keep', name: { en: 'Tester' } }),
     ])
   })
 
@@ -398,13 +398,13 @@ describe('mergeRegistry — a merge touches the merged link and nothing beside i
     s.industries = [makeIndustry({ id: 'src', name: { en: 'Oil' } }), makeIndustry({ id: 'dst', name: { en: 'Energy' } })]
     s.projects = [makeProject({
       industries: [
-        { industry_id: 'src', name: { en: 'Oil' } },
-        { industry_id: 'keep', name: { en: 'Retail' } },
+        makeProjectIndustry({ industry_id: 'src', name: { en: 'Oil' } }),
+        makeProjectIndustry({ industry_id: 'keep', name: { en: 'Retail' } }),
       ],
     })]
     expect(mergeIndustries(s, 'src', 'dst').projects[0].industries).toEqual([
-      { industry_id: 'dst', name: { en: 'Energy' } },
-      { industry_id: 'keep', name: { en: 'Retail' } },
+      expect.objectContaining({ industry_id: 'dst', name: { en: 'Energy' } }),
+      expect.objectContaining({ industry_id: 'keep', name: { en: 'Retail' } }),
     ])
   })
 
@@ -413,8 +413,8 @@ describe('mergeRegistry — a merge touches the merged link and nothing beside i
     s.skills = [makeSkill({ id: 'src', name: { en: 'React.js' } }), makeSkill({ id: 'dst', name: { en: 'React' } })]
     s.projects = [makeProject({
       skills: [
-        { skill_id: 'src', name: { en: 'React.js' }, proficiency: 2 },
-        { skill_id: 'keep', name: { en: 'Go' }, proficiency: 1 },
+        makeProjectSkill({ skill_id: 'src', name: { en: 'React.js' } }),
+        makeProjectSkill({ skill_id: 'keep', name: { en: 'Go' } }),
       ],
     })]
     expect(mergeSkills(s, 'src', 'dst').projects[0].skills.map((ps) => ps.skill_id)).toEqual(['dst', 'keep'])

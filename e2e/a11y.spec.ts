@@ -34,7 +34,7 @@ const WCAG = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']
  * transitions under reduced motion globally (index.css), so this measures the
  * settled state deterministically without changing any colour.
  */
-test.use({ reducedMotion: 'reduce' })
+test.use({ contextOptions: { reducedMotion: 'reduce' } })
 
 /**
  * Run axe and return violations as readable lines.

@@ -23,7 +23,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { buildViewHtml } from '../src/lib/viewFilter'
-import { buildViewText } from '../src/lib/viewText'
+import { buildViewText, buildViewMarkdown } from '../src/lib/viewText'
 import { buildPdfDocDefinition } from '../src/lib/pdfExporter'
 import { exportDocx } from '../src/lib/exporter'
 import { unzipSync, strFromU8 } from 'fflate'
@@ -108,8 +108,8 @@ async function renderAll(store: ResumeStore, view: ResumeView): Promise<Record<s
   const dd = await buildPdfDocDefinition(store, view, 'en')
   return {
     'HTML preview': buildViewHtml(store, view, 'en'),
-    'ATS text': buildViewText(store, view, 'en', 'text'),
-    'Markdown': buildViewText(store, view, 'en', 'markdown'),
+    'ATS text': buildViewText(store, view, 'en'),
+    'Markdown': buildViewMarkdown(store, view, 'en'),
     PDF: pdfText(dd.content).join('\n'),
     DOCX: await docxText(store, view),
   }
@@ -145,7 +145,7 @@ describe('export parity — every adapter states the same facts', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
     // exportDocx triggers a download; capture the blob instead of writing one.
-    vi.spyOn(URL, 'createObjectURL').mockImplementation((b: Blob) => { lastBlob = b; return 'blob:x' })
+    vi.spyOn(URL, 'createObjectURL').mockImplementation((b) => { lastBlob = b as Blob; return 'blob:x' })
     vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
   })

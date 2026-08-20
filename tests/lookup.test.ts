@@ -70,7 +70,7 @@ describe('the callers cannot be handed a function', () => {
       expect(presentLabel(key), key).not.toContain('native code')
       expect(fmtYears(3, key), key).not.toContain('native code')
       // Dates render through the month table keyed by the same locale.
-      expect(fmtDate({ year: 2024, month: 3 }, key), key).not.toContain('native code')
+      expect(fmtDate({ year: 2024, month: 3 }, 'month-year', key), key).not.toContain('native code')
     }
   })
 
