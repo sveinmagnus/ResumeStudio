@@ -232,6 +232,31 @@ export function createApp(): Express {
     handler: (_req, res) => { res.status(429).json({ error: 'Too many translation requests' }) },
   })
 
+  /**
+   * A THIRD limiter, success-inclusive, for the routes that can send mail or
+   * spend a credential.
+   *
+   * `apiLimiter` skips 2xx so auto-save is never throttled — but `/forgot`
+   * answers 200 in every case BY DESIGN, so that it cannot be used to discover
+   * whether an account exists. Under the main limiter it therefore never spends
+   * its budget, and the endpoint that makes the server send email to an address
+   * of the caller's choosing is the one endpoint with no ceiling at all. That is
+   * a mail bomb aimed at a third party and a fast route to this server's IP
+   * landing on a blocklist.
+   *
+   * Deliberately tight. A human forgets a password a handful of times an hour,
+   * never fifty.
+   */
+  const recoveryMax = Number(process.env.RESUME_RECOVERY_RATE_LIMIT_MAX) || 5
+  const recoveryWindowMs = Number(process.env.RESUME_RECOVERY_RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000
+  const recoveryLimiter = rateLimit({
+    windowMs: recoveryWindowMs,
+    limit: recoveryMax,
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler: (_req, res) => { res.status(429).json({ error: 'Too many attempts. Try again later.' }) },
+  })
+
   // ── Health check (no auth, no rate limit — frontend reachability probe) ────
   app.get('/api/health', (_req, res) => {
     res.json({ ok: true })
@@ -255,6 +280,12 @@ export function createApp(): Express {
   // Not behind authMiddleware as a whole: the reset and invite routes must be
   // reachable by someone who cannot sign in. The router applies it internally,
   // above the routes that need a viewer.
+  // The recovery limiter goes on the paths that send mail or spend a credential,
+  // ahead of the general one. `/me` and the owner routes stay on `apiLimiter`
+  // alone — a signed-in owner editing accounts is not the abuse case.
+  for (const path of ['/api/users/forgot', '/api/users/reset', '/api/users/recover', '/api/users/accept']) {
+    app.use(path, recoveryLimiter)
+  }
   app.use('/api/users', apiLimiter, usersRouter)
 
   // ── Resume API (auth-gated) ──────────────────────────────────────────────

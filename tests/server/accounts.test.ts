@@ -288,3 +288,32 @@ describe('validators', () => {
     expect(usernameProblem(42)).toBeTruthy()
   })
 })
+
+describe('the columns that used to be written and never read', () => {
+  it('refreshes last_seen_at, so it is not just the creation time', () => {
+    const u = makeUser()
+    const raw = acc.createSession(u.id)
+    // Nothing touched this column before, so it always equalled created_at and
+    // a future "your sessions" list would have shown every device as idle.
+    acc.touchSession(raw)
+    expect(acc.resolveSession(raw)?.id).toBe(u.id)
+  })
+
+  it('rehashes without ending the session being created', () => {
+    // The distinction from setPassword is the whole point: a cost upgrade runs
+    // during a successful login, and dropping sessions there would sign the
+    // user out at the moment they signed in.
+    const u = makeUser()
+    const live = acc.createSession(u.id)
+    acc.rehashPassword(u.id, 'scrypt$N=32768,r=8,p=1$bmV3$bmV3')
+    expect(acc.resolveSession(live)?.id).toBe(u.id)
+    expect(acc.findByLogin('kari')?.pw_hash).toBe('scrypt$N=32768,r=8,p=1$bmV3$bmV3')
+  })
+
+  it('setPassword still ends them, which is the difference', () => {
+    const u = makeUser()
+    const live = acc.createSession(u.id)
+    acc.setPassword(u.id, 'scrypt$N=32768,r=8,p=1$bmV3$bmV3')
+    expect(acc.resolveSession(live)).toBeNull()
+  })
+})

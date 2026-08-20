@@ -94,6 +94,9 @@ export const GRANT_TTL_MS = {
 
 const RECOVERY_CODE_COUNT = 10
 
+/** How stale `last_seen_at` must be before a request refreshes it. */
+const TOUCH_AFTER_MS = 5 * 60 * 1000
+
 /**
  * Crockford-ish base32 without the characters people transcribe wrongly (I, L,
  * O, U). Recovery codes get read off a screen and typed back in, sometimes
@@ -169,6 +172,8 @@ export interface AccountsStore {
   findByLogin(login: string): UserWithHash | null
   getHash(id: string): string | null
   setPassword(userId: string, pwHash: string): void
+  /** Replace the hash WITHOUT ending sessions — for a silent cost upgrade. */
+  rehashPassword(userId: string, pwHash: string): void
   setRole(userId: string, role: Role): void
   setDisabled(userId: string, disabled: boolean): void
   setDisplayName(userId: string, displayName: string): void
@@ -322,11 +327,17 @@ export function createAccountsStore(db: SqliteDatabase): AccountsStore {
   function resolveSession(raw: string): UserRow | null {
     if (!raw) return null
     const row = stmt.selectSession.get(tokenHash(raw)) as
-      | (UserRow & { expires_at: string | null })
+      | (UserRow & { expires_at: string | null; last_seen_at: string })
       | undefined
     if (!row) return null
     if (row.disabled_at) return null
     if (row.expires_at && Date.parse(row.expires_at) <= Date.now()) return null
+    // Throttled hard: auto-save fires about once a second per open editor, and
+    // a write per request against a single-writer SQLite file would be the most
+    // expensive thing this app does.
+    if (Date.now() - Date.parse(row.last_seen_at) > TOUCH_AFTER_MS) {
+      stmt.touchSession.run(now(), tokenHash(raw))
+    }
     return {
       id: row.id,
       username: row.username,
@@ -443,6 +454,16 @@ export function createAccountsStore(db: SqliteDatabase): AccountsStore {
         stmt.deleteUserSessions.run(userId)
       })()
     },
+
+    /**
+     * Re-store the same password at the current cost.
+     *
+     * Distinct from `setPassword` precisely because it must NOT end sessions:
+     * this runs during a successful login, and dropping every session there
+     * would sign the user out at the moment they signed in. The credential has
+     * not changed — only how expensively it is stored.
+     */
+    rehashPassword: (userId: string, pwHash: string) => { stmt.setPassword.run(pwHash, userId) },
 
     setRole: (userId: string, role: Role) => { stmt.setRole.run(role, userId) },
 

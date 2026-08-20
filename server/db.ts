@@ -251,6 +251,8 @@ export interface ResumeDb extends RegistryStore {
   renameResume(viewer: Viewer, id: string, name: string): boolean
   /** Change who else may read a resume. Only whoever may write it may reshare it. */
   setVisibility(viewer: Viewer, id: string, visibility: Visibility): boolean
+  /** Hand a resume to another account. Owner only; null returns it to unowned. */
+  setOwner(viewer: Viewer, id: string, ownerId: string | null): boolean
   listSnapshots(viewer: Viewer, resumeId: string): SnapshotMeta[]
   getSnapshot(viewer: Viewer, resumeId: string, snapshotId: number): Record<string, unknown> | null
   /**
@@ -427,6 +429,7 @@ export function createResumeDb(dbPath: string): ResumeDb {
     VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, 'private')
   `)
   const updateVisibility = db.prepare('UPDATE resumes SET visibility = ? WHERE id = ?')
+  const updateOwner = db.prepare('UPDATE resumes SET owner_id = ? WHERE id = ?')
   const claimUnowned = db.prepare('UPDATE resumes SET owner_id = ? WHERE owner_id IS NULL')
   const updateResumeData = db.prepare(`
     UPDATE resumes SET data = ?, saved_at = ?, saved_by = ?, version = version + 1 WHERE id = ?
@@ -648,6 +651,29 @@ export function createResumeDb(dbPath: string): ResumeDb {
     return updateVisibility.run(normaliseVisibility(visibility), id).changes > 0
   }
 
+  /**
+   * Hand a resume to a different account.
+   *
+   * OWNER ONLY, and deliberately not derived from anything a file says. An
+   * import cannot assign ownership by claiming an author, because a file cannot
+   * prove who wrote it — so this is the one way ownership moves after the fact,
+   * and it takes a person deciding. It is what makes the import rule
+   * ("whoever imported it owns it") safe to keep: a wrong guess is correctable
+   * rather than permanent.
+   *
+   * `null` returns a resume to unowned, which is what a desktop-authored one
+   * looks like before anybody claims it.
+   */
+  const setOwner = (viewer: Viewer, id: string, ownerId: string | null): boolean => {
+    if (!isUnrestricted(viewer)) return false
+    const row = accessOf(id)
+    if (!row) return false
+    // A resume owned by an account that does not exist is invisible to every
+    // member and editable by none of them, which is not a state a UI can undo.
+    if (ownerId !== null && !accounts.getUser(ownerId)) return false
+    return updateOwner.run(ownerId, id).changes > 0
+  }
+
   const listSnapshots = (viewer: Viewer, resumeId: string): SnapshotMeta[] => {
     const row = accessOf(resumeId)
     if (!row || !canRead(viewer, row)) return []
@@ -853,6 +879,7 @@ export function createResumeDb(dbPath: string): ResumeDb {
 
   return {
     accounts,
+    setOwner,
     listResumes, createResume, getResume, saveResume,
     deleteResume, renameResume, setVisibility, listSnapshots, getSnapshot,
     storageStats, dumpResumes, restoreResumes, claimUnownedResumes, close,
@@ -906,6 +933,8 @@ export const renameResume = (viewer: Viewer, id: string, name: string): boolean 
   defaultDb().renameResume(viewer, id, name)
 export const setVisibility = (viewer: Viewer, id: string, visibility: Visibility): boolean =>
   defaultDb().setVisibility(viewer, id, visibility)
+export const setOwner = (viewer: Viewer, id: string, ownerId: string | null): boolean =>
+  defaultDb().setOwner(viewer, id, ownerId)
 export const listSnapshots = (viewer: Viewer, resumeId: string): SnapshotMeta[] =>
   defaultDb().listSnapshots(viewer, resumeId)
 export const getSnapshot = (

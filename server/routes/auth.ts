@@ -31,7 +31,9 @@ import {
   legacyTokenNames,
 } from '../auth.js'
 import { getAccounts, claimUnownedResumes } from '../db.js'
-import { hashPassword, verifyPassword, passwordProblem, lockedPasswordHash } from '../passwords.js'
+import {
+  hashPassword, verifyPassword, passwordProblem, lockedPasswordHash, needsRehash,
+} from '../passwords.js'
 import { usernameProblem, normaliseLogin, type AccountsStore } from '../accounts.js'
 import { newCsrfToken, csrfCookie } from '../csrf.js'
 import { isMailConfigured } from '../mail.js'
@@ -257,6 +259,13 @@ router.post('/login', (req: Request, res: Response): void => {
     if (!(await verifyPassword(password, user.pw_hash))) {
       res.status(401).json({ error: 'Wrong username or password.' })
       return
+    }
+
+    // The one moment the plaintext password is in hand, so the one moment a
+    // hash stored at an older cost can be upgraded. Deliberately not through
+    // setPassword, which ends every session — including the one being made.
+    if (needsRehash(user.pw_hash)) {
+      accounts.rehashPassword(user.id, await hashPassword(password))
     }
 
     const sid = accounts.createSession(user.id)
