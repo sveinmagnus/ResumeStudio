@@ -139,7 +139,7 @@ Wishlist: §12.
 - **TypeScript strict mode.** `npm run typecheck` covers client, server AND
   tests — three projects, because they need different `lib`/`types` and neither
   build config may ever compile a test file. `tsconfig.tests.json` owns
-  `tests/`, `e2e/` and the two config files (DOM + node + vitest/playwright
+  `tests/`, `e2e/` and the three root config files (DOM + node + vitest/playwright
   types, plus `src/**/*.d.ts` for the ambient module declarations);
   `tsconfig.lint.json` now just extends it, so ESLint's type-aware rules and the
   compiler can never disagree about what a test file's types are. Tests went
@@ -201,9 +201,14 @@ Wishlist: §12.
 - **Other gates** — `npm run check:bundle` asserts the initial-payload budget
   (340 kB gzip) and that the heavy chunks stay lazy; `npm run test:coverage`
   enforces a ratchet (global 78 % statements / 81 % lines, `src/lib` 86 % / 89 %)
-  set just below current so it catches decay, not noise; `npm run test:mutation` (Stryker, `src/lib` only) is
-  an **audit you run before a release**, not a CI gate — it reports which
-  assertions aren't there. `npm run check:arch` fails when a module is
+  set just below current so it catches decay, not noise; `npm run test:mutation` (Stryker over
+  `src/lib` **and** `server/`) is an **audit you run before a release**, not a
+  CI gate — it reports which assertions aren't there. Both halves are logic
+  whose failure is silent: a wrong branch in `src/lib` is a data defect, and a
+  wrong one in `server/` is a wrong answer to "may this person read this row".
+  It measures ONE module at a time (`scripts/mutation-run.mjs`) and generates a
+  scoped config per module — `stryker.config.json` is only for a bare
+  `npx stryker run`. `npm run check:arch` fails when a module is
   missing from the §3 architecture map, because a map that quietly stops being
   complete makes a module read as one that does not exist — the next reader
   writes a second one beside it. `npm run check:text` fails on a raw control character
@@ -895,7 +900,7 @@ npm run lint             # eslint (CI gate)   npm run lint:fix     # eslint --fi
 npm run check:bundle     # initial-payload budget (needs a build first)
 npm run check:text       # raw control characters anywhere git tracks (CI gate)
 npm run check:arch       # every module is named in the §3 architecture map (CI gate)
-npm run test:mutation    # Stryker over src/lib — slow, pre-release audit
+npm run test:mutation    # Stryker over src/lib + server/ — slow, pre-release audit
 npm start                # production server (NODE_ENV=production)
 npm run desktop          # build client + run the desktop launcher from source (tsx)
 npm run build:desktop    # assemble the portable release/ folder (per target OS)

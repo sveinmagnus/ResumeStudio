@@ -2,11 +2,11 @@
 /**
  * Incremental mutation testing — one source file at a time.
  *
- * A plain `stryker run` over `src/lib` is unusable here, and the reason is the
- * DRY RUN: before trying a single mutant, Stryker executes the whole test suite
- * once per runner process to learn which tests cover what. This suite is 2,638
- * tests, so that alone blew past Stryker's timeout and the run died having
- * measured nothing. Raising the timeout only converts a crash into a long wait.
+ * A plain `stryker run` is unusable here, and the reason is the DRY RUN: before
+ * trying a single mutant, Stryker executes the whole test suite once per runner
+ * process to learn which tests cover what. This suite is ~6,900 tests, so that
+ * alone blew past Stryker's timeout and the run died having measured nothing.
+ * Raising the timeout only converts a crash into a long wait.
  *
  * The fix is to stop making it read the whole suite. This runs Stryker once per
  * source file against ONLY the tests that exercise it — its own
@@ -14,9 +14,23 @@
  * dry run drops from minutes to about a second, and the mutants that survive are
  * the ones those tests should have killed.
  *
- * The module list is READ OFF DISK every run (`src/lib/*.ts`) — there is no
- * checked-in list to fall out of date — and anything no test touches is
- * reported by name rather than quietly left out of the numbers.
+ * SCOPE: `src/lib/**` and `server/**`. Both are logic whose failure is silent —
+ * in src/lib a wrong branch is a data defect, in server/ it is a wrong answer to
+ * "may this person read this row" (access.ts, db.ts), a credential that verifies
+ * when it should not (passwords.ts, csrf.ts, auth.ts), or two machines deleting
+ * each other's work (backupFiles.ts). Components stay out: mutating one mostly
+ * proves that a rendered string changed, which the RTL suite already asserts.
+ *
+ * The module list is READ OFF DISK every run — there is no checked-in list to
+ * fall out of date — and anything no test touches is reported by name rather
+ * than quietly left out of the numbers.
+ *
+ * Modules are keyed by PATH (`lib/richText`, `server/access`,
+ * `server/routes/users`), never by basename. Three basenames collide between
+ * src/lib and server (backup, glossary, storage) and six more collide inside
+ * server itself (auth, backup, llm, settings, summarize, translate), so a
+ * basename key would have had two modules overwriting each other's score and
+ * mutant detail with no sign that anything was wrong.
  *
  * Properties that matter, each learned the hard way:
  *  - **One file per process.** A crash costs that file, not the run.
@@ -31,8 +45,10 @@
  *    output, and the first full run produced only the score.
  *
  * Usage:
- *   node scripts/mutation-run.mjs                 # every lib file with a test
- *   node scripts/mutation-run.mjs richText merge  # just these
+ *   node scripts/mutation-run.mjs                 # every module with a test
+ *   node scripts/mutation-run.mjs richText access # just these (bare name is fine
+ *                                                 #   when it is unambiguous;
+ *                                                 #   otherwise server/backup)
  *   node scripts/mutation-run.mjs --limit 10      # the next 10 unmeasured
  *   node scripts/mutation-run.mjs --report        # print what's been measured
  *   node scripts/mutation-run.mjs --survivors x   # print x's UNKILLED mutants
@@ -40,13 +56,15 @@
  *                                                 # …minus the prompt wording
  */
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync, rmSync } from 'node:fs'
 import path from 'node:path'
 
 const ROOT = process.cwd()
 const REPORT = path.join(ROOT, 'reports', 'mutation', 'summary.json')
+/** A module key contains slashes; flatten so the detail stays one flat directory. */
+const reportName = (key) => key.replace(/\//g, '__')
 /** Per-file mutant detail, written by Stryker's own json reporter. */
-const detailPath = (base) => path.join(ROOT, 'reports', 'mutation', 'files', `${base}.json`)
+const detailPath = (key) => path.join(ROOT, 'reports', 'mutation', 'files', `${reportName(key)}.json`)
 /**
  * Generous on purpose: richText measures ~1,995s (33 min), so anything near the
  * half-hour mark is already too tight. A file that trips the timeout is recorded
@@ -79,13 +97,78 @@ const names = argv.filter((a, i) => !a.startsWith('--')
   && !(limitIdx >= 0 && i === limitIdx + 1)
   && !(skipIdx >= 0 && i === skipIdx + 1))
 
-/** Every module in src/lib, read off disk each run — never a checked-in list. */
-function libModules() {
-  return readdirSync(path.join(ROOT, 'src', 'lib'))
-    .filter((f) => f.endsWith('.ts') && !f.endsWith('.d.ts'))
-    .map((f) => f.replace(/\.ts$/, ''))
-    .sort()
+/**
+ * Every mutable module, read off disk each run — never a checked-in list.
+ *
+ * Keys are paths (`lib/richText`, `server/routes/users`); see the header for the
+ * nine basename collisions that forces.
+ */
+function sourceModules() {
+  const out = []
+  const walk = (dir, prefix) => {
+    const entries = readdirSync(path.join(ROOT, dir), { withFileTypes: true })
+      .sort((a, b) => a.name.localeCompare(b.name))
+    for (const e of entries) {
+      if (e.isDirectory()) { walk(`${dir}/${e.name}`, `${prefix}/${e.name}`); continue }
+      if (!e.name.endsWith('.ts') || e.name.endsWith('.d.ts') || e.name.endsWith('.test.ts')) continue
+      out.push({ key: `${prefix}/${e.name.replace(/\.ts$/, '')}`, file: `${dir}/${e.name}` })
+    }
+  }
+  walk('src/lib', 'lib')
+  walk('server', 'server')
+  return out.sort((a, b) => a.key.localeCompare(b.key))
 }
+
+const moduleKeys = () => sourceModules().map((m) => m.key)
+const fileFor = (key) => sourceModules().find((m) => m.key === key)?.file
+const baseOf = (key) => key.slice(key.lastIndexOf('/') + 1)
+
+/**
+ * Which supertest files exercise a route module.
+ *
+ * A route file is almost never imported by a test — the suites drive it through
+ * `createApp()` and a URL. The import scan therefore finds nothing, and would
+ * report `server/routes/users.ts` (573 lines, the largest module the accounts
+ * work added) as having no test at all, which is the opposite of true.
+ *
+ * The link between them is the mount path, and app.ts is where it is declared.
+ * Parsed rather than listed here, so a route mounted tomorrow is picked up
+ * without anyone remembering this file: `import xRouter from './routes/x.js'`
+ * gives the module, `app.use('/api/…', …, xRouter)` gives its prefix, and a
+ * test that boots the app and mentions that prefix is a test of that route.
+ */
+let mounts = null
+function routeMounts() {
+  if (mounts) return mounts
+  const text = readFileSync(path.join(ROOT, 'server', 'app.ts'), 'utf8')
+  const byIdent = new Map()
+  for (const m of text.matchAll(/import\s+(\w+)\s+from\s+'\.\/routes\/([\w-]+)\.js'/g)) {
+    byIdent.set(m[1], `server/routes/${m[2]}`)
+  }
+  mounts = new Map()
+  for (const m of text.matchAll(/app\.use\(\s*'(\/api\/[\w-]*)'([^\n]*)/g)) {
+    const idents = new Set(m[2].split(/[^\w]+/))
+    for (const [ident, key] of byIdent) {
+      if (idents.has(ident)) mounts.set(key, m[1])
+    }
+  }
+  return mounts
+}
+
+/**
+ * Test files that must never enter a mutation test set.
+ *
+ * `loginTimingRevealsALockedAccount` decides pass/fail from wall clock. A
+ * mutation run is the one place that means nothing: the code is instrumented,
+ * two runners compete for the same cores, and the mutant may have removed the
+ * derivation being timed. The dangerous direction is a FALSE KILL — noise trips
+ * the ratio, Stryker records the mutant as caught, and the report claims an
+ * assertion nobody wrote, which is worse than no report.
+ *
+ * `vitest.mutation.config.ts` drops the same file for a bare `npx stryker run`.
+ * One reason, two entry points.
+ */
+const NEVER_MEASURE_WITH = new Set(['tests/server/loginTimingRevealsALockedAccount.test.ts'])
 
 /** Every tests/**\/*.test.ts(x), with its text — walked once per process. */
 let testFiles = null
@@ -126,7 +209,19 @@ function allTestFiles() {
  * expensive ones are rationed. `coverageAnalysis: perTest` means the extra
  * cheap files cost one dry run, not a re-run per mutant.
  */
-const MAX_HEAVY_TEST_FILES = 2
+const MAX_COMPONENT_TEST_FILES = 2
+/**
+ * Adding server/ needed a THIRD tier, not a second use of the second.
+ *
+ * `tests/server/` was priced as "expensive" only to break ties against the
+ * root-level lib suites. Against a server module it is the ONLY kind of test
+ * there is, so a ceiling of two would have measured access.ts against two of
+ * the eight suites that exercise it and reported the rest of its mutants as
+ * survivors. Supertest over an in-memory DB is genuinely cheaper than mounting
+ * React, but a login suite pays for scrypt on nearly every request, so it is
+ * rationed too — just far higher.
+ */
+const MAX_SERVER_TEST_FILES = 8
 /** A backstop for a module half the suite imports, so a run still terminates. */
 const MAX_TEST_FILES = 24
 
@@ -134,8 +229,9 @@ const MAX_TEST_FILES = 24
 const capped = new Set()
 
 /**
- * The test files that exercise src/lib/<base>.ts: its own tests/<base>.test.ts
- * FIRST, then whichever other test files import it.
+ * The test files that exercise a module: its own same-name test FIRST
+ * (tests/<base>.test.ts for lib, tests/server/<base>.test.ts for server), then
+ * whichever other test files import it — or, for a route, drive it by URL.
  *
  * Both halves matter, for opposite reasons.
  *
@@ -172,33 +268,96 @@ function testCost(p) {
   return 0
 }
 
-function testsFor(base) {
-  const own = [`tests/${base}.test.ts`, `tests/${base}.test.tsx`]
+function testsFor(key) {
+  const base = baseOf(key)
+  const own = (key.startsWith('server/')
+    ? [`tests/server/${base}.test.ts`]
+    : [`tests/${base}.test.ts`, `tests/${base}.test.tsx`])
     .filter((p) => existsSync(path.join(ROOT, p)))
-  const escaped = base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const imports = new RegExp(`lib/${escaped}['"]`)
+  const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  // The key IS the tail of the import specifier, so one pattern serves all
+  // three shapes: '…/src/lib/richText', '…/server/access', '…/server/routes/
+  // users'. The closing quote is what stops `server/backup` also matching
+  // server/backupFiles, backupZip, backupWatcher and the rest.
+  const imports = new RegExp(`${escaped}['"]`)
+  const mount = routeMounts().get(key)
   const importers = allTestFiles()
-    .filter((f) => imports.test(f.text))
+    .filter((f) => imports.test(f.text)
+      // A route is reached through createApp() and a URL, never an import.
+      || (mount !== undefined && f.text.includes('server/app') && f.text.includes(mount)))
     .map((f) => f.path)
-    .filter((p) => !own.includes(p))
+    .filter((p) => !own.includes(p) && !NEVER_MEASURE_WITH.has(p))
     // Cheapest first, then by path so the choice is stable between runs.
     .sort((a, b) => testCost(a) - testCost(b) || a.localeCompare(b))
 
-  // Every cheap importer, then as many expensive ones as the budget allows.
-  const cheap = importers.filter((p) => testCost(p) === 0)
-  const heavy = importers.filter((p) => testCost(p) > 0)
-  const all = [...own, ...cheap, ...heavy.slice(0, MAX_HEAVY_TEST_FILES)]
-  if (heavy.length > MAX_HEAVY_TEST_FILES || all.length > MAX_TEST_FILES) capped.add(base)
+  // Every cheap importer, then as much of each rationed tier as the budget allows.
+  const lib = importers.filter((p) => testCost(p) === 0)
+  const server = importers.filter((p) => testCost(p) === 1)
+  const components = importers.filter((p) => testCost(p) === 2)
+  const all = [
+    ...own.filter((p) => !NEVER_MEASURE_WITH.has(p)),
+    ...lib,
+    ...server.slice(0, MAX_SERVER_TEST_FILES),
+    ...components.slice(0, MAX_COMPONENT_TEST_FILES),
+  ]
+  if (server.length > MAX_SERVER_TEST_FILES
+    || components.length > MAX_COMPONENT_TEST_FILES
+    || all.length > MAX_TEST_FILES) capped.add(key)
   return all.slice(0, MAX_TEST_FILES)
 }
 
 /** Modules that can be measured, i.e. some test somewhere touches them. */
 function candidates() {
-  return libModules().filter((base) => testsFor(base).length > 0)
+  return moduleKeys().filter((key) => testsFor(key).length > 0)
+}
+
+/**
+ * Resolve what was typed on the command line to a module key.
+ *
+ * Bare basenames stay usable — `richText`, `access` — because typing the full
+ * key for the ~170 modules that have no twin would be ceremony. The nine that DO
+ * have one (backup, glossary and storage across src/lib and server; auth,
+ * backup, llm, settings, summarize and translate inside server) are refused
+ * with both candidates named, rather than resolved to whichever sorts first
+ * and quietly measuring the wrong file.
+ */
+function resolveName(name) {
+  const keys = moduleKeys()
+  if (keys.includes(name)) return name
+  const hits = keys.filter((k) => baseOf(k) === name)
+  if (hits.length === 1) return hits[0]
+  console.log(hits.length
+    ? `Ambiguous: "${name}" is ${hits.join(' and ')} — name one of them in full.`
+    : `Unknown module: "${name}".`)
+  return null
+}
+
+/**
+ * One-time migration of a report written before keys carried paths.
+ *
+ * Every entry that predates server/ being in scope is a src/lib module, so
+ * `richText` maps to `lib/richText` unambiguously. Migrating rather than
+ * re-measuring matters because those 105 files cost hours to produce, and the
+ * alternative is a resumable runner that silently isn't.
+ */
+function migrateBareKeys(report) {
+  const files = {}
+  for (const [k, v] of Object.entries(report.files ?? {})) {
+    files[k.includes('/') ? k : `lib/${k}`] = v
+  }
+  const dir = path.dirname(detailPath('x'))
+  if (existsSync(dir)) {
+    for (const f of readdirSync(dir)) {
+      if (!f.endsWith('.json') || f.includes('__')) continue
+      const key = `lib/${f.replace(/\.json$/, '')}`
+      if (fileFor(key)) renameSync(path.join(dir, f), detailPath(key))
+    }
+  }
+  return { ...report, files }
 }
 
 const loadReport = () => {
-  try { return JSON.parse(readFileSync(REPORT, 'utf8')) } catch { return { files: {} } }
+  try { return migrateBareKeys(JSON.parse(readFileSync(REPORT, 'utf8'))) } catch { return { files: {} } }
 }
 const saveReport = (report) => {
   mkdirSync(path.dirname(REPORT), { recursive: true })
@@ -215,8 +374,9 @@ const saveReport = (report) => {
  *  - a stryker config pointing at it, because `vitest.configFile` is a config
  *    key with no CLI equivalent.
  */
-function writeScopedConfigs(base, tests) {
-  const vitestFile = path.join(ROOT, `vitest.mutation.${base}.config.ts`)
+function writeScopedConfigs(key, tests) {
+  // reportName, not the key: a key contains slashes and this is a filename.
+  const vitestFile = path.join(ROOT, `vitest.mutation.${reportName(key)}.config.ts`)
   writeFileSync(vitestFile, [
     "/// <reference types=\"vitest\" />",
     "import { defineConfig } from 'vite'",
@@ -245,7 +405,7 @@ function writeScopedConfigs(base, tests) {
     '',
   ].join('\n'))
 
-  const strykerFile = path.join(ROOT, `stryker.mutation.${base}.json`)
+  const strykerFile = path.join(ROOT, `stryker.mutation.${reportName(key)}.json`)
   writeFileSync(strykerFile, JSON.stringify({
     packageManager: 'npm',
     testRunner: 'vitest',
@@ -254,9 +414,9 @@ function writeScopedConfigs(base, tests) {
     // a finished run leaves a score and nothing to act on — you know richText
     // is at 62% and not one thing to write a test about.
     reporters: ['clear-text', 'json'],
-    jsonReporter: { fileName: `reports/mutation/files/${base}.json` },
+    jsonReporter: { fileName: `reports/mutation/files/${reportName(key)}.json` },
     coverageAnalysis: 'perTest',
-    mutate: [`src/lib/${base}.ts`],
+    mutate: [fileFor(key)],
     // `.claude` is load-bearing, not tidiness: Stryker copies the project into
     // a sandbox per file, and `.claude/worktrees/*` holds full checkouts that
     // OTHER live sessions are editing. A file that vanishes between the scan
@@ -303,8 +463,8 @@ function parseScore(output) {
  */
 const TRANSIENT = /No tests were executed|ENOENT|EBUSY|EPERM|EACCES|Initial test run timed out/i
 
-function runOne(base, tests) {
-  const { vitestFile, strykerFile } = writeScopedConfigs(base, tests)
+function runOne(key, tests) {
+  const { vitestFile, strykerFile } = writeScopedConfigs(key, tests)
   const started = Date.now()
   const secs = () => Math.round((Date.now() - started) / 1000)
   try {
@@ -347,11 +507,11 @@ function runOne(base, tests) {
  * rationed (see testsFor): those are named in the run summary, and for them this
  * list can still overstate what is missing.
  */
-function printSurvivors(base) {
-  const file = detailPath(base)
+function printSurvivors(key) {
+  const file = detailPath(key)
   if (!existsSync(file)) {
-    console.log(`\n${base}: no detail report — measured before the json reporter existed. `
-      + `Re-run: node scripts/mutation-run.mjs --force ${base}`)
+    console.log(`\n${key}: no detail report — measured before the json reporter existed. `
+      + `Re-run: node scripts/mutation-run.mjs --force ${key}`)
     return
   }
   let report
@@ -360,7 +520,7 @@ function printSurvivors(base) {
   } catch {
     // A run killed mid-write leaves a truncated file; say so rather than throw
     // and take the other 73 files' output down with it.
-    console.log(`\n${base}: detail report is unreadable — re-run with --force.`)
+    console.log(`\n${key}: detail report is unreadable — re-run with --force.`)
     return
   }
   for (const [name, entry] of Object.entries(report.files ?? {})) {
@@ -387,8 +547,8 @@ function printSurvivors(base) {
     if (tally) console.log(`  — by mutator: ${tally}`)
     // What the run actually loaded, as recorded in the summary — not what
     // testsFor would pick today, which may have changed since.
-    const ran = loadReport().files?.[base]?.tests
-    console.log(`  — measured against: ${(ran ?? testsFor(base)).join(', ')}`)
+    const ran = loadReport().files?.[key]?.tests
+    console.log(`  — measured against: ${(ran ?? testsFor(key)).join(', ')}`)
   }
 }
 
@@ -429,17 +589,18 @@ function summarise(report) {
  * These are worse than a low score — nothing exercises them at all.
  */
 function reportUnmeasurable() {
-  const orphans = libModules().filter((base) => testsFor(base).length === 0)
+  const orphans = moduleKeys().filter((key) => testsFor(key).length === 0)
   if (orphans.length) {
-    console.log(`\n${orphans.length} lib module(s) have NO test that imports them — not measurable,`
+    console.log(`\n${orphans.length} module(s) have NO test that reaches them — not measurable,`
       + ` and not in the numbers above:\n  ${orphans.join(' ')}`)
   }
   // testsFor() fills `capped` as a side effect of the call above, so this runs
   // after it.
   if (capped.size) {
-    console.log(`\n${capped.size} module(s) have more than ${MAX_HEAVY_TEST_FILES} component/server`
-      + ` suites importing them (or more than ${MAX_TEST_FILES} importers in total), so some of their`
-      + ` survivors may be mutants one of the excluded suites kills:\n  ${[...capped].sort().join(' ')}`)
+    console.log(`\n${capped.size} module(s) exceeded a tier budget — more than`
+      + ` ${MAX_COMPONENT_TEST_FILES} component or ${MAX_SERVER_TEST_FILES} server suites reach them,`
+      + ` or more than ${MAX_TEST_FILES} in total — so some of their survivors may be mutants one`
+      + ` of the excluded suites kills:\n  ${[...capped].sort().join(' ')}`)
   }
 }
 
@@ -447,19 +608,19 @@ function main() {
   const report = loadReport()
   if (reportOnly) { summarise(report); return }
   if (survivorsOnly) {
-    const bases = names.length
-      ? names
-      : Object.keys(report.files).filter((b) => !report.files[b].error).sort()
-    for (const b of bases) printSurvivors(b)
+    const keys = names.length
+      ? names.map(resolveName).filter(Boolean)
+      : Object.keys(report.files).filter((k) => !report.files[k].error).sort()
+    for (const k of keys) printSurvivors(k)
     return
   }
 
-  let todo = names.length ? names : candidates()
+  let todo = names.length ? names.map(resolveName).filter(Boolean) : candidates()
   // "Measured" means a score AND the mutant detail that makes the score
   // actionable. A run from before the json reporter left only the former, and
   // skipping those would resume into a state you still can't act on.
   if (!force) {
-    todo = todo.filter((b) => !report.files[b] || report.files[b].error || !existsSync(detailPath(b)))
+    todo = todo.filter((k) => !report.files[k] || report.files[k].error || !existsSync(detailPath(k)))
   }
   todo = todo.slice(0, limit)
 
@@ -471,11 +632,11 @@ function main() {
   }
   console.log(`Measuring ${todo.length} file(s); results are saved after each one.\n`)
 
-  for (const [i, base] of todo.entries()) {
-    const tests = testsFor(base)
+  for (const [i, key] of todo.entries()) {
+    const tests = testsFor(key)
     if (!tests.length) {
       // Named explicitly on the command line but nothing tests it.
-      console.log(`[${i + 1}/${todo.length}] ${base} … SKIPPED — no test imports it`)
+      console.log(`[${i + 1}/${todo.length}] ${key} … SKIPPED — no test reaches it`)
       continue
     }
     // Read the test files right before handing them to Stryker. If one is
@@ -485,22 +646,23 @@ function main() {
       try { return statSync(path.join(ROOT, t)).size === 0 } catch { return true }
     })
     if (unusable.length) {
-      console.log(`[${i + 1}/${todo.length}] ${base} … SKIPPED — missing or empty: ${unusable.join(', ')}`)
+      console.log(`[${i + 1}/${todo.length}] ${key} … SKIPPED — missing or empty: ${unusable.join(', ')}`)
       continue
     }
     // Show the test set when it isn't the obvious same-name one, so a surprising
     // score (or runtime) is traceable to what actually ran.
-    const via = tests.length === 1 && tests[0] === `tests/${base}.test.ts` ? '' : ` (via ${tests.join(', ')})`
-    process.stdout.write(`[${i + 1}/${todo.length}] ${base}${via} … `)
-    let result = runOne(base, tests)
+    const sameName = `tests/${key.startsWith('server/') ? 'server/' : ''}${baseOf(key)}.test.ts`
+    const via = tests.length === 1 && tests[0] === sameName ? '' : ` (via ${tests.join(', ')})`
+    process.stdout.write(`[${i + 1}/${todo.length}] ${key}${via} … `)
+    let result = runOne(key, tests)
     if (result.error && TRANSIENT.test(result.error)) {
       // The environment, not the module. Retry once rather than record a
       // verdict the module didn't earn — a 10-hour batch shouldn't lose a file
       // because another process touched the tree for a moment.
       process.stdout.write('(environment failure, retrying) ')
-      result = runOne(base, tests)
+      result = runOne(key, tests)
     }
-    report.files[base] = { ...result, tests, at: new Date().toISOString() }
+    report.files[key] = { ...result, tests, at: new Date().toISOString() }
     // Saved after EVERY file, so an interrupt keeps what it already measured.
     saveReport(report)
     console.log(result.error

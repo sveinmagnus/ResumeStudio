@@ -3,29 +3,55 @@
   "_comment": [
     "Mutation testing \u2014 an AUDIT, not a CI gate.",
     "",
+    "READ THIS FIRST: `npm run test:mutation` does NOT use this file. It runs",
+    "scripts/mutation-run.mjs, which measures ONE module at a time and generates",
+    "its own stryker + vitest config per module, because a whole-tree `stryker",
+    "run` never gets past the dry run here. That script is where the scope lives",
+    "and where a change belongs. This file is the config for a bare",
+    "`npx stryker run`, kept in step with it so the two cannot disagree about what",
+    "is in scope.",
+    "",
     "Coverage says a line ran. It does not say the test would have noticed if the",
     "line were wrong. Stryker changes the code (flips a <= to a <, drops a call,",
     "returns an empty string) and reports which changes NO test caught. Those are",
     "the assertions that aren't there.",
     "",
-    "Scoped to src/lib on purpose: that is the pure logic \u2014 the merge engine, the",
-    "importers, the view filter, the escaping \u2014 where a wrong branch is a silent",
-    "data defect rather than a visible UI bug, and where a test can be written",
-    "cheaply. Mutating components mostly proves that a rendered string changed,",
-    "which is what the RTL suite already asserts.",
+    "Scoped to src/lib and server/ on purpose. Both hold logic whose failure is",
+    "SILENT. In src/lib a wrong branch is a data defect \u2014 the merge engine, the",
+    "importers, the view filter, the escaping. In server/ it is a wrong answer to",
+    "'may this person read this row' (access.ts, and db.ts where that answer is",
+    "turned into SQL), a credential that verifies when it should not",
+    "(passwords.ts, csrf.ts, auth.ts), or two machines deleting each other's work",
+    "(backupFiles.ts). None of those surfaces as a visible bug in a browser, which",
+    "is exactly why a test suite can be large and still not be watching. Components",
+    "stay out: mutating one mostly proves that a rendered string changed, which is",
+    "what the RTL suite already asserts.",
+    "",
+    "server/ is a GLOB, not a list of the security-critical modules, so whatever is",
+    "added there next is audited without anyone remembering to enrol it \u2014 the same",
+    "reason the architecture map has a gate rather than good intentions. Three",
+    "files are excluded by name: server/index.ts and server/desktop/launcher.ts are",
+    "process entry points no test boots, and server/desktop/openBrowser.ts hands a",
+    "URL to the OS. A module no test exercises reports 100% survival, which is a",
+    "fact `npm run test:coverage` already tells you and which, at a few hundred",
+    "mutants, buries the findings worth reading.",
+    "",
+    "The run drives vitest.mutation.config.ts rather than vite.config.ts, because",
+    "one test in the suite decides pass/fail from wall clock and has to sit this",
+    "one out. The reason is written in that file.",
     "",
     "Run with `npm run test:mutation`. It takes a long time (each surviving mutant",
     "means re-running the affected tests), which is exactly why it is not in CI \u2014",
     "it is something you do before a release, read, and act on.",
     "",
-    "ignorePatterns carries two entries that are load-bearing rather than tidiness. '.claude' — Stryker copies the project into a sandbox, and .claude/worktrees/* holds full git checkouts that OTHER live sessions are editing; a file that vanishes between the scan and the copy fails the whole run with 'ENOENT ... copyfile'. Those worktrees are excluded through .git/info/exclude, which Stryker does not read. 'data' is the same hazard, a live SQLite DB with WAL files being written underneath the copy.",
+    "ignorePatterns carries two entries that are load-bearing rather than tidiness. '.claude' \u2014 Stryker copies the project into a sandbox, and .claude/worktrees/* holds full git checkouts that OTHER live sessions are editing; a file that vanishes between the scan and the copy fails the whole run with 'ENOENT ... copyfile'. Those worktrees are excluded through .git/info/exclude, which Stryker does not read. 'data' is the same hazard, a live SQLite DB with WAL files being written underneath the copy.",
     "",
-    "dryRunTimeoutMinutes is raised from Stryker's 5-minute default on purpose: the dry run executes the WHOLE 2600-test suite once per test-runner process, instrumented, and four of those in parallel do not finish in five minutes. The symptom is 'Initial test run timed out!' before a single mutant is tried, which reads like a broken config rather than a budget."
+    "dryRunTimeoutMinutes is raised from Stryker's 5-minute default on purpose: the dry run executes the WHOLE suite once per test-runner process, instrumented, and several of those in parallel do not finish in five minutes. The symptom is 'Initial test run timed out!' before a single mutant is tried, which reads like a broken config rather than a budget. It was 30 when the suite was ~2,600 tests; the suite is ~6,800 now, so the budget moved with it rather than being rediscovered the hard way."
   ],
   "packageManager": "npm",
   "testRunner": "vitest",
   "vitest": {
-    "configFile": "vite.config.ts"
+    "configFile": "vitest.mutation.config.ts"
   },
   "reporters": [
     "html",
@@ -38,7 +64,11 @@
   "coverageAnalysis": "perTest",
   "mutate": [
     "src/lib/**/*.ts",
-    "!src/lib/**/*.test.ts"
+    "!src/lib/**/*.test.ts",
+    "server/**/*.ts",
+    "!server/index.ts",
+    "!server/desktop/launcher.ts",
+    "!server/desktop/openBrowser.ts"
   ],
   "ignorePatterns": [
     "dist",
@@ -57,5 +87,5 @@
   },
   "timeoutMS": 60000,
   "concurrency": 2,
-  "dryRunTimeoutMinutes": 30
+  "dryRunTimeoutMinutes": 90
 }
