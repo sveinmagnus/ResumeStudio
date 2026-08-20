@@ -822,8 +822,16 @@ export function createResumeDb(dbPath: string): ResumeDb {
         }
         // Merging by id is a write, so an entry naming a resume this viewer may
         // not change is skipped — otherwise uploading a file would be a way to
-        // rewrite a colleague's CV, or to learn whose ids exist by watching the
-        // counts. Ownership of an existing row is never reassigned by a merge.
+        // rewrite a colleague's CV. Ownership of an existing row is never
+        // reassigned by a merge.
+        //
+        // This does NOT hide which ids exist, and an earlier version of this
+        // comment wrongly claimed it did: an unknown id inserts and a
+        // known-but-unwritable one skips, so the counts distinguish them. Ids
+        // are UUIDv4, so an attacker must already know the id to ask — which is
+        // why this is an accepted residual rather than a fix that would have to
+        // refuse legitimate imports of new resumes. Recorded in the security
+        // skill's register.
         if (!canWrite(viewer, existing)) {
           summary.skipped++
           continue
@@ -978,6 +986,16 @@ export const restoreResumes = (
 
 /** The accounts store on the default connection — what `routes/auth.ts` signs people in against. */
 export const getAccounts = (): AccountsStore => defaultDb().accounts
+/**
+ * The ONE resume method without a `Viewer`, and a deliberate exception.
+ *
+ * Every other one takes a required viewer so an unscoped call site is a type
+ * error (CLAUDE.md §16). This is reachable from `POST /api/auth/bootstrap` and
+ * therefore from a request — but only while `hasAnyUser()` is false, checked
+ * inside `createFirstOwner`'s transaction, so there is no viewer to scope
+ * against: nobody exists yet. Named here rather than left to be rediscovered,
+ * because the value of an invariant is that its exceptions are written down.
+ */
 export const claimUnownedResumes = (userId: string): number =>
   defaultDb().claimUnownedResumes(userId)
 

@@ -111,8 +111,16 @@ router.post('/reset', (req: Request, res: Response): void => {
       res.status(400).json({ error: 'That link has expired or has already been used.' })
       return
     }
+    // `/recover` already refuses a disabled account; a link minted before the
+    // account was disabled must not silently rotate its credential either.
+    if (accounts.getUser(grant.user_id)?.disabled_at) {
+      res.status(400).json({ error: 'That link has expired or has already been used.' })
+      return
+    }
     accounts.setPassword(grant.user_id, await hashPassword(body.password as string))
-    res.json({ ok: true })
+    // Setting a password clears the recovery set, so say so rather than letting
+    // the count silently drop to zero.
+    res.json({ ok: true, recovery_codes_cleared: true })
   })().catch(() => {
     res.status(500).json({ error: 'Could not reset the password.' })
   })
@@ -433,6 +441,10 @@ router.post('/invite', (req: Request, res: Response): void => {
   const body = (req.body ?? {}) as Record<string, unknown>
   const role: Role = body.role === 'owner' ? 'owner' : 'member'
   const email = str(body.email).toLowerCase() || undefined
+  if (email && !isValidEmailAddress(email)) {
+    res.status(400).json({ error: 'That is not a valid email address.' })
+    return
+  }
   const token = getAccounts().mintGrant('invite', { role, email })
   const base = appBaseUrl()
   res.json({

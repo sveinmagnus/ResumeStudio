@@ -61,6 +61,7 @@ router.get('/status', (_req: Request, res: Response): void => {
 
 /** POST /api/update/check — force a GitHub check (desktop only). */
 router.post('/check', (_req: Request, res: Response): void => {
+  if (!requireOwner(res)) return
   if (!isUpdateSupported()) {
     res.status(403).json({ error: 'Automatic updates are only available in the desktop build.' })
     return
@@ -74,6 +75,7 @@ router.post('/check', (_req: Request, res: Response): void => {
  * restarts. 409 if no update is currently staged/available.
  */
 router.post('/install', (_req: Request, res: Response): void => {
+  if (!requireOwner(res)) return
   if (!isUpdateSupported()) {
     res.status(403).json({ error: 'Automatic updates are only available in the desktop build.' })
     return

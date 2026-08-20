@@ -36,6 +36,7 @@ import { Router, type Request, type Response } from 'express'
 import express from 'express'
 import { dumpResumes, restoreResumes, listRegistry, mergeRegistry, deleteResume } from '../db.js'
 import { requireOwner, viewerOf } from '../auth.js'
+import { isUnrestricted } from '../access.js'
 import type { Viewer } from '../accounts.js'
 import { backupSignature, UnreadableBackupError } from '../backup.js'
 import {
@@ -78,11 +79,25 @@ router.get('/status', (_req: Request, res: Response): void => {
     upToDate: exists && backupSignature(scan.resumes.filter((e) =>
       localEntries.some((l) => l.id === e.id))) === localSig,
     resumeCount: localEntries.length,
-    backupResumeCount: exists ? scan.resumes.length : null,
-    fileCount: scan.filesByResumeId.size,
-    /** A pre-split folder still holding the old combined file. Cleared on the next write. */
-    legacyFile: scan.legacyFile,
-    unreadable: scan.unreadable,
+    /*
+     * The whole-folder numbers describe other people's data, and `unreadable`
+     * carries FILENAMES — `<name-slug>__<id>.json` — so a member could read a
+     * colleague's resume name and id straight out of an error list. The
+     * per-resume half above is scoped; this half was not, which is exactly what
+     * made it easy to miss.
+     *
+     * An owner still sees the folder as it is, because reconciling it is their
+     * job.
+     */
+    ...(isUnrestricted(viewerOf(res))
+      ? {
+        backupResumeCount: exists ? scan.resumes.length : null,
+        fileCount: scan.filesByResumeId.size,
+        /** A pre-split folder still holding the old combined file. Cleared on the next write. */
+        legacyFile: scan.legacyFile,
+        unreadable: scan.unreadable,
+      }
+      : { backupResumeCount: null, fileCount: null, legacyFile: null, unreadable: [] }),
   })
 })
 

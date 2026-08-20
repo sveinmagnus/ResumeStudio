@@ -26,7 +26,7 @@ import { listFolders, FolderError } from '../folders.js'
 import {
   hostnameStatus, installHostname, uninstallHostname, isValidLocalHostname,
 } from '../localHost.js'
-import { viewerOf } from '../auth.js'
+import { viewerOf, requireOwner } from '../auth.js'
 
 const router = Router()
 
@@ -101,6 +101,15 @@ router.put('/', (req: Request, res: Response): void => {
  * so a key the user didn't re-type (it's masked) is still used. Never throws.
  */
 router.post('/translate/test', (req: Request, res: Response): void => {
+  /*
+   * Owner-only, and rate-limited in app.ts alongside the other billable
+   * endpoints. These reach the operator's configured provider with the
+   * operator's key: a member who could call them at wire speed would be
+   * spending somebody else's money, and `apiLimiter` skips successful
+   * responses so it never spends its budget on a 200.
+   */
+  if (!requireOwner(res)) return
+
   void (async () => {
     const body = (req.body ?? {}) as Record<string, unknown>
     const base = currentSettings()
@@ -268,6 +277,15 @@ function withPendingLlm(body: Record<string, unknown>): AppSettings {
  * Save. The GET (saved config only) stays for everything else.
  */
 router.post('/llm/models', (req: Request, res: Response): void => {
+  /*
+   * Owner-only, and rate-limited in app.ts alongside the other billable
+   * endpoints. These reach the operator's configured provider with the
+   * operator's key: a member who could call them at wire speed would be
+   * spending somebody else's money, and `apiLimiter` skips successful
+   * responses so it never spends its budget on a 200.
+   */
+  if (!requireOwner(res)) return
+
   void (async () => {
     const cfg = settingsToLlmConfig(withPendingLlm((req.body ?? {}) as Record<string, unknown>))
     if (cfg.provider === 'off') { res.json({ models: [] }); return }
@@ -282,6 +300,15 @@ router.post('/llm/models', (req: Request, res: Response): void => {
  * only on the desktop build.
  */
 router.post('/llm/test', (req: Request, res: Response): void => {
+  /*
+   * Owner-only, and rate-limited in app.ts alongside the other billable
+   * endpoints. These reach the operator's configured provider with the
+   * operator's key: a member who could call them at wire speed would be
+   * spending somebody else's money, and `apiLimiter` skips successful
+   * responses so it never spends its budget on a 200.
+   */
+  if (!requireOwner(res)) return
+
   void (async () => {
     const cfg = settingsToLlmConfig(withPendingLlm((req.body ?? {}) as Record<string, unknown>))
     if (cfg.provider === 'off') { res.json({ reachable: false, message: 'No AI provider is selected.' }); return }

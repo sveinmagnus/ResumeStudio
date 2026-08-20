@@ -312,6 +312,15 @@ export function createApp(): Express {
   app.use('/api/backup', apiLimiter, authMiddleware, backupRouter)
 
   // ── In-app settings (auth-gated) — desktop build only; env-managed on VPS ──
+  /*
+   * The three settings endpoints that reach a paid provider carry the
+   * success-inclusive limiter, for the same reason /forgot does: `apiLimiter`
+   * skips 2xx, and a successful call to somebody else's model is exactly the
+   * request that needs a ceiling.
+   */
+  for (const path of ['/api/settings/llm/test', '/api/settings/llm/models', '/api/settings/translate/test']) {
+    app.use(path, translateLimiter)
+  }
   app.use('/api/settings', apiLimiter, authMiddleware, settingsRouter)
 
   // ── Auto-update (auth-gated) — desktop build only; reports unsupported on VPS ─

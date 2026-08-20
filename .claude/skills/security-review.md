@@ -132,6 +132,29 @@ The failure mode is silent: a query that forgot its viewer hands back somebody e
 
 ## 7. Known residual risks (don't re-flag — do prioritise fixing)
 
+**Accepted residuals from the multi-user review (August 2026):**
+
+- **`POST /api/backup/import` counts tell you whether a resume id exists.** An
+  unknown id inserts, a known-but-unwritable one skips, so the response
+  distinguishes them — and probing an unknown id leaves a junk resume owned by
+  the prober. Accepted because ids are UUIDv4: you must already know the id to
+  ask. Closing it properly means refusing legitimate imports of new resumes,
+  which is a worse trade. Do not re-add the claim that the skip hides existence;
+  the skip is what creates the distinction.
+- **`storageStats.db_bytes` reaches every member.** The per-resume rows are
+  scoped; the database file size is not, so a member learns roughly how much CV
+  data the instance holds. One unscoped number in an otherwise scoped payload.
+- **`/forgot` does its lookup and grant insert before responding**, so a
+  verified-email account costs one extra write. Below network noise and not
+  measurable through supertest, but indistinguishability is that route's entire
+  contract, so the work ideally moves behind the response.
+- **`/accept` redeems the invitation before creating the account**, so a
+  duplicate email hits the UNIQUE constraint, 500s, and burns the invite —
+  contradicting the route's own comment. Two concurrent accepts claiming one
+  username have the same shape (checked before the `hashPassword` yield). Both
+  are low-impact versions of the bootstrap race, and both want the same
+  treatment: validate, hash, then check-and-insert atomically.
+
 Closed: rate limiting, SPA-shell CSP, DB/settings file ACLs, clean-401 cache
 clearing, the render-pipeline XSS class (§2), the `/api/settings/translate/test`
 + `/summarize/test` SSRF (pending overrides ignored on non-desktop builds), SVG
