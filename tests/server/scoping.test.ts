@@ -360,8 +360,43 @@ describe('setVisibility', () => {
 // ─── Backup routes ───────────────────────────────────────────────────────────
 
 describe('backup routes', () => {
-  it('GET /api/backup/export is owner-only', async () => {
-    expect((await request(app).get('/api/backup/export').set('Cookie', asKari).set('x-csrf-token', TEST_CSRF)).status).toBe(403)
+  /** Read a zip response as raw bytes rather than supertest's default parse. */
+  const zipOf = (cookie: string) =>
+    request(app).get('/api/backup/export').set('Cookie', cookie).set('x-csrf-token', TEST_CSRF)
+      .buffer().parse((r, cb) => {
+        const chunks: Buffer[] = []
+        r.on('data', (c: Buffer) => chunks.push(c))
+        r.on('end', () => cb(null, Buffer.concat(chunks)))
+      })
+
+  it('GET /api/backup/export gives a member their OWN resumes', async () => {
+    // Ola's side, because it is the one that distinguishes "mine" from "what I
+    // can see": `karisShared` is readable by Ola in the app, and must still not
+    // ride out in his archive.
+    const res = await zipOf(asOla)
+    expect(res.status).toBe(200)
+    expect(res.headers['content-type']).toBe('application/zip')
+    // Filenames carry the resume id in the zip's central directory, so whose
+    // resumes an archive holds is checkable without unzipping it.
+    const body = (res.body as Buffer).toString('latin1')
+    expect(body).toContain(fx.olas)
+    expect(body).not.toContain(fx.karisShared)
+    expect(body).not.toContain(fx.karisPrivate)
+  })
+
+  it('GET /api/backup/export gives an owner the whole instance', async () => {
+    const res = await zipOf(asOwner)
+    expect(res.status).toBe(200)
+    const body = (res.body as Buffer).toString('latin1')
+    expect(body).toContain(fx.karisPrivate)
+    expect(body).toContain(fx.olas)
+  })
+
+  it('GET /api/backup/export still refuses an anonymous caller', async () => {
+    expect((await request(app).get('/api/backup/export')).status).toBe(401)
+  })
+
+  it('the export zip is a real archive', async () => {
     const ok = await request(app).get('/api/backup/export').set('Cookie', asOwner).set('x-csrf-token', TEST_CSRF)
       .buffer().parse((r, cb) => {
         const chunks: Buffer[] = []

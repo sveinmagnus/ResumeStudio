@@ -176,15 +176,21 @@ router.post('/restore', (req: Request, res: Response): void => {
  * layout the sync folder uses. Available on every build (it needs no configured
  * folder), because it is the portable "take my data with me" artifact.
  *
- * Owner-only: this is the whole instance in one file, and it is also the
- * supported off-box backup route, which is an operator's job rather than a
- * consultant's. The dump is scoped anyway, so widening the guard later needs no
- * second change here.
+ * An owner gets the whole instance — this is the supported off-box backup
+ * route. A member gets the resumes they OWN, and not the ones merely shared
+ * with them: they can already read a colleague's shared CV in the app, but
+ * taking a copy off the machine is a different act, and "export" here means
+ * "take my own data with me". `dumpResumes` scopes to everything the viewer may
+ * READ, so the narrowing happens here, at the one call site that needs it.
  */
 router.get('/export', (_req: Request, res: Response): void => {
-  if (!requireOwner(res)) return
+  const viewer = viewerOf(res)
   try {
-    const zip = buildBackupZip(dumpResumes(viewerOf(res)), listRegistry())
+    const all = dumpResumes(viewer)
+    const mine = viewer.role === 'owner'
+      ? all
+      : all.filter((entry) => entry.owner_id === viewer.userId)
+    const zip = buildBackupZip(mine, listRegistry())
     res.setHeader('Content-Type', 'application/zip')
     res.setHeader('Content-Disposition', `attachment; filename="${zipFileName()}"`)
     res.setHeader('Content-Length', String(zip.length))

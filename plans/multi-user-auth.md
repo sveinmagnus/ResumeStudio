@@ -381,8 +381,12 @@ tests. Depends on Phase 3; independent of everything after it.
 
 The semantics genuinely change, so decide rather than discover:
 
-- `GET /api/backup/export` (whole-instance zip) → **owner only**. A member's
-  export contains their own resumes.
+- `GET /api/backup/export` → an owner gets the whole instance; **a member gets
+  the resumes they own**. Not the ones merely shared with them: a member can
+  already read a colleague's shared CV in the app, but carrying a copy off the
+  machine is a different act, and "export" here means "take my own data with
+  me". `dumpResumes` scopes to everything the viewer may READ, so the narrowing
+  happens at that one route.
 - `POST /api/backup/import` merges by resume id. Ownership rule: **the importer
   becomes the owner**, unless the importer is an owner and the file carries an
   `owner_id` that exists in this instance.
