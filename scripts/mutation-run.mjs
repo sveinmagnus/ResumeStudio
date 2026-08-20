@@ -424,7 +424,12 @@ function writeScopedConfigs(key, tests) {
     // killed competencyBundles mid-batch. Worktrees are excluded through
     // .git/info/exclude, which Stryker does not read.
     // `data` is the same hazard: a live SQLite DB with WAL files being written.
-    ignorePatterns: ['dist', 'release', 'release-dist', 'coverage', 'reports', '.stryker-tmp', '.claude', 'data'],
+    // `test-results` is the same class of hazard as the two below, by volume
+    // rather than by races: Playwright leaves ~40 MB of traces there, and
+    // this config is used once per module, so copying it is gigabytes of
+    // pointless I/O across a whole-tree run.
+    ignorePatterns: ['dist', 'release', 'release-dist', 'coverage', 'reports', '.stryker-tmp',
+      '.claude', 'data', 'test-results', 'playwright-report'],
     concurrency: 2,
     timeoutMS: 60000,
     // A CEILING, not a delay — it costs nothing when the dry run is quick.
