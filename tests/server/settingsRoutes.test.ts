@@ -281,3 +281,55 @@ describe('POST /api/settings/folders', () => {
     }
   })
 })
+
+/**
+ * A hosted instance is not the desktop build, but its owner still has to be
+ * able to configure the things that only exist at runtime — above all mail,
+ * without which the password-reset email is unreachable on exactly the
+ * deployment that needs it. Everything else stays a property of the machine.
+ */
+describe('a hosted owner may write a subset', () => {
+  /** Run `fn` as a hosted instance, restoring the suite's desktop default. */
+  async function hosted(fn: () => Promise<void>): Promise<void> {
+    delete process.env.RESUME_DESKTOP
+    try {
+      await fn()
+    } finally {
+      process.env.RESUME_DESKTOP = '1'
+    }
+  }
+
+  it('reports the subset rather than claiming the app manages settings', async () => {
+    await hosted(async () => {
+      const res = await request(app).get('/api/settings')
+      expect(res.body.managed).toBe(false)
+      expect(res.body.editable_keys).toContain('smtp_host')
+      expect(res.body.editable_keys).not.toContain('backup_dir')
+    })
+  })
+
+  it('accepts a mail setting', async () => {
+    await hosted(async () => {
+      const res = await request(app).put('/api/settings').send({ smtp_host: 'smtp.example.no' })
+      expect(res.status).not.toBe(403)
+    })
+  })
+
+  it('refuses a machine-level setting, naming it', async () => {
+    // The sync folder and the local hostname are properties of the box. A web
+    // request that could move them is how an instance talks itself off the net.
+    await hosted(async () => {
+      const res = await request(app).put('/api/settings').send({ backup_dir: '/tmp/anywhere' })
+      expect(res.status).toBe(403)
+      expect(res.body.error).toContain('backup_dir')
+    })
+  })
+
+  it('refuses a mixed patch outright rather than applying the allowed half', async () => {
+    await hosted(async () => {
+      const res = await request(app).put('/api/settings')
+        .send({ smtp_host: 'smtp.example.no', backup_dir: '/tmp/anywhere' })
+      expect(res.status).toBe(403)
+    })
+  })
+})

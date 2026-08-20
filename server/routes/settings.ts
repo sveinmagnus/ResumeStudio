@@ -25,12 +25,48 @@ import { listFolders, FolderError } from '../folders.js'
 import {
   hostnameStatus, installHostname, uninstallHostname, isValidLocalHostname,
 } from '../localHost.js'
+import { viewerOf } from '../auth.js'
 
 const router = Router()
 
-function payload() {
+/**
+ * The settings a SERVER owner may change from inside the app.
+ *
+ * Everything else on a hosted instance stays env-managed: ports, the local
+ * hostname and the sync folder are properties of the machine, and letting a web
+ * request move them is how an instance talks itself off the network. These are
+ * the ones an operator genuinely cannot set any other way once the server is
+ * running — and without mail, the password-reset email this app now offers is
+ * unreachable on precisely the deployment that needs it.
+ *
+ * The desktop build keeps the whole surface, because there the person at the
+ * keyboard is the machine's owner.
+ */
+const OWNER_EDITABLE: readonly string[] = [
+  'mail_transport', 'mail_from', 'sendmail_path',
+  'smtp_host', 'smtp_port', 'smtp_security', 'smtp_user', 'smtp_pass',
+  'app_base_url',
+  'user_username', 'user_display_name', 'user_email',
+]
+
+/** Whether this request may write settings, and which ones. */
+function writableKeys(res: Response): readonly string[] | null {
+  if (isDesktop()) return null
+  return viewerOf(res).role === 'owner' ? OWNER_EDITABLE : []
+}
+
+function payload(res?: Response) {
   return {
+    // Unchanged meaning: does the APP own the whole settings surface? Only the
+    // desktop build does. A hosted owner can write a subset, which is what
+    // `editable_keys` is for — overloading `managed` would tell the client the
+    // sync folder and local hostname are editable on a VPS, where they are not.
     managed: isDesktop(),
+    /**
+     * Which keys this caller may write: null on desktop (all of them), a short
+     * list for a hosted owner, empty for anyone else.
+     */
+    editable_keys: isDesktop() ? null : (res ? writableKeys(res) : []),
     settings: toView(currentSettings()),
     translate: { configured: isTranslationConfigured() },
     llm: { configured: isLlmConfigured() },
@@ -39,14 +75,25 @@ function payload() {
 
 /** GET /api/settings — current settings + whether they're editable here. */
 router.get('/', (_req: Request, res: Response): void => {
-  res.json(payload())
+  res.json(payload(res))
 })
 
 /** PUT /api/settings — update (desktop only). Body: partial settings. */
 router.put('/', (req: Request, res: Response): void => {
-  if (!isDesktop()) {
-    res.status(403).json({ error: 'Settings are managed by the server environment on this deployment.' })
-    return
+  const allowed = writableKeys(res)
+  if (allowed !== null) {
+    if (allowed.length === 0) {
+      res.status(403).json({ error: 'Settings are managed by the server environment on this deployment.' })
+      return
+    }
+    const refused = Object.keys((req.body ?? {}) as Record<string, unknown>)
+      .filter((k) => !allowed.includes(k))
+    if (refused.length > 0) {
+      res.status(403).json({
+        error: `These settings are managed by the server environment: ${refused.join(', ')}.`,
+      })
+      return
+    }
   }
   // Validation is driven by the field table in server/settings.ts — see
   // validateSettingsPatch. Keeping it there rather than inline here is the
