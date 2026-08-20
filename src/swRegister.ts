@@ -11,6 +11,21 @@ const BANNER_ID = 'sw-update'
 
 const BUTTON_STYLE = 'padding:5px 12px;border-radius:var(--r-sm);font-size:12.5px;font-weight:600;'
 
+/**
+ * Set only when the user clicks Reload.
+ *
+ * `controllerchange` fires for two very different reasons, and reloading on
+ * both destroys work. The FIRST install claims an already-correct page — no
+ * stale code is running, nothing needs replacing — and reloading there discards
+ * whatever the visitor has typed. That is the whole of setup, sign-in and
+ * invite-accept, every one of which is somebody's first visit to the origin;
+ * measured, the reload lands about a second in, so a form is wiped mid-sentence.
+ *
+ * So the rule is not "reload unless it is the first install" but the stronger
+ * one: reload only when a human asked for it.
+ */
+let reloadRequested = false
+
 function promptReload(worker: ServiceWorker): void {
   if (document.getElementById(BANNER_ID)) return
 
@@ -31,7 +46,10 @@ function promptReload(worker: ServiceWorker): void {
   reload.style.cssText = `${BUTTON_STYLE}background:var(--accent);color:#fff;`
   // The reload itself waits for `controllerchange`: the new worker has not
   // taken over yet, so reloading here would just re-run the old code.
-  reload.addEventListener('click', () => worker.postMessage({ type: 'SKIP_WAITING' }))
+  reload.addEventListener('click', () => {
+    reloadRequested = true
+    worker.postMessage({ type: 'SKIP_WAITING' })
+  })
 
   const later = document.createElement('button')
   later.type = 'button'
@@ -60,6 +78,9 @@ function watchForUpdate(registration: ServiceWorkerRegistration): void {
 function register(): void {
   let reloading = false
   navigator.serviceWorker.addEventListener('controllerchange', () => {
+    // A claim nobody asked for is the first install taking over a page that is
+    // already running the right code.
+    if (!reloadRequested) return
     // Chrome can fire this more than once for a single swap.
     if (reloading) return
     reloading = true

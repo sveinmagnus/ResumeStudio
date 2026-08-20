@@ -38,6 +38,11 @@ describe('<AuthGate>', () => {
 
     it('signs in and tells the app a session exists', async () => {
       const login = vi.spyOn(api, 'loginWithPassword').mockResolvedValue(null)
+      // Sign-in now CONFIRMS the session took before declaring success, so the
+      // identity call is part of the happy path rather than incidental.
+      vi.spyOn(api, 'me').mockResolvedValue({
+        user_id: 'u1', name: 'Kari', role: 'owner', service: false, mode: 'accounts',
+      } as unknown as Awaited<ReturnType<typeof api.me>>)
       const onAuthenticated = mount(status())
 
       await userEvent.type(await screen.findByLabelText(/username or email/i), 'kari')
@@ -45,7 +50,25 @@ describe('<AuthGate>', () => {
       await userEvent.click(screen.getByRole('button', { name: /^sign in$/i }))
 
       await waitFor(() => expect(login).toHaveBeenCalledWith('kari', 'correct-horse-battery'))
-      expect(onAuthenticated).toHaveBeenCalled()
+      await waitFor(() => expect(onAuthenticated).toHaveBeenCalled())
+    })
+
+    it('explains a discarded session instead of silently asking again', async () => {
+      // WebKit refuses a `Secure` cookie on plain http, so the login succeeded,
+      // the session vanished, and the user was returned to this same form with
+      // no error — forever. A loop that explains nothing is worse than the
+      // misconfiguration behind it.
+      vi.spyOn(api, 'loginWithPassword').mockResolvedValue(null)
+      vi.spyOn(api, 'me').mockResolvedValue(null)
+      const onAuthenticated = mount(status())
+
+      await userEvent.type(await screen.findByLabelText(/username or email/i), 'kari')
+      await userEvent.type(screen.getByLabelText(/^password$/i), 'correct-horse-battery')
+      await userEvent.click(screen.getByRole('button', { name: /^sign in$/i }))
+
+      expect(await screen.findByText(/did not keep the session/i)).toBeInTheDocument()
+      expect(await screen.findByText(/https/i)).toBeInTheDocument()
+      expect(onAuthenticated).not.toHaveBeenCalled()
     })
 
     it("shows the server's refusal verbatim — it must not become more specific", async () => {

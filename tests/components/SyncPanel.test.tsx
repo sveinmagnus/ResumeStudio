@@ -11,12 +11,15 @@ import { resolveConfirm } from '../helpers/confirm'
 const configured = (over: Partial<Extract<BackupStatus, { configured: true }>> = {}): BackupStatus => ({
   configured: true,
   dir: 'C:\\Drive\\ResumeStudio',
-  file: 'C:\\Drive\\ResumeStudio\\resume-studio-backup.json',
+  continuous: true,
   exists: true,
   lastBackupAt: '2026-05-31T11:59:00Z',
   upToDate: true,
   resumeCount: 2,
   backupResumeCount: 2,
+  fileCount: 3,
+  legacyFile: null,
+  unreadable: [],
   ...over,
 })
 
@@ -47,7 +50,7 @@ describe('<SyncPanel>', () => {
 
   it('"Back up now" calls the API and re-reads status', async () => {
     const statusSpy = vi.spyOn(api, 'backupStatus').mockResolvedValue(configured({ upToDate: false }))
-    const nowSpy = vi.spyOn(api, 'backupNow').mockResolvedValue({ file: 'x', bytes: 100, resumeCount: 2 })
+    const nowSpy = vi.spyOn(api, 'backupNow').mockResolvedValue({ bytes: 100, resumeCount: 2, removed: 0 })
     render(<SyncPanel onRestored={() => {}} onUnauthorized={() => {}} />)
 
     const btn = await screen.findByRole('button', { name: /back up now/i })
@@ -83,6 +86,44 @@ describe('<SyncPanel>', () => {
     await userEvent.click(btn)
     await resolveConfirm('cancel')
     expect(restoreSpy).not.toHaveBeenCalled()
+  })
+
+  describe('continuous vs manual', () => {
+    it('describes background sync when a scheduler and watcher are running', async () => {
+      vi.spyOn(api, 'backupStatus').mockResolvedValue(configured({ continuous: true }))
+      render(<SyncPanel onRestored={() => {}} onUnauthorized={() => {}} />)
+
+      expect(await screen.findByText('Sync & backup')).toBeInTheDocument()
+      expect(screen.getByText(/keeps the folder current on its own/i)).toBeInTheDocument()
+      expect(screen.queryByText(/manual backup only/i)).not.toBeInTheDocument()
+    })
+
+    it('says manual-only where nothing polls or watches, and names both buttons', async () => {
+      vi.spyOn(api, 'backupStatus').mockResolvedValue(configured({ continuous: false }))
+      render(<SyncPanel onRestored={() => {}} onUnauthorized={() => {}} />)
+
+      expect(await screen.findByText(/manual backup only on this deployment/i)).toBeInTheDocument()
+      expect(screen.getByText(/nothing runs in the background/i)).toBeInTheDocument()
+      // The panel must not keep calling itself sync where there is none.
+      expect(screen.getByText('Backup')).toBeInTheDocument()
+      expect(screen.queryByText('Sync & backup')).not.toBeInTheDocument()
+      expect(screen.queryByText(/keeps the folder current on its own/i)).not.toBeInTheDocument()
+    })
+
+    it('keeps both manual controls usable in manual-only mode', async () => {
+      vi.spyOn(api, 'backupStatus').mockResolvedValue(configured({ continuous: false }))
+      const nowSpy = vi.spyOn(api, 'backupNow').mockResolvedValue({ bytes: 100, resumeCount: 2, removed: 0 })
+      render(<SyncPanel onRestored={() => {}} onUnauthorized={() => {}} />)
+
+      // They are the only thing that ever moves the folder here — hiding or
+      // disabling them would leave the deployment with no backup at all.
+      const backup = await screen.findByRole('button', { name: /back up now/i })
+      expect(backup).toBeEnabled()
+      expect(screen.getByRole('button', { name: /restore from folder/i })).toBeEnabled()
+
+      await userEvent.click(backup)
+      await waitFor(() => expect(nowSpy).toHaveBeenCalled())
+    })
   })
 
   it('disables Restore when no backup file exists yet', async () => {

@@ -5,7 +5,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ResumeList } from '../../src/components/ResumeList'
-import { api, type ResumeMeta } from '../../src/lib/api'
+import { api, type MeInfo, type ResumeMeta, type TeamUser } from '../../src/lib/api'
 import { savePending } from '../../src/lib/localCache'
 import { resetStore } from '../helpers/store-reset'
 import { resolveConfirm } from '../helpers/confirm'
@@ -245,6 +245,80 @@ describe('<ResumeList>', () => {
 
       await waitFor(() => expect(onUnauthorized).toHaveBeenCalled())
       expect(screen.queryByText('Ada Lovelace')).not.toBeInTheDocument()
+    })
+  })
+
+  describe('ownership', () => {
+    const ME = (over: Partial<MeInfo> = {}): MeInfo => ({
+      user_id: 'u9', name: 'Root', role: 'owner', service: false, mode: 'accounts', ...over,
+    })
+    const JANE: TeamUser = {
+      id: 'u1', username: 'jane', display_name: 'Jane Doe', email: null,
+      email_verified_at: null, role: 'member', created_at: '2026-01-01T00:00:00Z',
+      last_login_at: null, disabled_at: null,
+    }
+
+    it('names the owner and offers the transfer control to an instance owner', async () => {
+      vi.spyOn(api, 'listResumes').mockResolvedValue([META({ id: 'a', name: 'Board CV', owner_id: 'u1' })])
+      vi.spyOn(api, 'me').mockResolvedValue(ME())
+      vi.spyOn(api, 'listUsers').mockResolvedValue([JANE])
+
+      render(<ResumeList onUnauthorized={() => {}} />)
+
+      expect(await screen.findByText(/Owned by Jane Doe/)).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /change owner of board cv/i })).toBeInTheDocument()
+    })
+
+    it('flags an unowned resume rather than leaving the owner blank', async () => {
+      vi.spyOn(api, 'listResumes').mockResolvedValue([META({ id: 'a', name: 'Orphan CV', owner_id: null })])
+      vi.spyOn(api, 'me').mockResolvedValue(ME())
+      vi.spyOn(api, 'listUsers').mockResolvedValue([JANE])
+
+      render(<ResumeList onUnauthorized={() => {}} />)
+      expect(await screen.findByText(/Unowned/)).toBeInTheDocument()
+    })
+
+    it('shows no ownership surface to a member, and never asks for the user list', async () => {
+      vi.spyOn(api, 'listResumes').mockResolvedValue([META({ id: 'a', name: 'Board CV', owner_id: 'u1' })])
+      vi.spyOn(api, 'me').mockResolvedValue(ME({ user_id: 'u1', role: 'member' }))
+      const users = vi.spyOn(api, 'listUsers').mockResolvedValue([JANE])
+
+      render(<ResumeList onUnauthorized={() => {}} />)
+      await screen.findByText('Board CV')
+
+      // /api/users 403s for a member; asking would be a guaranteed failure.
+      expect(users).not.toHaveBeenCalled()
+      expect(screen.queryByRole('button', { name: /change owner/i })).not.toBeInTheDocument()
+      expect(screen.queryByText(/Owned by/)).not.toBeInTheDocument()
+    })
+
+    it('shows no ownership surface where there are no accounts (desktop)', async () => {
+      vi.spyOn(api, 'listResumes').mockResolvedValue([META({ id: 'a', name: 'Board CV' })])
+      vi.spyOn(api, 'me').mockResolvedValue(ME({ user_id: null, service: true, mode: 'open' }))
+      const users = vi.spyOn(api, 'listUsers').mockResolvedValue([JANE])
+
+      render(<ResumeList onUnauthorized={() => {}} />)
+      await screen.findByText('Board CV')
+
+      expect(users).not.toHaveBeenCalled()
+      expect(screen.queryByRole('button', { name: /change owner/i })).not.toBeInTheDocument()
+    })
+
+    it('re-labels the row after a handover, without a reload', async () => {
+      vi.spyOn(api, 'listResumes').mockResolvedValue([META({ id: 'a', name: 'Board CV', owner_id: 'u1' })])
+      vi.spyOn(api, 'me').mockResolvedValue(ME())
+      vi.spyOn(api, 'listUsers').mockResolvedValue([
+        JANE, { ...JANE, id: 'u2', username: 'omar', display_name: 'Omar Ali' },
+      ])
+      vi.spyOn(api, 'setResumeOwner').mockResolvedValue(undefined)
+
+      render(<ResumeList onUnauthorized={() => {}} />)
+      await userEvent.click(await screen.findByRole('button', { name: /change owner of board cv/i }))
+      await userEvent.selectOptions(await screen.findByLabelText('New owner'), 'u2')
+      await userEvent.click(screen.getByRole('button', { name: /^change owner$/i }))
+      await resolveConfirm('confirm')
+
+      expect(await screen.findByText(/Owned by Omar Ali/)).toBeInTheDocument()
     })
   })
 

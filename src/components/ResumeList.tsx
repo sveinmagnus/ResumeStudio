@@ -335,14 +335,20 @@ export function ResumeList({ onUnauthorized }: ResumeListProps) {
         {settingsOverlay}
         <div className="rl-prelude">
           {/* A fresh instance has no resumes, so this branch is exactly where a
-              first-time operator lands — and where the notice most needs to be. */}
+              first-time operator lands — and where these most need to be. An
+              owner who has just finished setup, and a member who has just
+              accepted an invite, both arrive here: without the menu they had no
+              "signed in as" and no way to sign out. */}
           <SetupNotice />
+          <div className="rl-prelude-account"><AccountMenu /></div>
           <UpdateBanner onUnauthorized={onUnauthorized} />
         </div>
         <SyncPanel key={syncRefreshKey} standalone onRestored={reload} onUnauthorized={onUnauthorized} />
         <ImportScreen onStartFresh={onStartFresh} onImported={onImported} onRestored={onRestored} />
         <style>{`
           .rl-prelude { max-width: 720px; margin: 40px auto 0; width: calc(100% - 80px); }
+          .rl-prelude-account { display: flex; justify-content: flex-end; margin-bottom: 12px; }
+          .rl-prelude-account:empty { display: none; }
           .rl-prelude .ub-banner { margin-bottom: 0; }
         `}</style>
       </>

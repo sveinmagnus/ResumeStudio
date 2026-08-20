@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { ServerError, UnauthorizedError, api, type AuthStatus, type BootstrapResult } from '../lib/api'
+import { navigate } from '../lib/router'
+import { ServerError, UnauthorizedError, api, type AuthStatus, type BootstrapResult, forgetIdentity } from '../lib/api'
 import { AuthShell, AuthField } from './account/AuthShell'
 import { RecoveryCodesPanel } from './account/RecoveryCodesPanel'
 import { signOut } from './ui/signOut'
@@ -58,6 +59,28 @@ function PasswordForm({ status, onAuthenticated }: AuthGateProps & { status: Aut
     setBusy(true)
     try {
       await api.loginWithPassword(login, password)
+      /*
+       * Confirm the session actually took before declaring success.
+       *
+       * The cookie is marked `Secure` in production, and a browser that does
+       * not treat this origin as trustworthy discards it — WebKit does exactly
+       * that for plain `http://`, so on a LAN instance without TLS the login
+       * "succeeded", the session vanished, and the user was asked to sign in
+       * again, forever, with no error ever shown. A loop that explains nothing
+       * is worse than the misconfiguration causing it.
+       */
+      // `me()` is memoized for the process, and it was asked BEFORE this login
+      // — that cached null is exactly the answer this check must not read.
+      forgetIdentity()
+      const me = await api.me().catch(() => null)
+      if (!me) {
+        setError(
+          'Signed in, but your browser did not keep the session. This usually means '
+          + 'the site is served over plain http — Resume Studio needs https for '
+          + 'sign-in to work. See DEPLOYING.md.',
+        )
+        return
+      }
       onAuthenticated()
     } catch (err) {
       // The server's message, verbatim. It is deliberately identical for an
@@ -203,7 +226,18 @@ function BootstrapForm({ onAuthenticated }: AuthGateProps) {
             Issue each of them a reset link from the team page before they can sign in.
           </div>
         )}
-        <RecoveryCodesPanel codes={result.recovery_codes} onAcknowledge={onAuthenticated} />
+        <RecoveryCodesPanel
+          codes={result.recovery_codes}
+          /*
+           * Navigate as well as clear the gate. `onAuthenticated` only flips
+           * `authNeeded`, which is enough when the gate was mounted OVER a
+           * route — but at `/setup` the route itself is this screen, so
+           * clearing the flag re-renders the same component with the codes
+           * still in its state and Continue does nothing. The only way out was
+           * editing the URL.
+           */
+          onAcknowledge={() => { onAuthenticated(); navigate('/') }}
+        />
         <style>{`
           .bs-converted { list-style: none; margin: 8px 0; display: flex; flex-wrap: wrap; gap: 6px; }
           .bs-converted code {

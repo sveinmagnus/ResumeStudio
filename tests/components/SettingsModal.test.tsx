@@ -5,7 +5,7 @@ import { describe, it, expect, afterEach, vi } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { SettingsModal } from '../../src/components/SettingsModal'
-import { api, type SettingsStatus } from '../../src/lib/api'
+import { api, ServerError, type SettingsStatus } from '../../src/lib/api'
 import { useStore } from '../../src/store/useStore'
 import { resetStore } from '../helpers/store-reset'
 import { emptyStore, makeResume } from '../fixtures'
@@ -366,6 +366,74 @@ describe('<SettingsModal>', () => {
     await openTab(/local address/i)
     expect(await screen.findByText(/is in\s+your hosts file/i)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /Remove the entry/i })).not.toBeInTheDocument()
+  })
+
+  describe('a build that cannot install its own updates', () => {
+    /** What `/api/update/status` reports anywhere but the desktop launcher. */
+    const hosted = () => ({
+      supported: false, state: 'idle' as const, currentVersion: '1.0.2', versionLabel: 'v1.0.2',
+      latestVersion: null, updateAvailable: false, downloadable: false, progress: 0,
+      lastCheckedAt: null, notes: '', htmlUrl: null, error: null,
+    })
+
+    const asOwner = () => {
+      vi.spyOn(api, 'getSettings').mockResolvedValue(managedStatus())
+      vi.spyOn(api, 'updateStatus').mockResolvedValue(hosted())
+      vi.spyOn(api, 'me').mockResolvedValue({
+        user_id: 'u9', name: 'Root', role: 'owner', service: false, mode: 'accounts',
+      })
+    }
+
+    it('reports an available release and how this deployment takes it', async () => {
+      asOwner()
+      const check = vi.spyOn(api, 'checkForUpdateOnly').mockResolvedValue({
+        current: '1.0.2', latest: '1.1.0', update_available: true, notes: '', installable: false,
+      })
+      render(<SettingsModal onClose={() => {}} onChanged={() => {}} onUnauthorized={() => {}} />)
+
+      await userEvent.click(await screen.findByRole('button', { name: /check for updates/i }))
+      await waitFor(() => expect(check).toHaveBeenCalled())
+
+      expect(await screen.findByText(/Version v1\.1\.0 is available/)).toBeInTheDocument()
+      expect(screen.getByText(/pull the new release on the server and restart it/i)).toBeInTheDocument()
+      // A server must never rewrite its own files, so there is nothing to press.
+      expect(screen.queryByRole('button', { name: /^install/i })).not.toBeInTheDocument()
+    })
+
+    it('says so when there is nothing newer', async () => {
+      asOwner()
+      vi.spyOn(api, 'checkForUpdateOnly').mockResolvedValue({
+        current: '1.0.2', latest: '1.0.2', update_available: false, notes: '', installable: false,
+      })
+      render(<SettingsModal onClose={() => {}} onChanged={() => {}} onUnauthorized={() => {}} />)
+
+      await userEvent.click(await screen.findByRole('button', { name: /check for updates/i }))
+      expect(await screen.findByText(/on the latest version/i)).toBeInTheDocument()
+    })
+
+    it('reports a failed check as an alert, not as "up to date"', async () => {
+      asOwner()
+      vi.spyOn(api, 'checkForUpdateOnly').mockRejectedValue(
+        new ServerError(502, 'Could not reach the release feed.'),
+      )
+      render(<SettingsModal onClose={() => {}} onChanged={() => {}} onUnauthorized={() => {}} />)
+
+      await userEvent.click(await screen.findByRole('button', { name: /check for updates/i }))
+      expect(await screen.findByRole('alert')).toHaveTextContent('Could not reach the release feed.')
+      expect(screen.queryByText(/on the latest version/i)).not.toBeInTheDocument()
+    })
+
+    it('hides the check from a member — the route is owner-only', async () => {
+      vi.spyOn(api, 'getSettings').mockResolvedValue(managedStatus())
+      vi.spyOn(api, 'updateStatus').mockResolvedValue(hosted())
+      vi.spyOn(api, 'me').mockResolvedValue({
+        user_id: 'u1', name: 'Jane', role: 'member', service: false, mode: 'accounts',
+      })
+      render(<SettingsModal onClose={() => {}} onChanged={() => {}} onUnauthorized={() => {}} />)
+
+      expect(await screen.findByText('v1.0.2')).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /check for updates/i })).not.toBeInTheDocument()
+    })
   })
 
   it('pins a port when automatic selection is turned off', async () => {
