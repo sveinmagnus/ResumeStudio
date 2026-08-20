@@ -43,6 +43,7 @@ import {
   writeResumeFiles, type ScannedFolder,
 } from '../backupFiles.js'
 import { buildBackupZip, readBackupZip, zipFileName } from '../backupZip.js'
+import { isBackupRuntimeActive } from '../backupRuntime.js'
 
 const router = Router()
 
@@ -62,6 +63,13 @@ router.get('/status', (_req: Request, res: Response): void => {
     configured: true,
     dir,
     exists,
+    /**
+     * Whether anything is polling to push edits out and watching to pull other
+     * machines' in. Only the desktop launcher starts those; a hosted instance
+     * has the manual write and restore and nothing else, so a client that
+     * assumed a background service would show a sync panel promising one.
+     */
+    continuous: isBackupRuntimeActive(),
     lastBackupAt: folderLastWrite(dir),
     // Every resume this machine holds is present in the folder at the same
     // saved_at. A folder holding EXTRA resumes (another machine published one we

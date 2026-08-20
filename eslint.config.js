@@ -500,9 +500,13 @@ export default tseslint.config(
    * RTL, and under the wider glob every call to it was reported as an
    * unawaited query — a false positive that would push someone toward either a
    * pointless `await` or a blanket disable.
+   *
+   * `setup-rtl.ts` is in the list because it IS testing-library code; it just
+   * does not live under `components/`. Leaving it out made its deliberate
+   * `no-manual-cleanup` disable unused, which is the same signal read backwards.
    */
   {
-    files: ['tests/components/**/*.{ts,tsx}'],
+    files: ['tests/components/**/*.{ts,tsx}', 'tests/setup-rtl.ts'],
     plugins: { 'testing-library': testingLibrary },
     rules: {
       ...testingLibrary.configs['flat/react'].rules,

@@ -357,6 +357,44 @@ describe('setVisibility', () => {
   })
 })
 
+describe('POST /api/resumes/:id/visibility', () => {
+  it('lets the owner of a resume share it', async () => {
+    const r = await request(app).post(`/api/resumes/${fx.olas}/visibility`)
+      .set('Cookie', asOla).set('x-csrf-token', TEST_CSRF).send({ visibility: 'instance' })
+    expect(r.status).toBe(200)
+    expect((await request(app).get(`/api/resumes/${fx.olas}`).set('Cookie', asKari)
+      .set('x-csrf-token', TEST_CSRF)).status).toBe(200)
+  })
+
+  it('refuses a member sharing somebody else’s resume, as not-found', async () => {
+    // Sharing follows the WRITE rule. A member who could share a colleague's CV
+    // could expose it to the whole firm without ever editing it.
+    const r = await request(app).post(`/api/resumes/${fx.karisPrivate}/visibility`)
+      .set('Cookie', asOla).set('x-csrf-token', TEST_CSRF).send({ visibility: 'instance' })
+    expect(r.status).toBe(404)
+  })
+
+  it('refuses a member UN-sharing a resume shared with them', async () => {
+    const r = await request(app).post(`/api/resumes/${fx.karisShared}/visibility`)
+      .set('Cookie', asOla).set('x-csrf-token', TEST_CSRF).send({ visibility: 'private' })
+    expect(r.status).toBe(404)
+  })
+
+  it('lets an owner reshare anything', async () => {
+    const r = await request(app).post(`/api/resumes/${fx.karisPrivate}/visibility`)
+      .set('Cookie', asOwner).set('x-csrf-token', TEST_CSRF).send({ visibility: 'instance' })
+    expect(r.status).toBe(200)
+  })
+
+  it('rejects a visibility it does not recognise', async () => {
+    for (const visibility of ['public', '', 'INSTANCE', null, 1]) {
+      const r = await request(app).post(`/api/resumes/${fx.olas}/visibility`)
+        .set('Cookie', asOla).set('x-csrf-token', TEST_CSRF).send({ visibility })
+      expect(r.status).toBe(400)
+    }
+  })
+})
+
 // ─── Backup routes ───────────────────────────────────────────────────────────
 
 describe('backup routes', () => {

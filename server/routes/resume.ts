@@ -2,7 +2,7 @@ import { Router, type Request, type Response } from 'express'
 import {
   listResumes, createResume, getResume, saveResume,
   deleteResume, renameResume, listSnapshots, getSnapshot,
-  storageStats,
+  storageStats, setVisibility,
 } from '../db.js'
 import { viewerOf } from '../auth.js'
 import { configuredBackupDir, recordDeletion } from '../backupFiles.js'
@@ -200,6 +200,34 @@ router.patch('/:id', (req: Request<IdParams>, res: Response): void => {
     return
   }
   res.json({ ok: true })
+})
+
+/**
+ * POST /api/resumes/:id/visibility — { visibility: 'private' | 'instance' }.
+ *
+ * Its own route rather than a field on PATCH because it is a different kind of
+ * decision: PATCH edits a resume, this changes who else in the firm can read
+ * it. `canReshare` (in db.setVisibility) follows the WRITE rule — the person
+ * who owns it decides, and an owner can always intervene — so a member cannot
+ * share a colleague's CV on their behalf.
+ *
+ * Sharing grants READ only. A shared resume stays uneditable by everyone but
+ * its owner, which is what makes the toggle safe to switch on.
+ */
+router.post('/:id/visibility', (req: Request<IdParams>, res: Response): void => {
+  const raw = (req.body as Record<string, unknown> | undefined)?.visibility
+  if (raw !== 'private' && raw !== 'instance') {
+    res.status(400).json({ error: "visibility must be 'private' or 'instance'" })
+    return
+  }
+  // Not-found rather than forbidden for a resume this viewer cannot reshare —
+  // the same rule as every other single-row route, so the response set does not
+  // tell a member which resume ids exist.
+  if (!setVisibility(viewerOf(res), req.params.id, raw)) {
+    res.status(404).json({ error: 'Resume not found' })
+    return
+  }
+  res.json({ ok: true, visibility: raw })
 })
 
 /**

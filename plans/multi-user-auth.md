@@ -390,10 +390,17 @@ The semantics genuinely change, so decide rather than discover:
 - `POST /api/backup/import` merges by resume id. Ownership rule: **the importer
   becomes the owner**, unless the importer is an owner and the file carries an
   `owner_id` that exists in this instance.
-- **Folder sync (`RESUME_BACKUP_DIR`) stays desktop-only.** It is already gated
-  by `isDesktop()`, and "one file per resume in a shared cloud folder" has no
-  coherent meaning once resumes have owners. Assert the gate rather than
-  extending it.
+- **Folder sync is not what this plan assumed.** It is gated on
+  `RESUME_BACKUP_DIR` being set, NOT on `isDesktop()` — and the manual halves
+  (`POST /now`, `POST /restore`) call `writeResumeFiles` and `restoreResumes`
+  directly, so they work on a hosted instance and are a legitimate cron-able
+  backup. What is desktop-only is the CONTINUOUS pair: only the launcher calls
+  `initBackupRuntime`, so nothing polls to push edits out or watches to pull
+  other machines' in.
+
+  So: keep the manual routes, and have `GET /status` report `continuous`
+  honestly, rather than gating off a working feature. Gating it would have
+  removed the one backup mechanism a self-hosted operator can automate.
 - Tombstones are unchanged — they carry an id and a timestamp, no identity.
 
 **Effort: half a day to a day.**

@@ -20,6 +20,19 @@ let active: BackupScheduler | null = null
 let watcher: BackupWatcher | null = null
 let logFn: (msg: string) => void = (m) => console.log(m)
 
+/**
+ * Whether a background service is actually maintaining the sync folder.
+ *
+ * True only once `reconfigureBackup` has started the scheduler or the watcher,
+ * which happens on the desktop build — `server/index.ts` never calls
+ * `initBackupRuntime`. A hosted instance therefore has the manual write and
+ * restore routes and nothing else, and a client that assumed otherwise would
+ * show a sync panel promising a service that is not running.
+ */
+export function isBackupRuntimeActive(): boolean {
+  return active !== null || watcher !== null
+}
+
 /** Set the logger the scheduler should use (the launcher's file+console tee). */
 export function initBackupRuntime(log: (msg: string) => void): void {
   logFn = log

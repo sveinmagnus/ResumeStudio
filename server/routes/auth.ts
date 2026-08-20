@@ -34,6 +34,7 @@ import { getAccounts, claimUnownedResumes } from '../db.js'
 import { hashPassword, verifyPassword, passwordProblem, lockedPasswordHash } from '../passwords.js'
 import { usernameProblem, normaliseLogin, type AccountsStore } from '../accounts.js'
 import { newCsrfToken, csrfCookie } from '../csrf.js'
+import { isMailConfigured } from '../mail.js'
 import {
   bootstrapCodeMatches,
   clearBootstrapCode,
@@ -139,6 +140,11 @@ router.get('/status', (_req: Request, res: Response): void => {
     // Only true on a server with no accounts AND a code waiting to be spent, so
     // the setup screen cannot be summoned on an instance that already has one.
     bootstrap_available: mode !== 'accounts' && hasBootstrapCode(),
+    // Whether "Forgot password?" can do anything. It is asked here because the
+    // login screen is by definition signed out, and the per-user answer lives
+    // behind authentication. A bare boolean: it says a transport exists, never
+    // which one or where it points.
+    mail_configured: isMailConfigured(),
   })
 })
 
