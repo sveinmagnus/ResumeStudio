@@ -6,6 +6,80 @@ The version a build reports is the git tag it was built from; anything else
 reports `Dev-<commit>`. Desktop builds update themselves — see
 [DESKTOP.md](./DESKTOP.md).
 
+## 1.0.2 — 2026-08-20
+
+A security fix and the tail of the mutation-testing work 1.0.1 started. No new
+features; nothing about the app looks different.
+
+### Fixed
+
+- **A resume id could write outside the sync folder.** A resume id arrives
+  inside an imported or synced file and is the one field on that path that
+  becomes a filename — `<slug>__<id>.json`, joined onto the sync folder. Only
+  the slug half was sanitised, so an id of `x/../../../../tmp/pwn` wrote
+  elsewhere on disk; on the desktop build nobody had to click anything, because
+  the watcher merges inbound files and the scheduler republishes them a minute
+  later. Both readers now charset-check the id against one shared rule
+  (`server/resumeId.ts`), and the filename builder throws as a second lock at
+  the interpolation site. Rejected rather than sanitised: an id is an identity,
+  and quietly rewriting one merges a person's CV into the wrong row.
+- **Six more `MAP[key] ?? fallback` reads** on maps keyed by data, the same
+  inherited-property hole 1.0.1 swept out of 21 others. Three were one line
+  copied around (`LOCALE_LABELS[c]?.name ?? c`), now a single `localeName`.
+- **Two AI assists shared one reply schema id, and one of those collided with a
+  file format the importer merges by identity.** The registry-hygiene assist
+  stamped `resumestudio-registry/v1` — byte-identical to the sync folder's
+  registry file — and the importer routes anything under that prefix straight
+  to the server's merge endpoint, so a saved hygiene reply dropped on the picker
+  was read as a registry to merge rather than refused. Page-fit and job-fit
+  shared a second id. Both renamed; the file format could not move, because it
+  is what is already on disk in users' sync folders.
+- **A bulk-imported skill or role kept its padding.** The name was trimmed into
+  the key it matched on but not into the entry it created, so `" Kubernetes "`
+  became its own registry entry — visible in the registry, the skill matrix and
+  every export as a second skill.
+
+### Removed
+
+Three pieces of code with no reachable caller, each surfaced by a mutant that
+could not be killed because nothing ran the line: a `hasExtras` helper the view
+editor never used, a `'number'` field kind no bulk-import spec declares (with
+its validator branch, example value and doc label), and a `year_to` guard
+repeated at four import sites that `yearMonth` already made redundant.
+
+### Tested
+
+The mutation score over `src/lib` went **87.1 % → 90.6 %** across three passes,
+with mutants no test executed at all falling from 351 to 144. The suite is now
+**6,403 tests in 196 files**.
+
+Four modules the export rework had shipped without tests of their own account
+for most of it: `itemLayout` (2.3 % → 100 %), `sectionExtras`, `sectionIcon` and
+`viewTemplates`. The rest went to assertions that existed but proved less than
+they read as — a Content-Security-Policy checked only for its first directive,
+`completeness` field lists exercised for three sections of fifteen, export
+endpoints asserted through mocked responses that held whatever URL was
+requested, and a divider control checked for "the output changed" rather than
+for which rule was drawn.
+
+One existing test passed for the wrong reason and was fixed: `fontInstallInfo`
+was asked about a family name rather than a catalog id, so it returned null
+because the id was unknown, not because that font needs no install.
+
+Where a surviving mutant is equivalent it is recorded as such in the commit
+that examined it — including two guards proven unreachable by probe rather than
+by assumption, which are kept as defensive code rather than removed to move a
+number.
+
+### Changed (development)
+
+`npm run check:arch` is now a CI gate: CLAUDE.md's architecture map has to name
+every module under `src/lib`, `src/store`, `server/` and `scripts/`. The map was
+short by 48 of ~100 lib modules when it was measured, and a module missing from
+a map that calls itself complete reads as a module that does not exist.
+
+---
+
 ## 1.0.1 — 2026-08-19
 
 **What you export is now what you saw.** 1.0.0 shipped four render targets that
