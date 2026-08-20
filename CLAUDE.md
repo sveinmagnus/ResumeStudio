@@ -362,7 +362,10 @@ src/
 └── index.css        ← self-hosted @font-face + design tokens + global a11y rules + utilities
 
 server/              ← Express API + SQLite persistence
-├── index.ts (VPS/dev entry) + app.ts (createApp: security headers, routers, static serving)
+├── index.ts (VPS/dev entry: loads .env, refuses a damaged DB, prints the
+│   bootstrap code) + app.ts (createApp: security headers, routers, static serving)
+├── env.ts (reads `.env` for the server build — the REAL environment always
+│   wins, so a stray file cannot override a systemd unit or a Docker -e)
 ├── auth.ts (session cookie OR Bearer service token; three modes derived from
 │   state, never declared: open / token / accounts) · accounts.ts (users,
 │   sessions, grants, recovery codes — the identity half) · passwords.ts

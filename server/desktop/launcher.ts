@@ -26,7 +26,9 @@
 import fs from 'fs'
 import path from 'path'
 import { createApp } from '../app.js'
-import { getDefaultDb, closeDefaultDb, isCorruptDbError, SYSTEM_VIEWER } from '../db.js'
+import {
+  getDefaultDb, closeDefaultDb, isCorruptDbError, describeCorruptDb, SYSTEM_VIEWER,
+} from '../db.js'
 import { resolvePaths } from '../config.js'
 import { loadOrInitSettings } from '../settings.js'
 import { scanBackupDir } from '../backupFiles.js'
@@ -152,16 +154,7 @@ async function main(): Promise<void> {
     db = getDefaultDb()
   } catch (err) {
     if (!isCorruptDbError(err)) throw err
-    const detail = (err as Error).message
-    log('')
-    log('  ERROR: the resume database is damaged and cannot be opened.')
-    log(`    file   : ${paths.dbPath}`)
-    log(`    reason : ${detail}`)
-    log('    Your data has NOT been changed or deleted, and this file is left as-is.')
-    log(backupDir
-      ? `    Recovery: your resumes are also in the sync folder (${backupDir}). Move the damaged file aside and restart to rebuild from it.`
-      : '    Recovery: move the damaged file aside and restart, then import your most recent backup.')
-    log('')
+    for (const line of describeCorruptDb(paths.dbPath, err, backupDir)) log(line)
     notify(
       'Resume Studio could not start',
       `The database at ${paths.dbPath} is damaged. It has been left untouched — see the log for how to recover.`,

@@ -2,7 +2,7 @@ import { Router, type Request, type Response } from 'express'
 import {
   listResumes, createResume, getResume, saveResume,
   deleteResume, renameResume, listSnapshots, getSnapshot,
-  storageStats, setVisibility,
+  storageStats, setVisibility, setOwner,
 } from '../db.js'
 import { viewerOf } from '../auth.js'
 import { configuredBackupDir, recordDeletion } from '../backupFiles.js'
@@ -228,6 +228,32 @@ router.post('/:id/visibility', (req: Request<IdParams>, res: Response): void => 
     return
   }
   res.json({ ok: true, visibility: raw })
+})
+
+/**
+ * POST /api/resumes/:id/owner — { owner_id: string | null }. Owner only.
+ *
+ * The deliberate way ownership moves, and the reason an import can safely keep
+ * the rule "whoever imported it owns it": a backup file carries an `author`
+ * block, but a file cannot prove who wrote it, so nothing in it is allowed to
+ * assign anything. A wrong guess at import time is corrected here by a person.
+ *
+ * `null` returns a resume to unowned, which is the state a desktop-authored one
+ * arrives in before anybody claims it.
+ */
+router.post('/:id/owner', (req: Request<IdParams>, res: Response): void => {
+  const raw = (req.body as Record<string, unknown> | undefined)?.owner_id
+  if (raw !== null && typeof raw !== 'string') {
+    res.status(400).json({ error: 'owner_id must be a user id or null' })
+    return
+  }
+  if (!setOwner(viewerOf(res), req.params.id, raw)) {
+    // Covers both "not an owner" and "no such resume or user". A member probing
+    // this route learns nothing either way.
+    res.status(404).json({ error: 'Resume not found' })
+    return
+  }
+  res.json({ ok: true, owner_id: raw })
 })
 
 /**

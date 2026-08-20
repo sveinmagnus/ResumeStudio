@@ -395,6 +395,47 @@ describe('POST /api/resumes/:id/visibility', () => {
   })
 })
 
+describe('POST /api/resumes/:id/owner — the deliberate correction', () => {
+  it('lets an owner hand a resume to another account', async () => {
+    const r = await request(app).post(`/api/resumes/${fx.karisPrivate}/owner`)
+      .set('Cookie', asOwner).set('x-csrf-token', TEST_CSRF).send({ owner_id: ola.id })
+    expect(r.status).toBe(200)
+    // Ola can now write it; Kari no longer can.
+    expect((await request(app).get(`/api/resumes/${fx.karisPrivate}`).set('Cookie', asOla)
+      .set('x-csrf-token', TEST_CSRF)).status).toBe(200)
+    expect((await request(app).get(`/api/resumes/${fx.karisPrivate}`).set('Cookie', asKari)
+      .set('x-csrf-token', TEST_CSRF)).status).toBe(404)
+  })
+
+  it('refuses a member reassigning even their own resume', async () => {
+    // Giving a CV away is an administrative act: the recipient can then edit it
+    // and the giver cannot take it back.
+    const r = await request(app).post(`/api/resumes/${fx.karisPrivate}/owner`)
+      .set('Cookie', asKari).set('x-csrf-token', TEST_CSRF).send({ owner_id: ola.id })
+    expect(r.status).toBe(404)
+  })
+
+  it('refuses an account that does not exist', async () => {
+    // A resume owned by a nonexistent user is invisible to every member and
+    // editable by none of them — a state no UI could undo.
+    const r = await request(app).post(`/api/resumes/${fx.karisPrivate}/owner`)
+      .set('Cookie', asOwner).set('x-csrf-token', TEST_CSRF).send({ owner_id: 'no-such-user' })
+    expect(r.status).toBe(404)
+  })
+
+  it('accepts null, returning it to unowned', async () => {
+    const r = await request(app).post(`/api/resumes/${fx.karisPrivate}/owner`)
+      .set('Cookie', asOwner).set('x-csrf-token', TEST_CSRF).send({ owner_id: null })
+    expect(r.status).toBe(200)
+  })
+
+  it('rejects a malformed owner_id', async () => {
+    const r = await request(app).post(`/api/resumes/${fx.karisPrivate}/owner`)
+      .set('Cookie', asOwner).set('x-csrf-token', TEST_CSRF).send({ owner_id: 42 })
+    expect(r.status).toBe(400)
+  })
+})
+
 // ─── Backup routes ───────────────────────────────────────────────────────────
 
 describe('backup routes', () => {

@@ -933,6 +933,36 @@ export const renameResume = (viewer: Viewer, id: string, name: string): boolean 
   defaultDb().renameResume(viewer, id, name)
 export const setVisibility = (viewer: Viewer, id: string, visibility: Visibility): boolean =>
   defaultDb().setVisibility(viewer, id, visibility)
+/**
+ * What to tell someone whose database will not open.
+ *
+ * One text, two entry points. The desktop launcher and the server both meet
+ * this, and a person debugging it should not get a careful explanation on one
+ * and an unhandled stack trace on the other — the cause is identical and so is
+ * the recovery.
+ *
+ * The refusal itself is the important part: the app does NOT replace or repair
+ * the file. Starting fresh would be indistinguishable from "the app deleted my
+ * CVs", and the file may still be recoverable by hand.
+ */
+export function describeCorruptDb(
+  dbPath: string,
+  err: unknown,
+  backupDir?: string | null,
+): string[] {
+  return [
+    '',
+    '  ERROR: the resume database is damaged and cannot be opened.',
+    `    file   : ${dbPath}`,
+    `    reason : ${(err as Error).message}`,
+    '    Your data has NOT been changed or deleted, and this file is left as-is.',
+    backupDir
+      ? `    Recovery: your resumes are also in the sync folder (${backupDir}). Move the damaged file aside and restart to rebuild from it.`
+      : '    Recovery: move the damaged file aside and restart, then import your most recent backup.',
+    '',
+  ]
+}
+
 export const setOwner = (viewer: Viewer, id: string, ownerId: string | null): boolean =>
   defaultDb().setOwner(viewer, id, ownerId)
 export const listSnapshots = (viewer: Viewer, resumeId: string): SnapshotMeta[] =>

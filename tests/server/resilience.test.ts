@@ -15,7 +15,7 @@ import { describe, it, expect } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { createResumeDb, isCorruptDbError, SYSTEM_VIEWER } from '../../server/db'
+import { createResumeDb, isCorruptDbError, SYSTEM_VIEWER, describeCorruptDb } from '../../server/db'
 // These suites exercise storage, not authorization: the unrestricted system
 // viewer leaves every query unscoped, so they measure exactly what they
 // measured before. Scoping has its own suite — tests/server/scoping.test.ts.
@@ -198,5 +198,33 @@ describe('a write that cannot complete leaves the previous file intact', () => {
     } else {
       expect(thrown).toBeInstanceOf(Error)
     }
+  })
+})
+
+describe('describeCorruptDb — one explanation, two entry points', () => {
+  const err = new Error('file is not a database')
+
+  it('names the file and the reason', () => {
+    const text = describeCorruptDb('/data/resume.db', err).join('\n')
+    expect(text).toContain('/data/resume.db')
+    expect(text).toContain('file is not a database')
+  })
+
+  it('says the file was left alone, which is the decision being explained', () => {
+    // Starting fresh would be indistinguishable from "the app deleted my CVs",
+    // so the refusal is the feature and the message has to say so.
+    expect(describeCorruptDb('/data/resume.db', err).join('\n'))
+      .toMatch(/NOT been changed or deleted/)
+  })
+
+  it('points at the sync folder when there is one', () => {
+    const text = describeCorruptDb('/data/resume.db', err, '/cloud/sync').join('\n')
+    expect(text).toContain('/cloud/sync')
+  })
+
+  it('falls back to importing a backup when there is not', () => {
+    const text = describeCorruptDb('/data/resume.db', err, null).join('\n')
+    expect(text).toMatch(/import your most recent backup/)
+    expect(text).not.toContain('sync folder')
   })
 })
