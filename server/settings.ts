@@ -717,12 +717,6 @@ export function saveSettings(patch: Partial<AppSettings>): AppSettings {
 }
 
 /**
- * The effective settings right now: the persisted file on the desktop build, or
- * a read-only snapshot synthesized from env on a server build. Used for the
- * settings view and for the "test connection" config (so VPS can test its env
- * config too).
- */
-/**
  * The settings a SERVER owner may change from inside the app, and therefore the
  * only ones that persist to `settings.json` on a hosted instance.
  *
