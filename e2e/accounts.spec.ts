@@ -175,7 +175,10 @@ test('sign-in takes the username or the email address, and refuses both alike', 
   // An address is what makes the second login identifier testable at all
   // (bootstrap does not ask for one), and it costs the current password.
   await ownerPage.getByLabel('Email address', { exact: true }).fill(OWNER.email)
-  await ownerPage.getByLabel('Your current password').fill(OWNER.password)
+  // Scoped to the card: three of the four now carry a current-password field,
+  // which is why each is a named region rather than a bare <section>.
+  await ownerPage.getByRole('region', { name: 'How you sign in' })
+    .getByLabel('Your current password').fill(OWNER.password)
   await ownerPage.getByRole('button', { name: 'Save sign-in details' }).click()
   await expect(ownerPage.getByText(/A new address has to be confirmed/)).toBeVisible()
 

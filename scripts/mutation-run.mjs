@@ -427,7 +427,13 @@ function writeScopedConfigs(key, tests) {
     ignorePatterns: ['dist', 'release', 'release-dist', 'coverage', 'reports', '.stryker-tmp', '.claude', 'data'],
     concurrency: 2,
     timeoutMS: 60000,
-    dryRunTimeoutMinutes: 5,
+    // A CEILING, not a delay — it costs nothing when the dry run is quick.
+    // Five was set when every measurable module was a lib module with one or
+    // two node suites. A server module can pull in eight supertest files that
+    // each pay for scrypt, and a module that trips this is recorded as an
+    // ERROR and loses its mutant detail — the worst outcome for a run left
+    // going overnight.
+    dryRunTimeoutMinutes: 10,
     thresholds: { high: 80, low: 60, break: null },
   }, null, 2) + '\n')
 

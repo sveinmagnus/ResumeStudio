@@ -161,7 +161,8 @@ test('an address receives nothing until its confirmation link is followed', asyn
   await ownerPage.goto('/profile')
   await expect(ownerPage.getByRole('heading', { name: 'Your account' })).toBeVisible()
   await ownerPage.getByLabel('Email address', { exact: true }).fill(OWNER.email)
-  await ownerPage.getByLabel('Your current password').fill(OWNER.firstPassword)
+  await ownerPage.getByRole('region', { name: 'How you sign in' })
+    .getByLabel('Your current password').fill(OWNER.firstPassword)
   await ownerPage.getByRole('button', { name: 'Save sign-in details' }).click()
 
   // Saving the address sends the confirmation by itself — the resend button is
@@ -368,7 +369,9 @@ test('the profile can replace the set, and asks for the password before it does'
   // had saved.
   await expect(recovery.getByRole('button', { name: 'Generate a new set' })).toBeDisabled()
 
-  await recovery.getByLabel('Your current password').fill(OWNER.recoveredPassword)
+  // mailedPassword, not recoveredPassword: this file is serial, and the emailed
+  // reset above is the last thing to have set the owner's password.
+  await recovery.getByLabel('Your current password').fill(OWNER.mailedPassword)
   await recovery.getByRole('button', { name: 'Generate a new set' }).click()
   await ownerPage
     .getByRole('dialog', { name: 'Generate new recovery codes?' })
