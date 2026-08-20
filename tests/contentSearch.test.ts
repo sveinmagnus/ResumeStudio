@@ -127,7 +127,7 @@ describe('searchStore', () => {
 
   it('finds a matching skill category name under the Skill Registry section', () => {
     const store = richStore()
-    store.skill_categories.push(makeSkillCategory({ id: 'cat1', name: { en: 'Cloud Platforms' } }))
+    store.skill_categories!.push(makeSkillCategory({ id: 'cat1', name: { en: 'Cloud Platforms' } }))
     const hits = searchStore(store, 'cloud platforms', 'en')
     const hit = hits.find((h) => h.title === 'Cloud Platforms')
     expect(hit).toBeDefined()

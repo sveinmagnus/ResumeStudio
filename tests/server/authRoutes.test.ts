@@ -25,8 +25,8 @@ afterAll(() => {
 })
 
 /** First cookie pair (name=value) of a Set-Cookie header, without attributes. */
-function cookiePair(setCookie: string[] | undefined): string {
-  const header = (setCookie ?? [])[0] ?? ''
+function cookiePair(setCookie: string | string[] | undefined): string {
+  const header = (Array.isArray(setCookie) ? setCookie : [setCookie ?? ''])[0] ?? ''
   return header.split(';')[0]
 }
 

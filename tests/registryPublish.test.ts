@@ -26,7 +26,7 @@ function storeWithSkill(name: string): ResumeStore {
 // have to match what planPublish indexes by, or every entry looks new.
 const entry = (id: string, name: string): RegistryEntry => ({
   id, kind: 'skill', name: { en: name }, key: registryKey('skill', name),
-  extra: {}, updated_at: '2026-01-01T00:00:00Z',
+  extra: {}, updated_at: '2026-01-01T00:00:00Z', version: 1,
 })
 
 beforeEach(() => { vi.restoreAllMocks() })

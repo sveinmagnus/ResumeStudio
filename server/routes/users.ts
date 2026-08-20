@@ -23,25 +23,17 @@ import { authMiddleware, viewerOf, requireOwner, SESSION_COOKIE } from '../auth.
 import { getAccounts } from '../db.js'
 import { hashPassword, verifyPassword, passwordProblem } from '../passwords.js'
 import { usernameProblem, normaliseLogin, type Role } from '../accounts.js'
-import { isMailConfigured, sendResetMail, sendVerifyMail } from '../mail.js'
+import {
+  isMailConfigured, sendResetMail, sendVerifyMail, isValidEmailAddress,
+} from '../mail.js'
 import { newCsrfToken, csrfCookie } from '../csrf.js'
+import { sessionCookie } from '../cookies.js'
 
 const router = Router()
 
-function isProd(): boolean {
-  return process.env.NODE_ENV === 'production'
-}
-
-function sessionCookie(sessionId: string): string {
-  const parts = [
-    `${SESSION_COOKIE}=${encodeURIComponent(sessionId)}`,
-    'Path=/',
-    'HttpOnly',
-    'SameSite=Strict',
-  ]
-  if (isProd()) parts.push('Secure')
-  return parts.join('; ')
-}
+/** See server/cookies.ts for why `Secure` follows the connection, not NODE_ENV. */
+const newSessionCookie = (req: Request, sessionId: string): string =>
+  sessionCookie(req, SESSION_COOKIE, sessionId)
 
 /** The base the emailed links are built on. Empty means links cannot be sent. */
 function appBaseUrl(): string {
@@ -149,7 +141,17 @@ router.post('/recover', (req: Request, res: Response): void => {
       return
     }
     accounts.setPassword(user.id, await hashPassword(body.password as string))
-    res.json({ ok: true, codes_left: accounts.countRecoveryCodes(user.id) })
+    /*
+     * Setting a password clears every recovery code, which is the point — a
+     * harvested one must not survive the change. But that would leave somebody
+     * who just spent their last resort with none at all, one forgotten password
+     * from needing the owner or the server console. So a fresh set is issued
+     * here and returned once.
+     *
+     * Safe at the same trust level as the flow itself: whoever is here proved
+     * they hold a code and has just set the password.
+     */
+    res.json({ ok: true, recovery_codes: accounts.issueRecoveryCodes(user.id) })
   })().catch(() => {
     res.status(500).json({ error: 'Could not use that recovery code.' })
   })
@@ -180,7 +182,11 @@ router.post('/accept', (req: Request, res: Response): void => {
       res.status(400).json({ error: pwProblem })
       return
     }
-    if (accounts.findByLogin(normaliseLogin(str(body.username)))) {
+    // Username-only, deliberately: `findByLogin` searches the email column too,
+    // so a row whose email is a bare word — planted before addresses were
+    // validated, or set by an owner — would deny that word to a real colleague
+    // who has every right to it. A username collides with usernames.
+    if (accounts.usernameInUse(str(body.username))) {
       res.status(409).json({ error: 'That username is taken.' })
       return
     }
@@ -200,7 +206,7 @@ router.post('/accept', (req: Request, res: Response): void => {
     const codes = accounts.issueRecoveryCodes(user.id)
     const sid = accounts.createSession(user.id)
     accounts.recordLogin(user.id)
-    res.setHeader('Set-Cookie', [sessionCookie(sid), csrfCookie(newCsrfToken())])
+    res.setHeader('Set-Cookie', [newSessionCookie(req, sid), csrfCookie(req, newCsrfToken())])
     res.json({
       ok: true,
       user: { id: user.id, username: user.username, display_name: user.display_name, role: user.role },
@@ -317,6 +323,10 @@ router.put('/me', (req: Request, res: Response): void => {
 
     if ('email' in body) {
       const email = str(body.email).toLowerCase()
+      if (email && !isValidEmailAddress(email)) {
+        res.status(400).json({ error: 'That is not a valid email address.' })
+        return
+      }
       if (email && accounts.emailInUse(email, id)) {
         res.status(409).json({ error: 'That address is already used by another account.' })
         return
@@ -360,11 +370,30 @@ router.post('/me/password', (req: Request, res: Response): void => {
   })
 })
 
-/** POST /me/recovery-codes — regenerate, invalidating the previous set. */
-router.post('/me/recovery-codes', (_req: Request, res: Response): void => {
-  const id = requirePerson(res)
-  if (!id) return
-  res.json({ ok: true, recovery_codes: getAccounts().issueRecoveryCodes(id) })
+/**
+ * POST /me/recovery-codes — { current_password }. Regenerate the set.
+ *
+ * Costs the current password like every other credential change here, and for a
+ * stronger reason than most: a recovery code outlives the session that minted
+ * it and on its own sets a new password. Mintable from a session alone, a
+ * borrowed screen bought ten of them, silently invalidating the set the real
+ * user had saved — with nothing emailed and nothing logged.
+ */
+router.post('/me/recovery-codes', (req: Request, res: Response): void => {
+  void (async () => {
+    const id = requirePerson(res)
+    if (!id) return
+    const accounts = getAccounts()
+    const hash = accounts.getHash(id)
+    const current = str((req.body as Record<string, unknown> | undefined)?.current_password)
+    if (!hash || !current || !(await verifyPassword(current, hash))) {
+      res.status(403).json({ error: 'Enter your current password to replace your recovery codes.' })
+      return
+    }
+    res.json({ ok: true, recovery_codes: accounts.issueRecoveryCodes(id) })
+  })().catch(() => {
+    res.status(500).json({ error: 'Could not replace your recovery codes.' })
+  })
 })
 
 /** POST /me/verify-email — send (or resend) the verification link. */
@@ -457,6 +486,10 @@ router.put('/:id', (req: Request<{ id: string }>, res: Response): void => {
 
   if ('email' in body) {
     const email = str(body.email).toLowerCase()
+    if (email && !isValidEmailAddress(email)) {
+      res.status(400).json({ error: 'That is not a valid email address.' })
+      return
+    }
     if (email && accounts.emailInUse(email, target.id)) {
       res.status(409).json({ error: 'That address is already used by another account.' })
       return

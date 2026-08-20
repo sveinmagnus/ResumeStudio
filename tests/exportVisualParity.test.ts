@@ -111,7 +111,7 @@ async function renderAll(s: ResumeStore, v: ResumeView): Promise<Record<string, 
   const dd = await buildPdfDocDefinition(s, v, 'en')
   return {
     'HTML preview': buildViewHtml(s, v, 'en'),
-    'ATS text': buildViewText(s, v, 'en', 'text'),
+    'ATS text': buildViewText(s, v, 'en'),
     PDF: JSON.stringify(dd, (_k, val) => (typeof val === 'function' ? fnFingerprint(val) : val)),
     DOCX: await docxXml(s, v),
   }
@@ -126,7 +126,7 @@ describe('export visual parity — every style control reaches every target', ()
   beforeEach(() => {
     vi.restoreAllMocks()
     // exportDocx triggers a download; capture the blob instead of writing one.
-    vi.spyOn(URL, 'createObjectURL').mockImplementation((b: Blob) => { lastBlob = b; return 'blob:x' })
+    vi.spyOn(URL, 'createObjectURL').mockImplementation((b) => { lastBlob = b as Blob; return 'blob:x' })
     vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
   })

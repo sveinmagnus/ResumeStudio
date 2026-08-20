@@ -11,9 +11,9 @@ import { AssistRun, resetAssistConsent } from '../../src/components/ui/AssistRun
 import { resetLlmAvailability } from '../../src/lib/llmClient'
 import { api } from '../../src/lib/api'
 
-const LOCAL = { configured: true, provider: 'ollama', model: 'llama3.2:3b', local: true }
-const REMOTE = { configured: true, provider: 'openai', model: 'gpt-4o-mini', local: false }
-const OFF = { configured: false, provider: '', model: '', local: false }
+const LOCAL = { configured: true, provider: 'ollama', model: 'llama3.2:3b', local: true, highEnd: false }
+const REMOTE = { configured: true, provider: 'openai', model: 'gpt-4o-mini', local: false, highEnd: false }
+const OFF = { configured: false, provider: '', model: '', local: false, highEnd: false }
 
 function backend(status: typeof LOCAL | typeof OFF) {
   resetLlmAvailability()
@@ -212,7 +212,7 @@ describe('<AssistRun>', () => {
     it('warns on a long prompt but leaves Run enabled', async () => {
       backend(LOCAL)
       render(
-        <AssistRun buildPrompt={() => 'x'.repeat(200_000)} onResult={vi.fn()}>
+        <AssistRun buildPrompt={() => 'x'.repeat(200_000)} onResult={vi.fn()} hasManualPath>
           <button>Copy prompt for your LLM</button>
         </AssistRun>,
       )

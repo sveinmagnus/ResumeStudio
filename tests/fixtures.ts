@@ -3,6 +3,7 @@ import type {
   Course, Certification, Skill, Role, Industry, KeyQualification, SpokenLanguage,
   SkillCategory, Position, Presentation, Publication, HonorAward,
   Reference, Resume, KeyCompetency, Recommendation, CoverLetter,
+  ProjectSkill, ProjectRole, ProjectIndustry,
 } from '../src/types'
 import { DEFAULT_VIEW_STYLE } from '../src/lib/viewStyle'
 import { DEFAULT_VIEW_HEADER, DEFAULT_VIEW_FOOTER, defaultHeaderFields } from '../src/lib/viewHeader'
@@ -73,6 +74,40 @@ export function makeProject(over: Partial<Project> = {}): Project {
     starred: false,
     disabled: false,
     internal_notes: null,
+    ...over,
+  }
+}
+
+export function makeProjectSkill(over: Partial<ProjectSkill> = {}): ProjectSkill {
+  return {
+    id: id(),
+    skill_id: 'skill-1',
+    name: { en: 'TypeScript' },
+    duration_in_years: 0,
+    offset_in_years: 0,
+    total_duration_in_years: 0,
+    sort_order: 0,
+    ...over,
+  }
+}
+
+export function makeProjectRole(over: Partial<ProjectRole> = {}): ProjectRole {
+  return {
+    id: id(),
+    role_id: 'role-1',
+    name: { en: 'Developer' },
+    sort_order: 0,
+    disabled: false,
+    ...over,
+  }
+}
+
+export function makeProjectIndustry(over: Partial<ProjectIndustry> = {}): ProjectIndustry {
+  return {
+    id: id(),
+    industry_id: 'industry-1',
+    name: { en: 'Finance' },
+    sort_order: 0,
     ...over,
   }
 }

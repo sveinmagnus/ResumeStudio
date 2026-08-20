@@ -6,7 +6,7 @@ import {
   unpinLegacyHeadingFont, ensureCoverLetters, migrateCourseDates, migrateBundleMembership, migratePresentationDates, migrateStore, isNewerShape, CURRENT_SHAPE_VERSION,
 } from '../src/lib/migrate'
 import { emptyStore, makeProject, makeWork, makeSkill, makeSkillCategory, makeView, makeCoverLetter, makeRecommendation, makeCourse, makeKQ, makeKeyCompetency, makePresentation, makePosition } from './fixtures'
-import type { ProjectRole, KeyQualification, KeyPoint, WorkExperience, Project, LocalizedString, Skill, ResumeStore } from '../src/types'
+import type { ProjectRole, KeyQualification, KeyPoint, WorkExperience, Project, LocalizedString, Skill, SkillCategory, ResumeStore } from '../src/types'
 
 /** A project carrying the pre-v4 single `industry`/`industry_id` pair. */
 function legacyProject(id: string, industry: LocalizedString, industryId: string | null = null): Project {
@@ -173,6 +173,7 @@ function kqWithPoints(points: Partial<KeyPoint>[]): KeyQualification {
     label: { en: 'Profile' },
     tag_line: {},
     summary: { en: 'Summary' },
+    competency_ids: [],
     key_points: filled,
     
     sort_order: 0,
@@ -371,19 +372,19 @@ describe('migrateStore() / isNewerShape()', () => {
 describe('internSkillCategories()', () => {
   it('seeds skill_categories from the categories skills already use', () => {
     const store = emptyStore()
-    store.skills.push(makeSkill({ id: 'a', name: { en: 'A' }, category: 'Frontend' }))
-    store.skills.push(makeSkill({ id: 'b', name: { en: 'B' }, category: 'Cloud' }))
-    store.skills.push(makeSkill({ id: 'c', name: { en: 'C' }, category: null }))
+    store.skills.push(legacySkill({ id: 'a', name: { en: 'A' }, category: 'Frontend' }))
+    store.skills.push(legacySkill({ id: 'b', name: { en: 'B' }, category: 'Cloud' }))
+    store.skills.push(legacySkill({ id: 'c', name: { en: 'C' }, category: null }))
     const out = internSkillCategories(store)
-    expect(out.skill_categories).toEqual(['Cloud', 'Frontend'])
+    expect(out.skill_categories!).toEqual(['Cloud', 'Frontend'])
   })
 
   it('unions with an existing list and is idempotent', () => {
     const store = emptyStore()
-    store.skills.push(makeSkill({ id: 'a', name: { en: 'A' }, category: 'Frontend' }))
-    store.skill_categories = ['Cloud'] // an empty (persisted) category
+    store.skills.push(legacySkill({ id: 'a', name: { en: 'A' }, category: 'Frontend' }))
+    store.skill_categories = ['Cloud'] as unknown as SkillCategory[] // an empty (persisted) category
     const out = internSkillCategories(store)
-    expect(out.skill_categories).toEqual(['Cloud', 'Frontend'])
+    expect(out.skill_categories!).toEqual(['Cloud', 'Frontend'])
     expect(internSkillCategories(out)).toBe(out) // no change → same reference
   })
 })
@@ -413,7 +414,7 @@ describe('unifyShowcaseCategories()', () => {
     }])
 
     const out = unifyShowcaseCategories(withTechCats)
-    expect(out.skill_categories).toHaveLength(1)
+    expect(out.skill_categories!).toHaveLength(1)
     const cat = out.skill_categories![0]
     expect(cat.name.en).toBe('Languages')
     for (const s of out.skills) {
@@ -454,7 +455,7 @@ describe('unifyShowcaseCategories()', () => {
       skills: [{ id: 'cs1', skill_id: 's1' }],
     }])
     const out = unifyShowcaseCategories(withTechCats)
-    expect(out.skill_categories).toHaveLength(0)
+    expect(out.skill_categories!).toHaveLength(0)
     expect(out.skills[0].category_id).toBeNull()
     expect(out.skills[0].is_highlighted).toBe(false)
   })
@@ -989,7 +990,7 @@ describe('unifyShowcaseCategories — dedup, order and idempotence', () => {
         { id: 't1', name: { en: 'Mike' }, sort_order: 0, skills: [] },
       ],
     )
-    expect(out.skill_categories.map((c) => c.name.en)).toEqual(['Mike', 'Zulu', 'Alpha'])
+    expect(out.skill_categories!.map((c) => c.name.en)).toEqual(['Mike', 'Zulu', 'Alpha'])
   })
 
   it('deduplicates a registry category that repeats a showcase group’s name', () => {
@@ -997,13 +998,13 @@ describe('unifyShowcaseCategories — dedup, order and idempotence', () => {
     // a legacy showcase array is being merged into.
     const fromStrings = run({ skills: [], skill_categories: ['Mike'] as never },
       [{ id: 't1', name: { en: 'Mike' }, sort_order: 0, skills: [] }])
-    expect(fromStrings.skill_categories).toHaveLength(1)
+    expect(fromStrings.skill_categories!).toHaveLength(1)
 
     const fromEntities = run(
       { skills: [], skill_categories: [makeSkillCategory({ id: 'c1', name: { en: 'Mike' } })] },
       [{ id: 't1', name: { en: 'Mike' }, sort_order: 0, skills: [] }],
     )
-    expect(fromEntities.skill_categories).toHaveLength(1)
+    expect(fromEntities.skill_categories!).toHaveLength(1)
   })
 
   it('interns each distinct free-text skill category once', () => {
@@ -1015,7 +1016,7 @@ describe('unifyShowcaseCategories — dedup, order and idempotence', () => {
       ],
       skill_categories: [] as never,
     })
-    expect(out.skill_categories.map((c) => c.name.en).sort()).toEqual(['Backend', 'Frontend'])
+    expect(out.skill_categories!.map((c) => c.name.en).sort()).toEqual(['Backend', 'Frontend'])
     expect(out.skills[0].category_id).toBe(out.skills[1].category_id)
     expect(out.skills[0].category_id).not.toBe(out.skills[2].category_id)
   })
@@ -1080,27 +1081,27 @@ describe('migrate — text guards and per-field defaults', () => {
     }) as never
 
     it('labels the paragraph with the role name and joins both bodies', () => {
-      const out = buildRoleParagraph(role(), ['en'])
+      const out = buildRoleParagraph(role())
       expect(out.en).toBe('Architect: Led the design.\n\nSummary.')
     })
 
     it('omits the label when the role has no name', () => {
       // "': Led the design." is what a missing guard produces.
-      expect(buildRoleParagraph(role({ name: {} }), ['en']).en).toBe('Led the design.\n\nSummary.')
+      expect(buildRoleParagraph(role({ name: {} })).en).toBe('Led the design.\n\nSummary.')
     })
 
     it('treats a whitespace-only name as no name', () => {
-      expect(buildRoleParagraph(role({ name: { en: '  ' } }), ['en']).en)
+      expect(buildRoleParagraph(role({ name: { en: '  ' } })).en)
         .toBe('Led the design.\n\nSummary.')
     })
 
     it('drops a blank body rather than joining around it', () => {
-      expect(buildRoleParagraph(role({ summary: { en: '   ' } }), ['en']).en)
+      expect(buildRoleParagraph(role({ summary: { en: '   ' } })).en)
         .toBe('Architect: Led the design.')
     })
 
     it('emits nothing for a locale with no body at all', () => {
-      expect(buildRoleParagraph(role({ long_description: {}, summary: {} }), ['en'])).toEqual({})
+      expect(buildRoleParagraph(role({ long_description: {}, summary: {} }))).toEqual({})
     })
   })
 
@@ -1214,7 +1215,7 @@ describe('migrate — text guards and per-field defaults', () => {
         skills: [{ ...makeSkill({ id: 's1' }), category: 'Backend' } as never],
         skill_categories: [] as never,
       })
-      expect(out.skill_categories).toContain('Backend')
+      expect(out.skill_categories!).toContain('Backend')
     })
 
     it('does not promote a whitespace-only category off a skill', () => {
@@ -1223,7 +1224,7 @@ describe('migrate — text guards and per-field defaults', () => {
         skills: [{ ...makeSkill({ id: 's1' }), category: '   ' } as never],
         skill_categories: [] as never,
       })
-      expect(out.skill_categories).toEqual([])
+      expect(out.skill_categories!).toEqual([])
     })
 
     it('returns the SAME store when it finds nothing new to add', () => {
@@ -1244,7 +1245,7 @@ describe('migrate — text guards and per-field defaults', () => {
         skills: [{ ...makeSkill({ id: 's1' }), category: 'Backend' } as never],
         skill_categories: ['Frontend'] as never,
       })
-      expect([...out.skill_categories].sort()).toEqual(['Backend', 'Frontend'])
+      expect([...out.skill_categories!].sort()).toEqual(['Backend', 'Frontend'])
     })
   })
 
@@ -1522,7 +1523,7 @@ describe('foldRoleDescriptions — which legacy roles carry text worth keeping',
     // The keys are what mark the row as old; leaving them means the migration
     // runs again on every load, and `changed` reports a mutation each time.
     const out = foldRoleDescriptions(withRole({ long_description: {}, summary: {} }))
-    const role = out.projects[0].roles[0] as Record<string, unknown>
+    const role = out.projects[0].roles[0] as unknown as Record<string, unknown>
     expect('long_description' in role).toBe(false)
     expect('summary' in role).toBe(false)
     // Nothing was appended: the description is untouched.
@@ -1608,7 +1609,7 @@ describe('internSkillCategories — the legacy free-text category', () => {
     // v5 stored the categories as a plain string list; v6's unify step turns
     // them into entities, so at THIS step they are still strings.
     const out = internSkillCategories(s)
-    expect(out.skill_categories as unknown as string[]).toEqual(['Languages'])
+    expect(out.skill_categories! as unknown as string[]).toEqual(['Languages'])
   })
 
   it('trims a padded name in the pre-existing string list, and drops a blank one', () => {
@@ -1819,23 +1820,23 @@ describe('unifyShowcaseCategories — what counts as legacy data', () => {
       { ...makeSkill({ id: 's2', name: { en: 'AWS' } }), category: 'Cloud' },
     )
     const out = unifyShowcaseCategories(store)
-    expect(out.skill_categories).toHaveLength(1)
-    expect(out.skills[1].category_id).toBe(out.skill_categories[0].id)
+    expect(out.skill_categories!).toHaveLength(1)
+    expect(out.skills[1].category_id).toBe(out.skill_categories![0].id)
   })
 
   it('creates one entity per category when the store has no skill_categories key', () => {
     const store = withSkills({ ...makeSkill({ id: 's1' }), category: 'Cloud' })
     delete (store as unknown as Record<string, unknown>).skill_categories
     const out = unifyShowcaseCategories(store)
-    expect(out.skill_categories).toHaveLength(1)
-    expect(out.skill_categories[0].name).toEqual({ en: 'Cloud' })
+    expect(out.skill_categories!).toHaveLength(1)
+    expect(out.skill_categories![0].name).toEqual({ en: 'Cloud' })
   })
 
   it('does not intern a category from a whitespace-only string', () => {
     // An entity with a blank name is a heading nobody can read or find to delete.
     const store = withSkills({ ...makeSkill({ id: 's1' }), category: '   ' })
     const out = unifyShowcaseCategories(store)
-    expect(out.skill_categories).toEqual([])
+    expect(out.skill_categories!).toEqual([])
     expect(out.skills[0].category_id).toBeNull()
   })
 
@@ -1845,21 +1846,21 @@ describe('unifyShowcaseCategories — what counts as legacy data', () => {
       { ...makeSkill({ id: 's2' }), category: 'Cloud' },
     )
     const out = unifyShowcaseCategories(store)
-    expect(out.skill_categories).toHaveLength(1)
-    expect(out.skill_categories[0].name).toEqual({ en: 'Cloud' })
+    expect(out.skill_categories!).toHaveLength(1)
+    expect(out.skill_categories![0].name).toEqual({ en: 'Cloud' })
     expect(out.skills[0].category_id).toBe(out.skills[1].category_id)
   })
 
   it('stamps a new category with the resume that owns it', () => {
     const store = withSkills({ ...makeSkill({ id: 's1' }), category: 'Cloud' })
-    expect(unifyShowcaseCategories(store).skill_categories[0].resume_id).toBe('resume-1')
+    expect(unifyShowcaseCategories(store).skill_categories![0].resume_id).toBe('resume-1')
   })
 
   it('migrates data that arrives with no resume record at all', () => {
     // migrate is the choke point for outside data — a partial backup or a
     // hand-edited file must degrade, not throw away the whole load.
     const store: ResumeStore = { ...withSkills({ ...makeSkill({ id: 's1' }), category: 'Cloud' }), resume: null }
-    expect(unifyShowcaseCategories(store).skill_categories[0].resume_id).toBe('')
+    expect(unifyShowcaseCategories(store).skill_categories![0].resume_id).toBe('')
   })
 
   it('keeps a category_id the skill already had when a legacy showcase is folded in', () => {
@@ -1879,13 +1880,13 @@ describe('unifyShowcaseCategories — what counts as legacy data', () => {
       { id: 'tc2', name: { en: 'Frontend' }, sort_order: 0, skills: [] },
       { id: 'tc3', name: { en: 'Tools' }, sort_order: 2, skills: [] },
     ])
-    expect(unifyShowcaseCategories(store).skill_categories.map((c) => c.name.en))
+    expect(unifyShowcaseCategories(store).skill_categories!.map((c) => c.name.en))
       .toEqual(['Frontend', 'Backend', 'Tools'])
   })
 
   it('keeps a showcase group that never had any members', () => {
     const store = withLegacyTechCats(emptyStore(), [{ id: 'tc1', name: { en: 'Backend' }, sort_order: 0 }])
-    expect(unifyShowcaseCategories(store).skill_categories).toHaveLength(1)
+    expect(unifyShowcaseCategories(store).skill_categories!).toHaveLength(1)
   })
 
   it('gives a skill listed in two showcase groups the FIRST one', () => {
@@ -1896,7 +1897,7 @@ describe('unifyShowcaseCategories — what counts as legacy data', () => {
       { id: 'tc2', name: { en: 'Tools' }, sort_order: 1, skills: [{ id: 'cs2', skill_id: 's1' }] },
     ])
     const out = unifyShowcaseCategories(store)
-    const backend = out.skill_categories.find((c) => c.name.en === 'Backend')
+    const backend = out.skill_categories!.find((c) => c.name.en === 'Backend')
     expect(out.skills[0].category_id).toBe(backend?.id)
   })
 })

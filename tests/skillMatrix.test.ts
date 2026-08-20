@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { skillMatrixRows, fmtLastUsed, fmtProficiency } from '../src/lib/skillMatrix'
 import { buildViewHtml, buildViewSections } from '../src/lib/viewFilter'
-import { emptyStore, makeProject, makeSkill, makeSkillCategory, makeView } from './fixtures'
+import { emptyStore, makeProject, makeProjectSkill, makeSkill, makeSkillCategory, makeView } from './fixtures'
 import { xs } from '../src/lib/exportStrings'
 import { fmtDate } from '../src/lib/locales'
 import type { SkillMatrixRow } from '../src/lib/skillMatrix'
@@ -65,7 +65,7 @@ describe('skillMatrixRows', () => {
     store.skills = [makeSkill({ id: 'sk', name: { en: 'Solo' }, total_duration_in_years: 0 })]
     store.projects = ends.map((end, i) => makeProject({
       id: `p${i}`, start: { year: end.year - 1, month: 1 }, end,
-      skills: [{ skill_id: 'sk', name: { en: 'Solo' }, proficiency: 3 }],
+      skills: [makeProjectSkill({ skill_id: 'sk', name: { en: 'Solo' } })],
     }))
     return skillMatrixRows(store, makeView({}), 'en')[0].lastUsed
   }
@@ -260,7 +260,7 @@ describe('skillMatrixRows — the usage scan', () => {
     })]
     const row = skillMatrixRows(s, makeView(), 'en').find((r) => r.name === 'Go')!
     expect(row.ongoing).toBe(true)
-    expect(fmtLastUsed(row, 'en', 'my')).toBe(xs('ongoing', 'en'))
+    expect(fmtLastUsed(row, 'en', 'month-year')).toBe(xs('ongoing', 'en'))
     // An ongoing row reports NO date: "Ongoing" is the answer, and a date
     // beside it would read as the day the export was taken.
     expect(row.lastUsed).toBeNull()

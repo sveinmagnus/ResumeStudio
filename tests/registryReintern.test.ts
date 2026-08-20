@@ -97,7 +97,7 @@ describe('remapCanonicalIds()', () => {
       skill_categories: [makeSkillCategory({ id: 'c1', canonical_id: 'old' })],
     }
     const out = remapCanonicalIds(store, { old: 'new' })
-    expect(out.skill_categories[0].canonical_id).toBe('new')
+    expect(out.skill_categories![0].canonical_id).toBe('new')
   })
 
   it('works on a store predating skill categories', () => {
@@ -244,6 +244,6 @@ describe('reinternBackupLinks — a backup that carries no snapshots', () => {
     const store = { ...emptyStore(), skills: [makeSkill({ id: 's1', canonical_id: 'backup-only' })] }
     delete (store as { skill_categories?: unknown }).skill_categories
     const out = await reinternBackupLinks(store, [], fakeApi([]))
-    expect(out.skill_categories).toEqual([])
+    expect(out.skill_categories!).toEqual([])
   })
 })

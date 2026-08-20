@@ -7,7 +7,7 @@ import {
   importFromAIDraft,
   normalizeImportLocale,
   summarizeImportedStore,
-  type AIImportV1,
+  type AIImportV1, type AIProject,
 } from '../src/lib/aiImport'
 import { resolve } from '../src/lib/locales'
 import {
@@ -97,10 +97,10 @@ describe('validateAIImport()', () => {
   it('takes any scalar as a list entry, and flags a structured one by index', () => {
     // A model that answers with numbers or booleans is sloppy, not unusable.
     expect(() => validateAIImport(draft({
-      projects: [{ bullets: ['shipped it', 2, true, null] as unknown as never }],
+      projects: [{ bullets: ['shipped it', 2, true, null] } as unknown as AIProject],
     }))).not.toThrow()
     expect(issuePaths(draft({
-      projects: [{ bullets: ['ok', { text: 'nested' }] as unknown as never }],
+      projects: [{ bullets: ['ok', { text: 'nested' }] } as unknown as AIProject],
     }))).toEqual(['projects[0].bullets[1]'])
   })
 

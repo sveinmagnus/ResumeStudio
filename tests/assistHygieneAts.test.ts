@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   emptyStore, makeProject, makeRole, makeSkill, makeResume, makeView, makeSkillCategory,
-  makeIndustry,
+  makeIndustry, makeProjectSkill, makeProjectRole
 } from './fixtures'
 import type { ResumeStore, ResumeView } from '../src/types'
 import { buildViewSections } from '../src/lib/viewFilter'
@@ -236,9 +236,9 @@ describe('registry hygiene', () => {
     // Two projects use React, one uses React.js — so the counts differ and the
     // panel can show a real blast radius.
     s.projects = [
-      makeProject({ skills: [{ skill_id: react.id, name: { en: 'React' }, proficiency: 3 }] }),
-      makeProject({ skills: [{ skill_id: react.id, name: { en: 'React' }, proficiency: 3 }] }),
-      makeProject({ skills: [{ skill_id: reactJs.id, name: { en: 'React.js' }, proficiency: 3 }] }),
+      makeProject({ skills: [makeProjectSkill({ skill_id: react.id, name: { en: 'React' } })] }),
+      makeProject({ skills: [makeProjectSkill({ skill_id: react.id, name: { en: 'React' } })] }),
+      makeProject({ skills: [makeProjectSkill({ skill_id: reactJs.id, name: { en: 'React.js' } })] }),
     ]
     return s
   }
@@ -484,7 +484,7 @@ describe('registry hygiene — categories and prompt', () => {
       const s = emptyStore()
       const react = makeSkill({ name: { en: 'React' } })
       s.skills = [react]
-      s.projects = [makeProject({ skills: [{ skill_id: react.id, name: { en: 'React' }, proficiency: 3 }] })]
+      s.projects = [makeProject({ skills: [makeProjectSkill({ skill_id: react.id, name: { en: 'React' } })] })]
 
       const p = buildHygienePrompt(s, 'en')
       expect(p).toContain(react.id)
@@ -1202,7 +1202,7 @@ describe('applyHygiene and hygieneImpact', () => {
   it('assigns a category, creating it when it does not exist yet', () => {
     const out = applyHygiene(store(), [], [{
       key: 'cat:other', skillId: 'other', skillName: 'Go',
-      categoryId: null, categoryName: 'Languages',
+      categoryId: null, categoryName: 'Languages', isNewCategory: true, reason: 'A language',
     }], 'en').data
     const cat = out.skill_categories!.find((c) => resolve(c.name, 'en') === 'Languages')!
     expect(cat).toBeDefined()
@@ -1214,7 +1214,7 @@ describe('applyHygiene and hygieneImpact', () => {
     s.skill_categories = [makeSkillCategory({ id: 'c1', name: { en: 'Languages' } })]
     const out = applyHygiene(s, [], [{
       key: 'cat:other', skillId: 'other', skillName: 'Go',
-      categoryId: 'c1', categoryName: 'Languages',
+      categoryId: 'c1', categoryName: 'Languages', isNewCategory: false, reason: 'A language',
     }], 'en').data
     expect(out.skill_categories).toHaveLength(1)
     expect(out.skills.find((x) => x.id === 'other')!.category_id).toBe('c1')
@@ -1225,7 +1225,7 @@ describe('applyHygiene and hygieneImpact', () => {
     // match what the apply then does.
     const impact = hygieneImpact([merge()], [{
       key: 'cat:other', skillId: 'other', skillName: 'Go',
-      categoryId: null, categoryName: 'Languages',
+      categoryId: null, categoryName: 'Languages', isNewCategory: true, reason: 'A language',
     }])
     expect(impact).toMatchObject({
       entriesDeleted: 1, referencesRewritten: 1, skillsCategorised: 1,
@@ -1512,8 +1512,8 @@ describe('buildHygienePrompt — what the model is shown', () => {
       roles: [makeRole({ id: 'r1', name: { en: 'Architect' } })],
       projects: [makeProject({
         id: 'p1',
-        skills: [{ skill_id: 's1', name: { en: 'Kubernetes' }, proficiency: 0 }],
-        roles: [{ role_id: 'r1', name: { en: 'Architect' }, description: {} }],
+        skills: [makeProjectSkill({ skill_id: 's1', name: { en: 'Kubernetes' } })],
+        roles: [makeProjectRole({ role_id: 'r1', name: { en: 'Architect' } })],
       })],
     })
     const prompt = buildHygienePrompt(s, 'en')

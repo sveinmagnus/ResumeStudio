@@ -16,7 +16,7 @@ import { resetAssistConsent } from '../../src/components/ui/AssistRun'
 import { api } from '../../src/lib/api'
 import { emptyStore, makeProject, makeSkill, makeResume } from '../fixtures'
 
-const LOCAL = { configured: true, provider: 'ollama', model: 'llama3.2:3b', local: true }
+const LOCAL = { configured: true, provider: 'ollama', model: 'llama3.2:3b', local: true, highEnd: false }
 
 function seed() {
   resetLlmAvailability()

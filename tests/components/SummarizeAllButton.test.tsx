@@ -29,8 +29,8 @@ function backend(configured: boolean) {
   resetLlmAvailability()
   vi.spyOn(api, 'llmStatus').mockResolvedValue(
     configured
-      ? { configured: true, provider: 'ollama', model: 'llama3.2:3b', local: true }
-      : { configured: false, provider: '', model: '', local: false },
+      ? { configured: true, provider: 'ollama', model: 'llama3.2:3b', local: true, highEnd: false }
+      : { configured: false, provider: '', model: '', local: false, highEnd: false },
   )
 }
 

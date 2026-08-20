@@ -1,0 +1,18 @@
+{
+  "//": "The tests project. Kept separate from the client and server builds because the suite needs both DOM and node types, and neither build tsconfig may ever compile a test file. `src/**/*.d.ts` carries the ambient module declarations (pdfmake, Vite asset imports) that the app code under test relies on.",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "strict": true,
+    "skipLibCheck": true,
+    "types": ["node", "vitest/globals", "@testing-library/jest-dom", "@playwright/test"]
+  },
+  "include": ["tests", "e2e", "vite.config.ts", "playwright.config.ts", "src/**/*.d.ts"]
+}

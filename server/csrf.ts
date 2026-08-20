@@ -29,6 +29,7 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto'
 import type { Request, Response, NextFunction } from 'express'
 import { parseCookies } from './auth.js'
+import { buildCookie } from './cookies.js'
 
 /** Readable by design — see the header. */
 export const CSRF_COOKIE = 'rs_csrf'
@@ -42,6 +43,12 @@ const UNSAFE = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
  * require one. Matched as exact paths, not prefixes: a prefix match on
  * `/api/auth` would exempt anything added under it later, which is the kind of
  * quiet widening this list exists to prevent.
+ *
+ * Compared against `req.originalUrl`, NOT `req.path`. This middleware is
+ * mounted with `app.use('/api', …)`, and inside a mount Express strips the
+ * prefix — so `req.path` reads `/auth/login` and every entry below silently
+ * matched nothing. The endpoints that must work without a token were all being
+ * checked for one.
  */
 const EXEMPT = new Set([
   '/api/auth/login',
@@ -59,13 +66,24 @@ export function newCsrfToken(): string {
 }
 
 /**
- * Set-Cookie for the token. No HttpOnly (the page must read it), SameSite=Strict
- * and Secure in production to match the session cookie's posture.
+ * Set-Cookie for the token. NOT HttpOnly — the page must read it to echo it —
+ * and otherwise the session cookie's posture, including `Secure` following the
+ * connection rather than the build (see server/cookies.ts).
  */
-export function csrfCookie(token: string): string {
-  const parts = [`${CSRF_COOKIE}=${encodeURIComponent(token)}`, 'Path=/', 'SameSite=Strict']
-  if (process.env.NODE_ENV === 'production') parts.push('Secure')
-  return parts.join('; ')
+export function csrfCookie(req: Request, token: string): string {
+  return buildCookie(req, CSRF_COOKIE, token, { httpOnly: false })
+}
+
+/**
+ * The mount-independent path: `originalUrl` without its query string.
+ *
+ * A query cannot change which route this is, and leaving it on would make an
+ * exempt endpoint stop being exempt the moment anything appended `?token=…`.
+ */
+function requestPath(req: Request): string {
+  const url = req.originalUrl || req.url
+  const q = url.indexOf('?')
+  return q === -1 ? url : url.slice(0, q)
 }
 
 function equal(a: string, b: string): boolean {
@@ -88,7 +106,7 @@ export function csrfMiddleware(sessionCookieName: string) {
       next()
       return
     }
-    if (EXEMPT.has(req.path)) {
+    if (EXEMPT.has(requestPath(req))) {
       next()
       return
     }

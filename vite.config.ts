@@ -1,8 +1,10 @@
-/// <reference types="vitest" />
 import { createHash } from 'node:crypto'
 import { readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
-import { defineConfig, type Plugin } from 'vite'
+// `vitest/config` rather than `vite` so the test block is typed without the
+// triple-slash reference; `Plugin` still comes from vite, for the shell worker.
+import { defineConfig } from 'vitest/config'
+import type { Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 
 /** The document `src/sw.js` falls back to for every navigation. */

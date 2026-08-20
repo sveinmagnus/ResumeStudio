@@ -136,7 +136,21 @@ Wishlist: §12.
 | Styling | Inline `<style>` blocks per component + CSS custom properties in `src/index.css` | No Tailwind, no CSS-in-JS lib — keep it that way |
 
 ### Code style rules
-- **TypeScript strict mode.** `npm run typecheck` covers client + server.
+- **TypeScript strict mode.** `npm run typecheck` covers client, server AND
+  tests — three projects, because they need different `lib`/`types` and neither
+  build config may ever compile a test file. `tsconfig.tests.json` owns
+  `tests/`, `e2e/` and the two config files (DOM + node + vitest/playwright
+  types, plus `src/**/*.d.ts` for the ambient module declarations);
+  `tsconfig.lint.json` now just extends it, so ESLint's type-aware rules and the
+  compiler can never disagree about what a test file's types are. Tests went
+  unchecked for a long time and it cost real coverage: fixtures named fields the
+  types do not have (`proficiency` on `ProjectSkill`), calls carried arguments
+  the function had stopped taking (`importFromEuropassXml(xml, 'en')`,
+  `buildViewHtml(store, view, locale, {header, footer, tokens})`), and two
+  section arrays were misspelled (`work_experience`, `honors_awards`) so the
+  suites believed they were exercising employment and awards while both were
+  empty. A fixture asserting a shape the app cannot produce is a test that
+  passes and proves nothing.
 - **`npm run lint` must be clean** (CI runs it first). `eslint.config.js` is
   deliberately NOT a style guide — no formatting opinions, no import ordering.
   Every rule in it either enforces an invariant written down in this file or
@@ -395,6 +409,8 @@ server/              ← Express API + SQLite persistence
 │   tombstones) + backupRuntime (owns both)
 ├── settings.ts (desktop settings.json; applyToEnv; isDesktop gate) · storage.ts (payloadStats) ·
 │   folders.ts (the sync-folder browser behind Settings' picker)
+├── cookies.ts (THE `Secure` decision — follows req.secure, never NODE_ENV; see
+│   §16. Every Set-Cookie in the app is built here)
 ├── localHost.ts (the `.localhost`/`.local` name: validation, the PURE hosts-file
 │   text transform, the elevated write, and the loopback predicate app.ts guards on)
 ├── translate.ts (pluggable proxy: libretranslate/deepl/google/azure/llm) · translateDocker.ts
@@ -846,7 +862,12 @@ npm run test:e2e          # build + Playwright smoke suite
 - **E2E accessibility** — `e2e/a11y.spec.ts` runs axe with REAL layout (so contrast is actually evaluated, unlike the jsdom suite) plus keyboard-only journeys: skip link, reaching a field by Tab, and a visible focus ring on every stop. The two suites are complementary, not redundant — see §6.
 - **Export integrity** — `tests/exportIntegrity.test.ts` asserts the DOCX is a valid OOXML *package* (well-formed parts, no dangling relationship ids, every content type declared), which is what decides whether Word offers to "recover" the file. `exporter.test.ts` asserts what the document SAYS; this asserts that it opens. Its negative-control block corrupts a real archive to prove the checks can fail.
 - **Scale** — `tests/scale.test.ts` + `tests/server/scale.test.ts` measure a realistic large CV (50 projects × 15 locales + images, `tests/helpers/largeStore.ts`) against the payload-weight thresholds and the render budgets, and pin that snapshots stay image-free. The budgets are set above today's measurements: read the printed number before changing one.
-- **Fixtures** — `tests/fixtures.ts` exports `emptyStore()` + `makeProject()`/`makeWork()`/… — use these so shape changes are one-place fixes.
+- **Fixtures** — `tests/fixtures.ts` exports `emptyStore()` + `makeProject()`/`makeWork()`/… — use these so shape changes are one-place fixes. That includes the
+  denormalized project links: `makeProjectSkill()` / `makeProjectRole()` /
+  `makeProjectIndustry()`. Build them with the makers rather than an inline
+  literal — the literals were where the drift lived, each one missing the `id`
+  and `sort_order` the real link carries and several naming a `proficiency`
+  field `ProjectSkill` has never had.
 
 ### Not covered
 - The **live LibreTranslate round-trip** (proxy paths are unit-tested with mocked `fetch`; no model in CI).
@@ -867,7 +888,7 @@ npm run test:e2e          # build + Playwright smoke suite
 npm run dev              # client (Vite, 5173) + server (Express, 3001) via concurrently
 npm run dev:client       # just Vite      npm run dev:server   # just Express (tsx watch)
 npm run build            # production build to dist/    npm run preview  # serve dist/
-npm test                 # vitest run      npm run typecheck    # client + server tsc
+npm test                 # vitest run      npm run typecheck    # client + server + tests tsc
 npm run test:watch       # vitest watch    npm run test:coverage  # v8 coverage + ratchet
 npm run test:e2e         # build + Playwright (smoke + a11y, three engines)
 npm run lint             # eslint (CI gate)   npm run lint:fix     # eslint --fix
@@ -1245,6 +1266,24 @@ old credential may be in someone else's hands.
 - The bootstrap code is held **in memory**, so a restart re-issues it and it
   cannot be recovered from disk. Never ship "first visitor becomes the owner".
 
+### The `Secure` cookie flag follows the CONNECTION
+
+`server/cookies.ts` is the one place it is decided, and it keys on `req.secure`
+— never on `NODE_ENV`. Deciding it from the build was wrong in both directions:
+a production server on plain http (a LAN box) set `Secure` on a cookie the
+browser then discarded, and TLS terminated at a proxy with `trust proxy` unset
+is the same mismatch in reverse.
+
+The symptom was a **silent sign-in loop** in Safari, which is strictest about
+it. Chrome and Firefox hid the same defect behind their trustworthy-origin
+exemption for `http://localhost`, which does not extend to an arbitrary host —
+so it was a LAN bug everywhere and only ever reproduced in WebKit.
+
+The residual, and why the startup warning exists: an operator terminating TLS
+upstream without `RESUME_TRUST_PROXY` now loses the flag rather than getting a
+broken login. That is a downgrade instead of a break, so `server/index.ts` says
+so loudly at boot.
+
 ### Passwords and sessions
 
 `server/passwords.ts` is scrypt from `node:crypto` — no dependency, and no
@@ -1262,6 +1301,28 @@ Sessions are a table; the cookie carries an opaque id and the row stores its
 SHA-256. **They do not expire on a timer** — they end on logout, a password
 change, or disable. `last_seen_at` is refreshed at most once per five minutes,
 because auto-save fires about once a second per open editor.
+
+### Four things an adversarial review found, and the rules they left behind
+
+- **The bootstrap check and the insert must share a transaction.** Hashing a
+  password is a several-hundred-millisecond yield, and two requests carrying one
+  code both passed `hasAnyUser()` across it — one code, two owners.
+  `accounts.createFirstOwner` does the check and the insert with no `await`
+  between them. Hash BEFORE calling it, never inside.
+- **A locked hash must cost what a real one costs.** `verifyPassword` rejects
+  the `locked$` sentinel on its first line, so a locked account answered about
+  ten times faster — and a locked account is precisely a converted legacy token:
+  existing, password-less, waiting for a reset link. Login runs `dummyVerify`
+  for it.
+- **A password change clears every recovery code.** A code outlives the session
+  that minted it and on its own sets a new password, so one harvested earlier
+  survived the victim's only remedy. Regenerating a set costs the current
+  password, like every other credential change. `/recover` re-issues, so
+  spending your last resort does not leave you with none.
+- **A username collides with USERNAMES.** `findByLogin` searches the email
+  column too, so a row whose email was a bare word denied that word to a real
+  colleague. Addresses are format-checked on the way in, and the collision check
+  uses `usernameInUse`, which handles rows planted before the check existed.
 
 ### Email is optional and must stay so
 

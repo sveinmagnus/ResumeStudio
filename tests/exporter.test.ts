@@ -404,7 +404,7 @@ describe('exportDocx()', () => {
       const store = emptyStore()
       store.resume = makeResume({
         full_name: 'Kari Nordmann', title: { en: 'Solution Architect' },
-        phone: '+47 900 00 000', email: 'kari@example.com', city: 'Oslo', country: 'Norway',
+        phone: '+47 900 00 000', email: 'kari@example.com', place_of_residence: { en: 'Oslo, Norway' },
       })
       return store
     }

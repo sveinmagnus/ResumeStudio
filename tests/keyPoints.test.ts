@@ -134,7 +134,7 @@ describe('validateKeyPoints — the shapes a model actually returns', () => {
 
 describe('key points — the source text and the reply shapes', () => {
   it('trims the flattened source before quoting it in the prompt', () => {
-    const prompt = buildKeyPointsPrompt({ en: '<p>  Ran the rebuild.  </p>' }, 'en', 'plain')
+    const prompt = buildKeyPointsPrompt({ en: '<p>  Ran the rebuild.  </p>' }, 'en', 'highlights')
     expect(prompt).toContain('Ran the rebuild.')
     expect(prompt).not.toContain(' Ran the rebuild. ')
   })
@@ -160,13 +160,13 @@ describe('buildKeyPointsPrompt — the source it shows the model', () => {
     // The source is interpolated straight into the prompt; leading blank lines
     // push the instruction away from the text it applies to, which is exactly
     // what a small model loses track of.
-    const prompt = buildKeyPointsPrompt({ en: '   Ran the platform rebuild.   ' }, 'en', 'plain')
+    const prompt = buildKeyPointsPrompt({ en: '   Ran the platform rebuild.   ' }, 'en', 'highlights')
     expect(prompt).toContain('Ran the platform rebuild.')
     expect(prompt).not.toContain('   Ran the platform rebuild.')
   })
 
   it('reads the requested locale, not whichever slot is filled', () => {
-    const prompt = buildKeyPointsPrompt({ en: 'English text.', no: 'Norsk tekst.' }, 'no', 'plain')
+    const prompt = buildKeyPointsPrompt({ en: 'English text.', no: 'Norsk tekst.' }, 'no', 'highlights')
     expect(prompt).toContain('Norsk tekst.')
     expect(prompt).not.toContain('English text.')
   })

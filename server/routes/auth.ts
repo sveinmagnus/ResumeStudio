@@ -33,9 +33,11 @@ import {
 import { getAccounts, claimUnownedResumes } from '../db.js'
 import {
   hashPassword, verifyPassword, passwordProblem, lockedPasswordHash, needsRehash,
+  isLockedPassword,
 } from '../passwords.js'
 import { usernameProblem, normaliseLogin, type AccountsStore } from '../accounts.js'
 import { newCsrfToken, csrfCookie } from '../csrf.js'
+import { sessionCookie, clearCookie } from '../cookies.js'
 import { isMailConfigured } from '../mail.js'
 import {
   bootstrapCodeMatches,
@@ -45,32 +47,11 @@ import {
 
 const router = Router()
 
-function isProd(): boolean {
-  return process.env.NODE_ENV === 'production'
-}
+/** See server/cookies.ts for why `Secure` follows the connection, not NODE_ENV. */
+const setCookieValue = (req: Request, sessionId: string): string =>
+  sessionCookie(req, SESSION_COOKIE, sessionId)
 
-/**
- * Set-Cookie for the session. HttpOnly so page JS (and any XSS) cannot read it;
- * SameSite=Strict so it is not sent on cross-site requests (the CSRF brake);
- * Secure in production. No Max-Age: sessions end when something makes them
- * untrustworthy, not on a clock (plan D2).
- */
-function setCookieValue(sessionId: string): string {
-  const parts = [
-    `${SESSION_COOKIE}=${encodeURIComponent(sessionId)}`,
-    'Path=/',
-    'HttpOnly',
-    'SameSite=Strict',
-  ]
-  if (isProd()) parts.push('Secure')
-  return parts.join('; ')
-}
-
-function clearCookieValue(name: string): string {
-  const parts = [`${name}=`, 'Path=/', 'HttpOnly', 'SameSite=Strict', 'Max-Age=0']
-  if (isProd()) parts.push('Secure')
-  return parts.join('; ')
-}
+const clearCookieValue = (req: Request, name: string): string => clearCookie(req, name)
 
 /**
  * A legacy token name reduced to something the username rules accept: lower
@@ -184,13 +165,19 @@ router.post('/bootstrap', (req: Request, res: Response): void => {
       ? body.display_name.trim()
       : String(body.username)
 
+    // Hashed BEFORE the atomic step, never inside it: scrypt is the yield that
+    // let two requests carrying one code both pass the existence check.
     const pwHash = await hashPassword(body.password as string)
-    const user = accounts.createUser({
+    const user = accounts.createFirstOwner({
       username: body.username as string,
       displayName,
       pwHash,
-      role: 'owner',
     })
+    if (!user) {
+      // Somebody else spent the code while this request was hashing.
+      res.status(404).json({ error: 'Not found' })
+      return
+    }
     const claimed = claimUnownedResumes(user.id)
     const convertedTokens = convertLegacyTokens(accounts)
     const recoveryCodes = accounts.issueRecoveryCodes(user.id)
@@ -198,7 +185,7 @@ router.post('/bootstrap', (req: Request, res: Response): void => {
 
     const sid = accounts.createSession(user.id)
     accounts.recordLogin(user.id)
-    res.setHeader('Set-Cookie', [setCookieValue(sid), csrfCookie(newCsrfToken())])
+    res.setHeader('Set-Cookie', [setCookieValue(req, sid), csrfCookie(req, newCsrfToken())])
     res.json({
       ok: true,
       user: { id: user.id, username: user.username, display_name: user.display_name, role: user.role },
@@ -234,7 +221,7 @@ router.post('/login', (req: Request, res: Response): void => {
       }
       // A token instance has no session table to key on; the cookie keeps
       // carrying the token, as it did before accounts existed.
-      res.setHeader('Set-Cookie', [setCookieValue(body.token), csrfCookie(newCsrfToken())])
+      res.setHeader('Set-Cookie', [setCookieValue(req, body.token), csrfCookie(req, newCsrfToken())])
       res.json({ ok: true, auth_required: true })
       return
     }
@@ -256,6 +243,15 @@ router.post('/login', (req: Request, res: Response): void => {
       res.status(401).json({ error: 'Wrong username or password.' })
       return
     }
+    // A locked hash is rejected by `decode` on its first line, so verifying one
+    // costs nothing and answered ~10x faster than a real or unknown account.
+    // That fast answer identified precisely the accounts converted from legacy
+    // tokens — existing, password-less, and waiting for a reset link.
+    if (isLockedPassword(user.pw_hash)) {
+      await dummyVerify(password)
+      res.status(401).json({ error: 'Wrong username or password.' })
+      return
+    }
     if (!(await verifyPassword(password, user.pw_hash))) {
       res.status(401).json({ error: 'Wrong username or password.' })
       return
@@ -270,7 +266,7 @@ router.post('/login', (req: Request, res: Response): void => {
 
     const sid = accounts.createSession(user.id)
     accounts.recordLogin(user.id)
-    res.setHeader('Set-Cookie', [setCookieValue(sid), csrfCookie(newCsrfToken()), clearCookieValue(LEGACY_COOKIE)])
+    res.setHeader('Set-Cookie', [setCookieValue(req, sid), csrfCookie(req, newCsrfToken()), clearCookieValue(req, LEGACY_COOKIE)])
     res.json({
       ok: true,
       auth_required: true,
@@ -292,7 +288,7 @@ router.post('/logout', (req: Request, res: Response): void => {
       // alternative is a user who cannot sign out because storage is unhappy.
     }
   }
-  res.setHeader('Set-Cookie', [clearCookieValue(SESSION_COOKIE), clearCookieValue(LEGACY_COOKIE)])
+  res.setHeader('Set-Cookie', [clearCookieValue(req, SESSION_COOKIE), clearCookieValue(req, LEGACY_COOKIE)])
   res.json({ ok: true })
 })
 

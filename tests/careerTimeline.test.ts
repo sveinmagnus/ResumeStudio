@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { buildCareerTimeline, monthsToLabel } from '../src/lib/careerTimeline'
-import { emptyStore, makeWork, makeProject, makeEducation } from './fixtures'
+import { emptyStore, makeWork, makeProject, makeEducation, makeProjectIndustry } from './fixtures'
 import type { ResumeStore } from '../src/types'
 
 const NOW = new Date('2026-06-15T00:00:00Z') // → nowMonths = 2026*12 + 6
@@ -407,9 +407,9 @@ describe('project sublabels and gap coverage', () => {
     s.projects = [makeProject({
       id: 'p', customer: { en: 'Client' }, start: ym(2020, 1), end: ym(2021, 1),
       industries: [
-        { industry_id: 'i1', name: { en: 'Energy' } },
-        { industry_id: 'i2', name: {} },
-        { industry_id: 'i3', name: { en: 'Retail' } },
+        makeProjectIndustry({ industry_id: 'i1', name: { en: 'Energy' } }),
+        makeProjectIndustry({ industry_id: 'i2', name: {} }),
+        makeProjectIndustry({ industry_id: 'i3', name: { en: 'Retail' } }),
       ],
     })]
     expect(buildCareerTimeline(s, 'en', opts).projects.bars[0].sublabel).toBe('Energy, Retail')

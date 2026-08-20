@@ -13,8 +13,8 @@ import { resetLlmAvailability } from '../../src/lib/llmClient'
 import { resetAssistConsent } from '../../src/components/ui/AssistRun'
 import { api } from '../../src/lib/api'
 
-const LOCAL = { configured: true, provider: 'ollama', model: 'llama3.2:3b', local: true }
-const OFF = { configured: false, provider: '', model: '', local: false }
+const LOCAL = { configured: true, provider: 'ollama', model: 'llama3.2:3b', local: true, highEnd: false }
+const OFF = { configured: false, provider: '', model: '', local: false, highEnd: false }
 
 function backend(status: typeof LOCAL | typeof OFF) {
   resetLlmAvailability()

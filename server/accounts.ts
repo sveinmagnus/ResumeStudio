@@ -166,6 +166,8 @@ export interface AccountsStore {
   hasAnyUser(): boolean
   countOwners(): number
   createUser(input: CreateUserInput): UserRow
+  /** Create the first account, or null if one already exists. Atomic. */
+  createFirstOwner(input: Omit<CreateUserInput, 'role'>): UserRow | null
   listUsers(): UserRow[]
   getUser(id: string): UserRow | null
   /** By username OR email — the caller does not say which (D1). */
@@ -431,6 +433,38 @@ export function createAccountsStore(db: SqliteDatabase): AccountsStore {
       return stmt.getUser.get(id) as UserRow
     },
 
+    /**
+     * Create the owner, but only while there is genuinely no user.
+     *
+     * The check and the insert must share a transaction with no `await`
+     * between them. The bootstrap route hashes a password first — several
+     * hundred milliseconds of scrypt — and two requests arriving inside that
+     * window both saw "no users yet" and both created an owner, so one code
+     * produced as many owners as there were concurrent requests carrying it.
+     *
+     * Node is single-threaded and this connection is synchronous, so a
+     * transaction containing both steps cannot be interleaved. Hash BEFORE
+     * calling this, never inside it.
+     */
+    createFirstOwner(input: Omit<CreateUserInput, 'role'>): UserRow | null {
+      let created: UserRow | null = null
+      db.transaction(() => {
+        if (stmt.anyUser.get() !== undefined) return
+        const id = randomUUID()
+        stmt.insertUser.run(
+          id,
+          normaliseLogin(input.username),
+          input.displayName,
+          input.email ? normaliseLogin(input.email) : null,
+          input.pwHash,
+          'owner',
+          now(),
+        )
+        created = stmt.getUser.get(id) as UserRow
+      })()
+      return created
+    },
+
     listUsers: () => stmt.listUsers.all() as UserRow[],
     getUser: (id: string) => (stmt.getUser.get(id) as UserRow | undefined) ?? null,
 
@@ -452,6 +486,12 @@ export function createAccountsStore(db: SqliteDatabase): AccountsStore {
       db.transaction(() => {
         stmt.setPassword.run(pwHash, userId)
         stmt.deleteUserSessions.run(userId)
+        // Recovery codes go too. A code is a STRONGER credential than a
+        // session — long-lived, not tied to a browser, and on its own it sets a
+        // new password — so leaving them alive meant a code harvested earlier
+        // still worked after the victim had changed their password and believed
+        // the incident closed.
+        stmt.clearCodes.run(userId)
       })()
     },
 

@@ -62,9 +62,8 @@ describe('freshnessReport — certifications', () => {
     store.certifications.push(makeCertification({ id: 'c1', name: { en: 'AWS SA' }, expires: { year: 2025, month: 1 } }))
     store.resume = {
       ...emptyStore().resume!,
-      ...(makeWork() as never),
       attention_dismissals: { [certWarningKey('c1')]: '2026-09-01T00:00:00Z' },
-    } as never
+    }
 
     const r = freshnessReport(store, NOW, 'en')
     expect(r.expiredCerts).toEqual([])

@@ -6,6 +6,7 @@ import {
   makeSkillCategory, makeCertification, makeResume, makeIndustry, makeCoverLetter,
   makeKeyCompetency, makeRecommendation, makeSpokenLanguage, makePosition,
   makePresentation, makePublication, makeAward, makeReference,
+  makeProjectSkill, makeProjectRole, makeProjectIndustry,
 } from './fixtures'
 
 describe('collectTrackedFields()', () => {
@@ -496,9 +497,9 @@ describe('collectTrackedFields — the registries', () => {
     s.roles = [makeRole({ id: 'r-used', name: { en: 'Architect' } }), makeRole({ id: 'r-idle', name: { en: 'Scribe' } })]
     s.industries = [makeIndustry({ id: 'i-used', name: { en: 'Energy' } }), makeIndustry({ id: 'i-idle', name: { en: 'Retail' } })]
     s.projects = [makeProject({
-      skills: [{ skill_id: 'used', name: { en: 'Go' }, proficiency: 0 }],
-      roles: [{ role_id: 'r-used', name: { en: 'Architect' }, description: {} }],
-      industries: [{ industry_id: 'i-used', name: { en: 'Energy' } }],
+      skills: [makeProjectSkill({ skill_id: 'used', name: { en: 'Go' } })],
+      roles: [makeProjectRole({ role_id: 'r-used', name: { en: 'Architect' } })],
+      industries: [makeProjectIndustry({ industry_id: 'i-used', name: { en: 'Energy' } })],
     })]
     return s
   }
@@ -544,7 +545,7 @@ describe('collectTrackedFields — the registries', () => {
     const s = emptyStore()
     s.skill_categories = [makeSkillCategory({ id: 'c1', name: { en: 'Languages' } })]
     s.skills = [makeSkill({ id: 's1', name: { en: 'Go' }, category_id: null })]
-    s.projects = [makeProject({ skills: [{ skill_id: 's1', name: { en: 'Go' }, proficiency: 0 }] })]
+    s.projects = [makeProject({ skills: [makeProjectSkill({ skill_id: 's1', name: { en: 'Go' } })] })]
     expect(labels(s)).not.toContain('Languages')
     s.skills[0].category_id = 'c1'
     expect(labels(s)).toContain('Languages')
@@ -559,9 +560,9 @@ describe('collectTrackedFields — the registries', () => {
     s.skill_categories = [makeSkillCategory({ id: 'c1', name: { no: 'Språk' } })]
     s.skills[0].category_id = 'c1'
     s.projects = [makeProject({
-      skills: [{ skill_id: 's1', name: { no: 'Go' }, proficiency: 0 }],
-      roles: [{ role_id: 'r1', name: { no: 'Arkitekt' }, description: {} }],
-      industries: [{ industry_id: 'i1', name: { no: 'Energi' } }],
+      skills: [makeProjectSkill({ skill_id: 's1', name: { no: 'Go' } })],
+      roles: [makeProjectRole({ role_id: 'r1', name: { no: 'Arkitekt' } })],
+      industries: [makeProjectIndustry({ industry_id: 'i1', name: { no: 'Energi' } })],
     })]
     const out = labels(s)
     // Names exist, just not in the label locale, so each keeps its own text.
@@ -685,7 +686,7 @@ describe('computeSectionCoverage — the field each section counts', () => {
    * Each case: the section, an item filled ONLY in Norwegian, and the same
    * item with that field cleared. Filled must count; cleared must not.
    */
-  const cases: Array<[string, Record<string, unknown>, string[]]> = [
+  const cases: Array<[string, object, string[]]> = [
     ['key_qualifications', makeKQ({ id: 'k1' }), ['summary', 'tag_line', 'label']],
     ['key_competencies', makeKeyCompetency({ id: 'c1' }), ['title', 'description']],
     ['recommendations', makeRecommendation({ id: 'r1' }), ['text', 'relationship']],
@@ -706,7 +707,7 @@ describe('computeSectionCoverage — the field each section counts', () => {
   for (const [key, base, fields] of cases) {
     it(`counts ${key} by ${fields.join(' / ')}`, () => {
       // Blank every localized field, then fill exactly one at a time.
-      const blank: Record<string, unknown> = { ...base }
+      const blank: Record<string, unknown> = { ...(base as Record<string, unknown>) }
       for (const f of fields) blank[f] = {}
       expect(coverage(key, [blank]), `${key} with none of its fields`)
         .toEqual({ total: 1, populated: 0 })

@@ -22,7 +22,10 @@ const TOKEN = 'a-csrf-token-value'
 function app() {
   const a = express()
   a.use(express.json())
-  a.use(csrfMiddleware(SESSION))
+  // Mounted at '/api', exactly as createApp does. Mounting it at the root here
+  // is what let a broken exempt list pass: inside a mount Express strips the
+  // prefix from `req.path`, so a list of `/api/...` entries matched nothing.
+  a.use('/api', csrfMiddleware(SESSION))
   a.post('/api/resumes', (_req, res) => { res.json({ ok: true }) })
   a.put('/api/resumes/x', (_req, res) => { res.json({ ok: true }) })
   a.delete('/api/resumes/x', (_req, res) => { res.json({ ok: true }) })

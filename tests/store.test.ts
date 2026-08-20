@@ -22,7 +22,7 @@ const reset = () => {
       work_experiences: [], educations: [], courses: [], certifications: [],
       spoken_languages: [], positions: [],
       presentations: [], honor_awards: [], publications: [], references: [],
-      views: [], skill_categories: [],
+      views: [], skill_categories: [], industries: [], cover_letters: [],
     },
     activeSection: 'overview',
     primaryLocale: 'en',
@@ -543,6 +543,7 @@ describe('loadStore() & startFresh()', () => {
       educations: [], courses: [], certifications: [], spoken_languages: [],
       skill_categories: [], positions: [], presentations: [],
       honor_awards: [], publications: [], references: [], views: [],
+      industries: [], cover_letters: [],
     }
     useStore.getState().loadStore(replacement)
     expect(useStore.getState().hasData).toBe(true)

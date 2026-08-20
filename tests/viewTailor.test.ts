@@ -476,6 +476,6 @@ describe('applyTailorResponse — the item index it builds', () => {
     s.projects = [makeProject({ id: 'p1', customer: { en: 'Acme' } })]
     const out = applyTailorResponse(s, { $schema: TAILOR_SCHEMA, exclude_item_ids: ['p1'] } as never, 'en')
     expect(out.view.excluded_item_ids).toContain('p1')
-    expect(out.unknownIds ?? []).toEqual([])
+    expect(out.unknownItemIds).toEqual([])
   })
 })

@@ -130,13 +130,18 @@ describe('POST /reset — the single redemption path', SLOW, () => {
 })
 
 describe('POST /recover — recovery codes', SLOW, () => {
-  it('spends a code and reports how many remain', async () => {
+  it('spends a code and hands back a fresh set', async () => {
+    // Setting a password clears every code, so a harvested one cannot outlive
+    // the change. Re-issuing here is what stops that leaving somebody who just
+    // used their last resort with nothing.
     const codes = accounts.issueRecoveryCodes(kari.id)
     const user = accounts.getUser(kari.id)
     const r = await request(app).post('/api/users/recover').set('Cookie', cookie)
       .send({ login: user?.username, code: codes[0], password: 'a brand new passphrase' })
     expect(r.status).toBe(200)
-    expect(r.body.codes_left).toBe(9)
+    expect(r.body.recovery_codes).toHaveLength(10)
+    // And the spent one is genuinely dead, not merely replaced.
+    expect(accounts.redeemRecoveryCode(kari.id, codes[0])).toBe(false)
   })
 
   it('will not spend one account’s code against another', async () => {

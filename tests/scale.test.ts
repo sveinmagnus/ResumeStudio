@@ -24,8 +24,6 @@ import { applyView, buildViewHtml } from '../src/lib/viewFilter'
 import { buildViewSections } from '../src/lib/viewFilter'
 import { buildViewText } from '../src/lib/viewText'
 import { searchStore } from '../src/lib/contentSearch'
-import { withHeaderDefaults, withFooterDefaults } from '../src/lib/viewHeader'
-import { DEFAULT_VIEW_STYLE, deriveTokens } from '../src/lib/viewStyle'
 import { makeView } from './fixtures'
 
 const MB = 1_000_000
@@ -89,11 +87,7 @@ describe('a realistic large CV — render cost', () => {
 
   it('builds the preview HTML within the preview debounce budget', () => {
     const t0 = performance.now()
-    const html = buildViewHtml(store, view, 'en', {
-      header: withHeaderDefaults(view.header),
-      footer: withFooterDefaults(view.footer),
-      tokens: deriveTokens(DEFAULT_VIEW_STYLE),
-    })
+    const html = buildViewHtml(store, view, 'en')
     const ms = performance.now() - t0
     expect(html).toContain('Customer 0')
     // The live preview re-renders on a 250 ms debounce. Slower than the
@@ -103,7 +97,7 @@ describe('a realistic large CV — render cost', () => {
 
   it('builds the ATS text export without blowing up', () => {
     const t0 = performance.now()
-    const text = buildViewText(store, view, 'en', 'text')
+    const text = buildViewText(store, view, 'en')
     within(performance.now() - t0, 1500, 'buildViewText ms')
     expect(text.length).toBeGreaterThan(1000)
   })

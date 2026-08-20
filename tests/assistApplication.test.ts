@@ -808,7 +808,7 @@ describe('buildJobFitPrompt — the skills and the posting it carries', () => {
 describe('validateJobFit — the refusals', () => {
   it('names a non-object reply as such', () => {
     for (const bad of [null, undefined, 'text', 42]) {
-      expect(() => validateJobFit(bad, ['Kubernetes']), String(bad)).toThrow(/not a JSON object/)
+      expect(() => validateJobFit(bad, emptyStore(), 'en'), String(bad)).toThrow(/not a JSON object/)
     }
   })
 
@@ -816,7 +816,7 @@ describe('validateJobFit — the refusals', () => {
     const { dropped } = validateJobFit({ requirements: [
       { requirement: 'Kubernetes', status: 'evidenced', citation: 'p1' },
       'not an object',
-    ] }, ['Kubernetes'])
+    ] }, emptyStore(), 'en')
     expect(dropped.some((d) => d.startsWith('Requirement 2'))).toBe(true)
   })
 })

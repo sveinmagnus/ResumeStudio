@@ -6,6 +6,7 @@ import {
 } from '../src/lib/skillCategorize'
 import { emptyStore, makeSkill, makeSkillCategory, makeResume } from './fixtures'
 import type { SkillDomains, SkillRelations } from '../src/lib/skillTaxonomy'
+import type { ResumeStore } from '../src/types'
 
 describe('effectiveSkillCategory', () => {
   it('resolves category_id through the name index', () => {
@@ -129,7 +130,7 @@ describe('autoCategorizeSkills — exact tier', () => {
     store.skills.push(makeSkill({ id: 'ts', name: { en: 'TypeScript' } }))
     const { store: out } = autoCategorizeSkills(store, DOMAINS)
     expect(out.skills[0].category_id).toBe('sd')
-    expect(out.skill_categories).toHaveLength(1) // no duplicate created
+    expect(out.skill_categories!).toHaveLength(1) // no duplicate created
   })
 })
 
@@ -228,7 +229,7 @@ describe('skill category persistence', () => {
     store.skills.push(makeSkill({ id: 'a', name: { en: 'A' } }))
     const out = assignSkillCategory(store, 'a', 'cloud')
     expect(out.skills[0].category_id).toBe('cloud')
-    expect(out.skill_categories).toHaveLength(1) // no duplicate
+    expect(out.skill_categories!).toHaveLength(1) // no duplicate
   })
 
   it('assignSkillCategory finds an existing category by name, case-insensitively', () => {
@@ -238,7 +239,7 @@ describe('skill category persistence', () => {
     store.skills.push(makeSkill({ id: 'a', name: { en: 'A' } }))
     const out = assignSkillCategory(store, 'a', 'CLOUD')
     expect(out.skills[0].category_id).toBe('cloud')
-    expect(out.skill_categories).toHaveLength(1)
+    expect(out.skill_categories!).toHaveLength(1)
   })
 
   it('assignSkillCategory creates a new category from free text and remembers it', () => {
@@ -256,7 +257,7 @@ describe('skill category persistence', () => {
     store.skills.push(makeSkill({ id: 'a', name: { en: 'A' }, category_id: 'cloud' }))
     const out = assignSkillCategory(store, 'a', null)
     expect(out.skills[0].category_id).toBeNull()
-    expect(out.skill_categories).toEqual([cat]) // still there
+    expect(out.skill_categories!).toEqual([cat]) // still there
   })
 
   it('an emptied category persists (not removed on unassign)', () => {
@@ -396,7 +397,7 @@ describe('assignSkillCategory', () => {
   it('links by id when the argument is one', () => {
     const out = assignSkillCategory(store(), 's1', 'c1')
     expect(out.skills[0].category_id).toBe('c1')
-    expect(out.skill_categories).toHaveLength(1)
+    expect(out.skill_categories!).toHaveLength(1)
   })
 
   it('reuses an existing category by NAME, case-insensitively', () => {
@@ -404,13 +405,13 @@ describe('assignSkillCategory', () => {
     // the same label — the By-category view would then show it twice.
     const out = assignSkillCategory(store(), 's1', 'languages')
     expect(out.skills[0].category_id).toBe('c1')
-    expect(out.skill_categories).toHaveLength(1)
+    expect(out.skill_categories!).toHaveLength(1)
   })
 
   it('creates a category for a genuinely new name', () => {
     const out = assignSkillCategory(store(), 's1', 'Platforms')
-    expect(out.skill_categories).toHaveLength(2)
-    expect(out.skill_categories.find((c) => c.id === out.skills[0].category_id)!.name.en)
+    expect(out.skill_categories!).toHaveLength(2)
+    expect(out.skill_categories!.find((c) => c.id === out.skills[0].category_id)!.name.en)
       .toBe('Platforms')
   })
 
@@ -419,7 +420,7 @@ describe('assignSkillCategory', () => {
     for (const arg of [null, '', '   ']) {
       const out = assignSkillCategory(linked, 's1', arg)
       expect(out.skills[0].category_id, JSON.stringify(arg)).toBeNull()
-      expect(out.skill_categories).toHaveLength(1)
+      expect(out.skill_categories!).toHaveLength(1)
     }
   })
 
@@ -434,7 +435,7 @@ describe('assignSkillCategory', () => {
     const s = store()
     assignSkillCategory(s, 's1', 'Platforms')
     expect(s.skills[0].category_id).toBeNull()
-    expect(s.skill_categories).toHaveLength(1)
+    expect(s.skill_categories!).toHaveLength(1)
   })
 })
 
@@ -481,7 +482,7 @@ describe('moveSkillCategory', () => {
   it('does not mutate the stored array', () => {
     const s = store()
     moveSkillCategory(s, 'b', 'up')
-    expect(s.skill_categories.map((c) => c.id)).toEqual(['a', 'b', 'c'])
+    expect(s.skill_categories!.map((c) => c.id)).toEqual(['a', 'b', 'c'])
   })
 })
 
@@ -634,7 +635,7 @@ describe('autoCategorizeSkills — choosing between two matches', () => {
     store.skill_categories = [makeSkillCategory({ id: 'cat1', name: { en: 'Software Development' } })]
     store.skills.push(makeSkill({ id: 'ts', name: { en: 'TypeScript' } }))
     const { store: out } = autoCategorizeSkills(store, DOMAINS)
-    expect(out.skill_categories).toHaveLength(1)
+    expect(out.skill_categories!).toHaveLength(1)
     expect(out.skills[0].category_id).toBe('cat1')
   })
 
@@ -643,7 +644,7 @@ describe('autoCategorizeSkills — choosing between two matches', () => {
     store.skill_categories = [makeSkillCategory({ id: 'cat1', name: { en: '  software development  ' } })]
     store.skills.push(makeSkill({ id: 'ts', name: { en: 'TypeScript' } }))
     const { store: out } = autoCategorizeSkills(store, DOMAINS)
-    expect(out.skill_categories).toHaveLength(1)
+    expect(out.skill_categories!).toHaveLength(1)
     expect(out.skills[0].category_id).toBe('cat1')
   })
 
@@ -653,7 +654,7 @@ describe('autoCategorizeSkills — choosing between two matches', () => {
     store.skills.push(makeSkill({ id: 'react', name: { en: 'React' } }))
     const { store: out, changed } = autoCategorizeSkills(store, DOMAINS)
     expect(changed).toBe(2)
-    expect(out.skill_categories).toHaveLength(1)
+    expect(out.skill_categories!).toHaveLength(1)
     expect(out.skills[0].category_id).toBe(out.skills[1].category_id)
   })
 
@@ -738,7 +739,7 @@ describe('autoCategorizeSkills — the created category rows', () => {
     // Otherwise a second run adds "Platforms" beside "platforms" and the
     // Showcase grows two groups for one thing.
     const s = store()
-    s.skill_categories = [makeSkillCategory({ id: 'c1', name: { en: '  platforms  ' } })]
+    s.skill_categories! = [makeSkillCategory({ id: 'c1', name: { en: '  platforms  ' } })]
     const out = autoCategorizeSkills(s, { Kubernetes: 'Platforms' })
     expect(out.store.skill_categories).toHaveLength(1)
     expect(out.store.skills[0].category_id).toBe('c1')

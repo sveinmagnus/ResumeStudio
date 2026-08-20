@@ -80,7 +80,14 @@ export function availableSortModes(section: string): SortMode[] {
   return modes
 }
 
-type Sortable = { id: string; sort_order: number } & Record<string, unknown>
+// Only the two fields every section shares are required; the date fields are
+// per-section and read through `field()`, which keeps a plain interface (which
+// carries no index signature) assignable here.
+type Sortable = { id: string; sort_order: number }
+
+function field(item: Sortable, name: string): unknown {
+  return (item as Record<string, unknown>)[name]
+}
 
 function ymKey(ym: unknown): number | null {
   const v = ym as YearMonth | null | undefined
@@ -127,7 +134,7 @@ export function sortItems<T extends Sortable>(
     case 'start_asc': {
       const dir = mode === 'start_asc' ? 'asc' : 'desc'
       // Undated items float to the top (new items surface until dated).
-      return arr.sort((a, b) => byDate(ymKey(a.start), ymKey(b.start), dir))
+      return arr.sort((a, b) => byDate(ymKey(field(a, 'start')), ymKey(field(b, 'start')), dir))
     }
     case 'end':
     case 'end_asc': {
@@ -139,11 +146,11 @@ export function sortItems<T extends Sortable>(
       // the entry ordering is stable. Items with a real end date are still
       // compared purely by that end date.
       return arr.sort((a, b) => {
-        const ae = ymKey(a.end), be = ymKey(b.end)
+        const ae = ymKey(field(a, 'end')), be = ymKey(field(b, 'end'))
         const primary = byDate(ae, be, dir)
         if (primary !== 0) return primary
         if (ae === null && be === null) {
-          return byDate(ymKey(a.start), ymKey(b.start), dir)
+          return byDate(ymKey(field(a, 'start')), ymKey(field(b, 'start')), dir)
         }
         return 0
       })
@@ -151,9 +158,9 @@ export function sortItems<T extends Sortable>(
     case 'date':
     case 'date_asc': {
       const dir = mode === 'date_asc' ? 'asc' : 'desc'
-      const field = capsFor(section).single ?? 'date'
+      const dateKey = capsFor(section).single ?? 'date'
       // Undated items float to the top (new items surface until dated).
-      return arr.sort((a, b) => byDate(ymKey(a[field]), ymKey(b[field]), dir))
+      return arr.sort((a, b) => byDate(ymKey(field(a, dateKey)), ymKey(field(b, dateKey)), dir))
     }
     case 'custom':
     default:

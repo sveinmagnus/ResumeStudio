@@ -472,13 +472,13 @@ describe('importerEuropass — parser bounds and the XML language lists', () => 
       const ongoing = importFromEuropassXml(xml(`<WorkExperienceList><WorkExperience>
         <Employer><Name>Acme</Name></Employer>
         <Period><From year="2020" month="--01"/><Current>true</Current></Period>
-      </WorkExperience></WorkExperienceList>`), 'en')
+      </WorkExperience></WorkExperienceList>`))
       expect(ongoing.work_experiences[0].end).toBeNull()
 
       const closed = importFromEuropassXml(xml(`<WorkExperienceList><WorkExperience>
         <Employer><Name>Acme</Name></Employer>
         <Period><From year="2020" month="--01"/><To year="2021" month="--06"/></Period>
-      </WorkExperience></WorkExperienceList>`), 'en')
+      </WorkExperience></WorkExperienceList>`))
       expect(closed.work_experiences[0].end).toEqual({ year: 2021, month: 6 })
     })
 
@@ -486,14 +486,14 @@ describe('importerEuropass — parser bounds and the XML language lists', () => 
       const store = importFromEuropassXml(xml(`<WorkExperienceList><WorkExperience>
         <Employer><Name>Acme</Name></Employer>
         <Period><From year="2020" month="--01"/><Current>false</Current><To year="2021" month="--06"/></Period>
-      </WorkExperience></WorkExperienceList>`), 'en')
+      </WorkExperience></WorkExperienceList>`))
       expect(store.work_experiences[0].end).toEqual({ year: 2021, month: 6 })
     })
 
     it('puts a mother tongue in the list as Native', () => {
       const store = importFromEuropassXml(xml(
         `<MotherTongueList><MotherTongue><Description><Label>Norwegian</Label></Description></MotherTongue></MotherTongueList>`,
-      ), 'en')
+      ))
       expect(store.spoken_languages[0]).toMatchObject({
         name: { en: 'Norwegian' }, level: { en: 'Native' },
       })
@@ -502,7 +502,7 @@ describe('importerEuropass — parser bounds and the XML language lists', () => 
     it('skips a mother tongue with no label rather than adding a blank row', () => {
       const store = importFromEuropassXml(xml(
         `<MotherTongueList><MotherTongue><Description><Label>  </Label></Description></MotherTongue></MotherTongueList>`,
-      ), 'en')
+      ))
       expect(store.spoken_languages).toEqual([])
     })
 
@@ -511,14 +511,14 @@ describe('importerEuropass — parser bounds and the XML language lists', () => 
         `<ForeignLanguageList><ForeignLanguage><Description><Label>German</Label></Description>
           <ProficiencyLevel><Listening>B2</Listening></ProficiencyLevel>
         </ForeignLanguage></ForeignLanguageList>`,
-      ), 'en')
+      ))
       expect(withListening.spoken_languages[0].level.en).toBe('B2')
 
       const groupOnly = importFromEuropassXml(xml(
         `<ForeignLanguageList><ForeignLanguage><Description><Label>German</Label></Description>
           <ProficiencyLevel>B1</ProficiencyLevel>
         </ForeignLanguage></ForeignLanguageList>`,
-      ), 'en')
+      ))
       expect(groupOnly.spoken_languages[0].level.en).toBe('B1')
     })
 
@@ -526,7 +526,7 @@ describe('importerEuropass — parser bounds and the XML language lists', () => 
       const store = importFromEuropassXml(xml(
         `<MotherTongueList><MotherTongue><Description><Label>Norwegian</Label></Description></MotherTongue></MotherTongueList>
          <ForeignLanguageList><ForeignLanguage><Description><Label>German</Label></Description></ForeignLanguage></ForeignLanguageList>`,
-      ), 'en')
+      ))
       expect(store.spoken_languages.map((l) => l.sort_order)).toEqual([0, 1])
     })
   })

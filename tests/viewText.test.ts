@@ -10,7 +10,7 @@ import { withFooterDefaults } from '../src/lib/viewHeader'
 import {
   emptyStore, makeProject, makeWork, makeReference, makeRecommendation,
   makeSpokenLanguage, makeView, makeKQ, makeSkill, makeSkillCategory, makeResume,
-  makeCertification,
+  makeCertification, makeProjectSkill,
 } from './fixtures'
 import type { ResumeStore } from '../src/types'
 
@@ -955,8 +955,8 @@ describe('buildViewText — the matrix section, the tag line and the footer', ()
     s.projects = [makeProject({
       id: 'p1', customer: { en: 'AcmeCo' }, long_description: { en: '<p>Body.</p>' },
       skills: [
-        { skill_id: 's1', name: { en: 'Go' }, proficiency: 0 },
-        { skill_id: 's2', name: { en: 'Rust' }, proficiency: 0 },
+        makeProjectSkill({ skill_id: 's1', name: { en: 'Go' } }),
+        makeProjectSkill({ skill_id: 's2', name: { en: 'Rust' } }),
       ],
     })]
     const out = buildViewText(s, makeView({ sections: [{ key: 'projects', detail: 'full', sort_order: 0 }] }), 'en')

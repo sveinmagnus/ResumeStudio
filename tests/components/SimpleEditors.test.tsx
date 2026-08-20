@@ -54,9 +54,9 @@ describe('SimpleEditors — add behaviour', () => {
 
       await userEvent.click(screen.getByRole('button', { name: addLabel }))
 
-      const items = useStore.getState().data[section]
+      const items = useStore.getState().data[section] as Array<{ id: string }>
       expect(items).toHaveLength(1)
-      expect(useStore.getState().expandedItemId).toBe((items[0] as { id: string }).id)
+      expect(useStore.getState().expandedItemId).toBe(items[0].id)
       expect(useStore.getState().mutationCount).toBe(before + 1)
     })
   }

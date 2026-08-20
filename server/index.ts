@@ -5,6 +5,7 @@ import { resolvePaths } from './config.js'
 import { isTokenConfigured } from './auth.js'
 import { issueBootstrapCode, bootstrapBanner } from './bootstrap.js'
 import { applyServerSettings } from './settings.js'
+import { mayLoseSecureFlag } from './cookies.js'
 
 /**
  * Runs before `PORT` below and before `createApp()` is CALLED — not before the
@@ -48,6 +49,24 @@ app.listen(PORT, () => {
   const mode = IS_PROD ? 'production' : 'development (API only)'
   const url = `http://localhost:${PORT}`
   console.log(`Resume Studio server [${mode}] → ${url}`)
+
+  /*
+   * The `Secure` flag follows the connection now (server/cookies.ts), which
+   * fixes sign-in over plain http but introduces one way to be quietly worse
+   * off: TLS terminated upstream, with `trust proxy` unset, means the app sees
+   * http and omits the flag. Previously that combination produced a login loop
+   * — broken, but visible. This makes the downgrade visible instead.
+   */
+  if (mayLoseSecureFlag()) {
+    console.warn([
+      '',
+      '[cookies] RESUME_TRUST_PROXY is not set.',
+      '  If TLS terminates at a reverse proxy in front of this server, set it',
+      '  (e.g. RESUME_TRUST_PROXY=1) - otherwise session cookies will NOT be',
+      '  marked Secure, because the app cannot tell the connection was HTTPS.',
+      '',
+    ].join('\n'))
+  }
 
   if (dotenv.file) {
     const skipped = dotenv.skipped.length

@@ -182,7 +182,7 @@ describe('wipeLocale — leaves nothing behind', () => {
         id: 'p1', customer: L, customer_anonymized: L, description: L,
         long_description: L, short_description: L,
         industries: [{ id: 'pi1', industry_id: 'i1', name: L, sort_order: 0 }],
-        roles: [{ id: 'pr1', role_id: 'r1', name: L, sort_order: 0 }],
+        roles: [{ id: 'pr1', role_id: 'r1', name: L, sort_order: 0, disabled: false }],
         skills: [{ id: 'ps1', skill_id: 's1', name: L, duration_in_years: 0, offset_in_years: 0, total_duration_in_years: 0, sort_order: 0 }],
       })],
       work_experiences: [makeWork({ id: 'w1', employer: L, role_title: L, description: L, long_description: L })],
@@ -291,7 +291,7 @@ describe('wipeLocale — removes the language and keeps the rest', () => {
         id: 'p1', customer: L, description: L, long_description: L,
         highlights: [L, L],
         industries: [{ id: 'pi1', industry_id: 'i1', name: L, sort_order: 0 }],
-        roles: [{ id: 'pr1', role_id: 'r1', name: L, sort_order: 0 }],
+        roles: [{ id: 'pr1', role_id: 'r1', name: L, sort_order: 0, disabled: false }],
         skills: [{
           id: 'ps1', skill_id: 's1', name: L,
           duration_in_years: 2, offset_in_years: 0, total_duration_in_years: 2, sort_order: 0,
