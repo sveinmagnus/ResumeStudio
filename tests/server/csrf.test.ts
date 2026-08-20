@@ -107,15 +107,26 @@ describe('the exempt list is exact, not a prefix', () => {
 })
 
 describe('csrfCookie', () => {
+  /** `Secure` follows the connection now, so the cookie is built per request. */
+  const overHttps = { secure: true } as unknown as Parameters<typeof csrfCookie>[0]
+  const overHttp = { secure: false } as unknown as Parameters<typeof csrfCookie>[0]
+
   it('is readable by the page, which is the point', () => {
     // HttpOnly would make the client unable to echo it, breaking every write.
-    expect(csrfCookie(TOKEN)).not.toContain('HttpOnly')
+    expect(csrfCookie(overHttps, TOKEN)).not.toContain('HttpOnly')
   })
 
   it('is SameSite=Strict and path-wide', () => {
-    const c = csrfCookie(TOKEN)
+    const c = csrfCookie(overHttps, TOKEN)
     expect(c).toContain('SameSite=Strict')
     expect(c).toContain('Path=/')
+  })
+
+  it('tracks the session cookie on Secure, so the pair cannot disagree', () => {
+    // A CSRF cookie the browser keeps beside a session cookie it discarded (or
+    // the reverse) would fail every write for a reason nobody could see.
+    expect(csrfCookie(overHttps, TOKEN)).toContain('Secure')
+    expect(csrfCookie(overHttp, TOKEN)).not.toContain('Secure')
   })
 
   it('mints a distinct high-entropy value each time', () => {
