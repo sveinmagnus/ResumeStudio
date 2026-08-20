@@ -484,6 +484,23 @@ function coerce(raw: unknown): AppSettings {
   return out
 }
 
+/**
+ * Read settings.json, or null when there is no readable one.
+ *
+ * Distinct from `loadSettings`, which substitutes defaults: a server needs to
+ * tell "the owner saved nothing" from "the owner saved the default", because
+ * only the first should fall through to the environment.
+ */
+function readSettingsFile(): AppSettings | null {
+  const file = settingsFilePath()
+  if (!fs.existsSync(file)) return null
+  try {
+    return coerce(JSON.parse(fs.readFileSync(file, 'utf8')))
+  } catch {
+    return null
+  }
+}
+
 /** Read settings.json (coerced); returns defaults if the file is absent/garbage. */
 export function loadSettings(): AppSettings {
   const file = settingsFilePath()
@@ -667,8 +684,63 @@ export function saveSettings(patch: Partial<AppSettings>): AppSettings {
  * settings view and for the "test connection" config (so VPS can test its env
  * config too).
  */
+/**
+ * The settings a SERVER owner may change from inside the app, and therefore the
+ * only ones that persist to `settings.json` on a hosted instance.
+ *
+ * Lives here rather than in the route because it is a property of the fields:
+ * everything else — ports, the local hostname, the sync folder — is a property
+ * of the machine, and a web request that could move those is how an instance
+ * talks itself off the network.
+ */
+export const OWNER_EDITABLE_KEYS: readonly (keyof AppSettings)[] = [
+  'mail_transport', 'mail_from', 'sendmail_path',
+  'smtp_host', 'smtp_port', 'smtp_security', 'smtp_user', 'smtp_pass',
+  'app_base_url',
+  'user_username', 'user_display_name', 'user_email',
+]
+
+/**
+ * Current settings.
+ *
+ * The desktop build's `settings.json` is authoritative for everything. A server
+ * is env-driven, EXCEPT for the keys its owner can edit in the app — those are
+ * read back from the file, or an owner would configure mail, watch it work, and
+ * find it gone after the next restart. Which is exactly what happened.
+ */
 export function currentSettings(): AppSettings {
-  return isDesktop() ? loadSettings() : settingsFromEnv()
+  if (isDesktop()) return loadSettings()
+  const fromEnv = settingsFromEnv()
+  const saved = readSettingsFile()
+  if (!saved) return fromEnv
+  const merged = { ...fromEnv }
+  for (const key of OWNER_EDITABLE_KEYS) {
+    if (saved[key] !== undefined) (merged as Record<string, unknown>)[key] = saved[key]
+  }
+  return merged
+}
+
+/**
+ * Apply the persisted owner-editable settings onto env at server startup.
+ *
+ * The value saved in the app wins over the environment for these keys, and only
+ * these: the owner set them deliberately and more recently, and if env won, the
+ * settings screen would accept an edit that silently reverted. Machine-level
+ * keys are not writable through the app at all, so there is no conflict to
+ * resolve for them.
+ */
+export function applyServerSettings(): void {
+  if (isDesktop()) return
+  const saved = readSettingsFile()
+  if (!saved) return
+  for (const f of FIELDS) {
+    if (!f.env || !OWNER_EDITABLE_KEYS.includes(f.key)) continue
+    const v = saved[f.key]
+    if (v === undefined) continue
+    const text = f.kind === 'bool' ? (v === true ? '1' : '') : String(v)
+    if (f.alwaysSet) process.env[f.env] = text
+    else setOrClear(f.env, text)
+  }
 }
 
 /**

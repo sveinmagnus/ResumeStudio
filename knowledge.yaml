@@ -4,8 +4,8 @@
 # re-verify a unit's accuracy, and when you change a document, update its unit here.
 kcp_version: "0.20"
 project: resume-studio
-version: 1.0.1
-updated: "2026-08-19"
+version: 1.0.2
+updated: "2026-08-20"
 language: en
 hints:
   recommended_entry_point: claude-instructions
@@ -14,10 +14,10 @@ units:
   # ── Instruction layer (eager — Claude Code auto-loads CLAUDE.md) ──────────
   - id: claude-instructions
     path: CLAUDE.md
-    intent: "How must an agent work in this codebase? Architecture map (complete by CI gate — see arch-map-policy), data model, store patterns, conventions (incl. the v0.3.1 accessibility invariants, the three-surface contrast rule, and the version/build-channel source-of-truth rules), and what not to change. Holds invariants only — the exhaustive feature catalog is in feature-map."
+    intent: "How must an agent work in this codebase? Architecture map (complete by CI gate — see arch-map-policy, and now covering the accounts/authorization/mail server modules and the shell service worker), data model, store patterns, conventions (incl. the v0.3.1 accessibility invariants, the three-surface contrast rule, and the version/build-channel source-of-truth rules), and what not to change. Holds invariants only — the exhaustive feature catalog is in feature-map."
     scope: global
     audience: [agent, developer]
-    validated: "2026-08-19"
+    validated: "2026-08-20"
     update_frequency: weekly
     triggers: [conventions, architecture, data-model, store, persistence, sections, accessibility, routing, export-parity, lookup]
     content_structure:
@@ -50,16 +50,33 @@ units:
   # ── Project overviews ─────────────────────────────────────────────────────
   - id: readme
     path: README.md
-    intent: "What is Resume Studio and how do I install, run, and configure it?"
+    intent: "What is Resume Studio and how do I install, run, and configure it? Points at deploying-guide for the server build and desktop-guide for the portable one."
     scope: global
     audience: [human, agent]
-    validated: "2026-08-19"
+    validated: "2026-08-20"
     update_frequency: monthly
     triggers: [overview, quickstart, install, configuration, env]
     not_for: ["architecture", "data model", "code conventions"]
     hints:
       token_estimate: 2000
       priority: supplementary
+
+  - id: deploying-guide
+    path: DEPLOYING.md
+    intent: "How is the server build run on a VPS — what the deployment is (accounts, roles, per-résumé ownership) and is not (no TLS, no self-install, no continuous sync folder), creating the first owner from the one-time bootstrap code, every way back in after a lost password including `npm run recover`, optional email, TLS termination and proxy trust, the three rate limiters, where the database must not live, off-box backups under ownership, a hardened systemd unit, and the full environment reference."
+    scope: project
+    audience: [human, developer, agent]
+    validated: "2026-08-20"
+    update_frequency: monthly
+    depends_on: [readme, env-reference, security-policy, privacy-policy]
+    triggers: [deploy, vps, server-build, self-host, tls, reverse-proxy, systemd, bootstrap-code, accounts, owner, recover, rate-limit, backup, upgrade, trust-proxy]
+    not_for: ["the portable desktop build", "code conventions", "how a feature works"]
+    content_structure:
+      primary: prose
+      contains: [table, code]
+      density: dense
+    hints:
+      token_estimate: 6800
 
   - id: desktop-guide
     path: DESKTOP.md
@@ -134,11 +151,11 @@ units:
 
   - id: skill-security-review
     path: .claude/skills/security-review.md
-    intent: "What escaping/sanitising rules protect the render pipeline, server, auth, imports (incl. the backup zip/folder merge), and the LLM proxy (translate/summarize/llm routes, AssistRun honesty contract) — and how to review changes against them?"
+    intent: "What escaping/sanitising rules protect the render pipeline, server, auth (accounts, sessions, CSRF, password and token hashing, mail header injection), imports (incl. the backup zip/folder merge), and the LLM proxy (translate/summarize/llm routes, AssistRun honesty contract) — and how to review changes against them?"
     kind: policy
     scope: project
     audience: [agent]
-    validated: "2026-08-19"
+    validated: "2026-08-20"
     depends_on: [claude-instructions]
     triggers: [security, xss, escaping, sanitise, auth, csp, untrusted-input]
     hints:
@@ -265,10 +282,10 @@ units:
 
   - id: plan-open-items
     path: plans/open-items.md
-    intent: "What is NOT built, and what has been decided against? Unbuilt features with design notes and cost (B3 interview brief, F1 staffing fit, C2 native multi-language authoring, F2 registry harmonisation, B2 per-view rewrites, E1 fit-by-tightening), deferred infrastructure with the trigger condition for each (image asset table, PWA offline-load, Electron, cross-tab lock, better-sqlite3 v13), and CLOSED decisions that must not be re-proposed (English-only UI, no application log). Also carries the 'deliberately not a defect' list salvaged from the code-quality review."
+    intent: "What is NOT built, and what has been decided against? Unbuilt features with design notes and cost (B3 interview brief, F1 staffing fit, C2 native multi-language authoring, F2 registry harmonisation, B2 per-view rewrites, E1 fit-by-tightening), deferred infrastructure with the trigger condition for each (image asset table, the rest of the PWA offline-load beyond the shell service worker, Electron, cross-tab lock, better-sqlite3 v13), and CLOSED decisions that must not be re-proposed (English-only UI, no application log). Also carries the 'deliberately not a defect' list salvaged from the code-quality review."
     scope: global
     audience: [human, developer, agent]
-    validated: "2026-08-19"
+    validated: "2026-08-20"
     update_frequency: as-needed
     depends_on: [claude-instructions, feature-map]
     triggers: [what-to-build-next, unbuilt, deferred, roadmap, do-not-propose, out-of-scope, priorities]
@@ -313,10 +330,10 @@ units:
 
   - id: site-download
     path: docs/download.md
-    intent: "Where does an end user download the desktop build for each OS?"
+    intent: "Where does an end user download the desktop build for each OS? Also points at deploying-guide for the second deployment mode."
     scope: global
     audience: [human]
-    validated: "2026-08-19"
+    validated: "2026-08-20"
     update_frequency: monthly
     hints:
       token_estimate: 1000
@@ -325,10 +342,10 @@ units:
   - id: quality-gates
     kind: policy
     path: eslint.config.js
-    intent: "Which code-quality rules does this repo enforce, and — more importantly — which are deliberately OFF and why? Project invariants (lazy exporters, lucide tree-shaking, no process.env in the client, the exportStrings localization boundary), the CLAUDE.md §3 layering as import-x zones, five selected type-aware rules, jsx-a11y, and the vitest/testing-library correctness rules. Read before adding a rule or 'fixing' a disabled one."
+    intent: "Which code-quality rules does this repo enforce, and — more importantly — which are deliberately OFF and why? Project invariants (lazy exporters, lucide tree-shaking, no process.env in the client, the exportStrings localization boundary), the CLAUDE.md §3 layering as import-x zones, five selected type-aware rules, jsx-a11y, and the vitest/testing-library correctness rules (the RTL set scoped to tests that render React, since those rules match by NAME). Read before adding a rule or 'fixing' a disabled one."
     scope: project
     audience: [agent, developer]
-    validated: "2026-08-19"
+    validated: "2026-08-20"
     update_frequency: as-needed
     depends_on: [claude-instructions]
     triggers: [lint, eslint, rules, code-quality, layering, a11y-lint, type-aware]
@@ -359,11 +376,11 @@ units:
   - id: coverage-and-bundle-policy
     kind: policy
     path: vite.config.ts
-    intent: "What does the coverage ratchet actually require, and why is src/lib held higher than the global figure? Also the vitest environment/timeout/concurrency choices the suite depends on. The numbers quoted in CLAUDE.md and feature-map come from here — read it before changing either."
+    intent: "What does the coverage ratchet actually require, and why is src/lib held higher than the global figure? Also the vitest environment/timeout/concurrency choices the suite depends on, and the build plugin that emits dist/sw.js — the shell service worker's precache list, which follows STATIC imports only so the lazy export chunks stay out by construction. The numbers quoted in CLAUDE.md and feature-map come from here — read it before changing either."
     format: text
     scope: project
     audience: [developer, agent]
-    validated: "2026-08-19"
+    validated: "2026-08-20"
     update_frequency: as-needed
     depends_on: [ci-policy, skill-software-testing]
     triggers: [coverage, ratchet, thresholds, vitest-config, jsdom, test-timeout]
@@ -427,13 +444,13 @@ units:
 
   - id: env-reference
     path: .env.example
-    intent: "Which environment variables does the server read, and what do they default to?"
+    intent: "Which environment variables does the server read, and what do they default to? Read at startup, with the real environment always winning over the file. Covers the retired named tokens, the first-account setup code, the local identity fields, the three rate limiters, and optional outbound mail."
     format: text
     scope: project
     audience: [developer, agent]
-    validated: "2026-08-19"
+    validated: "2026-08-20"
     update_frequency: monthly
-    triggers: [env, configuration, token, translate-provider, summarize-provider, llm]
+    triggers: [env, configuration, token, translate-provider, summarize-provider, llm, mail, smtp, accounts, setup-code]
     content_structure:
       primary: reference
       density: sparse
@@ -467,25 +484,25 @@ units:
 
   - id: privacy-policy
     path: PRIVACY.md
-    intent: "What personal data does Resume Studio store, where, and what leaves the machine? Covers the update check, the AI and translation providers (nothing is sent until one is configured), the sync folder, tombstone-based erasure, and the absence of telemetry. The user-facing counterpart to the desktop sync design."
+    intent: "What personal data does a multi-tenant Resume Studio instance store, where, and what leaves the machine? Covers who can read a résumé on a shared instance (private by default, sharing grants read only, the owner role reads everything, the registry is instance-wide), sessions and what signing out wipes, the update check, the AI and translation providers and the password-reset email (all off until configured), the sync folder, tombstone-based erasure, why accounts are disabled rather than deleted, and the absence of telemetry."
     scope: global
     audience: [human, developer, agent]
-    validated: "2026-08-19"
+    validated: "2026-08-20"
     update_frequency: as-needed
-    depends_on: [desktop-guide]
-    triggers: [privacy, gdpr, personal-data, telemetry, erasure, data-handling, providers]
+    depends_on: [desktop-guide, deploying-guide]
+    triggers: [privacy, gdpr, personal-data, telemetry, erasure, data-handling, providers, sharing, visibility, owner-role, sessions, accounts]
     hints:
       token_estimate: 1800
 
   - id: security-policy
     path: SECURITY.md
-    intent: "How is a vulnerability reported (privately, via GitHub advisories) and what is in scope? Names the untrusted-input surfaces — importers, render boundaries, the API, the updater, secret handling — and what is deliberately out of scope, such as a server run without RESUME_API_TOKEN."
+    intent: "How is a vulnerability reported (privately, via GitHub advisories) and what is in scope on a multi-tenant instance? Names the untrusted-input surfaces — importers, render boundaries, the API, authentication and the per-user authorization layer, mail, the updater, secret handling — and what is deliberately out of scope: the three derived auth modes and what an instance in `open` mode implies, and recovery mode, which grants nothing beyond shell access to the database."
     scope: global
     audience: [human, developer, agent]
-    validated: "2026-08-19"
+    validated: "2026-08-20"
     update_frequency: as-needed
-    depends_on: [skill-security-review]
-    triggers: [security, vulnerability, disclosure, reporting, scope]
+    depends_on: [skill-security-review, deploying-guide]
+    triggers: [security, vulnerability, disclosure, reporting, scope, auth-modes, authorization, recovery-mode]
     hints:
       token_estimate: 900
 
@@ -599,4 +616,23 @@ relationships:
     type: context
   - from: security-policy
     to: privacy-policy
+    type: context
+  # Two deployment modes, two guides, and the differences between them are the
+  # thing a reader is usually after: read either one and you need the other to
+  # know what does NOT apply to you.
+  - from: deploying-guide
+    to: desktop-guide
+    type: context
+  # The variable table in the guide is the operational half of the reference;
+  # the reference is authoritative on defaults.
+  - from: env-reference
+    to: deploying-guide
+    type: context
+  # Who can read a résumé, and what an instance in `open` mode means, are one
+  # answer stated three ways — for an operator, a data subject, and a reporter.
+  - from: deploying-guide
+    to: privacy-policy
+    type: context
+  - from: deploying-guide
+    to: security-policy
     type: context

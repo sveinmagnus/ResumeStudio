@@ -929,7 +929,8 @@ skill-taxonomy integration, the showcase→category unification, the Industry
 registry + generic `mergeRegistry`, career timeline, global search, cross-resume
 shared registries, the Profiles rework and profile bundles, cover letters, the
 v0.3.1 UX/accessibility wave, the v0.10 advanced-assist tier (twelve assists +
-the bilingual glossary), and the 1.0.1 export parity work — one set of facts and
+the bilingual glossary), multi-user accounts with per-resume ownership (§16),
+the non-PWA offline shell, and the 1.0.1 export parity work — one set of facts and
 one set of style choices across the preview, PDF, Word and ATS text, with the
 optional extras chosen per view (`lib/sectionExtras.ts`) rather than per target.
 
@@ -1167,3 +1168,116 @@ facts** — A4 must quote the sentence supporting each proposal or it is dropped
 and A2 may change how something is said but never what; **D1 requires a written
 brief** (Run stays disabled without one) because the CV cannot say which career
 you want to be read as having next.
+
+---
+
+## 16. Accounts, authorization and the ways back in
+
+The server used to authenticate a **secret**; it now authenticates a **person**,
+and scopes what that person can see. Read this before touching `server/auth.ts`,
+`server/accounts.ts`, `server/access.ts`, `db.ts`'s query layer, or any route
+that returns resume data.
+
+### Three modes, derived from state — never declared
+
+`authMode()` (`server/auth.ts`) answers `open` / `token` / `accounts` by looking
+at what exists, not at configuration:
+
+- **accounts** — any user row exists. A session cookie is the way in.
+- **token** — no users, but `RESUME_API_TOKEN` is set. The pre-accounts
+  behaviour, so an existing server survives the upgrade untouched.
+- **open** — neither. The desktop build and local dev.
+
+Derived rather than declared because an env var can disagree with the database,
+and the failure of that disagreement is either a lockout or an open server. The
+desktop build is `open` and **must stay that way** — one person on loopback
+gains nothing from a login screen.
+
+`RESUME_API_TOKEN` survives as a **service credential**: `userId: null`,
+`role: 'owner'`. It authenticates but is nobody, so resumes it creates are left
+unowned. Real people get accounts; scripts and CI get this. Named
+`RESUME_API_TOKENS` are retired — converted into real accounts during bootstrap,
+and dead thereafter.
+
+### Authorization lives in ONE module
+
+`server/access.ts` is the only place that decides who may read or write a
+resume, for the same reason `lib/lookup.ts` exists: a rule spread across eleven
+query sites gets written ten times.
+
+- **owner** sees and changes everything.
+- **member** owns what they created; may READ `visibility: 'instance'`; may
+  never WRITE a resume they do not own. Sharing grants read only, or "share with
+  the team" would mean "let the team rewrite my CV".
+- An **unowned** resume is visible only to an owner.
+
+Two invariants that are easy to break and silent when broken:
+
+1. **Every `ResumeDb` method takes a required `Viewer`.** Required, so a call
+   site that has not thought about scope is a type error rather than a leak.
+   Adding a method means adding the parameter.
+2. **A row that exists but is not visible answers exactly as a nonexistent
+   one** — `null` / `false` / 404, never 403. A distinct refusal tells a member
+   which resume ids exist. This is why a member writing a shared resume gets 404,
+   and why the client needs a read-only mode rather than trusting the server to
+   say "forbidden".
+
+`tests/server/scoping.test.ts` is the route × role matrix and is
+negative-controlled: strip a guard and it goes red. Do not weaken it to make a
+change pass.
+
+### Four reset triggers, ONE redemption
+
+An owner-issued link, a recovery code, `npm run recover` on the machine, and the
+optional reset email all `mintGrant` and all end at `POST /api/users/reset`.
+Four ways in must not become four classes of bug, so there is exactly one place
+that sets a password from a token. Add a trigger, never a second mechanism.
+
+Redemption always ends every session for that user: a reset exists because the
+old credential may be in someone else's hands.
+
+- `/forgot` answers **identically** whether the account exists, has no address,
+  or has an unverified one. It is a "does this person work here" oracle
+  otherwise.
+- Because it always answers 200, the general limiter (which skips successes)
+  never fires on it — hence the separate, success-inclusive recovery limiter in
+  `app.ts`. Do not fold them back together.
+- The bootstrap code is held **in memory**, so a restart re-issues it and it
+  cannot be recovered from disk. Never ship "first visitor becomes the owner".
+
+### Passwords and sessions
+
+`server/passwords.ts` is scrypt from `node:crypto` — no dependency, and no
+native addon (see `open-items.md` §3 for what the last one cost). Two things
+that bite: the memory cost at the configured parameters exceeds Node's default
+`maxmem` and must be passed explicitly, and the **async** form is mandatory —
+`scryptSync` holds the event loop for the whole derivation and would stall every
+other request.
+
+Hashes are self-describing, so cost can be raised without invalidating anyone;
+login upgrades a stale hash through `rehashPassword`, which deliberately does
+NOT end sessions (it runs during a successful login).
+
+Sessions are a table; the cookie carries an opaque id and the row stores its
+SHA-256. **They do not expire on a timer** — they end on logout, a password
+change, or disable. `last_seen_at` is refreshed at most once per five minutes,
+because auto-save fires about once a second per open editor.
+
+### Email is optional and must stay so
+
+`server/mail.ts` is off by default and unlocks exactly one thing: self-service
+reset. **No CV content is ever emailed.** Addresses are **rejected, never
+sanitised** — a CR or LF injects a header, and `String.trim()` silently removes
+exactly those two characters, which is how an injected address once came out
+looking valid. Same rule as `server/resumeId.ts`.
+
+### Identity without accounts
+
+The desktop build has no accounts but does have an identity (Settings:
+username, display name, email). It stamps `saved_by` and travels with an
+exported resume as `ResumeBackupEntry.author`.
+
+`author` is **descriptive, never authorising**. A file cannot prove who wrote
+it, so an import assigns nothing from it — the importer owns what they import,
+and an owner corrects it afterwards via `POST /api/resumes/:id/owner`. That
+route is what makes the import rule safe to keep.

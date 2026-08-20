@@ -4,6 +4,7 @@ import { getAccounts, getDefaultDb, isCorruptDbError, describeCorruptDb } from '
 import { resolvePaths } from './config.js'
 import { isTokenConfigured } from './auth.js'
 import { issueBootstrapCode, bootstrapBanner } from './bootstrap.js'
+import { applyServerSettings } from './settings.js'
 
 /**
  * Runs before `PORT` below and before `createApp()` is CALLED — not before the
@@ -14,6 +15,12 @@ import { issueBootstrapCode, bootstrapBanner } from './bootstrap.js'
  * environment as it was before `.env` was applied.
  */
 const dotenv = loadDotEnv()
+
+// After `.env`, before anything reads the result: what an owner saved in the
+// app wins over the environment for the keys they are allowed to change. Only
+// the desktop launcher used to do this, so a hosted owner could configure mail,
+// watch it work, and find it gone after the next restart.
+applyServerSettings()
 
 const PORT    = parseInt(process.env.PORT ?? '3001', 10)
 const IS_PROD = process.env.NODE_ENV === 'production'

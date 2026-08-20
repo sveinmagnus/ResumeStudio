@@ -151,9 +151,15 @@ The full feature tour lives on the
 - **Stay current.** An Overview "Needs attention" panel flags expired/expiring
   certifications and long-running "ongoing" entries; the picker badges resumes
   you haven't touched in a while.
-- **Small-team attribution.** Optional named tokens
-  (`RESUME_API_TOKENS=kari:…,ola:…`) stamp who saved what — shown on picker
-  cards and in version history. No permissions model, just attribution.
+- **Accounts, when you want them.** A self-hosted instance can hold several
+  people: the first account created becomes the **owner**, invites the rest by
+  link, and each person's résumés are **private by default**. Sharing one with
+  the team makes it readable, never editable. The owner can see everything —
+  needed for staffing, backups, and recovering a colleague's CV after they
+  leave. Sign in with a username or an email address; get back in via a
+  recovery code, a link the owner mints, an optional reset email, or
+  `npm run recover` on the machine itself. The desktop build never asks you to
+  log in at all.
 - **Offline-tolerant persistence.** Auto-save (debounced ~1 s) to SQLite via
   Express, a per-resume localStorage queue that survives outages, reconnect
   draining, and optimistic concurrency with a keep-mine / discard-mine
@@ -231,13 +237,18 @@ the Playwright suites on Chromium/Firefox/WebKit, CodeQL, and gitleaks.
 ## Configuration
 
 `.env` (copy from `.env.example` — that file documents every variable in
-detail; this is the overview). On the **desktop build** you don't edit `.env`
+detail; this is the overview). The server reads `.env` at startup, and anything
+already set in the real environment wins over it, so a systemd unit or a Docker
+`-e` is never overridden by a stray copy. On the **desktop build** you don't edit `.env`
 at all: the in-app Settings screen (gear icon on the picker) manages
 translation, sync, and updates.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `RESUME_API_TOKEN` | empty | Bearer token required by the API. Empty = auth disabled (local dev). |
+| `RESUME_API_TOKEN` | empty | Bearer token for scripts and CI. Empty = auth disabled (local dev). Once accounts exist, people sign in instead. |
+| `RESUME_API_TOKENS` | empty | **Retired.** Named tokens still work until you create the first account, which converts each into a real account. |
+| `RESUME_APP_BASE_URL` | empty | Absolute URL this instance is reached at — needed for invite, reset and confirmation links. |
+| `MAIL_TRANSPORT` + `SMTP_*` | `off` | Optional outbound email, used only for password reset and address confirmation. Normally set in Settings by the owner. |
 | `PORT` | `3001` | Express listen port (the desktop launcher picks a free port itself). |
 | `TRANSLATE_PROVIDER` | empty | Translation backend: `off` / `libretranslate` / `deepl` / `google` / `azure` / `llm` (`llm` reuses the AI-assist model below). Unset + `LIBRETRANSLATE_URL` set = `libretranslate` (back-compat). |
 | `LIBRETRANSLATE_URL` / `LIBRETRANSLATE_API_KEY` | empty | Self-hosted LibreTranslate base URL + optional key. |

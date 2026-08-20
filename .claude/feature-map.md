@@ -669,6 +669,44 @@ dropping the sync file on the picker used to run each resume through
 `createResume`, mint a new id, and duplicate the whole list back onto the first
 machine. The legacy combined file is still read, then retired once superseded.
 
+**Multi-user (August 2026).** The server authenticated a SECRET; it now
+authenticates a person and scopes what they see. `plans/multi-user-auth.md`
+carried the design; the invariants are CLAUDE.md §16.
+
+- **Identity** — `server/accounts.ts` (users, sessions, grants, recovery codes),
+  `server/passwords.ts` (scrypt from `node:crypto`, no dependency and no native
+  addon). Login takes a username OR an email. Sessions never expire on a timer;
+  they end on logout, a password change, or disable. The cookie carries an
+  opaque id and the table stores its SHA-256.
+- **Authorization** — `server/access.ts` is the ONE place the rule lives, and
+  every `ResumeDb` method takes a required `Viewer` so an unscoped call site is
+  a type error. Private by default; sharing grants READ only; the owner sees
+  everything. A row that exists but is not visible answers as not-found, never
+  403, so a member cannot probe which ids exist.
+- **Four ways back in, one redemption** — an owner-issued link, a recovery code,
+  `npm run recover` on the machine, and an optional reset email all mint a grant
+  and end at one route.
+- **Email** (`server/mail.ts`) is optional and off by default: sendmail via
+  argv-only `execFile`, or a hand-rolled SMTP client over `node:net`/`node:tls`.
+  No CV content is ever sent. Addresses are rejected, never sanitised.
+- **CSRF** (`server/csrf.ts`) double-submit, because `SameSite` and
+  `Sec-Fetch-Site` are both signals the browser volunteers.
+- **The desktop build never asks anyone to log in**, and gained an identity
+  anyway (Settings: username, display name, email) so a resume moving to a
+  shared instance arrives with an author rather than anonymous. That `author`
+  is descriptive and never authorising — ownership is corrected deliberately via
+  `POST /api/resumes/:id/owner`.
+- **Hosted/desktop divergences closed**: `.env` is actually loaded (real env
+  wins), a damaged database explains itself on both, a hosted owner can
+  configure mail and ask whether a release exists, and the sync panel reports
+  whether continuous sync is running rather than implying it.
+
+**Offline load, short of a PWA (August 2026).** `listCached()` so the picker
+shows local copies instead of an empty screen, plus a shell-only service worker
+with no `cache.put` at all — an `/api` response cannot be stored even in
+principle. The lazy export chunks stay out by construction rather than by a
+deny-list.
+
 **Export parity (1.0.1, August 2026) — the one that changes how you reason
 about the render paths.** The four targets used to disagree with each other in
 both directions, and both halves are now enforced by a suite:

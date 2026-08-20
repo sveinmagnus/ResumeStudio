@@ -5,8 +5,8 @@ import path from 'path'
 import {
   loadOrInitSettings, loadSettings, saveSettings, applyToEnv, toView,
   isDesktop, settingsFilePath, DOCKER_TRANSLATE_URL, DEFAULT_SETTINGS,
-  validateSettingsPatch, settingsToMailConfig,
-} from '../../server/settings'
+  validateSettingsPatch, settingsToMailConfig, applyServerSettings, currentSettings,
+}  from '../../server/settings'
 import { TRANSLATE_PROVIDERS } from '../../server/translate'
 import { LLM_PROVIDERS } from '../../server/llm'
 import { MAIL_TRANSPORTS, SMTP_SECURITIES, isMailConfigured } from '../../server/mail'
@@ -342,5 +342,48 @@ describe('validateSettingsPatch', () => {
     expect(view.deepl_api_key).toBeUndefined()
     // Non-secrets still pass through by value.
     expect(view.azure_region).toBe('westeurope')
+  })
+})
+
+describe('a hosted owner’s settings survive a restart', () => {
+  const KEYS = ['RESUME_DESKTOP', 'RESUME_DATA_DIR', 'SMTP_HOST', 'RESUME_BACKUP_DIR']
+  let dir: string
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rs-settings-'))
+    for (const k of KEYS) delete process.env[k]
+    process.env.RESUME_DATA_DIR = dir
+  })
+
+  afterEach(() => {
+    for (const k of KEYS) delete process.env[k]
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('reads an owner-editable key back from the file', () => {
+    // The bug this pins: PUT wrote settings.json and pushed onto process.env,
+    // but a server synthesised currentSettings() from env alone — so the edit
+    // worked until the process restarted and then silently vanished.
+    fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify({ smtp_host: 'smtp.saved.no' }))
+    expect(currentSettings().smtp_host).toBe('smtp.saved.no')
+  })
+
+  it('projects it onto env at startup', () => {
+    fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify({ smtp_host: 'smtp.saved.no' }))
+    applyServerSettings()
+    expect(process.env.SMTP_HOST).toBe('smtp.saved.no')
+  })
+
+  it('ignores a machine-level key even if the file names one', () => {
+    // The sync folder is not owner-editable, so a settings.json carrying one
+    // (copied from a desktop install, say) must not move a server's folder.
+    fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify({ backup_dir: '/tmp/elsewhere' }))
+    applyServerSettings()
+    expect(process.env.RESUME_BACKUP_DIR).toBeUndefined()
+  })
+
+  it('falls through to the environment when nothing was saved', () => {
+    process.env.SMTP_HOST = 'smtp.from-env.no'
+    expect(currentSettings().smtp_host).toBe('smtp.from-env.no')
   })
 })

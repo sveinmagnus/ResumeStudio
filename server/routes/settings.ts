@@ -10,6 +10,7 @@
 
 import { Router, type Request, type Response } from 'express'
 import {
+  OWNER_EDITABLE_KEYS,
   type AppSettings,
   isDesktop, saveSettings, toView, currentSettings, settingsToTranslateConfig,
   settingsToLlmConfig, validateSettingsPatch, DOCKER_OLLAMA_URL,
@@ -29,30 +30,11 @@ import { viewerOf } from '../auth.js'
 
 const router = Router()
 
-/**
- * The settings a SERVER owner may change from inside the app.
- *
- * Everything else on a hosted instance stays env-managed: ports, the local
- * hostname and the sync folder are properties of the machine, and letting a web
- * request move them is how an instance talks itself off the network. These are
- * the ones an operator genuinely cannot set any other way once the server is
- * running — and without mail, the password-reset email this app now offers is
- * unreachable on precisely the deployment that needs it.
- *
- * The desktop build keeps the whole surface, because there the person at the
- * keyboard is the machine's owner.
- */
-const OWNER_EDITABLE: readonly string[] = [
-  'mail_transport', 'mail_from', 'sendmail_path',
-  'smtp_host', 'smtp_port', 'smtp_security', 'smtp_user', 'smtp_pass',
-  'app_base_url',
-  'user_username', 'user_display_name', 'user_email',
-]
 
 /** Whether this request may write settings, and which ones. */
 function writableKeys(res: Response): readonly string[] | null {
   if (isDesktop()) return null
-  return viewerOf(res).role === 'owner' ? OWNER_EDITABLE : []
+  return viewerOf(res).role === 'owner' ? OWNER_EDITABLE_KEYS : []
 }
 
 function payload(res?: Response) {
