@@ -943,9 +943,9 @@ the decisions that are CLOSED, so they stop being re-proposed. Read it before
 proposing anything.
 
 `plans/` holds that file plus, at most, the plan for whatever is **in flight**
-right now (currently `plans/multi-user-auth.md`). A plan whose work has shipped
-is deleted, because the deliberation belongs in git history and a stale plan
-reads like a commitment.
+right now (nothing is, currently). A plan whose work has shipped is deleted,
+because the deliberation belongs in git history and a stale plan reads like a
+commitment.
 
 **Recently shipped — don't re-propose.** The catalog is
 `.claude/feature-map.md → Recently shipped`. In brief: multi-resume, offline

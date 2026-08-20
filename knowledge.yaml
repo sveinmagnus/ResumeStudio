@@ -34,7 +34,7 @@ units:
     intent: "What features exist and how does each hang together? The exhaustive per-feature design catalog + the recently-shipped changelog, extracted from CLAUDE.md §1 to keep the instruction file lean."
     scope: global
     audience: [agent, developer]
-    validated: "2026-08-19"
+    validated: "2026-08-21"
     update_frequency: weekly
     depends_on: [claude-instructions]
     triggers: [features, changelog, skills-showcase, skill-category, registry, resume-views, import, what-exists]
@@ -267,7 +267,7 @@ units:
     intent: "What is NOT built, and what has been decided against? Unbuilt features with design notes and cost (B3 interview brief, F1 staffing fit, C2 native multi-language authoring, F2 registry harmonisation, B2 per-view rewrites, E1 fit-by-tightening), deferred infrastructure with the trigger condition for each (image asset table, the rest of the PWA offline-load beyond the shell service worker, Electron, cross-tab lock, better-sqlite3 v13), and CLOSED decisions that must not be re-proposed (English-only UI, no application log). Also carries the 'deliberately not a defect' list salvaged from the code-quality review."
     scope: global
     audience: [human, developer, agent]
-    validated: "2026-08-20"
+    validated: "2026-08-21"
     update_frequency: as-needed
     depends_on: [claude-instructions, feature-map]
     triggers: [what-to-build-next, unbuilt, deferred, roadmap, do-not-propose, out-of-scope, priorities]

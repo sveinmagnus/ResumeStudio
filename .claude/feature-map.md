@@ -670,8 +670,8 @@ dropping the sync file on the picker used to run each resume through
 machine. The legacy combined file is still read, then retired once superseded.
 
 **Multi-user (August 2026).** The server authenticated a SECRET; it now
-authenticates a person and scopes what they see. `plans/multi-user-auth.md`
-carried the design; the invariants are CLAUDE.md §16.
+authenticates a person and scopes what they see. The plan that carried the
+design is deleted (it shipped); the invariants are CLAUDE.md §16.
 
 - **Identity** — `server/accounts.ts` (users, sessions, grants, recovery codes),
   `server/passwords.ts` (scrypt from `node:crypto`, no dependency and no native
