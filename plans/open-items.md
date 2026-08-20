@@ -1,5 +1,11 @@
 # Open items
 
+> **In flight:** `plans/multi-user-auth.md` — genuine multi-user accounts,
+> authorization, and the offline-load fixes short of a PWA. Planned, not
+> started. That file supersedes the "PWA offline-load" deferral below (§2) for
+> its first two pieces, and answers the multi-user question this file never
+> carried an entry for.
+
 **This file holds only what is NOT built.** Everything else that used to live in
 `plans/` — the multi-resume plan, offline editing, the showcase unification,
 cross-resume registries, the improvement roadmap, the code-quality cleanup, the
@@ -111,6 +117,11 @@ index.html/JS/CSS/fonts, an update prompt for version skew, and an offline
 fallback for the lazy exporter chunks.
 **Trigger:** "open and edit with zero connectivity" becomes a real need. The
 desktop build already covers the practical case. Multi-day.
+
+**Partly superseded:** `plans/multi-user-auth.md` Phase 6 takes the cheap 80% —
+`listCached()` so the picker is not empty offline, plus a shell-only service
+worker that never caches `/api/*`. What stays deferred is the rest: precached
+export chunks, and an offline story for the lazy pdfmake/exporter bundles.
 
 ### Electron repackaging
 The portable desktop build (bundled Node, tray, auto-updater, browser opener)

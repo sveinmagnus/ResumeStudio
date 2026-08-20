@@ -244,7 +244,25 @@ units:
     hints:
       token_estimate: 400
 
-  # ── Open work (the only plan file; finished plans live in git history) ────
+  # ── Open work (finished plans are deleted; they live in git history) ──────
+  - id: plan-multi-user-auth
+    path: plans/multi-user-auth.md
+    intent: "How do we turn a single-tenant tool into a genuine multi-user product without dependencies? Phased plan for accounts (node:crypto scrypt, opaque server-side sessions), authorization (owner_id + visibility, a required Viewer on every ResumeDb method), the four password-reset triggers behind one redemption path (including optional dependency-free email via sendmail or a hand-rolled SMTP client), backup/sync semantics under ownership, and the non-PWA offline-load fix. Carries the decisions already taken, the four still open, and an honest effort figure."
+    scope: global
+    audience: [human, developer, agent]
+    validated: "2026-08-20"
+    update_frequency: as-needed
+    depends_on: [claude-instructions, plan-open-items, skill-security-review, privacy-policy, security-policy]
+    triggers: [multi-user, authentication, authorization, accounts, sessions, password-reset, email, smtp, sendmail, rbac, self-hosted, deployment, offline-load, pwa]
+    not_for: ["current shipped behaviour", "the desktop build's auth-less model"]
+    content_structure:
+      primary: prose
+      contains: [table, code]
+      density: dense
+    hints:
+      token_estimate: 5200
+      priority: reference
+
   - id: plan-open-items
     path: plans/open-items.md
     intent: "What is NOT built, and what has been decided against? Unbuilt features with design notes and cost (B3 interview brief, F1 staffing fit, C2 native multi-language authoring, F2 registry harmonisation, B2 per-view rewrites, E1 fit-by-tightening), deferred infrastructure with the trigger condition for each (image asset table, PWA offline-load, Electron, cross-tab lock, better-sqlite3 v13), and CLOSED decisions that must not be re-proposed (English-only UI, no application log). Also carries the 'deliberately not a defect' list salvaged from the code-quality review."
@@ -548,6 +566,20 @@ relationships:
   - from: claude-instructions
     to: plan-open-items
     type: context
+  # The in-flight plan supersedes part of one open-items deferral (PWA offline
+  # load) and adds the multi-user entry that file never carried.
+  - from: plan-multi-user-auth
+    to: plan-open-items
+    type: context
+  # It rewrites both, rather than amending them: accounts add a second class of
+  # personal data, and owner-sees-everything has to be stated where a data
+  # subject would look for it.
+  - from: plan-multi-user-auth
+    to: privacy-policy
+    type: governs
+  - from: plan-multi-user-auth
+    to: security-policy
+    type: governs
   # The AI exchange schema is a projection of the internal data model.
   - from: data-model
     to: ai-import-schema

@@ -886,12 +886,16 @@ After any significant change: 1. `npm run lint` (clean) → 2. `npm run check:te
 
 ## 12. Future work
 
-**Everything not yet built lives in ONE file: `plans/open-items.md`.** It holds
-the unbuilt features with their design notes and cost, the deferred
-infrastructure with the condition that should trigger each, and — the part that
-matters most — the decisions that are CLOSED, so they stop being re-proposed.
-Read it before proposing anything; `plans/` contains nothing else, because a
-plan whose work has shipped was deleted and lives in git history.
+**Everything not yet built lives in `plans/open-items.md`.** It holds the
+unbuilt features with their design notes and cost, the deferred infrastructure
+with the condition that should trigger each, and — the part that matters most —
+the decisions that are CLOSED, so they stop being re-proposed. Read it before
+proposing anything.
+
+`plans/` holds that file plus, at most, the plan for whatever is **in flight**
+right now (currently `plans/multi-user-auth.md`). A plan whose work has shipped
+is deleted, because the deliberation belongs in git history and a stale plan
+reads like a commitment.
 
 **Recently shipped — don't re-propose.** The catalog is
 `.claude/feature-map.md → Recently shipped`. In brief: multi-resume, offline
