@@ -9,12 +9,22 @@ import { api, type ResumeMeta } from '../../src/lib/api'
 import { savePending } from '../../src/lib/localCache'
 import { resetStore } from '../helpers/store-reset'
 import { resolveConfirm } from '../helpers/confirm'
-import { emptyStore } from '../fixtures'
+import { emptyStore, makeResume } from '../fixtures'
 
 const META = (over: Partial<ResumeMeta> = {}): ResumeMeta => ({
   id: 'r1', name: 'My CV', primary_locale: 'en', secondary_locale: null,
   saved_at: '2026-06-01T00:00:00Z', created_at: '2026-06-01T00:00:00Z', ...over,
 })
+
+/** Seeds one locally cached resume, the way the editor's fallback writes it. */
+function cache(id: string, fullName: string | null, dirty = false): void {
+  const data = emptyStore()
+  data.resume = fullName === null ? null : makeResume({ full_name: fullName })
+  savePending(id, {
+    data, locales: { primary: 'en', secondary: 'no' },
+    base_version: 1, dirty,
+  })
+}
 
 describe('<ResumeList>', () => {
   beforeEach(() => { resetStore(); localStorage.clear() })
@@ -135,6 +145,107 @@ describe('<ResumeList>', () => {
     expect(screen.getAllByText(/≈/)).toHaveLength(1)
     // The footer shows the DB total.
     expect(screen.getByText(/DB 5\.0 MB/)).toBeInTheDocument()
+  })
+
+  describe('offline fallback', () => {
+    const unreachable = () =>
+      vi.spyOn(api, 'listResumes').mockRejectedValue(new Error('Failed to fetch'))
+
+    it('lists the locally cached copies when the server cannot be reached', async () => {
+      cache('a', 'Ada Lovelace')
+      cache('b', 'Grace Hopper')
+      unreachable()
+
+      render(<ResumeList onUnauthorized={() => {}} />)
+
+      expect(await screen.findByText('Ada Lovelace')).toBeInTheDocument()
+      expect(screen.getByText('Grace Hopper')).toBeInTheDocument()
+      // Labelled, not silently substituted for the server's list.
+      expect(screen.getAllByText('Offline copy')).toHaveLength(2)
+      expect(screen.getByText(/2 copies are stored in this browser/i)).toBeInTheDocument()
+      // The generic failure message would be the wrong thing to read next to
+      // a list of resumes the user CAN open.
+      expect(screen.queryByText(/could not load your resumes/i)).not.toBeInTheDocument()
+    })
+
+    it('keeps the error message when there is nothing cached to fall back to', async () => {
+      unreachable()
+      render(<ResumeList onUnauthorized={() => {}} />)
+
+      expect(await screen.findByText(/could not load your resumes/i)).toBeInTheDocument()
+      expect(screen.queryByText('Offline copy')).not.toBeInTheDocument()
+      // Not the empty-list import screen either: an unreachable server is not
+      // the same fact as "you have no resumes".
+      expect(screen.queryByText(/drop your resume file here/i)).not.toBeInTheDocument()
+    })
+
+    it('links each cached row into the editor, which reads the same cache', async () => {
+      cache('cached-id', 'Ada Lovelace')
+      unreachable()
+
+      render(<ResumeList onUnauthorized={() => {}} />)
+
+      const link = await screen.findByRole('link', { name: /Ada Lovelace/ })
+      expect(link).toHaveAttribute('href', '/r/cached-id')
+    })
+
+    it('says which cached copies hold unsynced edits', async () => {
+      cache('clean', 'Clean Copy', false)
+      cache('dirty', 'Dirty Copy', true)
+      unreachable()
+
+      render(<ResumeList onUnauthorized={() => {}} />)
+      await screen.findByText('Dirty Copy')
+
+      expect(screen.getByText(/^Unsynced changes ·/)).toBeInTheDocument()
+      expect(screen.getByText(/^Cached .* ·/)).toBeInTheDocument()
+    })
+
+    it('names a cached copy that carries no profile rather than rendering a blank row', async () => {
+      cache('nameless', null)
+      unreachable()
+
+      render(<ResumeList onUnauthorized={() => {}} />)
+      expect(await screen.findByText('Untitled resume')).toBeInTheDocument()
+      // Counting is the easy half; agreeing with the count is the half that
+      // ships as "These is the copy".
+      expect(screen.getByText(/One copy is stored in this browser/i)).toBeInTheDocument()
+    })
+
+    it('hides "Add resume" offline — the create is a POST that cannot succeed', async () => {
+      cache('a', 'Ada Lovelace')
+      unreachable()
+
+      render(<ResumeList onUnauthorized={() => {}} />)
+      await screen.findByText('Ada Lovelace')
+      expect(screen.queryByRole('button', { name: /add resume/i })).not.toBeInTheDocument()
+    })
+
+    it('shows nothing offline-flavoured when the server answered, cache or no cache', async () => {
+      cache('a', 'Ada Lovelace')
+      vi.spyOn(api, 'listResumes').mockResolvedValue([META({ id: 'a', name: 'Server Name' })])
+
+      render(<ResumeList onUnauthorized={() => {}} />)
+      await screen.findByText('Server Name')
+
+      expect(screen.queryByText('Offline copy')).not.toBeInTheDocument()
+      expect(screen.queryByText(/server is unreachable/i)).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /add resume/i })).toBeInTheDocument()
+    })
+
+    it('routes an expired session to the parent instead of into the cache', async () => {
+      // A 401 is not an offline condition: showing cached CVs to whoever is at
+      // the keyboard is exactly what the logout wipe exists to prevent.
+      cache('a', 'Ada Lovelace')
+      const { UnauthorizedError } = await import('../../src/lib/api')
+      vi.spyOn(api, 'listResumes').mockRejectedValue(new UnauthorizedError())
+      const onUnauthorized = vi.fn()
+
+      render(<ResumeList onUnauthorized={onUnauthorized} />)
+
+      await waitFor(() => expect(onUnauthorized).toHaveBeenCalled())
+      expect(screen.queryByText('Ada Lovelace')).not.toBeInTheDocument()
+    })
   })
 
   it('surfaces an auth failure to the parent', async () => {

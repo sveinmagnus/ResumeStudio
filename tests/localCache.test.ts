@@ -3,11 +3,11 @@
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import {
-  loadPending, savePending, clearPending, listDirty,
+  loadPending, savePending, clearPending, listDirty, listCached,
   clearAllCaches, dropLegacyCache,
   type SavePendingInput,
 } from '../src/lib/localCache'
-import { emptyStore, makeProject } from './fixtures'
+import { emptyStore, makeProject, makeResume } from './fixtures'
 
 const ID = 'abc-1234'
 const KEY = `resumestudio:store-cache:v1:${ID}`
@@ -19,6 +19,19 @@ const input = (over: Partial<SavePendingInput> = {}): SavePendingInput => ({
   dirty: true,
   ...over,
 })
+
+/**
+ * Writes a record with a chosen `saved_at`. `savePending` stamps the clock, so
+ * ordering can only be asserted against timestamps the test controls.
+ */
+function writeRecord(
+  id: string,
+  saved_at: string,
+  over: Partial<SavePendingInput> = {},
+): void {
+  const rec = { ...input(over), saved_at, dirty_since: saved_at }
+  localStorage.setItem(`resumestudio:store-cache:v1:${id}`, JSON.stringify(rec))
+}
 
 beforeEach(() => {
   localStorage.clear()
@@ -121,6 +134,95 @@ describe('listDirty', () => {
   it('is empty when nothing is dirty', () => {
     savePending('clean', input({ dirty: false }))
     expect(listDirty()).toEqual([])
+  })
+})
+
+describe('listCached', () => {
+  it('lists CLEAN records too — the ones listDirty is built to skip', () => {
+    savePending('clean', input({ dirty: false }))
+    savePending('dirty', input({ dirty: true }))
+
+    expect(listDirty().map((d) => d.id)).toEqual(['dirty'])
+    expect(listCached().map((c) => c.id).sort()).toEqual(['clean', 'dirty'])
+  })
+
+  it('carries the dirty flag, locales and saved_at through per record', () => {
+    savePending('a', input({ dirty: false, locales: { primary: 'no', secondary: 'en' } }))
+    const [rec] = listCached()
+    expect(rec.dirty).toBe(false)
+    expect(rec.locales).toEqual({ primary: 'no', secondary: 'en' })
+    expect(rec.saved_at).toMatch(/^\d{4}-\d{2}-\d{2}T/)
+  })
+
+  it('derives the row name from the cached profile', () => {
+    const data = emptyStore()
+    data.resume = makeResume({ full_name: 'Ada Lovelace' })
+    savePending('a', input({ data }))
+    expect(listCached()[0].name).toBe('Ada Lovelace')
+  })
+
+  it('reports no name rather than an empty one when the profile cannot supply it', () => {
+    // A blank row label reads as a broken entry; the picker needs to know the
+    // difference so it can say "Untitled resume" instead.
+    const noProfile = emptyStore()
+    noProfile.resume = null
+    savePending('none', input({ data: noProfile }))
+
+    const blank = emptyStore()
+    blank.resume = makeResume({ full_name: '   ' })
+    savePending('blank', input({ data: blank }))
+
+    expect(listCached().find((c) => c.id === 'none')!.name).toBeNull()
+    expect(listCached().find((c) => c.id === 'blank')!.name).toBeNull()
+  })
+
+  it('trims a padded name rather than passing the padding through', () => {
+    const data = emptyStore()
+    data.resume = makeResume({ full_name: '  Ada Lovelace \n' })
+    savePending('a', input({ data }))
+    expect(listCached()[0].name).toBe('Ada Lovelace')
+  })
+
+  it('orders by last local write, newest first — the order the server list uses', () => {
+    writeRecord('older', '2026-01-01T00:00:00.000Z')
+    writeRecord('newest', '2026-08-20T00:00:00.000Z')
+    writeRecord('middle', '2026-04-04T00:00:00.000Z')
+    expect(listCached().map((c) => c.id)).toEqual(['newest', 'middle', 'older'])
+  })
+
+  it('is empty when nothing is cached', () => {
+    expect(listCached()).toEqual([])
+  })
+
+  it('skips a record that no longer parses and keeps scanning past it', () => {
+    // Written FIRST: a scan that throws here would report "no cached resumes"
+    // and the offline picker would show the empty-state error instead.
+    localStorage.setItem('resumestudio:store-cache:v1:broken', '{oh no')
+    savePending('good', input())
+    expect(listCached().map((c) => c.id)).toEqual(['good'])
+  })
+
+  it('ignores keys belonging to anything else in localStorage', () => {
+    localStorage.setItem('unrelated', 'x')
+    localStorage.setItem('resumestudio:other', 'x')
+    savePending('a', input())
+    expect(listCached().map((c) => c.id)).toEqual(['a'])
+  })
+
+  it('drops the id-less key rather than emitting a row that links nowhere', () => {
+    localStorage.setItem('resumestudio:store-cache:v1', JSON.stringify({ data: emptyStore() }))
+    localStorage.setItem('resumestudio:store-cache:v1:', JSON.stringify({ data: emptyStore() }))
+    savePending('a', input())
+    expect(listCached().map((c) => c.id)).toEqual(['a'])
+  })
+
+  it('does not throw when localStorage itself is unavailable', () => {
+    const spy = vi.spyOn(Storage.prototype, 'key').mockImplementation(() => {
+      throw new DOMException('SecurityError', 'SecurityError')
+    })
+    savePending('a', input())
+    expect(listCached()).toEqual([])
+    spy.mockRestore()
   })
 })
 

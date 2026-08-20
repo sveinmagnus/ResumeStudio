@@ -15,5 +15,8 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+    <!-- Registers the shell-only service worker. Inert outside a production
+         build, where it unregisters instead so HMR is not served from a cache. -->
+    <script type="module" src="/src/swRegister.ts"></script>
   </body>
 </html>

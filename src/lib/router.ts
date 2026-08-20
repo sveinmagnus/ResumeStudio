@@ -6,6 +6,16 @@
  *   /r/:id                → editor shell for one resume (Overview)
  *   /r/:id/:section       → editor with a section selected
  *   /r/:id/views/:viewId  → the Resume Views section with one view open
+ *   /reset /accept /verify-email /forgot /recover → account screens reached
+ *                           WITHOUT a session (a reset link is followed by
+ *                           definition by somebody who cannot sign in)
+ *   /profile /admin       → account screens that need one
+ *
+ * The account screens carry their token in the QUERY string, which this router
+ * deliberately does not parse: `getSnapshot` keys on `pathname` alone, and
+ * widening it would change what `navigate` treats as "already here". Each
+ * screen reads `location.search` itself, once, on mount — which is all a
+ * one-shot link needs.
  *
  * Provides:
  *   - useRoute()  — re-renders subscribers on every URL change.
@@ -24,15 +34,40 @@ import {
   type MouseEvent,
 } from 'react'
 
+/**
+ * The account screens, each at its own top-level path.
+ *
+ * The first five are PUBLIC: they must render outside the sign-in gate, because
+ * everyone who reaches them is by definition unable to sign in. The last two
+ * need a session.
+ */
+export const PUBLIC_ACCOUNT_SCREENS = ['reset', 'accept', 'verify-email', 'forgot', 'recover'] as const
+const PRIVATE_ACCOUNT_SCREENS = ['profile', 'admin'] as const
+
+export type AccountScreen =
+  | typeof PUBLIC_ACCOUNT_SCREENS[number]
+  | typeof PRIVATE_ACCOUNT_SCREENS[number]
+
+const ACCOUNT_SCREENS: readonly string[] = [...PUBLIC_ACCOUNT_SCREENS, ...PRIVATE_ACCOUNT_SCREENS]
+
+export function isPublicAccountScreen(screen: AccountScreen): boolean {
+  return (PUBLIC_ACCOUNT_SCREENS as readonly string[]).includes(screen)
+}
+
 export type Route =
   | { name: 'picker' }
   | { name: 'editor'; id: string; section?: string; viewId?: string }
+  | { name: 'account'; screen: AccountScreen }
   | { name: 'not-found'; path: string }
 
 // ─── URL ↔ Route ─────────────────────────────────────────────────────────────
 
 export function parseRoute(pathname: string): Route {
   if (pathname === '/' || pathname === '') return { name: 'picker' }
+  const account = pathname.replace(/^\/|\/$/g, '')
+  if (ACCOUNT_SCREENS.includes(account)) {
+    return { name: 'account', screen: account as AccountScreen }
+  }
   const m = /^\/r\/([^/]+)(?:\/([^/]+))?(?:\/([^/]+))?\/?$/.exec(pathname)
   if (m) {
     // decodeURIComponent throws URIError on malformed escapes (e.g. "/r/%").
@@ -69,6 +104,7 @@ export function pathFor(route: Route): string {
       }
       return base
     }
+    case 'account': return `/${route.screen}`
     case 'not-found': return route.path
   }
 }

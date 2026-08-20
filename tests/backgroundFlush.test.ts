@@ -4,7 +4,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { backgroundFlush } from '../src/store/useResumePersistence'
 import { savePending, loadPending } from '../src/lib/localCache'
-import { api, ConflictError } from '../src/lib/api'
+import { api, ConflictError, NotFoundError } from '../src/lib/api'
 import { emptyStore, makeResume } from './fixtures'
 
 const dirty = (id: string, baseVersion = 3) =>
@@ -45,6 +45,17 @@ describe('backgroundFlush', () => {
     vi.spyOn(api, 'saveResume').mockRejectedValue(new Error('network down'))
     await backgroundFlush('r1')
     expect(loadPending('r1')?.dirty).toBe(true)
+  })
+
+  it('drops the record on a 404 — a queue that can never drain is not a queue', async () => {
+    // 404 means the resume was deleted, OR that it is a colleague's which this
+    // account may read but never write (the server refuses that as "not found"
+    // so ids stay unenumerable). Neither becomes writable by waiting, so
+    // keeping the record would retry it on every reconnect forever.
+    dirty('r1')
+    vi.spyOn(api, 'saveResume').mockRejectedValue(new NotFoundError('Resume not found'))
+    await backgroundFlush('r1')
+    expect(loadPending('r1')).toBeNull()
   })
 
   it('is a no-op for a clean or missing record', async () => {

@@ -43,6 +43,20 @@ interface AppState {
   sectionTypeFilter: Record<string, string>
 
   /**
+   * True when the loaded resume is somebody else's, shared with the team.
+   *
+   * `mutate()` drops every data write while this is set — not merely the UI
+   * that offers them. The server answers a refused write with 404 (so a member
+   * cannot enumerate resume ids), so an edit that got through would become a
+   * queued local record that can never drain and would read as data loss on a
+   * colleague's CV. Blocking at the one choke point is the only version of this
+   * that eighty editor components cannot each get wrong.
+   */
+  readOnly: boolean
+  /** Set by `useResumePersistence` once the loaded resume's owner is known. */
+  setReadOnly: (readOnly: boolean) => void
+
+  /**
    * Monotonic counter that increments on every USER-initiated data mutation.
    * Load actions reset it to 0. The auto-save effect uses this to decide
    * whether to fire — comparing it to a "last-saved" ref. This replaced an
@@ -168,12 +182,19 @@ export const useStore = create<AppState>((set, get) => {
    * Wrap a state-producing updater so it always bumps `mutationCount`.
    * Returning `null` signals a no-op: state is left alone and the counter is
    * not bumped (so the auto-save effect won't fire spuriously).
+   *
+   * On a READ-ONLY resume the write is dropped entirely (see `readOnly`). Pass
+   * `{ display: true }` for the handful of actions that are a viewing
+   * preference the server merely happens to persist — the language pair — so a
+   * colleague's shared CV can still be read in either column.
    */
   const mutate = (
     updater: (st: AppState) => Partial<AppState> | null,
+    opts?: { display?: boolean },
   ) => set((st) => {
     const patch = updater(st)
     if (!patch) return {}
+    if (st.readOnly) return opts?.display ? patch : {}
     return { ...patch, mutationCount: st.mutationCount + 1 }
   })
 
@@ -207,6 +228,9 @@ export const useStore = create<AppState>((set, get) => {
     sectionTypeFilter: {},
     mutationCount: 0,
     registryNotice: null,
+    readOnly: false,
+
+    setReadOnly: (readOnly) => set({ readOnly }),
 
     // ── Loads ──────────────────────────────────────────────────────────────
 
@@ -230,6 +254,10 @@ export const useStore = create<AppState>((set, get) => {
     },
 
     unloadStore: () => set({
+      // readOnly is per-resume, so ejecting one must clear it — otherwise the
+      // next resume opened inherits the last one's lock and silently swallows
+      // every edit.
+      readOnly: false,
       data: emptyStore, hasData: false, mutationCount: 0, dataFromNewerApp: false,
       currentResumeId: null, expandedItemId: null, activeViewId: null, sectionSort: {}, sectionTypeFilter: {},
     }),
@@ -278,8 +306,12 @@ export const useStore = create<AppState>((set, get) => {
     // Locale changes are persisted server-side per resume (decision 10) — they
     // ride along on the next PUT, so they go through `mutate()` like any other
     // user-visible change. No-op if the value didn't actually change.
-    setPrimaryLocale:   (l) => mutate((st) => st.primaryLocale === l ? null : { primaryLocale: l }),
-    setSecondaryLocale: (l) => mutate((st) => st.secondaryLocale === l ? null : { secondaryLocale: l }),
+    //
+    // `display` so they survive a read-only resume: which two languages you are
+    // looking at is a viewing choice, and refusing it would leave a colleague's
+    // shared CV readable in one column only.
+    setPrimaryLocale:   (l) => mutate((st) => st.primaryLocale === l ? null : { primaryLocale: l }, { display: true }),
+    setSecondaryLocale: (l) => mutate((st) => st.secondaryLocale === l ? null : { secondaryLocale: l }, { display: true }),
     setExpandedItem:    (id) => set((st) => ({ expandedItemId: st.expandedItemId === id ? null : id })),
     openItem:           (id) => set({ expandedItemId: id }),
 

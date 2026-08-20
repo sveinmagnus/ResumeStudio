@@ -9,6 +9,8 @@ import { onOpenSettings, type SettingsTabId } from '../lib/settingsBus'
 import { GlobalSearch } from './GlobalSearch'
 import { api, type ResumeMeta, UnauthorizedError } from '../lib/api'
 import { Link, navigate } from '../lib/router'
+import { useStore } from '../store/useStore'
+import { AccountMenu } from './account/AccountMenu'
 import type { SectionDef } from '../lib/sections'
 
 interface AppHeaderProps {
@@ -43,6 +45,10 @@ export function AppHeader({
   onResolveConflict, onOpenSidebar,
 }: AppHeaderProps) {
   const { undo, redo, canUndo, canRedo } = useUndoRedo()
+  // A colleague's shared CV: every write is refused at the store, so the
+  // controls that only make sense as writes are hidden rather than left to
+  // click into silence.
+  const readOnly = useStore((s) => s.readOnly)
   const [showHistory, setShowHistory] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [settingsTab, setSettingsTab] = useState<SettingsTabId | undefined>(undefined)
@@ -131,27 +137,31 @@ export function AppHeader({
       </div>
 
       <div className="ah-controls">
-        <SaveStatus state={saveState} cacheSavedAt={cacheSavedAt} unsyncedCount={unsyncedCount} onRetry={onRetry} onResolve={onResolveConflict} />
-        <div className="ah-history">
-          <button
-            className="ah-hist-btn"
-            onClick={undo}
-            disabled={!canUndo}
-            title="Undo (Ctrl/Cmd+Z)"
-            aria-label="Undo"
-          >
-            <Undo2 size={15} />
-          </button>
-          <button
-            className="ah-hist-btn"
-            onClick={redo}
-            disabled={!canRedo}
-            title="Redo (Ctrl/Cmd+Shift+Z)"
-            aria-label="Redo"
-          >
-            <Redo2 size={15} />
-          </button>
-        </div>
+        {readOnly
+          ? <span className="ah-readonly">Read only</span>
+          : <SaveStatus state={saveState} cacheSavedAt={cacheSavedAt} unsyncedCount={unsyncedCount} onRetry={onRetry} onResolve={onResolveConflict} />}
+        {!readOnly && (
+          <div className="ah-history">
+            <button
+              className="ah-hist-btn"
+              onClick={undo}
+              disabled={!canUndo}
+              title="Undo (Ctrl/Cmd+Z)"
+              aria-label="Undo"
+            >
+              <Undo2 size={15} />
+            </button>
+            <button
+              className="ah-hist-btn"
+              onClick={redo}
+              disabled={!canRedo}
+              title="Redo (Ctrl/Cmd+Shift+Z)"
+              aria-label="Redo"
+            >
+              <Redo2 size={15} />
+            </button>
+          </div>
+        )}
         <LanguageSwitcher />
 
         <button
@@ -163,14 +173,16 @@ export function AppHeader({
           <Search size={16} />
         </button>
 
-        <button
-          className="ah-btn-secondary"
-          onClick={() => setShowHistory(true)}
-          title="Browse and restore earlier saved versions"
-          aria-label="Version history — browse and restore earlier saves"
-        >
-          <History size={15} /> <span className="ah-btn-text">History</span>
-        </button>
+        {!readOnly && (
+          <button
+            className="ah-btn-secondary"
+            onClick={() => setShowHistory(true)}
+            title="Browse and restore earlier saved versions"
+            aria-label="Version history — browse and restore earlier saves"
+          >
+            <History size={15} /> <span className="ah-btn-text">History</span>
+          </button>
+        )}
 
         <button
           className="ah-settings"
@@ -180,6 +192,8 @@ export function AppHeader({
         >
           <Settings size={16} />
         </button>
+
+        <AccountMenu />
       </div>
 
       <style>{`
@@ -245,6 +259,10 @@ export function AppHeader({
           transition: color .15s, border-color .15s;
         }
         .ah-settings:hover { color: var(--accent); border-color: var(--accent); }
+        .ah-readonly {
+          padding: 6px 11px; border-radius: 999px; font-size: 12px; font-weight: 600;
+          background: var(--accent-wash); color: var(--accent);
+        }
 
         /* ── Mid-width: tighter chrome, hamburger appears ─────────────── */
         @media (max-width: 880px) {

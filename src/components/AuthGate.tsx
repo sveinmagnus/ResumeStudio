@@ -1,159 +1,273 @@
-import { useState } from 'react'
-import { UnauthorizedError, api } from '../lib/api'
-import { clearAllCaches, listDirty } from '../lib/localCache'
-import { confirmDialog } from './ui/ConfirmDialog'
-
-const YEAR = new Date().getFullYear()
+import { useEffect, useState } from 'react'
+import { ServerError, UnauthorizedError, api, type AuthStatus, type BootstrapResult } from '../lib/api'
+import { AuthShell, AuthField } from './account/AuthShell'
+import { RecoveryCodesPanel } from './account/RecoveryCodesPanel'
+import { signOut } from './ui/signOut'
 
 interface AuthGateProps {
   /**
-   * Exchange the entered token for a load. Resolves on success; rejects with
-   * the underlying error so we can show the right message. Provided by
-   * `useResumePersistence().submitToken`.
+   * Called once a session exists. The app drops the gate and remounts its
+   * route so every fetch runs again with the new cookie.
    */
-  onSubmit: (token: string) => Promise<void>
+  onAuthenticated: () => void
 }
 
 /**
- * Token-entry modal shown when the server returns 401. Owns only its own
- * input/error UI state; the actual token exchange + load lives in the
- * persistence hook (passed in as `onSubmit`).
+ * The sign-in screen, shown whenever the API answers 401.
+ *
+ * It asks the server what kind of instance this is before deciding what to
+ * render, because three different things can be true:
+ *
+ *  - **no accounts yet, a bootstrap code waiting** — the first-run setup form.
+ *  - **accounts** — username-or-email and a password.
+ *  - **token** — the pre-accounts single shared secret, still valid until
+ *    somebody creates the first account. An instance mid-upgrade must not be
+ *    shown a login form it has no accounts for.
  */
-export function AuthGate({ onSubmit }: AuthGateProps) {
-  const [tokenInput, setTokenInput] = useState('')
-  const [authError, setAuthError]   = useState('')
+export function AuthGate({ onAuthenticated }: AuthGateProps) {
+  const [status, setStatus] = useState<AuthStatus | null>(null)
 
-  const handleSubmit = async () => {
-    setAuthError('')
+  useEffect(() => {
+    let cancelled = false
+    void api.authStatus().then((s) => { if (!cancelled) setStatus(s) })
+    return () => { cancelled = true }
+  }, [])
+
+  if (!status) {
+    return <AuthShell title="Resume Studio"><p role="status">Connecting…</p></AuthShell>
+  }
+  if (status.bootstrap_available) {
+    return <BootstrapForm onAuthenticated={onAuthenticated} />
+  }
+  if (status.mode === 'token') {
+    return <TokenForm onAuthenticated={onAuthenticated} />
+  }
+  return <PasswordForm status={status} onAuthenticated={onAuthenticated} />
+}
+
+// ─── Accounts mode ──────────────────────────────────────────────────────────
+
+function PasswordForm({ status, onAuthenticated }: AuthGateProps & { status: AuthStatus }) {
+  const [login, setLogin] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const submit = async () => {
+    setError('')
+    setBusy(true)
     try {
-      await onSubmit(tokenInput)
+      await api.loginWithPassword(login, password)
+      onAuthenticated()
     } catch (err) {
-      setAuthError(
-        err instanceof UnauthorizedError
-          ? 'Token is incorrect. Please try again.'
-          : 'Could not connect to server.',
-      )
+      // The server's message, verbatim. It is deliberately identical for an
+      // unknown account and a wrong password — rewording it into something more
+      // specific would answer "does this person have an account here", which
+      // for a CV tool is itself the sensitive answer.
+      setError(err instanceof ServerError ? err.message : 'Could not reach the server.')
+    } finally {
+      setBusy(false)
     }
   }
 
   return (
-    <div className="auth-overlay">
-      <div className="auth-card">
-
-        {/* Cartavio branding */}
-        <img src="/cartavio-logo.png" alt="Cartavio" className="auth-logo" />
-        <h2 className="auth-title">Resume Studio</h2>
-        <p className="auth-desc">
-          This instance is protected. Enter your API token to continue.
-        </p>
-
-        <form
-          onSubmit={(e) => { e.preventDefault(); void handleSubmit() }}
-        >
-          <input
-            className="auth-input"
-            type="password"
-            placeholder="Paste token here…"
-            aria-label="API token"
-            autoComplete="off"
-            spellCheck={false}
-            value={tokenInput}
-            onChange={(e) => setTokenInput(e.target.value)}
-            // eslint-disable-next-line jsx-a11y/no-autofocus -- this field is the entire purpose of the gate; there is nothing else to focus
-            autoFocus
-          />
-          {authError && <div className="auth-error" role="alert">{authError}</div>}
-          <button
-            type="submit"
-            className="auth-submit"
-            disabled={!tokenInput.trim()}
-          >
-            Connect
-          </button>
-        </form>
-        <button
-          className="auth-clear"
-          onClick={() => void (async () => {
-            // Deliberate logout: clear the server session cookie AND the
-            // plaintext resume caches in localStorage. Closes the shared-machine
-            // data-leak residual (security skill). Guard first — clearing the
-            // caches also discards any unsynced offline edits, so warn if the
-            // queue is non-empty and let the user back out to export a backup.
-            const dirty = listDirty().length
-            if (dirty > 0) {
-              const ok = await confirmDialog({
-                title: 'Clear local data?',
-                message:
-                  `You have ${dirty} resume(s) with unsynced changes. Clearing local data ` +
-                  `also deletes the local copies — export a backup first if unsure.`,
-                confirmLabel: 'Clear anyway', danger: true,
-              })
-              if (!ok) return
-            }
-            void api.logout()
-            clearAllCaches()
-            setTokenInput('')
-          })()}
-        >
-          Clear local data
+    <AuthShell
+      title="Sign in"
+      intro="Resume Studio"
+      footer={
+        <>
+          {/* Hidden rather than disabled when this server cannot send mail —
+              the same rule the AI surface follows. A disabled control
+              advertises a feature while refusing it. */}
+          {status.mail_configured && <a className="auth-link" href="/forgot">Forgotten password?</a>}
+          <a className="auth-link" href="/recover">Use a recovery code</a>
+        </>
+      }
+    >
+      <form onSubmit={(e) => { e.preventDefault(); void submit() }}>
+        <AuthField
+          label="Username or email address"
+          value={login}
+          onChange={setLogin}
+          autoComplete="username"
+        />
+        <AuthField
+          label="Password"
+          type="password"
+          value={password}
+          onChange={setPassword}
+          autoComplete="current-password"
+        />
+        {error && <div className="auth-error" role="alert">{error}</div>}
+        <button type="submit" className="auth-submit" disabled={busy || !login.trim() || !password}>
+          {busy ? 'Signing in…' : 'Sign in'}
         </button>
+      </form>
+      <ClearLocalData />
+    </AuthShell>
+  )
+}
 
-        <div className="auth-footer">
-          © {YEAR} Cartavio AS ·{' '}
-          <a href="https://cartavio.no" target="_blank" rel="noopener noreferrer">
-            cartavio.no
-          </a>
-        </div>
-      </div>
+// ─── Legacy token mode ──────────────────────────────────────────────────────
 
+function TokenForm({ onAuthenticated }: AuthGateProps) {
+  const [token, setToken] = useState('')
+  const [error, setError] = useState('')
+
+  const submit = async () => {
+    setError('')
+    try {
+      await api.login(token)
+      await api.listResumes()
+      onAuthenticated()
+    } catch (err) {
+      setError(err instanceof UnauthorizedError
+        ? 'Token is incorrect. Please try again.'
+        : 'Could not connect to server.')
+    }
+  }
+
+  return (
+    <AuthShell
+      title="Resume Studio"
+      intro="This instance is protected. Enter your API token to continue."
+    >
+      <form onSubmit={(e) => { e.preventDefault(); void submit() }}>
+        <input
+          className="auth-input"
+          type="password"
+          placeholder="Paste token here…"
+          aria-label="API token"
+          autoComplete="off"
+          spellCheck={false}
+          value={token}
+          onChange={(e) => setToken(e.target.value)}
+        />
+        {error && <div className="auth-error" role="alert">{error}</div>}
+        <button type="submit" className="auth-submit" disabled={!token.trim()}>
+          Connect
+        </button>
+      </form>
+      <ClearLocalData />
+    </AuthShell>
+  )
+}
+
+// ─── First run ──────────────────────────────────────────────────────────────
+
+/**
+ * The zero-configuration first account.
+ *
+ * The one-time code is printed to stdout and the server log and held in memory
+ * only, so a restart re-issues it — which is why the error names the log rather
+ * than telling the operator to look in a file.
+ */
+function BootstrapForm({ onAuthenticated }: AuthGateProps) {
+  const [code, setCode] = useState('')
+  const [username, setUsername] = useState('')
+  const [displayName, setDisplayName] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [result, setResult] = useState<BootstrapResult | null>(null)
+
+  const submit = async () => {
+    setError('')
+    setBusy(true)
+    try {
+      setResult(await api.bootstrap({
+        code, username, display_name: displayName, password,
+      }))
+    } catch (err) {
+      setError(err instanceof ServerError ? err.message : 'Could not reach the server.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (result) {
+    return (
+      <AuthShell
+        title="You are set up"
+        intro={result.claimed_resumes > 0
+          ? `${result.claimed_resumes} existing resume${result.claimed_resumes === 1 ? '' : 's'} now belong to your account.`
+          : undefined}
+      >
+        {result.converted_tokens.length > 0 && (
+          <div className="auth-note">
+            <strong>Named API tokens have become accounts.</strong> They no longer sign
+            anyone in, and each was created without a usable password:
+            <ul className="bs-converted">
+              {result.converted_tokens.map((name) => <li key={name}><code>{name}</code></li>)}
+            </ul>
+            Issue each of them a reset link from the team page before they can sign in.
+          </div>
+        )}
+        <RecoveryCodesPanel codes={result.recovery_codes} onAcknowledge={onAuthenticated} />
+        <style>{`
+          .bs-converted { list-style: none; margin: 8px 0; display: flex; flex-wrap: wrap; gap: 6px; }
+          .bs-converted code {
+            font-size: 12px; padding: 2px 7px; border-radius: var(--r-sm);
+            background: var(--paper); border: 1px solid var(--line); color: var(--ink);
+          }
+        `}</style>
+      </AuthShell>
+    )
+  }
+
+  return (
+    <AuthShell
+      title="Set up your account"
+      intro="Nobody has an account on this server yet. Paste the one-time code the server printed to its log to create the first one, which becomes the owner."
+    >
+      <form onSubmit={(e) => { e.preventDefault(); void submit() }}>
+        <AuthField
+          label="One-time setup code" value={code} onChange={setCode} autoComplete="off"
+          hint="Printed to stdout and resume-studio.log at start-up. Restarting issues a new one."
+        />
+        <AuthField
+          label="Username" value={username} onChange={setUsername} autoComplete="username"
+          hint="Letters, digits, dot, dash or underscore."
+        />
+        <AuthField
+          label="Display name" value={displayName} onChange={setDisplayName} autoComplete="name"
+          hint="How your name appears on saves and in the team list."
+        />
+        <AuthField
+          label="Password" type="password" value={password} onChange={setPassword}
+          autoComplete="new-password"
+          hint="At least 12 characters. No other rules — length is what matters."
+        />
+        {error && <div className="auth-error" role="alert">{error}</div>}
+        <button
+          type="submit" className="auth-submit"
+          disabled={busy || !code.trim() || !username.trim() || !password}
+        >
+          {busy ? 'Creating…' : 'Create the owner account'}
+        </button>
+      </form>
+    </AuthShell>
+  )
+}
+
+// ─── Shared ─────────────────────────────────────────────────────────────────
+
+/**
+ * Explicit logout from the gate itself: end the session AND wipe the plaintext
+ * resume caches this browser holds. Sitting at a sign-in screen is exactly when
+ * the person at the keyboard may not be the one whose CV is cached here.
+ */
+function ClearLocalData() {
+  return (
+    <button className="auth-clear" onClick={() => void signOut()}>
+      Clear local data
       <style>{`
-        .auth-overlay { min-height: 100vh; display: grid; place-items: center; padding: 40px; }
-        .auth-card {
-          max-width: 400px; width: 100%; text-align: center;
-          background: var(--paper-raised); border: 1px solid var(--line);
-          border-radius: var(--r-lg); padding: 36px 32px 28px; box-shadow: var(--shadow-lg);
+        .auth-clear {
+          display: block; margin: 14px auto 0;
+          font-size: 12px; color: var(--ink-faint); text-decoration: underline;
         }
-
-        /* Logo */
-        .auth-logo { width: 160px; height: auto; margin: 0 auto 16px; display: block; }
-
-        /* Headings */
-        .auth-title { font-size: 20px; margin-bottom: 8px; color: var(--accent); }
-        .auth-desc  { color: var(--ink-soft); font-size: 13.5px; line-height: 1.6; margin-bottom: 22px; }
-
-        /* Input */
-        .auth-input {
-          width: 100%; padding: 10px 14px; border: 1.5px solid var(--line-strong);
-          border-radius: var(--r-md); font-size: 14px; margin-bottom: 10px;
-          background: var(--paper-sunken); color: var(--ink);
-        }
-        .auth-input:focus { outline: none; border-color: var(--accent); }
-
-        /* Error */
-        .auth-error {
-          font-size: 13px; color: var(--err-ink); background: var(--err-wash);
-          padding: 8px 12px; border-radius: var(--r-sm); margin-bottom: 10px;
-        }
-
-        /* Buttons */
-        .auth-submit {
-          width: 100%; padding: 11px; background: var(--accent); color: #fff;
-          border-radius: var(--r-md); font-weight: 600; font-size: 15px;
-          transition: opacity .15s; margin-bottom: 8px;
-        }
-        .auth-submit:disabled { opacity: .4; cursor: not-allowed; }
-        .auth-submit:not(:disabled):hover { opacity: .88; }
-        .auth-clear { font-size: 12px; color: var(--ink-faint); text-decoration: underline; }
-
-        /* Card footer */
-        .auth-footer {
-          margin-top: 20px; padding-top: 16px;
-          border-top: 1px solid var(--line);
-          font-size: 11px; color: var(--ink-faint);
-        }
-        .auth-footer a { color: var(--ink-faint); text-decoration: none; }
-        .auth-footer a:hover { color: var(--accent); }
+        .auth-clear:hover { color: var(--accent); }
       `}</style>
-    </div>
+    </button>
   )
 }

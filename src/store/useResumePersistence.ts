@@ -17,11 +17,14 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useStore } from './useStore'
 import {
   api,
+  canWriteResume,
   UnauthorizedError,
   NotFoundError,
   ConflictError,
   ServerError,
   isAbortError,
+  type MeInfo,
+  type ResumeMeta,
 } from '../lib/api'
 import type { ResumeStore, RegistryEntry } from '../types'
 import { type SaveState } from './saveState'
@@ -62,6 +65,12 @@ export async function backgroundFlush(id: string): Promise<void> {
   } catch (err) {
     // A conflict keeps the pending record: it is resolved on the next open.
     if (err instanceof ConflictError) return
+    // 404 is terminal, and means one of two things: the resume was deleted, or
+    // it is a colleague's that this account may read but never write (the
+    // server refuses that as "not found" so a member cannot enumerate ids).
+    // Neither ever becomes writable by waiting, so keeping the record would
+    // retry it on every reconnect for as long as the browser profile lives.
+    if (err instanceof NotFoundError) { clearPending(id); return }
     // network/server error → leave queued for the next drain
   }
 }
@@ -128,6 +137,7 @@ export function useResumePersistence(resumeId: string): ResumePersistence {
   const unloadStore = useStore((s) => s.unloadStore)
   const reconcileRegistry = useStore((s) => s.reconcileRegistry)
   const setCurrentResumeId = useStore((s) => s.setCurrentResumeId)
+  const setReadOnly = useStore((s) => s.setReadOnly)
   const hasData = useStore((s) => s.hasData)
   const mutationCount = useStore((s) => s.mutationCount)
 
@@ -162,6 +172,12 @@ export function useResumePersistence(resumeId: string): ResumePersistence {
   // While a conflict is unresolved we pause auto-save (read inside the effect
   // via the ref so each mutation re-check sees the current value).
   const conflictPaused = useRef(false)
+  /**
+   * The store's `readOnly` flag, mirrored where the save effects can read it
+   * synchronously. They must not merely stop firing once React re-renders: the
+   * boot decision and the flush both run before any render could happen.
+   */
+  const readOnly = useRef(false)
 
   /**
    * Adopt a server copy as the editor's new baseline: load it, take its
@@ -218,7 +234,11 @@ export function useResumePersistence(resumeId: string): ResumePersistence {
       if (isAbortError(err)) return
       if (err instanceof UnauthorizedError) { setLoadState('auth'); return }
       if (err instanceof NotFoundError) {
-        // Resume was deleted server-side under us — send the user home.
+        // Deleted server-side under us, or a resume this account may read but
+        // not write (refused as "not found" so ids stay unenumerable). Either
+        // way the queued copy can never be saved, so drop it rather than leave
+        // a dirty record that every reconnect retries. Then send the user home.
+        clearPending(resumeId)
         navigate('/', { replace: true })
         return
       }
@@ -285,6 +305,8 @@ export function useResumePersistence(resumeId: string): ResumePersistence {
     baseVersion.current = undefined
     baseData.current = null
     conflictPaused.current = false
+    readOnly.current = false
+    setReadOnly(false)
     setConflict(null)
     setRemoteUpdate(false)
 
@@ -331,17 +353,45 @@ export function useResumePersistence(resumeId: string): ResumePersistence {
       }
     }
 
+    /**
+     * Lock the editor when the loaded resume is somebody else's, shared with
+     * the team: readable, never writable (`server/access.ts`).
+     *
+     * Returns whether the resume is writable. Called BEFORE `applyBoot`,
+     * because the boot decision itself has to change: a queued offline edit
+     * would otherwise be flushed straight into a 404 and read as "this resume
+     * was deleted" on a colleague's CV.
+     */
+    const applyWritability = (meta: ResumeMeta, me: MeInfo | null): boolean => {
+      const writable = canWriteResume(meta, me)
+      readOnly.current = !writable
+      setReadOnly(!writable)
+      return writable
+    }
+
     // Fetch the instance registry alongside the resume so linked entries can be
     // reconciled to their shared canonical identity right after load. Guarded so
     // a registry failure never blocks the resume boot (falls back to stored
     // names). No-op for un-shared resumes (nothing links).
+    //
+    // The identity comes along for the same reason: whether this editor may
+    // write has to be settled before the first save could fire. `api.me()`
+    // memoizes, so this is one request per session, not one per resume.
     Promise.all([
       api.loadResume(resumeId),
       api.listRegistry().catch(() => [] as RegistryEntry[]),
+      api.me(),
     ])
-      .then(([res, registry]) => {
+      .then(([res, registry, me]) => {
+        const writable = res ? applyWritability(res.meta, me) : true
         const pending = res ? loadPending(resumeId) : null
-        applyBoot(decideBoot({ server: res ? 'hit' : 'not-found', pending }), res, pending)
+        // A read-only resume always takes the server copy. Any queued record
+        // for it is unsyncable, and `adoptServerCopy` drops it — leaving it
+        // would keep a dirty entry that every reconnect retries forever.
+        const action = writable
+          ? decideBoot({ server: res ? 'hit' : 'not-found', pending })
+          : ({ kind: 'load-server' } as const)
+        applyBoot(action, res, pending)
         if (res) {
           // Overlays canonical names for display only — never writes.
           reconcileRegistry(registry)
@@ -372,6 +422,10 @@ export function useResumePersistence(resumeId: string): ResumePersistence {
   //    so a crash/outage leaves a durable, drainable copy.
   useEffect(() => {
     if (!hasData || mutationCount === 0) return
+    // A read-only resume never queues. The store already refuses the mutation,
+    // so this cannot fire — but the cache is the thing that would OUTLIVE the
+    // mistake, so it is guarded here too rather than trusted.
+    if (readOnly.current) return
     const t = setTimeout(() => {
       const st = useStore.getState()
       savePending(resumeId, {
@@ -393,6 +447,7 @@ export function useResumePersistence(resumeId: string): ResumePersistence {
     // user resolves. `conflictPaused` is a ref so this re-check sees its
     // current value on every mutation without re-creating the effect.
     if (conflictPaused.current) return
+    if (readOnly.current) return
     if (mutationCount === lastSavedMutation.current) return
     const t = setTimeout(() => { void flushToServer() }, 1000)
     return () => clearTimeout(t)
@@ -413,7 +468,7 @@ export function useResumePersistence(resumeId: string): ResumePersistence {
       )
       // Active resume resolves through the editor (can raise a conflict modal),
       // unless a conflict is already pending. Others push in the background.
-      if (active && !conflictPaused.current) void flushToServer()
+      if (active && !conflictPaused.current && !readOnly.current) void flushToServer()
       for (const id of background) void backgroundFlush(id)
     })
     return unsub

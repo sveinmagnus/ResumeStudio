@@ -1,9 +1,90 @@
 /// <reference types="vitest" />
-import { defineConfig } from 'vite'
+import { createHash } from 'node:crypto'
+import { readdirSync, readFileSync } from 'node:fs'
+import path from 'node:path'
+import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 
+/** The document `src/sw.js` falls back to for every navigation. */
+const SHELL_DOCUMENT = '/index.html'
+
+/** The subset of a bundle entry `shellUrls` reads. */
+interface ShellBundleEntry {
+  type?: string
+  fileName?: string
+  isEntry?: boolean
+  imports?: readonly string[]
+  viteMetadata?: { importedCss?: Iterable<string> }
+}
+
+/**
+ * The service worker's precache list: the shell document, every entry chunk
+ * plus the closure of its STATIC imports, their CSS, and the self-hosted fonts.
+ *
+ * Static imports only is the whole rule. `dynamicImports` is never followed, so
+ * pdfmake, the DOCX exporter and pdfmake's per-family font modules — around
+ * 2 MB between them — stay out of the cache by construction rather than by an
+ * exclusion list that a renamed chunk would slip past. Exports are online-only.
+ */
+export function shellUrls(
+  bundle: Record<string, ShellBundleEntry>,
+  fonts: readonly string[],
+): string[] {
+  const entries = Object.values(bundle)
+  const byFileName = new Map(entries.map((entry) => [entry.fileName ?? '', entry]))
+
+  const js = new Set<string>()
+  const css = new Set<string>()
+  const walk = (fileName: string) => {
+    if (js.has(fileName)) return
+    const chunk = byFileName.get(fileName)
+    if (!chunk || chunk.type !== 'chunk') return
+    js.add(fileName)
+    for (const sheet of chunk.viteMetadata?.importedCss ?? []) css.add(sheet)
+    for (const dep of chunk.imports ?? []) walk(dep)
+  }
+  for (const entry of entries) {
+    if (entry.type === 'chunk' && entry.isEntry && entry.fileName) walk(entry.fileName)
+  }
+
+  return [
+    SHELL_DOCUMENT,
+    ...[...js].sort().map((f) => `/${f}`),
+    ...[...css].sort().map((f) => `/${f}`),
+    ...[...fonts].sort().map((f) => `/fonts/${f}`),
+  ]
+}
+
+/**
+ * Emits `dist/sw.js` — `src/sw.js` with the build's precache list prepended.
+ *
+ * The version stamp is a hash of that list, because a browser reinstalls a
+ * worker only when the worker's own bytes change: derived from anything else, a
+ * deploy whose chunk hashes moved would leave the previous shell precached
+ * behind an identical file.
+ */
+function shellServiceWorker(): Plugin {
+  const root = import.meta.dirname
+  return {
+    name: 'resume-studio:shell-service-worker',
+    apply: 'build',
+    generateBundle(_options, bundle) {
+      const fonts = readdirSync(path.join(root, 'public', 'fonts')).filter((f) => f.endsWith('.woff2'))
+      const shell = shellUrls(bundle, fonts)
+      const version = createHash('sha256').update(shell.join('\n')).digest('hex').slice(0, 12)
+      this.emitFile({
+        type: 'asset',
+        fileName: 'sw.js',
+        source: `self.__SW_VERSION__ = ${JSON.stringify(version)}\n`
+          + `self.__SHELL__ = ${JSON.stringify(shell)}\n`
+          + readFileSync(path.join(root, 'src', 'sw.js'), 'utf8'),
+      })
+    },
+  }
+}
+
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), shellServiceWorker()],
   // Asset URLs must be absolute: with a relative base, a hard load of a deep
   // route (/r/:id — bookmark or reload) resolves ./assets/* against /r/, the
   // SPA catch-all answers HTML, and strict MIME checking refuses to boot the

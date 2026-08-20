@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, lazy, Suspense, type ReactNode } from 'react'
 import { useStore } from './store/useStore'
 import { useResumePersistence } from './store/useResumePersistence'
 import { useCanonicalRegistrySync } from './store/useCanonicalRegistrySync'
@@ -22,11 +22,24 @@ import { ResumeViewsEditor } from './components/editor/ResumeViewsEditor'
 import { CoverLettersEditor } from './components/editor/CoverLettersEditor'
 import { ConflictModal } from './components/ConflictModal'
 import { NewerDataNotice } from './components/NewerDataNotice'
+import { ReadOnlyNotice } from './components/ReadOnlyNotice'
 import { RemoteUpdateNotice } from './components/RemoteUpdateNotice'
 import { RegistryConflictNotice } from './components/RegistryConflictNotice'
-import { useRoute, navigate, Link, stampHistoryState, takePendingRestore } from './lib/router'
+// The account screens are lazy for the same reason the exporters are: they are
+// four rarely-visited routes, and the initial payload is a budget CI enforces.
+// `.then(m => ({ default: … }))` keeps the named exports the house style wants.
+const PublicAccountScreen = lazy(() =>
+  import('./components/account/AccountScreens').then((m) => ({ default: m.PublicAccountScreen })))
+const ProfileScreen = lazy(() =>
+  import('./components/account/ProfileScreen').then((m) => ({ default: m.ProfileScreen })))
+const TeamScreen = lazy(() =>
+  import('./components/account/TeamScreen').then((m) => ({ default: m.TeamScreen })))
+import {
+  useRoute, navigate, Link, stampHistoryState, takePendingRestore, isPublicAccountScreen,
+  type AccountScreen,
+} from './lib/router'
 import { dropLegacyCache } from './lib/localCache'
-import { api } from './lib/api'
+import { api, forgetIdentity, type MeInfo } from './lib/api'
 
 // One-shot legacy-cache cleanup on first module load. The pre-multi-resume
 // localStorage key holds data that can't safely be attributed to any one
@@ -42,18 +55,41 @@ export default function App() {
 
   const onUnauthorized = useCallback(() => setAuthNeeded(true), [])
 
-  const handleAuthSubmit = useCallback(async (token: string) => {
-    // Exchange the token for an HttpOnly session cookie (throws
-    // UnauthorizedError on a wrong token — no cookie is set), then verify with
-    // the smallest auth-gated call we have.
-    await api.login(token)
-    await api.listResumes()
+  /**
+   * A session now exists. Drop the gate and remount the active route so every
+   * fetch runs again with the new cookie; forget the memoized identity so the
+   * read-only decision is made against the account that just signed in.
+   */
+  const onAuthenticated = useCallback(() => {
+    forgetIdentity()
     setAuthNeeded(false)
     setAuthEpoch((n) => n + 1)
   }, [])
 
+  // The five signed-out account screens render BEFORE the gate is consulted.
+  // Everyone who reaches a reset link, an invitation or a verification link is
+  // by definition somebody the gate would otherwise swallow, and dropping them
+  // on a sign-in form is exactly the dead end those links exist to open.
+  if (route.name === 'account' && isPublicAccountScreen(route.screen)) {
+    return (
+      <AccountChunk>
+        <PublicAccountScreen screen={route.screen} onSignedIn={onAuthenticated} />
+      </AccountChunk>
+    )
+  }
+
   if (authNeeded) {
-    return <AuthGate onSubmit={handleAuthSubmit} />
+    return <AuthGate onAuthenticated={onAuthenticated} />
+  }
+
+  if (route.name === 'account') {
+    return (
+      <SignedInAccountRoute
+        key={`account:${authEpoch}`}
+        screen={route.screen}
+        onUnauthorized={onUnauthorized}
+      />
+    )
   }
 
   if (route.name === 'editor') {
@@ -75,6 +111,60 @@ export default function App() {
   return <ResumeList key={`picker:${authEpoch}`} onUnauthorized={onUnauthorized} />
 }
 
+// ── Signed-in account routes (/profile, /admin) ──────────────────────────────
+
+/**
+ * Resolves the identity first, because both screens below need it: the team
+ * page marks your own row, and neither has anything to show a SERVICE
+ * credential — a shared token authenticates but is nobody, so there is no
+ * profile behind it to edit.
+ */
+function SignedInAccountRoute({ screen, onUnauthorized }: {
+  screen: AccountScreen
+  onUnauthorized: () => void
+}) {
+  const [me, setMe] = useState<MeInfo | null>(null)
+  const [resolved, setResolved] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    void api.me().then((m) => {
+      if (cancelled) return
+      setMe(m)
+      setResolved(true)
+    })
+    return () => { cancelled = true }
+  }, [])
+
+  useEffect(() => {
+    if (resolved && !me) onUnauthorized()
+  }, [resolved, me, onUnauthorized])
+
+  if (!resolved) return <AccountLoading />
+  if (!me || me.service) return <NotFoundRoute path={`/${screen}`} />
+  if (screen === 'admin' && me.role !== 'owner') return <NotFoundRoute path="/admin" />
+
+  return (
+    <AccountChunk>
+      {screen === 'admin'
+        ? <TeamScreen meId={me.user_id} />
+        : <ProfileScreen onSignedOut={onUnauthorized} />}
+    </AccountChunk>
+  )
+}
+
+function AccountLoading() {
+  return (
+    <p role="status" style={{ padding: '48px 24px', textAlign: 'center', color: 'var(--ink-faint)' }}>
+      Loading…
+    </p>
+  )
+}
+
+function AccountChunk({ children }: { children: ReactNode }) {
+  return <Suspense fallback={<AccountLoading />}>{children}</Suspense>
+}
+
 // ── Editor route ─────────────────────────────────────────────────────────────
 
 function EditorRoute({ resumeId, routeSection, routeViewId, onUnauthorized }: {
@@ -87,6 +177,7 @@ function EditorRoute({ resumeId, routeSection, routeViewId, onUnauthorized }: {
   const activeViewId = useStore((s) => s.activeViewId)
   const hasData = useStore((s) => s.hasData)
   const data = useStore((s) => s.data)
+  const readOnly = useStore((s) => s.readOnly)
   const { loadState, saveState, cacheSavedAt, unsyncedCount, conflict, resolveConflict, retry, remoteUpdate, reloadFromServer } = useResumePersistence(resumeId)
   // Propagate a rename of a SHARED registry entry to the instance registry so
   // other resumes pick it up on load (no-op unless entries are linked).
@@ -261,6 +352,7 @@ function EditorRoute({ resumeId, routeSection, routeViewId, onUnauthorized }: {
           onOpenSidebar={() => setSidebarOpen(true)}
         />
 
+        <ReadOnlyNotice />
         <NewerDataNotice />
         <RemoteUpdateNotice
           show={remoteUpdate && !remoteUpdateDismissed}
@@ -279,7 +371,20 @@ function EditorRoute({ resumeId, routeSection, routeViewId, onUnauthorized }: {
           />
         )}
 
-        <div id="main-content" tabIndex={-1} className={`app-content${activeSection === 'views' ? ' app-content-wide' : ''}`}>
+        {/* `ro-locked` takes the editing controls out of reach on a colleague's
+            shared CV. The store already refuses every mutation, so this is the
+            legibility half, not the enforcement half — a field that quietly
+            snapped back to its old value would just read as a broken page.
+            Text stays selectable: reading and copying is the whole point of a
+            shared CV. */}
+        <div
+          id="main-content"
+          tabIndex={-1}
+          aria-readonly={readOnly || undefined}
+          className={
+            `app-content${activeSection === 'views' ? ' app-content-wide' : ''}${readOnly ? ' ro-locked' : ''}`
+          }
+        >
           {/* Reset boundary on section change so a crashed view never traps the user. */}
           <ErrorBoundary resetKey={activeSection}>
             {activeSection === 'overview'              && <Overview />}
@@ -317,6 +422,15 @@ function EditorRoute({ resumeId, routeSection, routeViewId, onUnauthorized }: {
         .app-content { padding: 28px 36px 80px; max-width: 1000px; width: 100%; }
         /* Resume Views uses the side-by-side preview — let it span the viewport. */
         .app-content-wide { max-width: none; }
+        /* Read-only: the fields LOOK inert, and nothing is blocked. Killing
+           pointer events on the controls was the obvious version and the wrong
+           one — expanding a card is a button, so it would have made a shared CV
+           unreadable, and exporting from one is a legitimate read. No dimming
+           opacity either: compositing text toward the background is how a token
+           that passes contrast stops passing it (CLAUDE.md §6). */
+        .ro-locked input, .ro-locked textarea, .ro-locked [role="textbox"] {
+          background: var(--paper-sunken); caret-color: transparent;
+        }
         /* Narrow viewports: pull the content padding in so editor cards have
            room to breathe once the sidebar has folded into a drawer. */
         @media (max-width: 880px) {

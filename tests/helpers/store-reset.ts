@@ -21,6 +21,9 @@ const INITIAL = (() => {
     expandedItemId: s.expandedItemId,
     hasData: s.hasData,
     mutationCount: 0,
+    // Leaks the worst of any of these: a stray `readOnly` makes every
+    // subsequent test's mutations silently do nothing.
+    readOnly: s.readOnly,
   }
 })()
 

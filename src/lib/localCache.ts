@@ -139,6 +139,51 @@ export function listDirty(): { id: string; dirty_since: string }[] {
   return out
 }
 
+/** One cached resume, as the picker's offline fallback renders it. */
+export interface CachedResume {
+  id: string
+  /** Full name off the cached profile; null when the cache holds none. */
+  name: string | null
+  locales: PendingLocales
+  /** True while the local copy holds edits the server hasn't acknowledged. */
+  dirty: boolean
+  /** ISO timestamp of the last local write. */
+  saved_at: string
+}
+
+/**
+ * Every resume the cache holds, newest local write first — clean copies
+ * included. `listDirty` narrows to unsynced edits, which is right for the
+ * drain and the guard and wrong for the picker: with the server unreachable a
+ * CLEAN cached copy is the one that can still be opened and read.
+ */
+export function listCached(): CachedResume[] {
+  const out: CachedResume[] = []
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i)
+      if (!k || !k.startsWith(PREFIX)) continue
+      const id = k.slice(PREFIX.length)
+      // An id-less key would render a row linking to `/r/`, which is not a route.
+      if (!id) continue
+      const rec = loadPending(id)
+      if (!rec) continue
+      const name = rec.data.resume?.full_name?.trim()
+      out.push({
+        id,
+        name: name ? name : null,
+        locales: rec.locales,
+        dirty: rec.dirty,
+        saved_at: rec.saved_at,
+      })
+    }
+  } catch {
+    // ignore — a best-effort enumeration
+  }
+  // ISO-8601 timestamps sort lexically, matching the server's saved_at DESC.
+  return out.sort((a, b) => b.saved_at.localeCompare(a.saved_at))
+}
+
 /** Drop every cached resume — used on explicit logout / token invalidation. */
 export function clearAllCaches(): void {
   try {

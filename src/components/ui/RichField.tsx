@@ -193,6 +193,7 @@ interface RichColumnProps {
 
 function RichColumn({ variant, locale, fieldLabel, html, onCommit, placeholder, header }: RichColumnProps) {
   const editorRef = useRef<HTMLDivElement>(null)
+  const readOnly = useStore((s) => s.readOnly)
   const [fmt, setFmt] = useState({ bold: false, italic: false, underline: false, inList: false })
 
   /** Is the selection anchored inside a list item of this editor? */
@@ -397,16 +398,21 @@ function RichColumn({ variant, locale, fieldLabel, html, onCommit, placeholder, 
           not spelled out here — a name above every column of every rich field
           costs a row per field for information the flag already gives. */}
       <div className="rf-col-head">{header}</div>
-      <Toolbar onCmd={exec} active={fmt} flag={LOCALE_LABELS[locale]?.flag} />
+      {!readOnly && <Toolbar onCmd={exec} active={fmt} flag={LOCALE_LABELS[locale]?.flag} />}
       {/* contentEditable is inherently focusable; the rule only looks for tabIndex. */}
       {/* eslint-disable-next-line jsx-a11y/interactive-supports-focus -- see above */}
       <div
         ref={editorRef}
         className={`rf-input rf-${variant} ${isEmpty ? 'rf-empty' : ''}`}
-        contentEditable
+        // The one uncontrolled input in the app: it owns its own innerHTML, so
+        // on a read-only resume the store refusing the commit would leave typed
+        // text sitting on screen until a blur snapped it back. Take the
+        // editability away instead.
+        contentEditable={!readOnly}
         suppressContentEditableWarning
         role="textbox"
         aria-multiline="true"
+        aria-readonly={readOnly || undefined}
         aria-label={`${fieldLabel} (${LOCALE_LABELS[locale]?.name || locale})`}
         lang={bcp47(locale)}
         data-placeholder={placeholder || `${LOCALE_LABELS[locale]?.name || locale}…`}

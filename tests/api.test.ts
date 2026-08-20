@@ -4,7 +4,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
   api, UnauthorizedError, NotFoundError, ServerError, ConflictError,
-  isAbortError,
+  isAbortError, forgetIdentity,
 } from '../src/lib/api'
 import { emptyStore, makeResume } from './fixtures'
 import type { ResumeMeta } from '../src/lib/api'
@@ -1241,5 +1241,105 @@ describe('api — the local-hostname calls', () => {
     fetchMock.mockRejectedValue(new TypeError('Failed to fetch'))
     await expect(api.hostnameStatus('x.local')).resolves.toBeNull()
     await expect(api.hostnameSetup('install', 'x.local')).resolves.toBeNull()
+  })
+})
+
+/**
+ * The double-submit CSRF echo (server/csrf.ts).
+ *
+ * The cookie is readable BY DESIGN — being readable is the entire mechanism.
+ * An attacker's page cannot read a cookie from another origin, so it cannot
+ * produce the header, no matter what the browser volunteers about SameSite or
+ * Sec-Fetch-Site.
+ */
+describe('api — the CSRF header', () => {
+  const CSRF = 'x-csrf-token'
+  const headersOf = (n = 0) => (callArgs(n)[1].headers ?? {}) as Record<string, string>
+
+  afterEach(() => {
+    document.cookie = 'rs_csrf=; Max-Age=0; path=/'
+  })
+
+  it('echoes the cookie on every state-changing method', async () => {
+    document.cookie = 'rs_csrf=tok-123'
+    for (const call of [
+      () => api.createResume({ name: 'x' }),
+      () => api.saveResume('r1', emptyStore()),
+      () => api.patchResume('r1', { name: 'y' }),
+      () => api.deleteResume('r1'),
+    ]) {
+      fetchMock.mockClear()
+      fetchMock.mockResolvedValue(mockRes({ body: { resume: META, saved_at: 'x', version: 2 } }))
+      await call()
+      expect(headersOf()[CSRF]).toBe('tok-123')
+    }
+  })
+
+  it('does not send it on a GET — those are not protected', async () => {
+    document.cookie = 'rs_csrf=tok-123'
+    fetchMock.mockResolvedValue(mockRes({ body: { resumes: [] } }))
+    await api.listResumes()
+    expect(headersOf()[CSRF]).toBeUndefined()
+  })
+
+  it('sends nothing when there is no cookie', async () => {
+    // An instance without accounts never sets one, and the middleware only
+    // enforces the header on requests that carry a session cookie — so an
+    // absent token is correct here, not merely tolerated.
+    fetchMock.mockResolvedValue(mockRes({ body: { ok: true } }))
+    await api.patchResume('r1', { name: 'y' })
+    expect(headersOf()[CSRF]).toBeUndefined()
+  })
+
+  it('reaches the raw-fetch paths too — the file import and the logout', async () => {
+    document.cookie = 'rs_csrf=tok-123'
+    fetchMock.mockResolvedValue(mockRes({ body: { inserted: 1, updated: 0, skipped: 0, deleted: 0 } }))
+    await api.importBackupFile(new File(['{}'], 'backup.json'))
+    expect(headersOf()[CSRF]).toBe('tok-123')
+
+    fetchMock.mockClear()
+    fetchMock.mockResolvedValue(mockRes({ body: { ok: true } }))
+    await api.logout()
+    expect(headersOf()[CSRF]).toBe('tok-123')
+  })
+})
+
+describe('api — accounts', () => {
+  it('reports a wrong password with the server\'s own wording, not a 401 exception', async () => {
+    // `request()` turns a 401 into UnauthorizedError, which would re-open the
+    // gate the user is already looking at and lose the message with it.
+    fetchMock.mockResolvedValue(mockRes({ status: 401, body: { error: 'Wrong username or password.' } }))
+    await expect(api.loginWithPassword('kari', 'nope'))
+      .rejects.toMatchObject({ message: 'Wrong username or password.' })
+  })
+
+  it('reads an unanswerable status as "credentials required"', async () => {
+    // Assuming a server needs nothing is the failure that shows an editor to
+    // whoever is at the keyboard.
+    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'))
+    await expect(api.authStatus()).resolves.toMatchObject({
+      mode: 'accounts', auth_required: true, bootstrap_available: false,
+    })
+  })
+
+  it('posts the visibility change to the resume', async () => {
+    fetchMock.mockResolvedValue(mockRes({ body: { ok: true } }))
+    await api.setResumeVisibility('r1', 'instance')
+    expect(callArgs()[0]).toBe('/api/resumes/r1/visibility')
+    expect(JSON.parse(callArgs()[1].body as string)).toEqual({ visibility: 'instance' })
+  })
+
+  it('memoizes "who am I" and forgets it when the session changes', async () => {
+    forgetIdentity()
+    const me = { user_id: 'u1', name: 'Kari', role: 'member', service: false, mode: 'accounts' }
+    fetchMock.mockResolvedValue(mockRes({ body: me }))
+
+    await api.me()
+    await api.me()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    forgetIdentity()
+    await api.me()
+    expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 })

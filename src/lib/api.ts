@@ -6,11 +6,15 @@ import { downloadBlob } from './download'
 
 // ─── Auth ──────────────────────────────────────────────────────────────────────
 //
-// The API token is NOT stored in JS-readable storage. The client POSTs it once
-// to /api/auth/login, which sets an HttpOnly + SameSite=Strict session cookie;
-// every subsequent request carries that cookie automatically (same-origin
-// fetch), so an XSS bug cannot read or exfiltrate the token.
-// `api.login` / `api.logout` below drive that exchange.
+// The credential is NOT stored in JS-readable storage. The client POSTs it once
+// to /api/auth/login, which sets an HttpOnly + SameSite=Strict session cookie
+// carrying an opaque session id; every subsequent request carries that cookie
+// automatically (same-origin fetch), so an XSS bug cannot read or exfiltrate it.
+// `api.login` / `api.loginWithPassword` / `api.logout` below drive that exchange.
+//
+// The `rs_csrf` cookie is the deliberate opposite: readable by design, because
+// echoing it in a header is the whole double-submit mechanism (server/csrf.ts).
+// It is not a credential — it grants nothing without the session cookie.
 
 // ─── Error types ──────────────────────────────────────────────────────────────
 
@@ -57,25 +61,76 @@ export class RegistryConflictError extends Error {
 
 // ─── HTTP base ────────────────────────────────────────────────────────────────
 
-async function request(
+/** Methods the server's CSRF middleware protects. GET/HEAD are not. */
+const UNSAFE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
+
+const CSRF_COOKIE = 'rs_csrf'
+const CSRF_HEADER = 'x-csrf-token'
+
+/**
+ * The double-submit token the server put in a readable cookie.
+ *
+ * Empty when there is none — an instance running without accounts never sets
+ * it, and the middleware only enforces the header on requests that carry a
+ * session cookie, so sending nothing is correct rather than merely tolerated.
+ */
+function csrfToken(): string {
+  if (typeof document === 'undefined') return ''
+  const match = new RegExp(`(?:^|;\\s*)${CSRF_COOKIE}=([^;]*)`).exec(document.cookie)
+  if (!match) return ''
+  try {
+    return decodeURIComponent(match[1])
+  } catch {
+    // A malformed escape means the cookie is unusable; an empty header is a
+    // clean 403 rather than a decode exception thrown into every save.
+    return ''
+  }
+}
+
+/** Headers for one request: JSON content type + the CSRF echo where it applies. */
+function headersFor(method: string, hasBody: boolean, contentType?: string): Record<string, string> {
+  const headers: Record<string, string> = {}
+  if (hasBody) headers['Content-Type'] = contentType ?? 'application/json'
+  if (UNSAFE_METHODS.has(method)) {
+    const token = csrfToken()
+    if (token) headers[CSRF_HEADER] = token
+  }
+  return headers
+}
+
+/**
+ * One request, with no interpretation of the response.
+ *
+ * The auth and account endpoints answer 401 with a message the user must read
+ * ("Wrong username or password."), so they go through this rather than
+ * `request` — turning that into an `UnauthorizedError` would replace the
+ * server's wording with a generic one and re-open the login screen the user is
+ * already looking at.
+ */
+async function send(
   method: string,
   url: string,
   body?: unknown,
   signal?: AbortSignal,
 ): Promise<Response> {
-  const headers: Record<string, string> = {}
-  if (body !== undefined) headers['Content-Type'] = 'application/json'
-
-  const res = await fetch(url, {
+  return fetch(url, {
     method,
-    headers,
+    headers: headersFor(method, body !== undefined),
     // Send the HttpOnly session cookie (same-origin). Auth is carried by the
     // cookie set at /api/auth/login — no token is attached from JS.
     credentials: 'same-origin',
     body: body !== undefined ? JSON.stringify(body) : undefined,
     signal,
   })
+}
 
+async function request(
+  method: string,
+  url: string,
+  body?: unknown,
+  signal?: AbortSignal,
+): Promise<Response> {
+  const res = await send(method, url, body, signal)
   if (res.status === 401) throw new UnauthorizedError()
   return res
 }
@@ -137,6 +192,130 @@ export interface ResumeMeta {
   version: number
   /** Who last saved (named-token attribution). Absent/null on older servers or the anonymous token. */
   saved_by?: string | null
+  /**
+   * The account that created it. Absent on a server without accounts, null for
+   * a service credential and for rows that predate them. Compared against
+   * `MeInfo.user_id` to decide whether this editor can write (see
+   * `canWriteResume`).
+   */
+  owner_id?: string | null
+  /** Who else may read it. Absent reads as `private` — the safe direction. */
+  visibility?: Visibility
+}
+
+/** Who else may read a resume. Mirrors `server/access.ts`. */
+export type Visibility = 'private' | 'instance'
+
+export type Role = 'owner' | 'member'
+
+/** How the server decides who may in. Mirrors `server/auth.ts → AuthMode`. */
+export type AuthMode = 'open' | 'token' | 'accounts'
+
+/** GET /api/auth/status — everything the sign-in screen may know before signing in. */
+export interface AuthStatus {
+  mode: AuthMode
+  auth_required: boolean
+  /** A first account can be created with the one-time code from the server log. */
+  bootstrap_available: boolean
+  /**
+   * Whether this server can send a reset email. Absent on a server that does
+   * not report it, which reads as "no" — so "Forgot password?" stays hidden
+   * rather than offering a link that will never arrive.
+   */
+  mail_configured?: boolean
+}
+
+/** GET /api/auth/me — the identity the client could not previously ask for. */
+export interface MeInfo {
+  user_id: string | null
+  name: string | null
+  role: Role
+  /** A shared service credential: authenticates, but is nobody. No profile. */
+  service: boolean
+  mode: AuthMode
+}
+
+/** GET /api/users/me — the signed-in person's own account. */
+export interface AccountProfile {
+  id: string
+  username: string
+  display_name: string
+  email: string | null
+  /** Only a verified address can receive a password reset. */
+  email_verified: boolean
+  role: Role
+  recovery_codes_left: number
+  mail_configured: boolean
+}
+
+/** One row of the owner's user list (GET /api/users). */
+export interface TeamUser {
+  id: string
+  username: string
+  display_name: string
+  email: string | null
+  email_verified_at: string | null
+  role: Role
+  created_at: string
+  last_login_at: string | null
+  disabled_at: string | null
+}
+
+/** The account a bootstrap/invite redemption created. */
+export interface AccountSummary {
+  id: string
+  username: string
+  display_name: string
+  role: Role
+}
+
+/** POST /api/auth/bootstrap — the one-time first-run result. */
+export interface BootstrapResult {
+  user: AccountSummary
+  /** Existing resumes that had no owner and now belong to this account. */
+  claimed_resumes: number
+  /** Shown ONCE. There is no second chance to read these. */
+  recovery_codes: string[]
+  /** Legacy named tokens turned into accounts; each needs a reset link. */
+  converted_tokens: string[]
+}
+
+/** POST /api/users/accept — the invitee's new account, already signed in. */
+export interface AcceptResult {
+  user: AccountSummary
+  recovery_codes: string[]
+}
+
+/** GET /api/users/invite/:token — what an invitation is for, unspent. */
+export interface InviteInfo {
+  role: Role
+  email: string | null
+}
+
+/** Fields a profile edit may change. `email: ''` clears the address. */
+export interface ProfileUpdate {
+  display_name?: string
+  username?: string
+  email?: string
+  /** Required by the server for a username or email change. */
+  current_password?: string
+}
+
+/**
+ * May this viewer change this resume?
+ *
+ * The client's copy of `server/access.ts → canWrite`, and it must stay a copy
+ * of that rule rather than an approximation: the server answers a refused write
+ * with 404 (so a member cannot enumerate ids), which the persistence layer
+ * would otherwise show as "this resume was deleted" on somebody else's CV.
+ *
+ * Unknown either way (`meta.owner_id` absent, or no identity) reads as
+ * writable, which is what every pre-accounts server and the desktop build are.
+ */
+export function canWriteResume(meta: Pick<ResumeMeta, 'owner_id'>, me: MeInfo | null): boolean {
+  if (!me || me.role === 'owner') return true
+  if (meta.owner_id === undefined) return true
+  return meta.owner_id !== null && meta.owner_id === me.user_id
 }
 
 export interface SnapshotMeta {
@@ -352,6 +531,30 @@ const UPDATE_UNSUPPORTED: UpdateStatus = {
   notes: '', htmlUrl: null, error: null,
 }
 
+/**
+ * What an unanswerable `/api/auth/status` reads as. `accounts` rather than
+ * `open`, because assuming a server needs no credential is the failure that
+ * shows an editor to whoever is at the keyboard.
+ */
+const AUTH_STATUS_UNKNOWN: AuthStatus = {
+  mode: 'accounts', auth_required: true, bootstrap_available: false,
+}
+
+/**
+ * The memoized answer to "who am I". One in-flight promise, shared, so the boot
+ * path can ask from several places without a request each.
+ */
+let identity: Promise<MeInfo | null> | null = null
+
+/**
+ * Drop the memoized identity. Called wherever the session changes — sign in,
+ * sign out, a redemption, a profile edit — because a stale answer here is what
+ * decides whether the editor is read-only.
+ */
+export function forgetIdentity(): void {
+  identity = null
+}
+
 // ─── API surface ──────────────────────────────────────────────────────────────
 
 export const api = {
@@ -377,13 +580,230 @@ export const api = {
   async login(token: string): Promise<void> {
     const res = await request('POST', '/api/auth/login', { token })
     if (!res.ok) throw new ServerError(res.status, `Login failed: ${res.statusText}`)
+    forgetIdentity()
+  },
+
+  /**
+   * Sign in with an account. `login` is a username OR an email address — the
+   * server accepts either and deliberately does not say which one matched.
+   *
+   * The 401 message is the server's own and is identical for a wrong name and a
+   * wrong password; show it verbatim rather than rewording it into something
+   * that hints which half was wrong.
+   */
+  async loginWithPassword(login: string, password: string): Promise<MeInfo | null> {
+    const res = await send('POST', '/api/auth/login', { login, password })
+    if (!res.ok) throw new ServerError(res.status, await serverMessage(res, 'Could not sign in.'))
+    forgetIdentity()
+    return api.me()
   },
 
   /** Clear the session cookie. Best-effort — never throws. */
   async logout(): Promise<void> {
+    forgetIdentity()
     return safe(async () => {
-      await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' })
+      await fetch('/api/auth/logout', {
+        method: 'POST',
+        headers: headersFor('POST', false),
+        credentials: 'same-origin',
+      })
     }, undefined)
+  },
+
+  /**
+   * What the sign-in screen may know before anyone has signed in. Never throws
+   * — an unreachable server reads as "accounts, nothing available", which shows
+   * a sign-in form rather than a broken page.
+   */
+  async authStatus(): Promise<AuthStatus> {
+    return safe(async () => {
+      const res = await fetch('/api/auth/status', { credentials: 'same-origin' })
+      if (!res.ok) return AUTH_STATUS_UNKNOWN
+      return await res.json() as AuthStatus
+    }, AUTH_STATUS_UNKNOWN)
+  },
+
+  /**
+   * Who am I? Null when nobody is signed in or the server cannot answer.
+   *
+   * Memoized for the process: every boot asks, and the answer only changes when
+   * a session does — which is exactly where `forgetIdentity` is called.
+   */
+  async me(): Promise<MeInfo | null> {
+    identity ??= safe(async () => {
+      const res = await fetch('/api/auth/me', { credentials: 'same-origin' })
+      if (!res.ok) return null
+      return await res.json() as MeInfo
+    }, null)
+    return identity
+  },
+
+  /** Spend the one-time bootstrap code and create the first (owner) account. */
+  async bootstrap(input: {
+    code: string; username: string; display_name: string; password: string
+  }): Promise<BootstrapResult> {
+    const res = await send('POST', '/api/auth/bootstrap', input)
+    if (!res.ok) {
+      throw new ServerError(res.status, await serverMessage(res, 'Could not create the first account.'))
+    }
+    forgetIdentity()
+    return await res.json() as BootstrapResult
+  },
+
+  // ── Ways back in (no session required) ────────────────────────────────────
+
+  /**
+   * Ask for a reset email. The server answers identically whether or not the
+   * account exists — so this resolves rather than reporting a result, and the
+   * caller must not imply one was sent.
+   */
+  async forgotPassword(login: string): Promise<void> {
+    await send('POST', '/api/users/forgot', { login })
+  },
+
+  /** Redeem a reset link. Ends every session for that account, including ours. */
+  async resetPassword(token: string, password: string): Promise<void> {
+    const res = await send('POST', '/api/users/reset', { token, password })
+    if (!res.ok) {
+      throw new ServerError(res.status, await serverMessage(res, 'Could not reset the password.'))
+    }
+    forgetIdentity()
+  },
+
+  /** Spend a recovery code to set a new password. Returns how many are left. */
+  async recoverWithCode(login: string, code: string, password: string): Promise<number> {
+    const res = await send('POST', '/api/users/recover', { login, code, password })
+    if (!res.ok) {
+      throw new ServerError(res.status, await serverMessage(res, 'Could not use that recovery code.'))
+    }
+    forgetIdentity()
+    const json = await res.json() as { codes_left?: number }
+    return json.codes_left ?? 0
+  },
+
+  /** What an invitation is for, without spending it. Null when it is not valid. */
+  async inviteInfo(token: string): Promise<InviteInfo | null> {
+    return safe(async () => {
+      const res = await send('GET', `/api/users/invite/${encodeURIComponent(token)}`)
+      if (!res.ok) return null
+      return await res.json() as InviteInfo
+    }, null)
+  },
+
+  /** Redeem an invitation. The new account is signed in on success. */
+  async acceptInvite(input: {
+    token: string; username: string; display_name: string; password: string
+  }): Promise<AcceptResult> {
+    const res = await send('POST', '/api/users/accept', input)
+    if (!res.ok) {
+      throw new ServerError(res.status, await serverMessage(res, 'Could not create that account.'))
+    }
+    forgetIdentity()
+    return await res.json() as AcceptResult
+  },
+
+  /** Confirm an email address so it can receive resets. */
+  async verifyEmail(token: string): Promise<void> {
+    const res = await send('POST', '/api/users/verify-email', { token })
+    if (!res.ok) {
+      throw new ServerError(res.status, await serverMessage(res, 'Could not confirm that address.'))
+    }
+  },
+
+  // ── Your own account ──────────────────────────────────────────────────────
+
+  /** The signed-in person's profile. */
+  async profile(): Promise<AccountProfile> {
+    const res = await request('GET', '/api/users/me')
+    if (!res.ok) await fail(res, 'Could not load your profile')
+    return await res.json() as AccountProfile
+  },
+
+  /**
+   * Change the display name, username or email address. The server requires
+   * `current_password` for either LOGIN identifier and answers 403 without it —
+   * the UI asks for it up front rather than making the user discover that.
+   */
+  async updateProfile(update: ProfileUpdate): Promise<void> {
+    const res = await request('PUT', '/api/users/me', update)
+    if (!res.ok) await fail(res, 'Could not update your profile')
+    forgetIdentity()
+  },
+
+  /**
+   * Set a new password. The server ends every session for the account, so the
+   * caller must expect to be signed out.
+   */
+  async changePassword(currentPassword: string, password: string): Promise<void> {
+    const res = await request('POST', '/api/users/me/password', {
+      current_password: currentPassword, password,
+    })
+    if (!res.ok) await fail(res, 'Could not change your password')
+    forgetIdentity()
+  },
+
+  /** Issue a fresh set of recovery codes, invalidating the previous one. */
+  async regenerateRecoveryCodes(): Promise<string[]> {
+    const res = await request('POST', '/api/users/me/recovery-codes')
+    if (!res.ok) await fail(res, 'Could not generate recovery codes')
+    const json = await res.json() as { recovery_codes: string[] }
+    return json.recovery_codes
+  },
+
+  /** Send (or resend) the address-verification link. */
+  async sendVerificationEmail(): Promise<void> {
+    const res = await request('POST', '/api/users/me/verify-email')
+    if (!res.ok) await fail(res, 'Could not send that message')
+  },
+
+  // ── Everyone else's accounts (owner only) ─────────────────────────────────
+
+  /** The user list. 403s for a member. */
+  async listUsers(): Promise<TeamUser[]> {
+    const res = await request('GET', '/api/users')
+    if (!res.ok) await fail(res, 'Could not load the user list')
+    const json = await res.json() as { users: TeamUser[] }
+    return json.users
+  },
+
+  /**
+   * Mint an invitation. The returned `url` is absolute when the server knows
+   * its own address and a path otherwise — the owner passes it on themselves.
+   */
+  async inviteUser(input: { role: Role; email?: string }): Promise<{ url: string; token: string }> {
+    const res = await request('POST', '/api/users/invite', input)
+    if (!res.ok) await fail(res, 'Could not create an invitation')
+    const json = await res.json() as { url: string; token: string }
+    return { url: json.url, token: json.token }
+  },
+
+  /** Owner-side edit of somebody else's profile. No password required. */
+  async updateUser(id: string, update: ProfileUpdate): Promise<void> {
+    const res = await request('PUT', `/api/users/${encodeURIComponent(id)}`, update)
+    if (!res.ok) await fail(res, 'Could not update that account')
+  },
+
+  /** Mint a reset link for another account, handed over out of band. */
+  async userResetLink(id: string): Promise<string> {
+    const res = await request('POST', `/api/users/${encodeURIComponent(id)}/reset-link`)
+    if (!res.ok) await fail(res, 'Could not create a reset link')
+    const json = await res.json() as { url: string }
+    return json.url
+  },
+
+  /**
+   * Disable or re-enable an account. Refused (409) for the last owner and for
+   * your own account — surface the server's wording, it names the way out.
+   */
+  async setUserDisabled(id: string, disabled: boolean): Promise<void> {
+    const res = await request('POST', `/api/users/${encodeURIComponent(id)}/disabled`, { disabled })
+    if (!res.ok) await fail(res, 'Could not change that account')
+  },
+
+  /** Promote or demote. Refused (409) when it would leave no owner. */
+  async setUserRole(id: string, role: Role): Promise<void> {
+    const res = await request('POST', `/api/users/${encodeURIComponent(id)}/role`, { role })
+    if (!res.ok) await fail(res, 'Could not change that role')
   },
 
   // ── Resume collection ────────────────────────────────────────────────────
@@ -468,6 +888,21 @@ export const api = {
     const res = await request('DELETE', `/api/resumes/${encodeURIComponent(id)}`)
     if (res.status === 404) throw new NotFoundError('Resume not found')
     if (!res.ok) throw new ServerError(res.status, `Delete failed: ${res.statusText}`)
+  },
+
+  /**
+   * Share a resume with the rest of the instance, or take it back.
+   *
+   * `instance` grants READ to every member; it never grants write, which is
+   * what makes sharing safe to switch on. Only the resume's owner (or an owner
+   * -role account) may call this.
+   */
+  async setResumeVisibility(id: string, visibility: Visibility): Promise<void> {
+    const res = await request(
+      'POST', `/api/resumes/${encodeURIComponent(id)}/visibility`, { visibility },
+    )
+    if (res.status === 404) throw new NotFoundError('Resume not found')
+    if (!res.ok) await fail(res, 'Could not change who can see this resume')
   },
 
   /**
@@ -648,7 +1083,9 @@ export const api = {
     const isZip = /\.zip$/i.test(file.name)
     const res = await fetch('/api/backup/import', {
       method: 'POST',
-      headers: { 'Content-Type': isZip ? 'application/zip' : 'application/json' },
+      // Raw fetch rather than `request` — the body is the FILE, not JSON — so
+      // the CSRF echo has to be asked for explicitly here.
+      headers: headersFor('POST', true, isZip ? 'application/zip' : 'application/json'),
       credentials: 'same-origin',
       body: file,
     })

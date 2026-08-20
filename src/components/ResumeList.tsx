@@ -1,17 +1,22 @@
 import { useCallback, useEffect, useState } from 'react'
-import { FileText, Plus, Trash2, Loader2, Pencil, Check, X, Settings } from 'lucide-react'
-import { api, type ResumeMeta, UnauthorizedError, ServerError } from '../lib/api'
+import {
+  FileText, Plus, Trash2, Loader2, Pencil, Check, X, Settings, CloudOff, Users, Lock,
+} from 'lucide-react'
+import {
+  api, canWriteResume, type MeInfo, type ResumeMeta, UnauthorizedError, ServerError,
+} from '../lib/api'
 import { fmtBytes, weightLevel, type ResumeStorageStats, type StorageStats } from '../lib/storage'
 import { isResumeStale } from '../lib/freshness'
 import { fmtRelativeTime, detectLocalesInData } from '../lib/locales'
 import { freshStore } from '../lib/freshStore'
-import { listDirty } from '../lib/localCache'
+import { listDirty, listCached, type CachedResume } from '../lib/localCache'
 import { navigate, Link } from '../lib/router'
 import { ImportScreen } from './ImportScreen'
 import { SyncPanel } from './SyncPanel'
 import { WhoKnowsWhatPanel } from './WhoKnowsWhatPanel'
 import { SettingsModal } from './SettingsModal'
 import { UpdateBanner } from './UpdateBanner'
+import { AccountMenu } from './account/AccountMenu'
 import { confirmDialog } from './ui/ConfirmDialog'
 import type { ResumeStore } from '../types'
 
@@ -36,6 +41,66 @@ function WeightNote({ stat }: { stat: ResumeStorageStats | undefined }) {
       {/* The tooltip explanation, for keyboard/touch/AT users who never see `title`. */}
       <span className="sr-only"> — {title}</span>
     </span>
+  )
+}
+
+/**
+ * The per-resume sharing control, and the badge that says what the current
+ * setting means.
+ *
+ * The consequence is spelled out rather than left to the word "shared": an
+ * instance-visible resume can be READ by every member and written by nobody but
+ * its owner (`server/access.ts`). That asymmetry is what makes the switch safe
+ * to flip, and it is not something a toggle label conveys on its own.
+ *
+ * Renders nothing at all where sharing has no meaning: an instance without
+ * accounts, a service credential, or a resume this viewer does not own.
+ */
+function ShareControl({ resume, me, onChanged }: {
+  resume: ResumeMeta
+  me: MeInfo | null
+  onChanged: (visibility: 'private' | 'instance') => void
+}) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  if (!me || me.service || me.mode !== 'accounts') return null
+  // Sharing is the owner's decision, so the control appears only for someone
+  // who could also edit the resume.
+  if (!canWriteResume(resume, me)) return null
+
+  const shared = resume.visibility === 'instance'
+
+  const toggle = async () => {
+    setError('')
+    setBusy(true)
+    const next = shared ? 'private' : 'instance'
+    try {
+      await api.setResumeVisibility(resume.id, next)
+      onChanged(next)
+    } catch (err) {
+      setError((err as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <>
+      <button
+        className="rl-icon-btn"
+        onClick={() => void toggle()}
+        disabled={busy}
+        title={shared
+          ? 'Shared with the team — every member can read it. Click to make it private again.'
+          : 'Private to you. Click to let other members read it (they can never edit it).'}
+        aria-pressed={shared}
+        aria-label={`Share ${resume.name} with the team`}
+      >
+        {shared ? <Users size={14} /> : <Lock size={14} />}
+      </button>
+      {error && <span role="alert" className="sr-only">{error}</span>}
+    </>
   )
 }
 
@@ -67,14 +132,26 @@ export function ResumeList({ onUnauthorized }: ResumeListProps) {
   const [appVersion, setAppVersion] = useState<string | null>(null)
   // Payload-weight readout (never throws; null = unavailable, readout hidden).
   const [storage, setStorage] = useState<StorageStats | null>(null)
+  // Locally cached resumes, shown ONLY when the server could not answer. Null
+  // whenever the server did, so a cache that exists never dilutes the truth.
+  const [cached, setCached] = useState<CachedResume[] | null>(null)
+  // Who is looking — decides whether a row is theirs to share, and whether a
+  // colleague's shared CV is marked as read-only before it is opened. Null on
+  // an instance without accounts, which is every desktop build.
+  const [me, setMe] = useState<MeInfo | null>(null)
 
   const reload = useCallback(() => {
     setError(null)
     api.listResumes()
-      .then(setItems)
+      .then((list) => { setItems(list); setCached(null) })
       .catch((err: unknown) => {
         if (err instanceof UnauthorizedError) { onUnauthorized(); return }
-        setError('Could not load your resumes. Is the server reachable?')
+        const local = listCached()
+        setCached(local.length > 0 ? local : null)
+        // With cached copies on screen the offline banner already answers "is
+        // the server reachable?"; the error is what's left when there is
+        // nothing at all to show.
+        setError(local.length > 0 ? null : 'Could not load your resumes. Is the server reachable?')
         setItems([])
       })
   }, [onUnauthorized])
@@ -91,6 +168,12 @@ export function ResumeList({ onUnauthorized }: ResumeListProps) {
 
   useEffect(() => {
     void api.storageStats().then(setStorage)
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    void api.me().then((m) => { if (!cancelled) setMe(m) })
+    return () => { cancelled = true }
   }, [])
 
   const statsById = new Map<string, ResumeStorageStats>(
@@ -229,7 +312,7 @@ export function ResumeList({ onUnauthorized }: ResumeListProps) {
   // Empty → full-bleed import screen. The sync panel renders above it (only on
   // a desktop build with a sync folder configured — otherwise it's null), so a
   // freshly-set-up second machine can pull its resumes from the backup folder.
-  if (items.length === 0 && !error) {
+  if (items.length === 0 && !error && !cached) {
     return (
       <>
         {settingsOverlay}
@@ -255,9 +338,16 @@ export function ResumeList({ onUnauthorized }: ResumeListProps) {
             <img src="/cartavio-symbol.png" alt="Cartavio" className="rl-symbol" />
             <h1 className="rl-title">Your resumes</h1>
           </div>
-          <button className="rl-add" onClick={() => setShowAdd((v) => !v)}>
-            <Plus size={16} /> {showAdd ? 'Cancel' : 'Add resume'}
-          </button>
+          <div className="rl-head-actions">
+            <AccountMenu />
+            {/* Creating a resume is a POST. Hidden rather than disabled offline,
+                as everywhere else a backend is missing. */}
+            {!cached && (
+              <button className="rl-add" onClick={() => setShowAdd((v) => !v)}>
+                <Plus size={16} /> {showAdd ? 'Cancel' : 'Add resume'}
+              </button>
+            )}
+          </div>
         </header>
 
         {error && <div className="rl-error" role="alert">{error}</div>}
@@ -271,6 +361,42 @@ export function ResumeList({ onUnauthorized }: ResumeListProps) {
             {dirtyIds.size} resume{dirtyIds.size > 1 ? 's have' : ' has'} unsynced changes —
             they'll sync next time you open {dirtyIds.size > 1 ? 'them' : 'it'} online.
           </div>
+        )}
+
+        {cached && (
+          <>
+            <div className="rl-offline-note" role="status">
+              <CloudOff size={15} aria-hidden="true" />
+              <span>
+                The server is unreachable. {cached.length === 1
+                  ? 'One copy is'
+                  : `${cached.length} copies are`}
+                {' '}stored in this browser and may be behind the server. Editing still works and
+                queues until it is back; renaming, deleting, creating and exporting need it now.
+              </span>
+            </div>
+            <ul className="rl-list">
+              {cached.map((c) => (
+                <li key={c.id} className="rl-row">
+                  <Link to={{ name: 'editor', id: c.id }} className="rl-link">
+                    <div className="rl-icon rl-icon-offline"><CloudOff size={18} /></div>
+                    <div className="rl-info">
+                      <div className="rl-name">
+                        {c.name ?? 'Untitled resume'}
+                        <span className="rl-offline-tag">Offline copy</span>
+                      </div>
+                      <div className="rl-meta">
+                        {c.dirty ? 'Unsynced changes' : `Cached ${fmtRelativeTime(c.saved_at)}`}
+                        {' · '}
+                        {c.locales.primary.toUpperCase()}
+                        {c.locales.secondary && ` / ${c.locales.secondary.toUpperCase()}`}
+                      </div>
+                    </div>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </>
         )}
 
         {showAdd && (
@@ -316,6 +442,15 @@ export function ResumeList({ onUnauthorized }: ResumeListProps) {
                       {dirtyIds.has(r.id) && (
                         <span className="rl-unsynced-dot" title="Has unsynced local changes" aria-label="unsynced" />
                       )}
+                      {/* Say it before it is opened: an editor that silently
+                          refuses everything typed into it is worse found out
+                          than announced. */}
+                      {!canWriteResume(r, me) && (
+                        <span className="rl-share-tag rl-share-theirs">Shared with you · read only</span>
+                      )}
+                      {canWriteResume(r, me) && r.visibility === 'instance' && (
+                        <span className="rl-share-tag">Shared with the team</span>
+                      )}
                     </div>
                     <div className="rl-meta">
                       {dirtyIds.has(r.id)
@@ -336,25 +471,38 @@ export function ResumeList({ onUnauthorized }: ResumeListProps) {
               )}
               {editingId !== r.id && (
                 <div className="rl-actions">
-                  <button
-                    className="rl-icon-btn"
-                    onClick={() => startRename(r)}
-                    title="Rename this resume"
-                    aria-label={`Rename ${r.name}`}
-                  >
-                    <Pencil size={14} />
-                  </button>
-                  <button
-                    className="rl-del"
-                    onClick={() => void onDelete(r.id, r.name)}
-                    disabled={deleting !== null}
-                    title="Delete this resume"
-                    aria-label={`Delete ${r.name}`}
-                  >
-                    {deleting === r.id
-                      ? <Loader2 size={14} className="rl-spin" />
-                      : <Trash2 size={14} />}
-                  </button>
+                  <ShareControl
+                    resume={r}
+                    me={me}
+                    onChanged={(visibility) => setItems((curr) =>
+                      curr?.map((x) => (x.id === r.id ? { ...x, visibility } : x)) ?? [])}
+                  />
+                  {/* Renaming and deleting a colleague's shared CV are refused
+                      server-side as "not found", so offering them would only
+                      produce an error that reads as data loss. */}
+                  {canWriteResume(r, me) && (
+                    <>
+                      <button
+                        className="rl-icon-btn"
+                        onClick={() => startRename(r)}
+                        title="Rename this resume"
+                        aria-label={`Rename ${r.name}`}
+                      >
+                        <Pencil size={14} />
+                      </button>
+                      <button
+                        className="rl-del"
+                        onClick={() => void onDelete(r.id, r.name)}
+                        disabled={deleting !== null}
+                        title="Delete this resume"
+                        aria-label={`Delete ${r.name}`}
+                      >
+                        {deleting === r.id
+                          ? <Loader2 size={14} className="rl-spin" />
+                          : <Trash2 size={14} />}
+                      </button>
+                    </>
+                  )}
                 </div>
               )}
             </li>
@@ -395,6 +543,7 @@ export function ResumeList({ onUnauthorized }: ResumeListProps) {
           gap: 16px; margin-bottom: 28px;
         }
         .rl-brand { display: flex; align-items: center; gap: 14px; }
+        .rl-head-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
         .rl-symbol { width: 38px; height: 38px; object-fit: contain; }
         .rl-title { font-size: 28px; color: var(--accent); letter-spacing: -.005em; }
 
@@ -463,6 +612,24 @@ export function ResumeList({ onUnauthorized }: ResumeListProps) {
           margin-bottom: 16px; padding: 9px 14px; font-size: 12.5px;
           background: var(--warn-wash); color: var(--warn-ink); border-radius: var(--r-sm);
         }
+        .rl-offline-note {
+          display: flex; align-items: flex-start; gap: 9px;
+          margin-bottom: 16px; padding: 10px 14px; font-size: 12.5px; line-height: 1.5;
+          background: var(--warn-wash); color: var(--warn-ink); border-radius: var(--r-sm);
+        }
+        .rl-offline-note svg { flex-shrink: 0; margin-top: 2px; }
+        .rl-icon-offline { background: var(--warn-wash); color: var(--warn-ink); }
+        .rl-offline-tag {
+          margin-left: 8px; padding: 1px 7px; flex-shrink: 0;
+          border-radius: 999px; font-size: 11px; font-weight: 600;
+          background: var(--warn-wash); color: var(--warn-ink);
+        }
+        .rl-share-tag {
+          margin-left: 8px; padding: 1px 7px; flex-shrink: 0;
+          border-radius: 999px; font-size: 11px; font-weight: 600;
+          background: var(--accent-wash); color: var(--accent);
+        }
+        .rl-share-theirs { background: var(--paper-sunken); color: var(--ink-soft); }
         .rl-actions { display: flex; align-items: stretch; }
         .rl-icon-btn {
           display: grid; place-items: center; width: 40px;
