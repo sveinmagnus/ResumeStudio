@@ -14,6 +14,7 @@ import { useEffect, useState } from 'react'
 import { ServerError, api, type InviteInfo } from '../../lib/api'
 import { navigate } from '../../lib/router'
 import type { AccountScreen } from '../../lib/router'
+import { AuthGate } from '../AuthGate'
 import { AuthShell, AuthField } from './AuthShell'
 import { RecoveryCodesPanel } from './RecoveryCodesPanel'
 
@@ -401,13 +402,16 @@ function MissingToken({ title }: { title: string }) {
   )
 }
 
-/** Route one of the five signed-out account paths to its screen. */
+/** Route one of the signed-out account paths to its screen. */
 export function PublicAccountScreen({ screen, onSignedIn }: ScreenProps & { screen: AccountScreen }) {
   switch (screen) {
     case 'reset': return <ResetScreen />
     case 'recover': return <RecoverScreen />
     case 'forgot': return <ForgotScreen />
     case 'accept': return <AcceptInviteScreen onSignedIn={onSignedIn} />
+    // Reachable without a 401, which is the whole point: an instance with no
+    // accounts never issues one, so the setup form had no way to be seen.
+    case 'setup': return <AuthGate onAuthenticated={onSignedIn} />
     default: return <VerifyEmailScreen />
   }
 }

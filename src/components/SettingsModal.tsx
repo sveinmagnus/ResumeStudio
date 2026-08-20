@@ -6,7 +6,8 @@ import { resetAssistConsent } from './ui/AssistRun'
 import { buildModelOptions, type LiveModel } from '../lib/modelPicker'
 import { forcedLanguages, resolveTranslateLanguages, DEFAULT_TRANSLATE_LANGUAGES } from '../lib/translateLanguages'
 import {
-  api, type SettingsStatus, type SettingsUpdate, type UpdateStatus, UnauthorizedError,
+  api, type SettingsStatus, type SettingsUpdate, type UpdateStatus, type UpdateCheck,
+  type MeInfo, UnauthorizedError,
 } from '../lib/api'
 import { resetTranslationAvailability } from '../lib/translateClient'
 import { useDialog } from './ui/useDialog'
@@ -116,9 +117,14 @@ export function SettingsModal({ initialTab, onClose, onChanged, onUnauthorized }
   const [liveModels, setLiveModels] = useState<LiveModel[]>([])
   const [modelsBusy, setModelsBusy] = useState(false)
 
-  // ── Updates (desktop build) ───────────────────────────────────────────────
+  // ── Updates ───────────────────────────────────────────────────────────────
   const [upd, setUpd] = useState<UpdateStatus | null>(null)
-  const [updBusy, setUpdBusy] = useState<null | 'check' | 'install'>(null)
+  const [updBusy, setUpdBusy] = useState<null | 'check' | 'install' | 'checkOnly'>(null)
+  // The check-only answer, for a build that can't install what it finds.
+  const [updCheck, setUpdCheck] = useState<UpdateCheck | null>(null)
+  const [updCheckErr, setUpdCheckErr] = useState<string | null>(null)
+  // Only an owner may ask GitHub anything (server/routes/update.ts).
+  const [me, setMe] = useState<MeInfo | null>(null)
 
   const seed = useCallback((s: SettingsStatus) => {
     setStatus(s)
@@ -174,6 +180,26 @@ export function SettingsModal({ initialTab, onClose, onChanged, onUnauthorized }
       })
     api.updateStatus().then(setUpd).catch(() => setUpd(null))
   }, [seed, onUnauthorized])
+
+  useEffect(() => {
+    let cancelled = false
+    void api.me().then((m) => { if (!cancelled) setMe(m) })
+    return () => { cancelled = true }
+  }, [])
+
+  const onCheckOnly = useCallback(async () => {
+    setUpdBusy('checkOnly')
+    setUpdCheckErr(null)
+    try {
+      setUpdCheck(await api.checkForUpdateOnly())
+    } catch (err) {
+      if (err instanceof UnauthorizedError) { onUnauthorized(); return }
+      setUpdCheck(null)
+      setUpdCheckErr((err as Error).message)
+    } finally {
+      setUpdBusy(null)
+    }
+  }, [onUnauthorized])
 
   const onCheckUpdate = useCallback(async () => {
     setUpdBusy('check')
@@ -396,6 +422,7 @@ export function SettingsModal({ initialTab, onClose, onChanged, onUnauthorized }
     backupDir, setBackupDir,
     localHostname, setLocalHostname, localPort, setLocalPort,
     upd, updBusy, onCheckUpdate, onInstallUpdate,
+    updCheck, updCheckErr, onCheckOnly, me,
   }
 
   return (

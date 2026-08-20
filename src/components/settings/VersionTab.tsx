@@ -4,15 +4,26 @@
  * others it's read-mostly: nothing here is part of the Save form.
  *
  * Update INSTALL is desktop-only (`upd.supported`); a server/VPS build reports
- * unsupported and only sees the version, because a server must never rewrite
- * its own files (see updater.ts / CLAUDE.md §14).
+ * unsupported, because a server must never rewrite its own files (see
+ * updater.ts / CLAUDE.md §14).
+ *
+ * ASKING is not desktop-only, and the difference matters: without
+ * `/api/update/check-only` a hosted owner has no way to learn a release exists,
+ * which is the one thing they need in order to update deliberately. So this tab
+ * offers the question everywhere and the Install button only where it is true.
  */
 
 import { Loader2, Check, AlertCircle, Download, RefreshCw } from 'lucide-react'
 import { useSettingsForm } from './context'
 
 export function VersionTab() {
-  const { upd, updBusy, onCheckUpdate, onInstallUpdate } = useSettingsForm()
+  const {
+    upd, updBusy, onCheckUpdate, onInstallUpdate, updCheck, updCheckErr, onCheckOnly, me,
+  } = useSettingsForm()
+
+  // Hidden rather than disabled for a member, as everywhere else. Unknown
+  // reads as permitted — the same direction `canWriteResume` takes.
+  const mayAsk = !me || me.role === 'owner'
 
   return (
     <section className="sm-sec">
@@ -24,10 +35,42 @@ export function VersionTab() {
       </div>
 
       {!upd?.supported && (
-        <p className="sm-help">
-          This build doesn't update itself — it's installed and upgraded by
-          whoever runs the server.
-        </p>
+        <>
+          <p className="sm-help">
+            This build doesn't update itself — it's installed and upgraded by
+            whoever runs the server.
+          </p>
+
+          {mayAsk && (
+            <div className="sm-btn-row">
+              <button className="sm-btn" onClick={() => void onCheckOnly()} disabled={updBusy !== null}>
+                {updBusy === 'checkOnly' ? <Loader2 size={13} className="sm-spin" /> : <RefreshCw size={13} />}
+                Check for updates
+              </button>
+            </div>
+          )}
+
+          {/* Persistent live region — the answer arrives from a network call. */}
+          <div role="status">
+            {updCheck && !updCheck.update_available && (
+              <span className="sm-inline sm-ok"><Check size={13} /> You're on the latest version.</span>
+            )}
+            {updCheck?.update_available && (
+              <>
+                <span className="sm-inline sm-warn">
+                  <AlertCircle size={13} /> Version v{updCheck.latest} is available.
+                </span>
+                <p className="sm-help">
+                  This deployment doesn't update in place: pull the new release on
+                  the server and restart it.
+                </p>
+              </>
+            )}
+          </div>
+          {updCheckErr && (
+            <div className="sm-inline sm-warn" role="alert"><AlertCircle size={13} /> {updCheckErr}</div>
+          )}
+        </>
       )}
 
       {upd?.supported && (

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
-  UploadCloud, DownloadCloud, RefreshCw, Check, Loader2, AlertCircle, FolderSync,
+  UploadCloud, DownloadCloud, RefreshCw, Check, Loader2, AlertCircle, FolderSync, FolderClock,
 } from 'lucide-react'
 import { api, type BackupStatus, UnauthorizedError } from '../lib/api'
 import { confirmDialog } from './ui/ConfirmDialog'
@@ -15,15 +15,20 @@ interface SyncPanelProps {
 }
 
 /**
- * Sync & backup panel for the picker. Only renders when the server reports a
- * sync folder is configured (the desktop build's RESUME_BACKUP_DIR) — on a
- * web/VPS deployment the whole panel is absent, so nothing changes there.
+ * Backup panel for the picker. Renders only when the server reports a folder is
+ * configured (RESUME_BACKUP_DIR) — otherwise the whole panel is absent.
  *
- * Surfaces the sync folder: where it lives, how many resume files are in it,
- * whether it's current, and two actions — "Back up now" (publish every resume
- * to the folder) and "Restore" (merge the folder into this machine). The folder
- * holds one file per resume, so the merge is newest-wins per resume and safe to
- * run on a second computer to pull edits made on the first.
+ * Surfaces the folder: where it lives, how many resume files are in it, whether
+ * it's current, and two actions — "Back up now" (publish every resume to the
+ * folder) and "Restore" (merge the folder into this machine). The folder holds
+ * one file per resume, so the merge is newest-wins per resume and safe to run on
+ * a second computer to pull edits made on the first.
+ *
+ * `status.continuous` decides which of two different things this panel is
+ * describing, and the difference is not cosmetic: only the desktop launcher runs
+ * a scheduler and a watcher, so anywhere else these two buttons are the ONLY
+ * thing that ever moves the folder. Naming that panel "Sync" everywhere is how
+ * an operator ends up believing a service is protecting them.
  */
 export function SyncPanel({ onRestored, onUnauthorized, standalone }: SyncPanelProps) {
   const [status, setStatus] = useState<BackupStatus | null>(null)
@@ -84,16 +89,17 @@ export function SyncPanel({ onRestored, onUnauthorized, standalone }: SyncPanelP
     }
   }, [refresh, onRestored, onUnauthorized])
 
-  // Hidden entirely until we know sync is configured (web build → never shown).
+  // Hidden entirely until we know a folder is configured.
   if (!status || !status.configured) return null
 
   const fresh = status.exists && status.upToDate
+  const continuous = status.continuous
 
   return (
     <div className={standalone ? 'sp-panel sp-standalone' : 'sp-panel'}>
       <div className="sp-head">
-        <FolderSync size={16} />
-        <span className="sp-title">Sync &amp; backup</span>
+        {continuous ? <FolderSync size={16} /> : <FolderClock size={16} />}
+        <span className="sp-title">{continuous ? 'Sync & backup' : 'Backup'}</span>
         {status.exists && (
           <span className={`sp-badge ${fresh ? 'sp-badge-ok' : 'sp-badge-stale'}`}>
             {fresh ? <Check size={12} /> : <AlertCircle size={12} />}
@@ -105,6 +111,22 @@ export function SyncPanel({ onRestored, onUnauthorized, standalone }: SyncPanelP
       <div className="sp-folder" title={status.dir}>
         Folder: <code>{status.dir}</code>
       </div>
+      <div className={continuous ? 'sp-mode' : 'sp-mode sp-mode-manual'}>
+        {continuous ? (
+          <>
+            This computer keeps the folder current on its own, and merges in what
+            other computers publish to it.
+          </>
+        ) : (
+          <>
+            <strong>Manual backup only on this deployment.</strong> Nothing runs in
+            the background: “Back up now” writes every resume to the folder, and
+            “Restore from folder” reads back what is there. To have it happen on its
+            own, schedule a job that calls <code>POST /api/backup/now</code>.
+          </>
+        )}
+      </div>
+
       <div className="sp-meta">
         {status.exists
           ? <>Last backup {status.lastBackupAt ? fmtRelativeTime(status.lastBackupAt) : 'unknown'}
@@ -161,6 +183,15 @@ export function SyncPanel({ onRestored, onUnauthorized, standalone }: SyncPanelP
           font-size: 12px; color: var(--ink); background: var(--paper-sunken);
           padding: 1px 6px; border-radius: var(--r-sm);
           word-break: break-all;
+        }
+        .sp-mode { margin-top: 9px; font-size: 12.5px; line-height: 1.55; color: var(--ink-soft); }
+        .sp-mode-manual {
+          padding: 9px 12px; border-radius: var(--r-sm);
+          background: var(--paper-sunken); border: 1px solid var(--line);
+        }
+        .sp-mode code {
+          font-size: 11.5px; color: var(--ink); background: var(--paper);
+          padding: 1px 5px; border-radius: var(--r-sm);
         }
         .sp-meta { margin-top: 5px; font-size: 12px; color: var(--ink-faint); }
         .sp-legacy { color: var(--warn-ink); }

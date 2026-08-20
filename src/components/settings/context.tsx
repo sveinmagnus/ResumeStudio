@@ -10,7 +10,9 @@
  */
 
 import { createContext, useContext } from 'react'
-import type { SettingsStatus, UpdateStatus, DockerActionResult } from '../../lib/api'
+import type {
+  SettingsStatus, UpdateStatus, UpdateCheck, DockerActionResult, MeInfo,
+} from '../../lib/api'
 import type { ModelOption } from '../../lib/modelPicker'
 
 /** The translation provider as the UI models it (Docker vs remote are one provider server-side). */
@@ -91,9 +93,15 @@ export interface SettingsForm {
 
   // ── Version & updates ──
   upd: UpdateStatus | null
-  updBusy: null | 'check' | 'install'
+  updBusy: null | 'check' | 'install' | 'checkOnly'
   onCheckUpdate: () => Promise<void>
   onInstallUpdate: () => Promise<void>
+  /** The read-only "is there a newer release?" answer, for builds that can't install one. */
+  updCheck: UpdateCheck | null
+  updCheckErr: string | null
+  onCheckOnly: () => Promise<void>
+  /** Who is asking — `/api/update/check-only` is owner-only. Null = unknown. */
+  me: MeInfo | null
 }
 
 const Ctx = createContext<SettingsForm | null>(null)

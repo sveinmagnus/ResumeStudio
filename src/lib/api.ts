@@ -338,13 +338,23 @@ export interface LocaleUpdate {
   secondary_locale: string | null
 }
 
-/** Sync-folder status (desktop build). The folder holds one file per resume. */
+/** Sync-folder status. The folder holds one file per resume. */
 export type BackupStatus =
   | { configured: false }
   | {
       configured: true
       /** The configured sync folder (e.g. a Google Drive path). */
       dir: string
+      /**
+       * Whether anything is polling to push edits out and watching to pull
+       * other machines' in. Only the desktop launcher runs those; everywhere
+       * else the manual routes work and nothing else does, so a UI that assumes
+       * a background service promises one that isn't there.
+       *
+       * Absent (a server that predates the flag) reads as false — the honest
+       * direction, since the copy it selects claims nothing.
+       */
+      continuous: boolean
       /** Whether the folder holds any resume files yet. */
       exists: boolean
       /** ISO timestamp of the folder's most recent write, or null if empty. */
@@ -523,6 +533,21 @@ export interface UpdateStatus {
   notes: string
   htmlUrl: string | null
   error: string | null
+}
+
+/**
+ * The version comparison alone, with nothing staged or downloaded. Available on
+ * every build, which is the point: installing is desktop-only, so on a hosted
+ * instance this is the only way to learn a release exists.
+ */
+export interface UpdateCheck {
+  current: string
+  latest: string
+  update_available: boolean
+  /** Release notes, already truncated by the server. */
+  notes: string
+  /** Whether this build can apply it itself. False on every hosted instance. */
+  installable: boolean
 }
 
 const UPDATE_UNSUPPORTED: UpdateStatus = {
@@ -888,6 +913,20 @@ export const api = {
     const res = await request('DELETE', `/api/resumes/${encodeURIComponent(id)}`)
     if (res.status === 404) throw new NotFoundError('Resume not found')
     if (!res.ok) throw new ServerError(res.status, `Delete failed: ${res.statusText}`)
+  },
+
+  /**
+   * Hand a resume to another account, or to nobody (`null`).
+   *
+   * Owner-only. Refused as 404 rather than 403, like every other single-row
+   * route, so the response set never tells a member which ids exist.
+   */
+  async setResumeOwner(id: string, ownerId: string | null): Promise<void> {
+    const res = await request(
+      'POST', `/api/resumes/${encodeURIComponent(id)}/owner`, { owner_id: ownerId },
+    )
+    if (res.status === 404) throw new NotFoundError('Resume not found')
+    if (!res.ok) await fail(res, 'Could not change the owner')
   },
 
   /**
@@ -1294,6 +1333,18 @@ export const api = {
       if (!res.ok) return UPDATE_UNSUPPORTED
       return await res.json() as UpdateStatus
     }, UPDATE_UNSUPPORTED)
+  },
+
+  /**
+   * Ask whether a newer release exists, without staging or downloading it.
+   * Owner-only. Throws on failure so the caller can say why it couldn't ask.
+   */
+  async checkForUpdateOnly(): Promise<UpdateCheck> {
+    const res = await request('POST', '/api/update/check-only')
+    if (!res.ok) {
+      await fail(res, 'Update check failed')
+    }
+    return await res.json() as UpdateCheck
   },
 
   /** Force a GitHub check now; returns the refreshed status. Throws on failure. */

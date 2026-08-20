@@ -3,7 +3,8 @@ import {
   FileText, Plus, Trash2, Loader2, Pencil, Check, X, Settings, CloudOff, Users, Lock,
 } from 'lucide-react'
 import {
-  api, canWriteResume, type MeInfo, type ResumeMeta, UnauthorizedError, ServerError,
+  api, canWriteResume, type MeInfo, type ResumeMeta, type TeamUser,
+  UnauthorizedError, ServerError,
 } from '../lib/api'
 import { fmtBytes, weightLevel, type ResumeStorageStats, type StorageStats } from '../lib/storage'
 import { isResumeStale } from '../lib/freshness'
@@ -17,6 +18,9 @@ import { WhoKnowsWhatPanel } from './WhoKnowsWhatPanel'
 import { SettingsModal } from './SettingsModal'
 import { UpdateBanner } from './UpdateBanner'
 import { AccountMenu } from './account/AccountMenu'
+import { SetupNotice } from './account/SetupNotice'
+import { OwnerControl } from './account/OwnerControl'
+import { ownerLabel } from './account/owners'
 import { confirmDialog } from './ui/ConfirmDialog'
 import type { ResumeStore } from '../types'
 
@@ -139,6 +143,10 @@ export function ResumeList({ onUnauthorized }: ResumeListProps) {
   // colleague's shared CV is marked as read-only before it is opened. Null on
   // an instance without accounts, which is every desktop build.
   const [me, setMe] = useState<MeInfo | null>(null)
+  // The accounts an owner can hand a resume to. Null wherever ownership has no
+  // meaning (no accounts) or the list can't be had (a member — /api/users 403s),
+  // and that null is what hides the owner readout and the transfer control.
+  const [owners, setOwners] = useState<TeamUser[] | null>(null)
 
   const reload = useCallback(() => {
     setError(null)
@@ -175,6 +183,15 @@ export function ResumeList({ onUnauthorized }: ResumeListProps) {
     void api.me().then((m) => { if (!cancelled) setMe(m) })
     return () => { cancelled = true }
   }, [])
+
+  useEffect(() => {
+    if (me?.mode !== 'accounts' || me.role !== 'owner') return
+    let cancelled = false
+    api.listUsers()
+      .then((u) => { if (!cancelled) setOwners(u) })
+      .catch(() => { if (!cancelled) setOwners(null) })
+    return () => { cancelled = true }
+  }, [me])
 
   const statsById = new Map<string, ResumeStorageStats>(
     (storage?.resumes ?? []).map((s) => [s.id, s]),
@@ -309,14 +326,17 @@ export function ResumeList({ onUnauthorized }: ResumeListProps) {
     )
   }
 
-  // Empty → full-bleed import screen. The sync panel renders above it (only on
-  // a desktop build with a sync folder configured — otherwise it's null), so a
-  // freshly-set-up second machine can pull its resumes from the backup folder.
+  // Empty → full-bleed import screen. The backup panel renders above it (null
+  // unless a folder is configured), so a freshly-set-up second machine can pull
+  // its resumes from the folder.
   if (items.length === 0 && !error && !cached) {
     return (
       <>
         {settingsOverlay}
         <div className="rl-prelude">
+          {/* A fresh instance has no resumes, so this branch is exactly where a
+              first-time operator lands — and where the notice most needs to be. */}
+          <SetupNotice />
           <UpdateBanner onUnauthorized={onUnauthorized} />
         </div>
         <SyncPanel key={syncRefreshKey} standalone onRestored={reload} onUnauthorized={onUnauthorized} />
@@ -333,6 +353,7 @@ export function ResumeList({ onUnauthorized }: ResumeListProps) {
     <div className="rl-screen">
       {settingsOverlay}
       <div className="rl-wrap">
+        <SetupNotice />
         <header className="rl-head">
           <div className="rl-brand">
             <img src="/cartavio-symbol.png" alt="Cartavio" className="rl-symbol" />
@@ -459,6 +480,12 @@ export function ResumeList({ onUnauthorized }: ResumeListProps) {
                       {' · '}
                       {r.primary_locale.toUpperCase()}
                       {r.secondary_locale && ` / ${r.secondary_locale.toUpperCase()}`}
+                      {owners && (
+                        <span className={r.owner_id ? undefined : 'rl-unowned'}>
+                          {' · '}
+                          {r.owner_id ? `Owned by ${ownerLabel(r.owner_id, owners)}` : 'Unowned'}
+                        </span>
+                      )}
                       <WeightNote stat={statsById.get(r.id)} />
                       {!dirtyIds.has(r.id) && isResumeStale(r.saved_at) && (
                         <span className="rl-stale" title="Not updated in over 6 months — may be worth a review">
@@ -477,6 +504,14 @@ export function ResumeList({ onUnauthorized }: ResumeListProps) {
                     onChanged={(visibility) => setItems((curr) =>
                       curr?.map((x) => (x.id === r.id ? { ...x, visibility } : x)) ?? [])}
                   />
+                  {owners && (
+                    <OwnerControl
+                      resume={r}
+                      users={owners}
+                      onChanged={(owner_id) => setItems((curr) =>
+                        curr?.map((x) => (x.id === r.id ? { ...x, owner_id } : x)) ?? [])}
+                    />
+                  )}
                   {/* Renaming and deleting a colleague's shared CV are refused
                       server-side as "not found", so offering them would only
                       produce an error that reads as data loss. */}
@@ -608,6 +643,9 @@ export function ResumeList({ onUnauthorized }: ResumeListProps) {
         .rl-weight { color: var(--warn-ink); }
         .rl-weight-risk { color: var(--err-ink); font-weight: 600; }
         .rl-stale { color: var(--warn-ink); }
+        /* Unowned is a state with consequences (owner-role accounts only), not
+           a missing value, so it doesn't read as absence. */
+        .rl-unowned { color: var(--warn-ink); }
         .rl-unsynced-note {
           margin-bottom: 16px; padding: 9px 14px; font-size: 12.5px;
           background: var(--warn-wash); color: var(--warn-ink); border-radius: var(--r-sm);

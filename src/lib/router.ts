@@ -41,7 +41,7 @@ import {
  * everyone who reaches them is by definition unable to sign in. The last two
  * need a session.
  */
-export const PUBLIC_ACCOUNT_SCREENS = ['reset', 'accept', 'verify-email', 'forgot', 'recover'] as const
+export const PUBLIC_ACCOUNT_SCREENS = ['reset', 'accept', 'verify-email', 'forgot', 'recover', 'setup'] as const
 const PRIVATE_ACCOUNT_SCREENS = ['profile', 'admin'] as const
 
 export type AccountScreen =
