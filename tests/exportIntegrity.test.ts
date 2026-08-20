@@ -167,7 +167,7 @@ function maximalStore(over: Partial<ResumeStore> = {}): ResumeStore {
     key_qualifications: [makeKQ({ id: 'kq1', competency_ids: ['kc1'] })],
     key_competencies: [competency],
     projects: [makeProject({ id: 'p1', customer: { en: 'Acme', no: 'Acme' } })],
-    work_experiences: [makeWork({ id: 'w1' })],
+    work_experiences: [makeWork({ id: 'w1', employer: { en: 'Employment Fixture AS' } })],
     educations: [makeEducation({ id: 'e1' })],
     skills: [makeSkill({ id: 's1', name: { en: 'TypeScript' }, category_id: 'sc1' })],
     skill_categories: [cat],
@@ -178,7 +178,7 @@ function maximalStore(over: Partial<ResumeStore> = {}): ResumeStore {
     positions: [makePosition({ id: 'po1' })],
     presentations: [makePresentation({ id: 'pr1' })],
     publications: [makePublication({ id: 'pu1' })],
-    honor_awards: [makeAward({ id: 'ha1' })],
+    honor_awards: [makeAward({ id: 'ha1', name: { en: 'Award Fixture Prize' } })],
     references: [makeReference({ id: 'rf1' })],
     recommendations: [makeRecommendation({ id: 'rc1' })],
     spoken_languages: [makeSpokenLanguage({ id: 'sl1' })],
@@ -191,6 +191,18 @@ describe('DOCX package integrity', () => {
     await exportDocx(maximalStore(), fullView(), 'en')
     expect(lastBlob).not.toBeNull()
     expectValidOoxml(await archiveOf(lastBlob!))
+  })
+
+  it('actually carries every section it claims to, employment and awards included', async () => {
+    // The fixture's section KEYS decide what this suite validates, and two of
+    // them were misspelled (`work_experience`, `honors_awards`) — so the
+    // package under test held no employment and no awards, and every check
+    // here passed on a document missing both. The names below appear nowhere
+    // else in the fixture, so this fails if either section drops out again.
+    await exportDocx(maximalStore(), fullView(), 'en')
+    const doc = strFromU8((await archiveOf(lastBlob!))['word/document.xml'])
+    expect(doc).toContain('Employment Fixture AS')
+    expect(doc).toContain('Award Fixture Prize')
   })
 
   it('stays valid with embedded images (media part, content type, relationship)', async () => {

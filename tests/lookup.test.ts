@@ -69,8 +69,12 @@ describe('the callers cannot be handed a function', () => {
       expect(typeof presentLabel(key), key).toBe('string')
       expect(presentLabel(key), key).not.toContain('native code')
       expect(fmtYears(3, key), key).not.toContain('native code')
-      // Dates render through the month table keyed by the same locale.
-      expect(fmtDate({ year: 2024, month: 3 }, 'month-year', key), key).not.toContain('native code')
+      // Dates render through the month table keyed by the same locale. The
+      // miss here is not a function body but an INDEX INTO one: MONTH_ABBR
+      // ['toString'] is a function, and [2] on a function is undefined, so an
+      // unguarded read prints "undefined 2024". Assert the English fallback
+      // itself — "no 'native code'" passes on that broken output.
+      expect(fmtDate({ year: 2024, month: 3 }, 'month-year', key), key).toBe('Mar 2024')
     }
   })
 

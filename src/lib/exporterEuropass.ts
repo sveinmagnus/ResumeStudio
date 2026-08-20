@@ -187,12 +187,10 @@ export function exportEuropassXml(
 
   /**
    * Order a section's items by the view's own sort setting (absent = the
-   * resume's arranged order), matching the other export paths. The cast is the
-   * house pattern: `Sortable` carries an index signature that a declared
-   * interface doesn't structurally satisfy.
+   * resume's arranged order), matching the other export paths.
    */
   const sortBy = <T extends { id: string; sort_order: number }>(key: string, items: T[]): T[] =>
-    sortItems(key, items as Array<{ id: string; sort_order: number }>, view.sections.find((s) => s.key === key)?.sort ?? view.style?.sort ?? 'custom', locale) as T[]
+    sortItems(key, items, view.sections.find((s) => s.key === key)?.sort ?? view.style?.sort ?? 'custom', locale)
   const root = doc.documentElement
   root.setAttribute('locale', locale)
   root.appendChild(el('Locale', {}, locale))

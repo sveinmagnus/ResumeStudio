@@ -265,7 +265,7 @@ describe('mergeRegistryEntries — industries', () => {
       makeIndustry({ id: 'dst', name: { en: 'Energy', no: 'Energi' } }),
     ]
     s.projects = [
-      makeProject({ id: 'p1', industries: [makeProjectIndustry({ industry_id: 'src', name: { en: 'Oil & Gas' } })] }),
+      makeProject({ id: 'p1', industries: [makeProjectIndustry({ id: 'pi-p1', industry_id: 'src', name: { en: 'Oil & Gas' } })] }),
       makeProject({
         id: 'both',
         industries: [
@@ -273,7 +273,7 @@ describe('mergeRegistryEntries — industries', () => {
           makeProjectIndustry({ industry_id: 'src', name: { en: 'Oil & Gas' } }),
         ],
       }),
-      makeProject({ id: 'untouched', industries: [makeProjectIndustry({ industry_id: 'other', name: { en: 'Retail' } })] }),
+      makeProject({ id: 'untouched', industries: [makeProjectIndustry({ id: 'pi-un', industry_id: 'other', name: { en: 'Retail' } })] }),
     ]
     return s
   }
@@ -281,7 +281,7 @@ describe('mergeRegistryEntries — industries', () => {
   it('repoints the link and refreshes the denormalized name snapshot', () => {
     const out = mergeIndustries(store(), 'src', 'dst')
     const p1 = out.projects.find((p) => p.id === 'p1')!
-    expect(p1.industries).toEqual([expect.objectContaining({ industry_id: 'dst', name: { en: 'Energy', no: 'Energi' } })])
+    expect(p1.industries).toEqual([makeProjectIndustry({ id: 'pi-p1', industry_id: 'dst', name: { en: 'Energy', no: 'Energi' } })])
   })
 
   it('collapses a project that already listed the target — no double link', () => {
@@ -294,7 +294,7 @@ describe('mergeRegistryEntries — industries', () => {
     const before = store()
     const out = mergeIndustries(before, 'src', 'dst')
     const p = out.projects.find((p) => p.id === 'untouched')!
-    expect(p.industries).toEqual([expect.objectContaining({ industry_id: 'other', name: { en: 'Retail' } })])
+    expect(p.industries).toEqual([makeProjectIndustry({ id: 'pi-un', industry_id: 'other', name: { en: 'Retail' } })])
     expect(p).toBe(before.projects[2])
   })
 
@@ -354,14 +354,14 @@ describe('mergeRegistryEntries — skills', () => {
     s.skills = [makeSkill({ id: 'src', name: { en: 'React.js' } }), makeSkill({ id: 'dst', name: { en: 'React' } })]
     s.projects = [makeProject({
       skills: [
-        makeProjectSkill({ skill_id: 'src', name: { en: 'React.js' } }),
-        makeProjectSkill({ skill_id: 'keep', name: { en: 'Go' } }),
+        makeProjectSkill({ id: 'ps-1', skill_id: 'src', name: { en: 'React.js' } }),
+        makeProjectSkill({ id: 'ps-2', skill_id: 'keep', name: { en: 'Go' } }),
       ],
     })]
     const out = mergeSkills(s, 'src', 'dst')
     expect(out.projects[0].skills).toEqual([
-      expect.objectContaining({ skill_id: 'dst', name: { en: 'React' } }),
-      expect.objectContaining({ skill_id: 'keep', name: { en: 'Go' } }),
+      makeProjectSkill({ id: 'ps-1', skill_id: 'dst', name: { en: 'React' } }),
+      makeProjectSkill({ id: 'ps-2', skill_id: 'keep', name: { en: 'Go' } }),
     ])
     expect(countSkillReferences(s, 'src')).toBe(1)
   })
@@ -373,13 +373,13 @@ describe('mergeRegistry — a merge touches the merged link and nothing beside i
     s.roles = [makeRole({ id: 'src', name: { en: 'Dev' } }), makeRole({ id: 'dst', name: { en: 'Engineer' } })]
     s.projects = [makeProject({
       roles: [
-        makeProjectRole({ role_id: 'src', name: { en: 'Dev' } }),
-        makeProjectRole({ role_id: 'keep', name: { en: 'Tester' } }),
+        makeProjectRole({ id: 'pr-1', role_id: 'src', name: { en: 'Dev' } }),
+        makeProjectRole({ id: 'pr-2', role_id: 'keep', name: { en: 'Tester' } }),
       ],
     })]
     expect(mergeRoles(s, 'src', 'dst').projects[0].roles).toEqual([
-      expect.objectContaining({ role_id: 'dst', name: { en: 'Engineer' } }),
-      expect.objectContaining({ role_id: 'keep', name: { en: 'Tester' } }),
+      makeProjectRole({ id: 'pr-1', role_id: 'dst', name: { en: 'Engineer' } }),
+      makeProjectRole({ id: 'pr-2', role_id: 'keep', name: { en: 'Tester' } }),
     ])
   })
 
@@ -398,13 +398,13 @@ describe('mergeRegistry — a merge touches the merged link and nothing beside i
     s.industries = [makeIndustry({ id: 'src', name: { en: 'Oil' } }), makeIndustry({ id: 'dst', name: { en: 'Energy' } })]
     s.projects = [makeProject({
       industries: [
-        makeProjectIndustry({ industry_id: 'src', name: { en: 'Oil' } }),
-        makeProjectIndustry({ industry_id: 'keep', name: { en: 'Retail' } }),
+        makeProjectIndustry({ id: 'pi-1', industry_id: 'src', name: { en: 'Oil' } }),
+        makeProjectIndustry({ id: 'pi-2', industry_id: 'keep', name: { en: 'Retail' } }),
       ],
     })]
     expect(mergeIndustries(s, 'src', 'dst').projects[0].industries).toEqual([
-      expect.objectContaining({ industry_id: 'dst', name: { en: 'Energy' } }),
-      expect.objectContaining({ industry_id: 'keep', name: { en: 'Retail' } }),
+      makeProjectIndustry({ id: 'pi-1', industry_id: 'dst', name: { en: 'Energy' } }),
+      makeProjectIndustry({ id: 'pi-2', industry_id: 'keep', name: { en: 'Retail' } }),
     ])
   })
 
