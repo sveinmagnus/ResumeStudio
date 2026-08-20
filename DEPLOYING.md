@@ -497,7 +497,7 @@ Mail is what a hosted operator can set through the gear icon, because a server i
 exactly the deployment where the reset email matters and exactly the one where
 editing the environment means a restart. `GET /api/settings` reports
 `managed: false` here, plus an `editable_keys` list; an **owner** may write only
-those keys (`server/routes/settings.ts → OWNER_EDITABLE`):
+those keys (`server/settings.ts → OWNER_EDITABLE_KEYS`):
 
 ```
 mail_transport  mail_from  sendmail_path
@@ -513,6 +513,16 @@ translation providers — is a property of the machine, and a web request that
 could move one is how an instance talks itself off the network. A patch touching
 even one refused key is rejected whole, naming it, rather than half-applied. A
 member gets a 403 on all of it.
+
+**What lands on disk is an overlay, not a copy of your configuration.** On a
+server, `settings.json` holds only the keys somebody actually saved here, and
+only those override the environment at startup. Everything else keeps coming
+from your `.env`, your systemd unit or your `docker -e` flags, and stays there
+if you later change it. You can read the file to see exactly what the app is
+overriding, and deleting it returns the instance entirely to its environment.
+
+(The desktop build's file is the opposite and is meant to be: it is a complete
+snapshot, because there no environment stands behind it.)
 
 **Two limits worth knowing before you rely on this.**
 

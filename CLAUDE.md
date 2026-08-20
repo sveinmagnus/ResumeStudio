@@ -412,7 +412,8 @@ server/              ← Express API + SQLite persistence
 │   backupScheduler (writes edits OUT) + backupWatcher (fs.watch+fingerprint poll;
 │   merges other machines' edits IN while running, not just at launch, and applies
 │   tombstones) + backupRuntime (owns both)
-├── settings.ts (desktop settings.json; applyToEnv; isDesktop gate) · storage.ts (payloadStats) ·
+├── settings.ts (settings.json: a desktop SNAPSHOT, a server sparse OVERLAY;
+│   applyToEnv/applyServerSettings; OWNER_EDITABLE_KEYS) · storage.ts (payloadStats) ·
 │   folders.ts (the sync-folder browser behind Settings' picker)
 ├── cookies.ts (THE `Secure` decision — follows req.secure, never NODE_ENV; see
 │   §16. Every Set-Cookie in the app is built here)
@@ -1023,7 +1024,33 @@ Full end-user + build docs in **`DESKTOP.md`**. Load-bearing invariants for work
 - **`db.close()`** does `wal_checkpoint(TRUNCATE)` then close. Keep shutdown ordering: `tray.kill()` → `flushBackup()` → `closeDefaultDb()` → `server.close()`.
 - **System-tray icon = the user's Quit affordance** (`desktop/tray.ts`, `systray2`). Tray Quit calls the same `shutdown()` — never add a "quit" control to the web UI. Gotchas: register `onClick`/`onError` only after `await systray.ready()`; the CJS↔ESM interop puts the `SysTray` constructor in different places under `tsx` vs the bundle (`tray.ts` resolves defensively). `systray2` is **external + vendored** in the build; best-effort (any failure → null, app keeps running).
 - **Three backup concepts, don't conflate:** `src/lib/backup.ts` = per-resume client download, no identity, creates a copy (`resumestudio/v1`); `server/backupFiles.ts` = the sync folder's per-resume files, identity-bearing (`resumestudio-resume/v1`); `server/backupZip.ts` = the manual "Export all resumes" archive, which is just those same files zipped (`GET /api/backup/export`, `POST /api/backup/import`). `server/backup.ts` is now only the LEGACY combined format's reader.
-- **In-app settings are desktop-only.** The launcher sets `RESUME_DESKTOP=1`; `settings.ts → isDesktop()` gates the editable surface. `loadOrInitSettings()` seeds `settings.json` from env, then `applyToEnv()` pushes it back onto `process.env` so the lazily-env-reading translate/backup code picks up changes with no restart. Keep translate/backup reading **env**; route runtime changes through `applyToEnv` (+ `reconfigureBackup` for the stateful scheduler). VPS never sets `RESUME_DESKTOP` → `/api/settings` reports `managed:false`, PUT 403s.
+- **MACHINE-level settings are desktop-only; a hosted owner edits a named
+  subset.** The launcher sets `RESUME_DESKTOP=1`; `settings.ts → isDesktop()`
+  gates the full editable surface. `loadOrInitSettings()` seeds `settings.json`
+  from env, then `applyToEnv()` pushes it back onto `process.env` so the
+  lazily-env-reading translate/backup code picks up changes with no restart.
+  Keep translate/backup reading **env**; route runtime changes through
+  `applyToEnv` (+ `reconfigureBackup` for the stateful scheduler). A VPS never
+  sets `RESUME_DESKTOP` → `/api/settings` reports `managed:false`, and PUT
+  refuses anything outside `OWNER_EDITABLE_KEYS` (mail, the base URL, the
+  operator's own identity). Everything else — ports, the local hostname, the
+  sync folder — is a property of the machine, and a web request that could move
+  those is how an instance talks itself off the network.
+  - **The file means something different on each.** On the desktop it is an
+    authoritative SNAPSHOT of everything. On a server it is a **sparse OVERLAY**
+    on the environment: it holds only the owner-editable keys actually saved,
+    and only those are projected onto env at startup. Both halves are
+    load-bearing and both were wrong. Presence must be read from the RAW parse,
+    never from a `coerce`d object — coerce fills in every key, so
+    `saved[key] !== undefined` is always true, and that dead guard projected
+    every unsaved key's DEFAULT over the operator's real environment. And a
+    save must accumulate into the file rather than merge into
+    `loadSettings()`, which answers `DEFAULT_SETTINGS` when there is no file —
+    so the first save wrote all 36 keys, handing the whole default set
+    authority over the environment from then on. Live symptoms:
+    `RESUME_APP_BASE_URL` cleared (invite and reset links became bare
+    unopenable paths) and `MAIL_TRANSPORT` forced to `off` (mail stopped),
+    silently.
 - **Managed translate = the app drives Docker** (it doesn't bundle the engine). `translateDocker.ts` shells out argv-only; best-effort, never throws into the request path. After changing translate settings the client calls `resetTranslationAvailability()`. Keys are write-only over the API (`toView()` returns `*_set` booleans, never the value).
 - **Auto-update = staged-swap, not Electron.** `updater.ts` checks GitHub Releases, downloads the per-platform `.tar.gz` (host-allowlisted — SSRF guard), extracts with system `tar`, validates the tree. To replace files a running process can't overwrite (esp. `node.exe` on Windows) it writes a detached per-OS swap script (`buildSwapScript`) that waits for our PID, mirrors the staged build over `RESUME_INSTALL_DIR`, relaunches, and self-deletes. Gated by `isUpdateSupported()` — VPS reports `supported:false` and 403s (a server must never rewrite its own files). `RESUME_NO_UPDATE` disables; `RESUME_UPDATE_REPO` overrides. Keep `assetNameFor` in `updater.ts` and its copy in `build-desktop.mjs` in sync.
 - **Version source of truth (don't reintroduce the v0.3.2 drift bug).** A *published* build's version is the **git tag** — `release.yml` derives it from `GITHUB_REF_NAME`, exports `RESUME_APP_VERSION`, and **hard-fails if `package.json` doesn't match the tag**. To cut a release: bump `package.json` **and** `package-lock.json`, commit, then tag `vX.Y.Z`. Local `npm run build:desktop` (no env) uses `package.json`.

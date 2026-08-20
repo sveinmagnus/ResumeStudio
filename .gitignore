@@ -30,5 +30,8 @@ reports/
 .stryker-tmp/
 
 # Generated per-file by scripts/mutation-run.mjs; deleted after each run.
+# NOT vitest.mutation.config.ts, which is checked in — these patterns need a
+# module name in the middle, and widening them to `vitest.mutation.*` would
+# quietly untrack it.
 vitest.mutation.*.config.ts
 stryker.mutation.*.json
