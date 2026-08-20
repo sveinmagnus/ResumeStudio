@@ -695,15 +695,23 @@ export const api = {
     forgetIdentity()
   },
 
-  /** Spend a recovery code to set a new password. Returns how many are left. */
-  async recoverWithCode(login: string, code: string, password: string): Promise<number> {
+  /**
+   * Spend a recovery code to set a new password. Returns the FRESH set.
+   *
+   * Setting a password clears every code, so the server issues a replacement
+   * set in the same breath and returns it once — they are stored hashed, and
+   * this response is the only readable copy that will ever exist. A caller must
+   * therefore SHOW them. Reading a `codes_left` count here, which the server has
+   * never sent, dropped all ten and told the user they had none.
+   */
+  async recoverWithCode(login: string, code: string, password: string): Promise<string[]> {
     const res = await send('POST', '/api/users/recover', { login, code, password })
     if (!res.ok) {
       throw new ServerError(res.status, await serverMessage(res, 'Could not use that recovery code.'))
     }
     forgetIdentity()
-    const json = await res.json() as { codes_left?: number }
-    return json.codes_left ?? 0
+    const json = await res.json() as { recovery_codes?: string[] }
+    return json.recovery_codes ?? []
   },
 
   /** What an invitation is for, without spending it. Null when it is not valid. */
@@ -767,9 +775,17 @@ export const api = {
     forgetIdentity()
   },
 
-  /** Issue a fresh set of recovery codes, invalidating the previous one. */
-  async regenerateRecoveryCodes(): Promise<string[]> {
-    const res = await request('POST', '/api/users/me/recovery-codes')
+  /**
+   * Issue a fresh set of recovery codes, invalidating the previous one.
+   *
+   * Costs the current password, like every other credential change: a code
+   * outlives the session that minted it and on its own sets a new password.
+   * Sending no body answered 403 every time, so the button could never work.
+   */
+  async regenerateRecoveryCodes(currentPassword: string): Promise<string[]> {
+    const res = await request('POST', '/api/users/me/recovery-codes', {
+      current_password: currentPassword,
+    })
     if (!res.ok) await fail(res, 'Could not generate recovery codes')
     const json = await res.json() as { recovery_codes: string[] }
     return json.recovery_codes

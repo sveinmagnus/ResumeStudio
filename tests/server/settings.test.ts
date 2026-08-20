@@ -68,6 +68,21 @@ describe('loadOrInitSettings', () => {
 })
 
 describe('saveSettings + applyToEnv', () => {
+  /*
+   * Desktop, declared rather than assumed.
+   *
+   * Every case here writes a MACHINE-level key — the translate provider, the
+   * sync folder, the poll interval — and those are desktop-only by design: on a
+   * server they are refused by the route, because a web request that could move
+   * them is how an instance talks itself off the network. The cases were
+   * accurate about the behaviour and silent about the mode, and passed because
+   * saveSettings did not distinguish the two. It does now: a server's file is a
+   * sparse overlay of the owner-editable keys, and only the desktop build's is
+   * an authoritative snapshot of everything.
+   */
+  beforeEach(() => { process.env.RESUME_DESKTOP = '1' })
+  afterEach(() => { delete process.env.RESUME_DESKTOP })
+
   it('docker mode forces the LibreTranslate URL to the docker URL', () => {
     loadOrInitSettings()
     saveSettings({ translate_provider: 'libretranslate', translate_docker: true })
@@ -346,7 +361,8 @@ describe('validateSettingsPatch', () => {
 })
 
 describe('a hosted owner’s settings survive a restart', () => {
-  const KEYS = ['RESUME_DESKTOP', 'RESUME_DATA_DIR', 'SMTP_HOST', 'RESUME_BACKUP_DIR']
+  const KEYS = ['RESUME_DESKTOP', 'RESUME_DATA_DIR', 'SMTP_HOST', 'RESUME_BACKUP_DIR',
+    'RESUME_APP_BASE_URL', 'MAIL_TRANSPORT', 'MAIL_FROM']
   let dir: string
 
   beforeEach(() => {
@@ -385,5 +401,74 @@ describe('a hosted owner’s settings survive a restart', () => {
   it('falls through to the environment when nothing was saved', () => {
     process.env.SMTP_HOST = 'smtp.from-env.no'
     expect(currentSettings().smtp_host).toBe('smtp.from-env.no')
+  })
+
+  /*
+   * The other half of every test above: what happens to the keys the file does
+   * NOT carry.
+   *
+   * Each case above writes a settings.json holding one key and asserts that key
+   * arrives. All of them passed while the file was clobbering the whole
+   * environment around it, because none of them looked. The guard was
+   * `saved[key] !== undefined` against a COERCED object, which fills in every
+   * key, so it never fired and each absent key was projected as its default.
+   */
+  it('leaves an env key the file does not mention alone', () => {
+    process.env.RESUME_APP_BASE_URL = 'https://cv.example.no'
+    process.env.MAIL_TRANSPORT = 'smtp'
+    fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify({ smtp_host: 'smtp.saved.no' }))
+
+    applyServerSettings()
+
+    // Cleared and forced to 'off' respectively, before the fix. Invite and
+    // reset links came out as bare paths, and mail stopped.
+    expect(process.env.RESUME_APP_BASE_URL).toBe('https://cv.example.no')
+    expect(process.env.MAIL_TRANSPORT).toBe('smtp')
+  })
+
+  it('reads an unmentioned key from the environment even though the file exists', () => {
+    process.env.RESUME_APP_BASE_URL = 'https://cv.example.no'
+    fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify({ smtp_host: 'smtp.saved.no' }))
+
+    expect(currentSettings().app_base_url).toBe('https://cv.example.no')
+  })
+
+  it('saves one field without writing a snapshot of every other default', () => {
+    // loadSettings() answers DEFAULT_SETTINGS when there is no file, so merging
+    // a patch into it wrote every key — and since anything the file holds wins
+    // at startup, the first save handed the whole default set authority over
+    // the operator's environment, permanently.
+    saveSettings({ mail_from: 'cv@example.no' })
+
+    const raw = JSON.parse(fs.readFileSync(path.join(dir, 'settings.json'), 'utf8')) as Record<string, unknown>
+    expect(Object.keys(raw)).toEqual(['mail_from'])
+  })
+
+  it('saves one field without disturbing the live environment around it', () => {
+    process.env.RESUME_APP_BASE_URL = 'https://cv.example.no'
+    process.env.SMTP_HOST = 'smtp.from-env.no'
+
+    saveSettings({ mail_from: 'cv@example.no' })
+
+    expect(process.env.MAIL_FROM).toBe('cv@example.no')
+    expect(process.env.RESUME_APP_BASE_URL).toBe('https://cv.example.no')
+    expect(process.env.SMTP_HOST).toBe('smtp.from-env.no')
+  })
+
+  it('accumulates saves rather than replacing the file each time', () => {
+    saveSettings({ mail_from: 'cv@example.no' })
+    saveSettings({ smtp_host: 'smtp.saved.no' })
+
+    const raw = JSON.parse(fs.readFileSync(path.join(dir, 'settings.json'), 'utf8')) as Record<string, unknown>
+    expect(raw).toEqual({ mail_from: 'cv@example.no', smtp_host: 'smtp.saved.no' })
+  })
+
+  it('still writes a whole snapshot on the desktop build, where the file is authoritative', () => {
+    process.env.RESUME_DESKTOP = '1'
+    saveSettings({ mail_from: 'cv@example.no' })
+
+    const raw = JSON.parse(fs.readFileSync(path.join(dir, 'settings.json'), 'utf8')) as Record<string, unknown>
+    expect(Object.keys(raw).length).toBeGreaterThan(1)
+    expect(raw.mail_from).toBe('cv@example.no')
   })
 })

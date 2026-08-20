@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  */
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ProfileScreen } from '../../src/components/account/ProfileScreen'
 import { ServerError, api, type AccountProfile } from '../../src/lib/api'
@@ -19,6 +19,17 @@ const mount = (p = PROFILE()) => {
   render(<ProfileScreen onSignedOut={vi.fn()} />)
 }
 
+/**
+ * Scope a query to one card.
+ *
+ * Three of the four cards carry a current-password field — changing an
+ * identifier, changing the password, and replacing the recovery codes all cost
+ * it — so an unscoped label query is ambiguous. Each card is a named region for
+ * exactly that reason: a screen-reader user has the same problem this query
+ * does.
+ */
+const card = (name: string) => screen.findByRole('region', { name })
+
 afterEach(() => { vi.restoreAllMocks() })
 
 describe('<ProfileScreen>', () => {
@@ -26,7 +37,7 @@ describe('<ProfileScreen>', () => {
     const update = vi.spyOn(api, 'updateProfile').mockResolvedValue(undefined)
     mount()
 
-    const field = await screen.findByLabelText(/^display name$/i)
+    const field = within(await card('Display name')).getByLabelText(/^display name$/i)
     await userEvent.clear(field)
     await userEvent.type(field, 'Kari N')
     await userEvent.click(screen.getByRole('button', { name: /^save$/i }))
@@ -45,7 +56,7 @@ describe('<ProfileScreen>', () => {
     await userEvent.type(screen.getByLabelText(/^email address$/i), 'kari@example.com')
     expect(save).toBeDisabled()
 
-    await userEvent.type(screen.getByLabelText(/your current password/i), 'correct-horse-battery')
+    await userEvent.type(within(await card('How you sign in')).getByLabelText(/current password/i), 'correct-horse-battery')
     expect(save).toBeEnabled()
   })
 
@@ -54,7 +65,7 @@ describe('<ProfileScreen>', () => {
     mount()
 
     await userEvent.type(await screen.findByLabelText(/^email address$/i), 'kari@example.com')
-    await userEvent.type(screen.getByLabelText(/your current password/i), 'correct-horse-battery')
+    await userEvent.type(within(await card('How you sign in')).getByLabelText(/current password/i), 'correct-horse-battery')
     await userEvent.click(screen.getByRole('button', { name: /save sign-in details/i }))
 
     await waitFor(() => expect(update).toHaveBeenCalledWith({
@@ -69,7 +80,7 @@ describe('<ProfileScreen>', () => {
     mount()
 
     await userEvent.type(await screen.findByLabelText(/^email address$/i), 'kari@example.com')
-    await userEvent.type(screen.getByLabelText(/your current password/i), 'wrong')
+    await userEvent.type(within(await card('How you sign in')).getByLabelText(/current password/i), 'wrong')
     await userEvent.click(screen.getByRole('button', { name: /save sign-in details/i }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/enter your current password/i)
@@ -97,19 +108,33 @@ describe('<ProfileScreen>', () => {
       .mockResolvedValue(['NEW01-NEW02-NEW03-NEW04'])
     mount(PROFILE({ recovery_codes_left: 3 }))
 
-    expect(await screen.findByText(/3 unused codes left/i)).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: /generate a new set/i }))
+    const recovery = within(await card('Recovery codes'))
+    expect(recovery.getByText(/3 unused codes left/i)).toBeInTheDocument()
+    await userEvent.type(recovery.getByLabelText(/current password/i), 'old-password-here')
+    await userEvent.click(recovery.getByRole('button', { name: /generate a new set/i }))
     await resolveConfirm('confirm')
 
-    await waitFor(() => expect(regen).toHaveBeenCalled())
+    // WITH the password, not merely called: the endpoint has always required it
+    // and this form never asked, so every click answered 403. Mocking the api
+    // module is what hid that — the mock accepted no argument and the real one
+    // sent no body, and the two agreed with each other about nothing.
+    await waitFor(() => expect(regen).toHaveBeenCalledWith('old-password-here'))
     expect(await screen.findByText('NEW01-NEW02-NEW03-NEW04')).toBeInTheDocument()
+  })
+
+  it('cannot be submitted without the current password', async () => {
+    mount()
+    const recovery = within(await card('Recovery codes'))
+    expect(recovery.getByRole('button', { name: /generate a new set/i })).toBeDisabled()
   })
 
   it('keeps the old codes working when the user backs out', async () => {
     const regen = vi.spyOn(api, 'regenerateRecoveryCodes').mockResolvedValue([])
     mount()
 
-    await userEvent.click(await screen.findByRole('button', { name: /generate a new set/i }))
+    const recovery = within(await card('Recovery codes'))
+    await userEvent.type(recovery.getByLabelText(/current password/i), 'old-password-here')
+    await userEvent.click(recovery.getByRole('button', { name: /generate a new set/i }))
     await resolveConfirm('cancel')
 
     expect(regen).not.toHaveBeenCalled()

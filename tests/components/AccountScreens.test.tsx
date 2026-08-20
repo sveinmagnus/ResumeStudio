@@ -87,28 +87,37 @@ describe('<ForgotScreen>', () => {
 })
 
 describe('<RecoverScreen>', () => {
-  it('spends a code and reports how many are left', async () => {
-    vi.spyOn(api, 'recoverWithCode').mockResolvedValue(7)
-    render(<RecoverScreen />)
-
+  const spend = async () => {
     await userEvent.type(screen.getByLabelText(/username or email address/i), 'kari')
     await userEvent.type(screen.getByLabelText(/recovery code/i), 'aaaaa bbbbb')
     await userEvent.type(screen.getByLabelText(/^new password$/i), 'correct-horse-battery')
     await userEvent.click(screen.getByRole('button', { name: /set new password/i }))
+  }
 
-    expect(await screen.findByText(/7 recovery codes left/i)).toBeInTheDocument()
-  })
-
-  it('says plainly when that was the last code', async () => {
-    vi.spyOn(api, 'recoverWithCode').mockResolvedValue(0)
+  it('shows the replacement set, which is the only time it is readable', async () => {
+    // Setting a password clears every code, so the server mints a new set and
+    // returns it here. This screen used to render a COUNT the server has never
+    // sent — always 0 — so it announced "that was your last recovery code" while
+    // dropping the ten it had just been handed. They are stored hashed; nothing
+    // could have recovered them afterwards.
+    vi.spyOn(api, 'recoverWithCode').mockResolvedValue(['NEW01-NEW02', 'NEW03-NEW04'])
     render(<RecoverScreen />)
 
-    await userEvent.type(screen.getByLabelText(/username or email address/i), 'kari')
-    await userEvent.type(screen.getByLabelText(/recovery code/i), 'zzzzz')
-    await userEvent.type(screen.getByLabelText(/^new password$/i), 'correct-horse-battery')
-    await userEvent.click(screen.getByRole('button', { name: /set new password/i }))
+    await spend()
 
-    expect(await screen.findByText(/that was your last recovery code/i)).toBeInTheDocument()
+    expect(await screen.findByText('NEW01-NEW02')).toBeInTheDocument()
+    expect(screen.getByText('NEW03-NEW04')).toBeInTheDocument()
+    expect(screen.getByText(/the codes you had before no longer work/i)).toBeInTheDocument()
+  })
+
+  it('still confirms the change when the server sends no replacement set', async () => {
+    vi.spyOn(api, 'recoverWithCode').mockResolvedValue([])
+    render(<RecoverScreen />)
+
+    await spend()
+
+    expect(await screen.findByText(/sign in with the new password/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /go to sign in/i })).toBeInTheDocument()
   })
 })
 

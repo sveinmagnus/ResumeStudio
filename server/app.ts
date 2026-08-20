@@ -257,6 +257,34 @@ export function createApp(): Express {
     handler: (_req, res) => { res.status(429).json({ error: 'Too many attempts. Try again later.' }) },
   })
 
+  /**
+   * The same tight ceiling for invitation acceptance, but counting FAILURES only.
+   *
+   * `/accept` was in the bucket above, and it does not belong there for the
+   * reason that bucket is success-inclusive: that reason is `/forgot`, which
+   * answers 200 whatever happens and so would never spend a failure-counted
+   * budget. `/accept` answers 400 on a token it does not recognise, so a
+   * guesser is counted either way.
+   *
+   * What the shared bucket cost was onboarding. Accepting an invitation is the
+   * one thing here that several DIFFERENT people do at once, and colleagues in
+   * one office share one address: five acceptances and the sixth colleague is
+   * told "Too many attempts. Try again later.", which reads as a broken
+   * invitation rather than a limit. The e2e suite tripped it doing nothing more
+   * unusual than inviting somebody.
+   *
+   * Guessing is bounded exactly as before — five wrong tokens per window — and
+   * a token is 32 random bytes, so that ceiling was never what made it safe.
+   */
+  const acceptLimiter = rateLimit({
+    windowMs: recoveryWindowMs,
+    limit: recoveryMax,
+    skipSuccessfulRequests: true,
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler: (_req, res) => { res.status(429).json({ error: 'Too many attempts. Try again later.' }) },
+  })
+
   // ── Health check (no auth, no rate limit — frontend reachability probe) ────
   app.get('/api/health', (_req, res) => {
     res.json({ ok: true })
@@ -283,9 +311,10 @@ export function createApp(): Express {
   // The recovery limiter goes on the paths that send mail or spend a credential,
   // ahead of the general one. `/me` and the owner routes stay on `apiLimiter`
   // alone — a signed-in owner editing accounts is not the abuse case.
-  for (const path of ['/api/users/forgot', '/api/users/reset', '/api/users/recover', '/api/users/accept']) {
+  for (const path of ['/api/users/forgot', '/api/users/reset', '/api/users/recover']) {
     app.use(path, recoveryLimiter)
   }
+  app.use('/api/users/accept', acceptLimiter)
   app.use('/api/users', apiLimiter, usersRouter)
 
   // ── Resume API (auth-gated) ──────────────────────────────────────────────

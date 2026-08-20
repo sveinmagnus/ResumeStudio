@@ -128,13 +128,13 @@ export function RecoverScreen() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
-  const [left, setLeft] = useState<number | null>(null)
+  const [fresh, setFresh] = useState<string[] | null>(null)
 
   const submit = async () => {
     setError('')
     setBusy(true)
     try {
-      setLeft(await api.recoverWithCode(login, code, password))
+      setFresh(await api.recoverWithCode(login, code, password))
     } catch (err) {
       setError(messageOf(err, 'Could not use that recovery code.'))
     } finally {
@@ -142,17 +142,27 @@ export function RecoverScreen() {
     }
   }
 
-  if (left !== null) {
+  /*
+   * Setting a password clears the whole set, so the server mints a replacement
+   * and returns it here. This is the only time those codes are readable — the
+   * screen used to render a count instead and drop them, which left the one way
+   * back in that needs no administrator worse off after using it than before.
+   */
+  if (fresh !== null) {
     return (
       <AuthShell
         title="Password changed"
-        intro={left === 0
-          ? 'That was your last recovery code. Generate a new set from your profile once you are signed in.'
-          : `${left} recovery code${left === 1 ? '' : 's'} left. Each one works once.`}
+        intro={fresh.length
+          ? 'Spending a code replaces the whole set. These are your new ones — the codes you had before no longer work.'
+          : 'You are signed out everywhere. Sign in with the new password.'}
       >
-        <button type="button" className="auth-submit" onClick={() => navigate('/')}>
-          Go to sign in
-        </button>
+        {fresh.length
+          ? <RecoveryCodesPanel codes={fresh} onAcknowledge={() => navigate('/')} />
+          : (
+            <button type="button" className="auth-submit" onClick={() => navigate('/')}>
+              Go to sign in
+            </button>
+          )}
       </AuthShell>
     )
   }

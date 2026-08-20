@@ -1329,6 +1329,38 @@ describe('api — accounts', () => {
     expect(JSON.parse(callArgs()[1].body as string)).toEqual({ visibility: 'instance' })
   })
 
+  /*
+   * The two recovery-code calls, pinned against the shape server/routes/users.ts
+   * actually sends and requires.
+   *
+   * Both were wrong in the same way and for the same reason: every test that
+   * touched them mocked THIS module, so the client and the server were free to
+   * disagree and no suite was positioned to notice. An e2e run against a real
+   * server found both in one pass.
+   */
+  it('returns the replacement codes /recover sends, not a count it never sends', async () => {
+    const codes = ['NEW01-NEW02-NEW03-NEW04', 'NEW05-NEW06-NEW07-NEW08']
+    fetchMock.mockResolvedValue(mockRes({ body: { ok: true, recovery_codes: codes } }))
+
+    // Reading `codes_left` here returned 0 for every successful recovery, so the
+    // screen said "that was your last code" and discarded the ten it was handed.
+    // They are stored hashed: this response is the only readable copy there is.
+    await expect(api.recoverWithCode('kari', 'aaaaa', 'correct-horse-battery'))
+      .resolves.toEqual(codes)
+  })
+
+  it('sends the current password when replacing a recovery-code set', async () => {
+    fetchMock.mockResolvedValue(mockRes({ body: { ok: true, recovery_codes: ['X'] } }))
+    await api.regenerateRecoveryCodes('old-password-here')
+
+    expect(callArgs()[0]).toBe('/api/users/me/recovery-codes')
+    // The endpoint 403s without it. Sending no body made the profile's
+    // "Generate a new set" button impossible to succeed at.
+    expect(JSON.parse(callArgs()[1].body as string)).toEqual({
+      current_password: 'old-password-here',
+    })
+  })
+
   it('memoizes "who am I" and forgets it when the session changes', async () => {
     forgetIdentity()
     const me = { user_id: 'u1', name: 'Kari', role: 'member', service: false, mode: 'accounts' }

@@ -491,15 +491,26 @@ function coerce(raw: unknown): AppSettings {
  * tell "the owner saved nothing" from "the owner saved the default", because
  * only the first should fall through to the environment.
  */
-function readSettingsFile(): AppSettings | null {
+/**
+ * The settings file exactly as written, WITHOUT coerce's defaults filled in.
+ *
+ * The distinction is load-bearing. `coerce` returns every key, so a caller
+ * asking "did the owner set this one?" of a coerced object always hears yes,
+ * and both env-projection paths below asked exactly that. On a hosted instance
+ * they answered by writing defaults over the real environment.
+ */
+function parseSettingsFile(): Record<string, unknown> | null {
   const file = settingsFilePath()
   if (!fs.existsSync(file)) return null
   try {
-    return coerce(JSON.parse(fs.readFileSync(file, 'utf8')))
+    const parsed: unknown = JSON.parse(fs.readFileSync(file, 'utf8'))
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
+    return parsed as Record<string, unknown>
   } catch {
     return null
   }
 }
+
 
 /** Read settings.json (coerced); returns defaults if the file is absent/garbage. */
 export function loadSettings(): AppSettings {
@@ -512,8 +523,13 @@ export function loadSettings(): AppSettings {
   }
 }
 
-/** Atomically write settings.json (temp file + rename), 0600 best-effort. */
-function writeSettings(settings: AppSettings): void {
+/**
+ * Atomically write settings.json (temp file + rename), 0600 best-effort.
+ *
+ * Takes a loose record because a server's file is a SPARSE overlay of the
+ * owner-editable keys, not a whole AppSettings snapshot — see saveSettings.
+ */
+function writeSettings(settings: AppSettings | Record<string, unknown>): void {
   const file = settingsFilePath()
   fs.mkdirSync(path.dirname(file), { recursive: true })
   const tmp = `${file}.${process.pid}.${Date.now()}.tmp`
@@ -670,12 +686,34 @@ export function loadOrInitSettings(): AppSettings {
   return seeded
 }
 
-/** Merge a partial update over the current settings, persist, and apply to env. */
+/**
+ * Merge a partial update over the current settings, persist, and apply to env.
+ *
+ * The desktop build's file is authoritative for everything, so it is written as
+ * a whole snapshot. A SERVER's file is a sparse overlay of the owner-editable
+ * keys on top of the environment, and writing a snapshot there was destructive:
+ * `loadSettings()` answers DEFAULT_SETTINGS when no file exists, so the first
+ * time an owner saved any single field, every other key was written too — and
+ * since anything the file holds wins at startup, that handed the whole default
+ * set authority over the operator's environment. `applyToEnv` then projected it
+ * onto the LIVE process, including the machine-level keys a web request is
+ * never allowed to move. Hence: persist only what was actually set, and project
+ * only the owner-editable keys.
+ */
 export function saveSettings(patch: Partial<AppSettings>): AppSettings {
-  const merged = coerce({ ...loadSettings(), ...patch })
-  writeSettings(merged)
-  applyToEnv(merged)
-  return merged
+  if (isDesktop()) {
+    const merged = coerce({ ...loadSettings(), ...patch })
+    writeSettings(merged)
+    applyToEnv(merged)
+    return merged
+  }
+  const raw = parseSettingsFile() ?? {}
+  for (const key of OWNER_EDITABLE_KEYS) {
+    if (Object.hasOwn(patch, key)) raw[key] = patch[key]
+  }
+  writeSettings(raw)
+  applyServerSettings()
+  return currentSettings()
 }
 
 /**
@@ -711,11 +749,14 @@ export const OWNER_EDITABLE_KEYS: readonly (keyof AppSettings)[] = [
 export function currentSettings(): AppSettings {
   if (isDesktop()) return loadSettings()
   const fromEnv = settingsFromEnv()
-  const saved = readSettingsFile()
-  if (!saved) return fromEnv
+  const raw = parseSettingsFile()
+  if (!raw) return fromEnv
+  const saved = coerce(raw)
   const merged = { ...fromEnv }
   for (const key of OWNER_EDITABLE_KEYS) {
-    if (saved[key] !== undefined) (merged as Record<string, unknown>)[key] = saved[key]
+    // hasOwn on the RAW object, never `saved[key] !== undefined`: saved is
+    // coerced, so every key is present and that test is always true.
+    if (Object.hasOwn(raw, key)) (merged as Record<string, unknown>)[key] = saved[key]
   }
   return merged
 }
@@ -731,12 +772,19 @@ export function currentSettings(): AppSettings {
  */
 export function applyServerSettings(): void {
   if (isDesktop()) return
-  const saved = readSettingsFile()
-  if (!saved) return
+  const raw = parseSettingsFile()
+  if (!raw) return
+  const saved = coerce(raw)
   for (const f of FIELDS) {
     if (!f.env || !OWNER_EDITABLE_KEYS.includes(f.key)) continue
+    // hasOwn on the RAW object. Guarding on the coerced value instead was a
+    // guard that never fired, so every owner-editable key the file did not
+    // carry was projected as its DEFAULT over the operator's environment:
+    // RESUME_APP_BASE_URL and SMTP_HOST cleared, and MAIL_TRANSPORT — which is
+    // alwaysSet — forced to off. Invite and reset links came out as bare paths
+    // and mail stopped, silently, on the deployment this branch exists for.
+    if (!Object.hasOwn(raw, f.key)) continue
     const v = saved[f.key]
-    if (v === undefined) continue
     const text = f.kind === 'bool' ? (v === true ? '1' : '') : String(v)
     if (f.alwaysSet) process.env[f.env] = text
     else setOrClear(f.env, text)
