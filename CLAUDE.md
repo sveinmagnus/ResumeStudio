@@ -353,11 +353,27 @@ src/
 │                      UsagePanel, CvAdvisors (§15), ResumeViewsEditor,
 │                      CoverLettersEditor (own entity referencing a view; letter exports),
 │                      views/ (ViewEditor + the style/header/footer/item-select panels)
+├── sw.js            ← shell-only service worker: precaches index.html + the entry
+│                      chunk + the fonts from a build-injected list. Has NO
+│                      `cache.put` at all, so an /api response cannot be stored
+│                      even in principle — see §16
+├── swRegister.ts    ← its own index.html entry; registers in prod, unregisters in
+│                      dev, owns the "new version — reload" prompt
 └── index.css        ← self-hosted @font-face + design tokens + global a11y rules + utilities
 
 server/              ← Express API + SQLite persistence
 ├── index.ts (VPS/dev entry) + app.ts (createApp: security headers, routers, static serving)
-├── auth.ts (cookie OR Bearer; constant-time; env read lazily) · db.ts (createResumeDb +
+├── auth.ts (session cookie OR Bearer service token; three modes derived from
+│   state, never declared: open / token / accounts) · accounts.ts (users,
+│   sessions, grants, recovery codes — the identity half) · passwords.ts
+│   (node:crypto scrypt, async, self-describing so cost is raisable) ·
+│   access.ts (THE read/write rule — canRead/canWrite/readableWhere; the ONE
+│   place authorization is decided) · bootstrap.ts (the one-time first-account
+│   code, held in memory so a restart re-issues it) · csrf.ts (double-submit
+│   token; exempt list is exact paths, never prefixes) · mail.ts (optional
+│   outbound: sendmail argv-only or a hand-rolled SMTP client; addresses are
+│   REJECTED not sanitised)
+├── db.ts (createResumeDb +
 │   lazy singleton; snapshots; dump/restore; close checkpoints WAL) · config.ts (PURE paths)
 ├── sqlite.ts (THE connection: node:sqlite behind a better-sqlite3-shaped facade —
 │   adds pragma()/transaction(), copies null-prototype rows. No native addon)
@@ -386,13 +402,17 @@ server/              ← Express API + SQLite persistence
 │   ollamaDocker.ts (app-driven local Ollama, like translateDocker)
 ├── version.ts (APP_VERSION + APP_VERSION_LABEL) · desktop/ (launcher, freePort,
 │   openBrowser, notify, tray, trayIcon, updater, updateRuntime — CJS-bundled, see §14)
-└── routes/          ← auth, resume, registry, translate, llm, summarize, backup, settings, update
+└── routes/          ← auth (login/logout/bootstrap/me), users (invites, the four
+                        reset triggers, profiles, owner administration), resume,
+                        registry, translate, llm, summarize, backup, settings, update
 
 scripts/             ← build-desktop (assembles the portable release/ folder, per target
                         OS), check-bundle-size + check-control-chars + check-arch-map
                         (CI gates — the last asserts this very map is complete), dev-server
-                        (pins the API port — see §11), mutation-run, and the two codegen
-                        steps: gen-section-icons, build-skill-taxonomy
+                        (pins the API port — see §11), recover (mints a reset link from
+                        the machine itself — the owner's floor when nobody can issue one),
+                        mutation-run, and the two codegen steps: gen-section-icons,
+                        build-skill-taxonomy
 tests/               ← Vitest (lib/store/components/server); e2e/ holds the Playwright
                         smoke + accessibility suites. See §10
 ```

@@ -7,6 +7,11 @@ import { payloadStats } from './storage.js'
 import {
   createRegistryStore, type RegistryStore,
 } from './registryDb.js'
+import { createAccountsStore, type AccountsStore, type Viewer } from './accounts.js'
+import {
+  canRead, canWrite, canReshare, isUnrestricted, normaliseVisibility,
+  readableWhere, writableWhere, type OwnedRow, type Visibility,
+} from './access.js'
 
 // See the note in app.ts: esbuild emits "" for import.meta.url in the desktop
 // CJS bundle, so guard against fileURLToPath(""). DATA_DIR is only consulted
@@ -19,6 +24,17 @@ const DATA_DIR = path.join(__dirname, '..', 'data')
 
 /** How many recent snapshots to retain per resume. Older ones are pruned on each save. */
 export const MAX_SNAPSHOTS = 50
+
+/**
+ * The viewer for work no request initiated: the backup scheduler, the folder
+ * watcher, the desktop launcher's boot restore.
+ *
+ * They act for the machine rather than for a person, so they take the same
+ * shape as a service credential — unrestricted, but owning nothing, which is
+ * what keeps a resume merged in by a background sync unowned rather than
+ * silently attributed to whoever happened to be signed in.
+ */
+export const SYSTEM_VIEWER: Viewer = { userId: null, role: 'owner', name: null }
 
 /**
  * Snapshots are *content* history — embedded base64 images (profile photo,
@@ -65,6 +81,14 @@ export interface ResumeMeta {
   version: number
   /** Who last saved (named-token attribution, F10). Null = anonymous token / never saved. */
   saved_by: string | null
+  /**
+   * The account that created it. Null for a service credential, the desktop
+   * build, and rows that predate accounts — all of which read as owner-only
+   * (`server/access.ts`).
+   */
+  owner_id: string | null
+  /** Who else may read it. See `server/access.ts`. */
+  visibility: Visibility
 }
 
 export interface ResumeFull {
@@ -87,6 +111,14 @@ export interface ResumeBackupEntry {
   saved_at: string
   created_at: string
   data: Record<string, unknown>
+  /**
+   * The owning account on the instance that wrote the file. Optional: files
+   * written before accounts existed carry none, and one from another firm's
+   * instance names an account that does not exist here. `restoreResumes`
+   * honours it only for an unrestricted viewer, and only when the id resolves
+   * to a real user — otherwise the importer becomes the owner.
+   */
+  owner_id?: string | null
 }
 
 /** Outcome of a `restoreResumes` merge — one count per disposition. */
@@ -158,10 +190,31 @@ export interface LocaleUpdate {
   secondary_locale: string | null
 }
 
+/**
+ * Storage, scoped.
+ *
+ * Every resume operation takes a `Viewer` as its FIRST argument, and it is
+ * required rather than optional on purpose: a missed scope is a silent
+ * cross-user data leak, so forgetting one has to be a compile error rather than
+ * a runtime surprise. Same discipline as `mutate()` in the client store and
+ * `src/lib/lookup.ts` for map reads — put the safe path where the unsafe one
+ * used to be.
+ *
+ * The rules themselves live in `server/access.ts` and are not restated here.
+ * Single-row operations read the row's `owner_id`/`visibility` and ask; list
+ * operations take a WHERE fragment from `readableWhere`, which is null for an
+ * unrestricted viewer so their queries stay exactly what they were.
+ *
+ * A row the viewer may not touch reports as ABSENT — `null`, `false`,
+ * `not-found` — never as a distinct refusal, because a refusal would tell a
+ * member which resume ids exist.
+ */
 export interface ResumeDb extends RegistryStore {
-  listResumes(): ResumeMeta[]
-  createResume(input: CreateResumeInput): ResumeMeta
-  getResume(id: string): ResumeFull | null
+  /** Users, sessions, grants and recovery codes on this same connection. */
+  accounts: AccountsStore
+  listResumes(viewer: Viewer): ResumeMeta[]
+  createResume(viewer: Viewer, input: CreateResumeInput): ResumeMeta
+  getResume(viewer: Viewer, id: string): ResumeFull | null
   /**
    * Replace `data` (and optionally locales) on an existing resume, bumping its
    * version. Appends a snapshot in the same transaction (deduped, pruned per
@@ -171,33 +224,46 @@ export interface ResumeDb extends RegistryStore {
    * conflict "keep mine").
    */
   saveResume(
+    viewer: Viewer,
     id: string,
     data: unknown,
     locales?: LocaleUpdate,
     expectedVersion?: number,
     savedBy?: string | null,
   ): SaveResult
-  deleteResume(id: string): boolean
-  renameResume(id: string, name: string): boolean
-  listSnapshots(resumeId: string): SnapshotMeta[]
-  getSnapshot(resumeId: string, snapshotId: number): Record<string, unknown> | null
+  deleteResume(viewer: Viewer, id: string): boolean
+  renameResume(viewer: Viewer, id: string, name: string): boolean
+  /** Change who else may read a resume. Only whoever may write it may reshare it. */
+  setVisibility(viewer: Viewer, id: string, visibility: Visibility): boolean
+  listSnapshots(viewer: Viewer, resumeId: string): SnapshotMeta[]
+  getSnapshot(viewer: Viewer, resumeId: string, snapshotId: number): Record<string, unknown> | null
   /**
    * Per-resume payload weights (live JSON size, embedded-image share, snapshot
    * totals) plus the DB file size. Read-only measurement — scans every row, so
    * call it on demand (a picker load), not per save.
    */
-  storageStats(): StorageStats
+  storageStats(viewer: Viewer): StorageStats
   /**
    * Every resume as portable backup entries, oldest-created first. The source
    * for a store-backup written to the sync folder.
    */
-  dumpResumes(): ResumeBackupEntry[]
+  dumpResumes(viewer: Viewer): ResumeBackupEntry[]
   /**
    * Merge a set of backup entries into this DB (see `RestoreOptions`). Runs in
    * a single transaction; appends a snapshot for each inserted/updated resume
    * so a surprising restore is itself reversible from History.
+   *
+   * An entry naming a resume the viewer may not write is counted as skipped:
+   * merging by id is a write primitive, and an uploaded file must not become a
+   * way to rewrite a colleague's CV.
    */
-  restoreResumes(entries: ResumeBackupEntry[], opts?: RestoreOptions): RestoreSummary
+  restoreResumes(viewer: Viewer, entries: ResumeBackupEntry[], opts?: RestoreOptions): RestoreSummary
+  /**
+   * Give every ownerless resume to `userId`, returning how many moved. The
+   * bootstrap's second half: on an upgrade those rows are the existing CVs, and
+   * an unowned row is visible to nobody but an owner.
+   */
+  claimUnownedResumes(userId: string): number
   /**
    * Checkpoint the WAL into the main DB file and close the connection. Call on
    * graceful shutdown so the `.db` file is self-contained at rest (important
@@ -256,7 +322,9 @@ export function createResumeDb(dbPath: string): ResumeDb {
       saved_at         TEXT NOT NULL,
       created_at       TEXT NOT NULL,
       version          INTEGER NOT NULL DEFAULT 1,
-      saved_by         TEXT
+      saved_by         TEXT,
+      owner_id         TEXT,
+      visibility       TEXT NOT NULL DEFAULT 'private'
     );
     CREATE TABLE IF NOT EXISTS resume_snapshots (
       id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -282,26 +350,68 @@ export function createResumeDb(dbPath: string): ResumeDb {
   if (!columns.some((c) => c.name === 'saved_by')) {
     db.exec('ALTER TABLE resumes ADD COLUMN saved_by TEXT')
   }
+  // Additive migration: ownership. Existing rows stay NULL — the bootstrap
+  // hands them to the first account (`claimUnownedResumes`), and until it does
+  // they read as owner-only rather than as everybody's.
+  if (!columns.some((c) => c.name === 'owner_id')) {
+    db.exec('ALTER TABLE resumes ADD COLUMN owner_id TEXT')
+  }
+  if (!columns.some((c) => c.name === 'visibility')) {
+    db.exec("ALTER TABLE resumes ADD COLUMN visibility TEXT NOT NULL DEFAULT 'private'")
+  }
+  db.exec('CREATE INDEX IF NOT EXISTS idx_resumes_owner ON resumes(owner_id)')
+
+  // Accounts share this connection: `owner_id` points into `users`, and the two
+  // have to be consistent within one transaction (the bootstrap creates the
+  // first user and claims every unowned resume in one go).
+  const accounts = createAccountsStore(db)
   const snapColumns = db.prepare('PRAGMA table_info(resume_snapshots)').all() as { name: string }[]
   if (!snapColumns.some((c) => c.name === 'saved_by')) {
     db.exec('ALTER TABLE resume_snapshots ADD COLUMN saved_by TEXT')
   }
 
   // ─── Prepared statements ───────────────────────────────────────────────────
+  const META_COLS =
+    'id, name, primary_locale, secondary_locale, saved_at, created_at, version, saved_by, owner_id, visibility'
+
+  /**
+   * Prepare-once cache for the scoped variants of a query.
+   *
+   * `readableWhere`/`writableWhere` return one fixed SQL fragment per rule, so
+   * this holds a couple of statements for the whole process — but the fragment
+   * is composed rather than constant, so it cannot be prepared up front beside
+   * the others. Only the fragment is interpolated; the viewer's id is always a
+   * bound parameter.
+   */
+  const scopedCache = new Map<string, ReturnType<typeof db.prepare>>()
+  const scoped = (sql: string) => {
+    let stmt = scopedCache.get(sql)
+    if (!stmt) {
+      stmt = db.prepare(sql)
+      scopedCache.set(sql, stmt)
+    }
+    return stmt
+  }
+
   const selectResumes = db.prepare(`
-    SELECT id, name, primary_locale, secondary_locale, saved_at, created_at, version, saved_by
+    SELECT ${META_COLS}
     FROM resumes
     ORDER BY saved_at DESC
   `)
-  const selectResumeVersion = db.prepare('SELECT version FROM resumes WHERE id = ?')
+  const selectResumeVersion = db.prepare(
+    'SELECT version, owner_id, visibility FROM resumes WHERE id = ?',
+  )
+  const selectResumeAccess = db.prepare('SELECT owner_id, visibility FROM resumes WHERE id = ?')
   const selectResumeFull = db.prepare(`
-    SELECT id, name, data, primary_locale, secondary_locale, saved_at, created_at, version, saved_by
+    SELECT ${META_COLS}, data
     FROM resumes WHERE id = ?
   `)
   const insertResume = db.prepare(`
-    INSERT INTO resumes (id, name, data, primary_locale, secondary_locale, saved_at, created_at, version)
-    VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+    INSERT INTO resumes (id, name, data, primary_locale, secondary_locale, saved_at, created_at, version, owner_id, visibility)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, 'private')
   `)
+  const updateVisibility = db.prepare('UPDATE resumes SET visibility = ? WHERE id = ?')
+  const claimUnowned = db.prepare('UPDATE resumes SET owner_id = ? WHERE owner_id IS NULL')
   const updateResumeData = db.prepare(`
     UPDATE resumes SET data = ?, saved_at = ?, saved_by = ?, version = version + 1 WHERE id = ?
   `)
@@ -316,8 +426,10 @@ export function createResumeDb(dbPath: string): ResumeDb {
   const deleteResumeStmt = db.prepare(`
     DELETE FROM resumes WHERE id = ?
   `)
+  const DUMP_COLS =
+    'id, name, data, primary_locale, secondary_locale, saved_at, created_at, version, owner_id'
   const selectAllFull = db.prepare(`
-    SELECT id, name, data, primary_locale, secondary_locale, saved_at, created_at, version
+    SELECT ${DUMP_COLS}
     FROM resumes ORDER BY created_at ASC
   `)
   const selectAllIds = db.prepare('SELECT id FROM resumes')
@@ -325,8 +437,8 @@ export function createResumeDb(dbPath: string): ResumeDb {
   // from the backup) rather than minting new ones, so a row keeps its identity
   // and timestamp across machines. New rows start at version 1; updates bump.
   const insertResumeWithId = db.prepare(`
-    INSERT INTO resumes (id, name, data, primary_locale, secondary_locale, saved_at, created_at, version)
-    VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+    INSERT INTO resumes (id, name, data, primary_locale, secondary_locale, saved_at, created_at, version, owner_id, visibility)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, 'private')
   `)
   // saved_by is cleared on a restore-update: the content now comes from the
   // backup, not from whoever made the previous local edit.
@@ -379,19 +491,46 @@ export function createResumeDb(dbPath: string): ResumeDb {
     created_at: string
     version: number
     saved_by: string | null
+    owner_id: string | null
+    visibility: string
   }
   interface FullRow extends MetaRow { data: string }
+  interface DumpRow extends Omit<MetaRow, 'saved_by' | 'visibility'> { data: string }
+
+  /** The row's access columns, or null when there is no such resume. */
+  const accessOf = (id: string): OwnedRow | null =>
+    (selectResumeAccess.get(id) as OwnedRow | undefined) ?? null
+
+  const metaOf = (row: MetaRow): ResumeMeta => ({
+    id: row.id,
+    name: row.name,
+    primary_locale: row.primary_locale,
+    secondary_locale: row.secondary_locale,
+    saved_at: row.saved_at,
+    created_at: row.created_at,
+    version: row.version,
+    saved_by: row.saved_by,
+    owner_id: row.owner_id,
+    visibility: normaliseVisibility(row.visibility),
+  })
 
   // ─── Public API ───────────────────────────────────────────────────────────
-  const listResumes = (): ResumeMeta[] => selectResumes.all() as ResumeMeta[]
+  const listResumes = (viewer: Viewer): ResumeMeta[] => {
+    const where = readableWhere(viewer)
+    const rows = where
+      ? scoped(`SELECT ${META_COLS} FROM resumes WHERE ${where.sql} ORDER BY saved_at DESC`)
+        .all(...where.params) as MetaRow[]
+      : selectResumes.all() as MetaRow[]
+    return rows.map(metaOf)
+  }
 
-  const createResume = (input: CreateResumeInput): ResumeMeta => {
+  const createResume = (viewer: Viewer, input: CreateResumeInput): ResumeMeta => {
     const id = randomUUID()
     const now = new Date().toISOString()
     const json = JSON.stringify(input.data ?? {})
     const primary = input.primary_locale ?? 'en'
     const secondary = input.secondary_locale ?? null
-    insertResume.run(id, input.name, json, primary, secondary, now, now)
+    insertResume.run(id, input.name, json, primary, secondary, now, now, viewer.userId)
     return {
       id,
       name: input.name,
@@ -401,12 +540,15 @@ export function createResumeDb(dbPath: string): ResumeDb {
       created_at: now,
       version: 1,
       saved_by: null,
+      owner_id: viewer.userId,
+      visibility: 'private',
     }
   }
 
-  const getResume = (id: string): ResumeFull | null => {
+  const getResume = (viewer: Viewer, id: string): ResumeFull | null => {
     const row = selectResumeFull.get(id) as FullRow | undefined
     if (!row) return null
+    if (!canRead(viewer, row)) return null
     let data: Record<string, unknown>
     try {
       data = JSON.parse(row.data) as Record<string, unknown>
@@ -416,19 +558,7 @@ export function createResumeDb(dbPath: string): ResumeDb {
       // returns a clean 500 rather than the client silently losing the resume.
       throw new Error(`Corrupt data for resume ${id}: ${(err as Error).message}`, { cause: err })
     }
-    return {
-      meta: {
-        id: row.id,
-        name: row.name,
-        primary_locale: row.primary_locale,
-        secondary_locale: row.secondary_locale,
-        saved_at: row.saved_at,
-        created_at: row.created_at,
-        version: row.version,
-        saved_by: row.saved_by,
-      },
-      data,
-    }
+    return { meta: metaOf(row), data }
   }
 
   /**
@@ -437,18 +567,25 @@ export function createResumeDb(dbPath: string): ResumeDb {
    * See the `ResumeDb.saveResume` doc for the conflict / not-found semantics.
    */
   const saveResume = (
+    viewer: Viewer,
     id: string,
     data: unknown,
     locales?: LocaleUpdate,
     expectedVersion?: number,
     savedBy?: string | null,
   ): SaveResult => {
-    const row = selectResumeVersion.get(id) as { version: number } | undefined
+    const row = selectResumeVersion.get(id) as
+      | (OwnedRow & { version: number })
+      | undefined
     if (!row) return { status: 'not-found' }
+    // A resume this viewer may not change reports as absent rather than
+    // refused: `SaveResult` has no third status, and of the two existing ones
+    // "not found" is the one that answers nothing about which ids exist.
+    if (!canWrite(viewer, row)) return { status: 'not-found' }
     // Optimistic concurrency: a stale base version means someone wrote in
     // between. Write nothing; hand back the live state so the caller can diff.
     if (expectedVersion !== undefined && expectedVersion !== row.version) {
-      return { status: 'conflict', current: getResume(id)! }
+      return { status: 'conflict', current: getResume(viewer, id)! }
     }
     const saved_at = new Date().toISOString()
     const by = savedBy ?? null
@@ -477,35 +614,54 @@ export function createResumeDb(dbPath: string): ResumeDb {
     return { status: 'saved', saved_at, version: newVersion }
   }
 
-  const renameResume = (id: string, name: string): boolean => {
-    const info = renameResumeStmt.run(name, id)
-    return info.changes > 0
+  const renameResume = (viewer: Viewer, id: string, name: string): boolean => {
+    const row = accessOf(id)
+    if (!row || !canWrite(viewer, row)) return false
+    return renameResumeStmt.run(name, id).changes > 0
   }
 
-  const deleteResume = (id: string): boolean => {
-    const info = deleteResumeStmt.run(id)
-    return info.changes > 0
+  const deleteResume = (viewer: Viewer, id: string): boolean => {
+    const row = accessOf(id)
+    if (!row || !canWrite(viewer, row)) return false
+    return deleteResumeStmt.run(id).changes > 0
   }
 
-  const listSnapshots = (resumeId: string): SnapshotMeta[] =>
-    selectSnapshotList.all(resumeId) as SnapshotMeta[]
+  const setVisibility = (viewer: Viewer, id: string, visibility: Visibility): boolean => {
+    const row = accessOf(id)
+    if (!row || !canReshare(viewer, row)) return false
+    return updateVisibility.run(normaliseVisibility(visibility), id).changes > 0
+  }
+
+  const listSnapshots = (viewer: Viewer, resumeId: string): SnapshotMeta[] => {
+    const row = accessOf(resumeId)
+    if (!row || !canRead(viewer, row)) return []
+    return selectSnapshotList.all(resumeId) as SnapshotMeta[]
+  }
 
   const getSnapshot = (
+    viewer: Viewer,
     resumeId: string,
     snapshotId: number,
   ): Record<string, unknown> | null => {
+    const owner = accessOf(resumeId)
+    if (!owner || !canRead(viewer, owner)) return null
     const row = selectSnapshot.get(resumeId, snapshotId) as { data: string } | undefined
     return row ? (JSON.parse(row.data) as Record<string, unknown>) : null
   }
 
-  const storageStats = (): StorageStats => {
+  const storageStats = (viewer: Viewer): StorageStats => {
     const pageCount = db.pragma('page_count', { simple: true }) as number
     const pageSize = db.pragma('page_size', { simple: true }) as number
     const totals = new Map(
       (selectSnapshotTotals.all() as { resume_id: string; count: number; bytes: number | null }[])
         .map((r) => [r.resume_id, { count: r.count, bytes: r.bytes ?? 0 }]),
     )
-    const resumes = (selectStorageRows.all() as { id: string; name: string; data: string }[])
+    const where = readableWhere(viewer)
+    const rows = where
+      ? scoped(`SELECT id, name, data FROM resumes WHERE ${where.sql} ORDER BY saved_at DESC`)
+        .all(...where.params)
+      : selectStorageRows.all()
+    const resumes = (rows as { id: string; name: string; data: string }[])
       .map((row) => {
         const { bytes, image_bytes } = payloadStats(row.data)
         const snap = totals.get(row.id)
@@ -521,9 +677,14 @@ export function createResumeDb(dbPath: string): ResumeDb {
     return { db_bytes: pageCount * pageSize, resumes }
   }
 
-  const dumpResumes = (): ResumeBackupEntry[] => {
+  const dumpResumes = (viewer: Viewer): ResumeBackupEntry[] => {
+    const where = readableWhere(viewer)
+    const rows = where
+      ? scoped(`SELECT ${DUMP_COLS} FROM resumes WHERE ${where.sql} ORDER BY created_at ASC`)
+        .all(...where.params)
+      : selectAllFull.all()
     const out: ResumeBackupEntry[] = []
-    for (const row of selectAllFull.all() as FullRow[]) {
+    for (const row of rows as DumpRow[]) {
       let data: Record<string, unknown>
       try {
         data = JSON.parse(row.data) as Record<string, unknown>
@@ -540,13 +701,34 @@ export function createResumeDb(dbPath: string): ResumeDb {
         secondary_locale: row.secondary_locale,
         saved_at: row.saved_at,
         created_at: row.created_at,
+        owner_id: row.owner_id,
         data,
       })
     }
     return out
   }
 
+  /**
+   * Who a restored row belongs to.
+   *
+   * The importer, normally: a file carries no proof of who wrote it, and the
+   * person who chose to import it is the one accountable for it being here. An
+   * owner restoring a whole instance is the exception — there, the file's own
+   * `owner_id` is the record of who each CV belonged to, and collapsing fifty
+   * people's resumes onto the administrator who ran the restore would destroy
+   * that. Honoured only when the id resolves to a user of THIS instance, so a
+   * file from elsewhere cannot name an account that does not exist.
+   */
+  const restoreOwner = (viewer: Viewer, entry: ResumeBackupEntry): string | null => {
+    const carried = entry.owner_id
+    if (isUnrestricted(viewer) && typeof carried === 'string' && accounts.getUser(carried)) {
+      return carried
+    }
+    return viewer.userId
+  }
+
   const restoreResumes = (
+    viewer: Viewer,
     entries: ResumeBackupEntry[],
     opts?: RestoreOptions,
   ): RestoreSummary => {
@@ -569,9 +751,18 @@ export function createResumeDb(dbPath: string): ResumeDb {
         if (!existing) {
           insertResumeWithId.run(
             e.id, e.name, json, e.primary_locale, e.secondary_locale, e.saved_at, e.created_at,
+            restoreOwner(viewer, e),
           )
           snapshot(e.id, snapJson, e.saved_at)
           summary.inserted++
+          continue
+        }
+        // Merging by id is a write, so an entry naming a resume this viewer may
+        // not change is skipped — otherwise uploading a file would be a way to
+        // rewrite a colleague's CV, or to learn whose ids exist by watching the
+        // counts. Ownership of an existing row is never reassigned by a merge.
+        if (!canWrite(viewer, existing)) {
+          summary.skipped++
           continue
         }
         // Newest-wins by saved_at (ISO-8601 UTC strings sort chronologically).
@@ -588,7 +779,14 @@ export function createResumeDb(dbPath: string): ResumeDb {
         summary.updated++
       }
       if (opts?.mode === 'replace') {
-        for (const { id } of selectAllIds.all() as { id: string }[]) {
+        // "Make this machine match the backup" can only mean the part of the
+        // machine this viewer speaks for; a member's replace must not sweep away
+        // resumes they cannot even see.
+        const where = writableWhere(viewer)
+        const rows = where
+          ? scoped(`SELECT id FROM resumes WHERE ${where.sql}`).all(...where.params)
+          : selectAllIds.all()
+        for (const { id } of rows as { id: string }[]) {
           if (!incomingIds.has(id)) {
             // Snapshots go with it — the FK is ON DELETE CASCADE.
             deleteResumeStmt.run(id)
@@ -609,15 +807,18 @@ export function createResumeDb(dbPath: string): ResumeDb {
     db.close()
   }
 
+  const claimUnownedResumes = (userId: string): number => claimUnowned.run(userId).changes
+
   // Instance-level registry (cross-resume registries, Increment 1). Shares this
   // connection; creates its own table. Additive — not yet consumed by the
   // resume save path (see server/registryDb.ts and CLAUDE.md §14).
   const registry = createRegistryStore(db)
 
   return {
+    accounts,
     listResumes, createResume, getResume, saveResume,
-    deleteResume, renameResume, listSnapshots, getSnapshot,
-    storageStats, dumpResumes, restoreResumes, close,
+    deleteResume, renameResume, setVisibility, listSnapshots, getSnapshot,
+    storageStats, dumpResumes, restoreResumes, claimUnownedResumes, close,
     ...registry,
   }
 }
@@ -653,23 +854,36 @@ function defaultDb(): ResumeDb {
   return _default
 }
 
-export const listResumes = (): ResumeMeta[] => defaultDb().listResumes()
-export const createResume = (input: CreateResumeInput): ResumeMeta => defaultDb().createResume(input)
-export const getResume = (id: string): ResumeFull | null => defaultDb().getResume(id)
+export const listResumes = (viewer: Viewer): ResumeMeta[] => defaultDb().listResumes(viewer)
+export const createResume = (viewer: Viewer, input: CreateResumeInput): ResumeMeta =>
+  defaultDb().createResume(viewer, input)
+export const getResume = (viewer: Viewer, id: string): ResumeFull | null =>
+  defaultDb().getResume(viewer, id)
 export const saveResume = (
-  id: string, data: unknown, locales?: LocaleUpdate, expectedVersion?: number, savedBy?: string | null,
-): SaveResult => defaultDb().saveResume(id, data, locales, expectedVersion, savedBy)
-export const deleteResume = (id: string): boolean => defaultDb().deleteResume(id)
-export const renameResume = (id: string, name: string): boolean => defaultDb().renameResume(id, name)
-export const listSnapshots = (resumeId: string): SnapshotMeta[] => defaultDb().listSnapshots(resumeId)
+  viewer: Viewer, id: string, data: unknown, locales?: LocaleUpdate, expectedVersion?: number,
+  savedBy?: string | null,
+): SaveResult => defaultDb().saveResume(viewer, id, data, locales, expectedVersion, savedBy)
+export const deleteResume = (viewer: Viewer, id: string): boolean =>
+  defaultDb().deleteResume(viewer, id)
+export const renameResume = (viewer: Viewer, id: string, name: string): boolean =>
+  defaultDb().renameResume(viewer, id, name)
+export const setVisibility = (viewer: Viewer, id: string, visibility: Visibility): boolean =>
+  defaultDb().setVisibility(viewer, id, visibility)
+export const listSnapshots = (viewer: Viewer, resumeId: string): SnapshotMeta[] =>
+  defaultDb().listSnapshots(viewer, resumeId)
 export const getSnapshot = (
-  resumeId: string, snapshotId: number,
-): Record<string, unknown> | null => defaultDb().getSnapshot(resumeId, snapshotId)
-export const storageStats = (): StorageStats => defaultDb().storageStats()
-export const dumpResumes = (): ResumeBackupEntry[] => defaultDb().dumpResumes()
+  viewer: Viewer, resumeId: string, snapshotId: number,
+): Record<string, unknown> | null => defaultDb().getSnapshot(viewer, resumeId, snapshotId)
+export const storageStats = (viewer: Viewer): StorageStats => defaultDb().storageStats(viewer)
+export const dumpResumes = (viewer: Viewer): ResumeBackupEntry[] => defaultDb().dumpResumes(viewer)
 export const restoreResumes = (
-  entries: ResumeBackupEntry[], opts?: RestoreOptions,
-): RestoreSummary => defaultDb().restoreResumes(entries, opts)
+  viewer: Viewer, entries: ResumeBackupEntry[], opts?: RestoreOptions,
+): RestoreSummary => defaultDb().restoreResumes(viewer, entries, opts)
+
+/** The accounts store on the default connection — what `routes/auth.ts` signs people in against. */
+export const getAccounts = (): AccountsStore => defaultDb().accounts
+export const claimUnownedResumes = (userId: string): number =>
+  defaultDb().claimUnownedResumes(userId)
 
 // Instance registry (Increment 1) — singleton wrappers, like the resume ops.
 export const listRegistry: RegistryStore['listRegistry'] = (kind) => defaultDb().listRegistry(kind)

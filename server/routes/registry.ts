@@ -2,6 +2,7 @@ import { Router, type Request, type Response } from 'express'
 import {
   listRegistry, getRegistryEntry, upsertRegistryEntry, deleteRegistryEntry,
 } from '../db.js'
+import { requireOwner } from '../auth.js'
 import type { RegistryKind } from '../registryDb.js'
 
 /**
@@ -9,6 +10,16 @@ import type { RegistryKind } from '../registryDb.js'
  * Auth-gated + rate-limited like the rest (wired in app.ts). Additive: no client
  * consumes it yet — it's the endpoint the store-projection rewire (Increment 2)
  * will use. Errors stay generic (no SQL/internal detail), matching the codebase.
+ *
+ * NOT SCOPED PER USER, deliberately: the registry holds skill, role and
+ * industry NAMES, not personal data, and every member sharing one vocabulary is
+ * the entire point of it — a per-user registry is just a per-user spelling of
+ * "Kubernetes". Delete is the exception, and is owner-only: it rewrites
+ * references across resumes the deleter may not be able to see, so its blast
+ * radius is not bounded by what they can read.
+ *
+ * PRIVACY.md has to say that a registry name is visible to everyone, because a
+ * skill can be named after a client.
  */
 const router = Router()
 
@@ -87,8 +98,9 @@ router.put('/:id', (req: Request<IdParams>, res: Response): void => {
   res.status(404).json({ error: 'Not found' })
 })
 
-/** DELETE /api/registry/:id. */
+/** DELETE /api/registry/:id — owner only; see the note at the top of this file. */
 router.delete('/:id', (req: Request<IdParams>, res: Response): void => {
+  if (!requireOwner(res)) return
   res.json({ deleted: deleteRegistryEntry(req.params.id) })
 })
 

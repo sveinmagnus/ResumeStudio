@@ -27,6 +27,13 @@ This plan introduces the user model, then the authorization that depends on it.
    equivalent viewer, so tests, CI, curl and scripts keep working.
 5. **Password reset has four triggers and one mechanism** (§4) — three that
    need no email at all, plus optional self-service email (§3b).
+6. **Login accepts either the username or the email address** (D1). Both are
+   unique when set; email is optional, username is not.
+7. **Sessions do not expire on a timer** (D2). They end when something makes
+   them untrustworthy — logout, a password change or reset, or the account
+   being disabled. `expires_at` stays in the schema as nullable, `null` meaning
+   never, so a future policy is a config change rather than a migration.
+8. **Email addresses are verified before they can receive a reset** (D5).
 
 ## Non-goals
 
@@ -460,24 +467,53 @@ affecting anything after it — the other three reset triggers stand alone.
 
 ---
 
-## Open decisions (needed before Phase 1)
+## Decisions D1–D5 — settled
 
-- **D1. Username or email as the login identifier?** Email is familiar, but the
-  app never sends mail, so it implies a capability that does not exist. A
-  username plus a display name avoids the implication. Leaning username.
-- **D2. Session lifetimes.** Proposed 30-day absolute, 14-day idle. A firm
-  handling client CVs may want much shorter.
-- **D3. Keep `RESUME_API_TOKENS` (named tokens)?** They become redundant once
-  `saved_by` is a real user. Proposal: keep reading them for back-compat, treat
-  them as service credentials, stop documenting them.
-- **D5. Must an email address be verified before it can receive resets?**
-  Proposal: yes. Unverified, a typo means reset links go to a stranger — and the
-  address is attacker-controlled input in the one flow that hands out
-  credentials. Cost is one more grant kind and one more screen.
-- **D4. Anti-CSRF token?** `SameSite=Strict` plus the `Sec-Fetch-Site` guard is
-  adequate for a same-origin SPA. A double-submit token is cheap and dependency-
-  free, but it is defence in depth rather than a fix. Proposal: defer, with the
-  trigger being "a cross-origin client is added".
+- **D1. Both.** Login takes a username *or* an email address. Email stays
+  optional (it only exists for §3b), so username remains the required identity.
+  Both are unique when present, and the lookup must not leak which one matched.
+- **D2. Sessions are indefinite.** No idle timeout, no absolute expiry — a
+  consultant editing a CV should not be asked to log in again for no reason.
+  They end on logout, on a password change or reset, or on account disable.
+  `expires_at` is kept nullable (`null` = never) so a policy can be introduced
+  later without a schema migration.
+- **D3. `RESUME_API_TOKENS` is removed, not deprecated.** A nickname on a
+  shared secret is a worse version of an account: it cannot be revoked
+  individually, cannot expire, and names whoever holds the secret rather than a
+  person. Keeping it readable would leave two identity systems answering the
+  same question.
+
+  **Migration, and the lockout it must avoid.** Conversion happens *inside
+  bootstrap*, not at boot. Creating users at boot would flip `authMode()` to
+  `accounts` while no converted account has a usable password — and bootstrap
+  404s once a user exists, so the instance would lock everybody out of itself.
+  Instead: the operator spends the bootstrap code, the owner account is created,
+  and in the same transaction each named token becomes a **member account with a
+  locked password**, awaiting a reset link the owner can now issue. Until
+  somebody bootstraps, `token` mode keeps working exactly as before, so nothing
+  breaks on upgrade and no migration is forced.
+
+  Once in `accounts` mode, named tokens stop authenticating. The single
+  `RESUME_API_TOKEN` remains as the service credential (locked decision 4) —
+  scripts and CI still need a non-interactive way in, and per-user API tokens
+  are not built yet.
+- **D4. Implement the double-submit anti-CSRF token.** `SameSite=Strict` and
+  the `Sec-Fetch-Site` guard are both signals the BROWSER volunteers; a
+  double-submit token does not depend on either. The server sets a readable
+  `rs_csrf` cookie, the client echoes it in a header, and an attacker's page
+  cannot read the cookie to forge the header. Exempt the unauthenticated
+  endpoints that carry their own proof (login, bootstrap, accept, reset,
+  recover, forgot, verify-email) — CSRF protects actions authorised by an
+  AMBIENT credential, and those have none.
+
+  Note for whoever meets it later: `SameSite=Strict` means a top-level
+  navigation into the app from another origin (a reset link clicked in webmail)
+  arrives without the session cookie, so the user looks signed out until they
+  navigate once. It does not break the reset flow, which issues a fresh cookie
+  on redemption.
+- **D5. Verified addresses only.** An address receives resets only after
+  confirming a verification link. Unverified, one typo posts a credential-
+  bearing link to a stranger.
 
 ## Risks
 

@@ -14,7 +14,7 @@
 
 import { backupSignature } from './backup.js'
 import { writeResumeFiles } from './backupFiles.js'
-import type { ResumeDb } from './db.js'
+import { SYSTEM_VIEWER, type ResumeDb } from './db.js'
 import type { RegistryEntry } from './registryDb.js'
 
 export interface BackupSchedulerOptions {
@@ -71,7 +71,7 @@ export class BackupScheduler {
   /** Write now if (and only if) the store changed since the last write. */
   private tick(): void {
     try {
-      const entries = this.db.dumpResumes()
+      const entries = this.db.dumpResumes(SYSTEM_VIEWER)
       const registry = this.db.listRegistry()
       const sig = storeSignature(entries, registry)
       if (sig === this.lastSignature) return
@@ -89,7 +89,7 @@ export class BackupScheduler {
   /** Force a final write regardless of signature (used on graceful shutdown). */
   flush(): void {
     try {
-      const entries = this.db.dumpResumes()
+      const entries = this.db.dumpResumes(SYSTEM_VIEWER)
       const registry = this.db.listRegistry()
       const { written } = writeResumeFiles(this.dir, entries, registry)
       this.lastSignature = storeSignature(entries, registry)

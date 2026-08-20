@@ -2,10 +2,14 @@ import express, { type Express } from 'express'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import rateLimit from 'express-rate-limit'
-import { authMiddleware } from './auth.js'
+import { authMiddleware, setAccountsStore } from './auth.js'
+import { getAccounts } from './db.js'
 import { isDesktop } from './settings.js'
 import { isLoopbackHostname } from './localHost.js'
+import { csrfMiddleware } from './csrf.js'
+import { SESSION_COOKIE } from './auth.js'
 import authRouter from './routes/auth.js'
+import usersRouter from './routes/users.js'
 import resumeRouter from './routes/resume.js'
 import registryRouter from './routes/registry.js'
 import translateRouter from './routes/translate.js'
@@ -70,6 +74,12 @@ function isAllowedHost(host: string | undefined): boolean {
  * inline bootstrap.
  */
 export function createApp(): Express {
+  // The auth middleware resolves session cookies against the accounts store but
+  // does not build one: this file is the only place that knows how the database
+  // is opened. Until a user exists this changes nothing — `authMode()` still
+  // reports token or open — so an install without accounts behaves as it did.
+  setAccountsStore(getAccounts())
+
   const isProd = process.env.NODE_ENV === 'production'
   const app = express()
 
@@ -231,7 +241,21 @@ export function createApp(): Express {
   // Exchanges the token for an HttpOnly session cookie so it never sits in
   // JS-readable storage. Rate-limited like the rest of the API so login
   // attempts (401s) are throttled against brute force.
+  /**
+   * The CSRF brake, ahead of every API route.
+   *
+   * Only bites on a state-changing method that actually carries the session
+   * cookie, so a Bearer service client is unaffected — a browser never attaches
+   * a bearer header on its own, so there is nothing there to forge. The exempt
+   * list (login, bootstrap, and the reset flows) lives in `csrf.ts`.
+   */
+  app.use('/api', csrfMiddleware(SESSION_COOKIE))
+
   app.use('/api/auth', apiLimiter, authRouter)
+  // Not behind authMiddleware as a whole: the reset and invite routes must be
+  // reachable by someone who cannot sign in. The router applies it internally,
+  // above the routes that need a viewer.
+  app.use('/api/users', apiLimiter, usersRouter)
 
   // ── Resume API (auth-gated) ──────────────────────────────────────────────
   app.use('/api/resumes', apiLimiter, authMiddleware, resumeRouter)

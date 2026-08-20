@@ -22,6 +22,10 @@ import { resolvePaths } from './config.js'
 import { ltLoadOnly, TRANSLATE_PROVIDERS, type TranslateConfig, type TranslateProvider } from './translate.js'
 import { DEFAULT_OLLAMA_URL, LLM_PROVIDERS, type LlmConfig, type LlmProvider } from './llm.js'
 import { isValidLocalHostname } from './localHost.js'
+import {
+  DEFAULT_SENDMAIL_PATH, isValidEmailAddress, MAIL_TRANSPORTS, SMTP_SECURITIES,
+  type MailConfig, type MailTransport, type SmtpSecurity,
+} from './mail.js'
 
 export const SETTINGS_FILENAME = 'settings.json'
 
@@ -103,6 +107,33 @@ export interface AppSettings {
    * Declared rather than sniffed — see LlmConfig.highEnd.
    */
   llm_high_end: boolean
+  // ── Outbound email (optional; see server/mail.ts) ──
+  //
+  // Off by default, and the only feature it unlocks is self-service password
+  // reset. Nothing else in the app sends mail.
+  /** Which transport sends the message ('off' = the app never sends mail). */
+  mail_transport: MailTransport
+  /** Envelope sender and `From:`. Also the domain the SMTP client EHLOs as. */
+  mail_from: string
+  /** Path to the local sendmail-compatible binary (transport=sendmail). */
+  sendmail_path: string
+  /** SMTP relay host (transport=smtp). */
+  smtp_host: string
+  /** SMTP port. 0 = the standard port for `smtp_security` (465 / 587 / 25). */
+  smtp_port: number
+  /** Implicit TLS, STARTTLS, or an unencrypted relay (a local one). */
+  smtp_security: SmtpSecurity
+  /** SMTP username (empty = no AUTH attempted). */
+  smtp_user: string
+  /** SMTP password. */
+  smtp_pass: string
+  /**
+   * Absolute base URL this instance is reached at (e.g. https://cv.example.com).
+   * A reset link has to be absolute, and one built from the request's Host
+   * header is a link whoever sent the request chooses — pointed at their own
+   * server, it collects the credential instead of delivering it.
+   */
+  app_base_url: string
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -132,6 +163,15 @@ export const DEFAULT_SETTINGS: AppSettings = {
   llm_mistral_api_key: '',
   llm_model: '',
   llm_high_end: false,
+  mail_transport: 'off',
+  mail_from: '',
+  sendmail_path: DEFAULT_SENDMAIL_PATH,
+  smtp_host: '',
+  smtp_port: 0,
+  smtp_security: 'starttls',
+  smtp_user: '',
+  smtp_pass: '',
+  app_base_url: '',
 }
 
 /**
@@ -168,11 +208,12 @@ export function settingsFilePath(): string {
  *   num    — finite number, floored at `min` (and capped at `max`)
  *   locales— array of locale-shaped codes (reaches docker as LT_LOAD_ONLY)
  *   host   — empty, or a valid .local/.localhost name (see localHost.ts)
+ *   email  — empty, or an address safe to put in a header (see mail.ts)
  *
  * `env` is the variable applyToEnv projects onto. `alwaysSet` writes even when
  * empty (a provider must always be present); the rest clear the var instead.
  */
-type FieldKind = 'enum' | 'url' | 'secret' | 'text' | 'bool' | 'num' | 'locales' | 'host'
+type FieldKind = 'enum' | 'url' | 'secret' | 'text' | 'bool' | 'num' | 'locales' | 'host' | 'email'
 
 interface FieldSpec {
   key: keyof AppSettings
@@ -229,6 +270,18 @@ const FIELDS: readonly FieldSpec[] = [
   { key: 'llm_mistral_api_key',   kind: 'secret', env: 'LLM_MISTRAL_API_KEY',   legacyKey: 'summarize_mistral_api_key' },
   { key: 'llm_model',             kind: 'text',   env: 'LLM_MODEL',             legacyKey: 'summarize_model' },
   { key: 'llm_high_end',          kind: 'bool',   env: 'LLM_HIGH_END' },
+  // ── Outbound email (see server/mail.ts) ──
+  // The SMTP_* / MAIL_* names are the conventional ones every relay's docs use;
+  // app_base_url is the app's own configuration, hence the RESUME_ prefix.
+  { key: 'mail_transport', kind: 'enum',   env: 'MAIL_TRANSPORT', values: MAIL_TRANSPORTS, alwaysSet: true },
+  { key: 'mail_from',      kind: 'email',  env: 'MAIL_FROM' },
+  { key: 'sendmail_path',  kind: 'text',   env: 'SENDMAIL_PATH' },
+  { key: 'smtp_host',      kind: 'text',   env: 'SMTP_HOST' },
+  { key: 'smtp_port',      kind: 'num',    env: 'SMTP_PORT', min: 0, max: 65535 },
+  { key: 'smtp_security',  kind: 'enum',   env: 'SMTP_SECURITY', values: SMTP_SECURITIES, alwaysSet: true },
+  { key: 'smtp_user',      kind: 'text',   env: 'SMTP_USER' },
+  { key: 'smtp_pass',      kind: 'secret', env: 'SMTP_PASS' },
+  { key: 'app_base_url',   kind: 'url',    env: 'RESUME_APP_BASE_URL' },
 ]
 
 /**
@@ -277,6 +330,18 @@ export function validateSettingsPatch(
         patch[f.key] = trimmed
         break
       }
+      case 'email': {
+        if (typeof v !== 'string') return { error: `${f.key} must be a string` }
+        const trimmed = trimSpaces(v)
+        // Empty is a real value ("mail is not configured"). Anything else faces
+        // the same gate the send path uses: this value lands in a From: header,
+        // where a control character writes a header of the caller's choosing.
+        if (trimmed && !isValidEmailAddress(trimmed)) {
+          return { error: `${f.key} must be an email address` }
+        }
+        patch[f.key] = trimmed
+        break
+      }
       case 'url': {
         if (typeof v !== 'string') return { error: `${f.key} must be a string` }
         const trimmed = v.trim()
@@ -313,6 +378,18 @@ export function validateSettingsPatch(
 const LOCALE_RE = /^[a-z]{2,8}(-[a-z]{2,8})?$/
 
 /**
+ * Padding spaces only — the trim for `kind: 'email'`.
+ *
+ * Every other kind uses `String.trim()`, which also strips CR and LF. For a
+ * value that lands in a mail header, quietly removing the two characters that
+ * inject one is precisely the sanitising server/mail.ts refuses to do: a pasted
+ * space is forgiven, a control character is a rejection.
+ */
+function trimSpaces(v: string): string {
+  return v.replace(/^ +| +$/g, '')
+}
+
+/**
  * Locale codes for the Docker translate install. Untrusted-file surface: this
  * value reaches `docker compose` as an env var, so it is constrained to short
  * a-z/dash codes rather than passed through. A non-array (or one with nothing
@@ -346,6 +423,12 @@ function coerceField(f: FieldSpec, raw: unknown): AppSettings[keyof AppSettings]
     case 'host': {
       const h = typeof raw === 'string' ? raw.trim().toLowerCase() : ''
       return isValidLocalHostname(h) ? h : ''
+    }
+    // An invalid stored address falls back to empty, which reads as "mail is
+    // not configured" rather than being written into a header unchecked.
+    case 'email': {
+      const address = typeof raw === 'string' ? trimSpaces(raw) : ''
+      return isValidEmailAddress(address) ? address : ''
     }
     case 'locales':
       return coerceLocales(raw)
@@ -455,6 +538,22 @@ export function settingsToLlmConfig(s: AppSettings): LlmConfig {
     mistral: { apiKey: s.llm_mistral_api_key },
     model: s.llm_model,
     highEnd: s.llm_high_end,
+  }
+}
+
+/** Map persisted settings to a MailConfig (mirrors settingsToLlmConfig). */
+export function settingsToMailConfig(s: AppSettings): MailConfig {
+  return {
+    transport: s.mail_transport,
+    from: s.mail_from,
+    sendmailPath: s.sendmail_path || DEFAULT_SENDMAIL_PATH,
+    smtp: {
+      host: s.smtp_host,
+      port: s.smtp_port,
+      security: s.smtp_security,
+      user: s.smtp_user,
+      pass: s.smtp_pass,
+    },
   }
 }
 
@@ -579,6 +678,15 @@ export interface SettingsView {
   llm_mistral_api_key_set: boolean
   llm_model: string
   llm_high_end: boolean
+  mail_transport: MailTransport
+  mail_from: string
+  sendmail_path: string
+  smtp_host: string
+  smtp_port: number
+  smtp_security: SmtpSecurity
+  smtp_user: string
+  smtp_pass_set: boolean
+  app_base_url: string
 }
 
 export function toView(s: AppSettings): SettingsView {

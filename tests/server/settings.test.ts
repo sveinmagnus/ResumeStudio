@@ -5,15 +5,18 @@ import path from 'path'
 import {
   loadOrInitSettings, loadSettings, saveSettings, applyToEnv, toView,
   isDesktop, settingsFilePath, DOCKER_TRANSLATE_URL, DEFAULT_SETTINGS,
-  validateSettingsPatch,
+  validateSettingsPatch, settingsToMailConfig,
 } from '../../server/settings'
 import { TRANSLATE_PROVIDERS } from '../../server/translate'
 import { LLM_PROVIDERS } from '../../server/llm'
+import { MAIL_TRANSPORTS, SMTP_SECURITIES, isMailConfigured } from '../../server/mail'
 
 const ENV_KEYS = [
   'RESUME_DATA_DIR', 'RESUME_DESKTOP', 'LIBRETRANSLATE_URL', 'LIBRETRANSLATE_API_KEY',
   'RESUME_BACKUP_DIR', 'RESUME_BACKUP_INTERVAL_MS', 'TRANSLATE_PROVIDER',
   'DEEPL_API_KEY', 'GOOGLE_TRANSLATE_API_KEY', 'AZURE_TRANSLATOR_KEY', 'AZURE_TRANSLATOR_REGION',
+  'MAIL_TRANSPORT', 'MAIL_FROM', 'SENDMAIL_PATH', 'SMTP_HOST', 'SMTP_PORT',
+  'SMTP_SECURITY', 'SMTP_USER', 'SMTP_PASS', 'RESUME_APP_BASE_URL',
 ]
 const savedEnv: Record<string, string | undefined> = {}
 let dir: string
@@ -246,6 +249,89 @@ describe('validateSettingsPatch', () => {
       summarize_model: 'stale', llm_model: 'current',
     }))
     expect(loadSettings().llm_model).toBe('current')
+  })
+
+  /**
+   * `mail_from` is written into a `From:` header, so the validator is the first
+   * of the two gates on it (server/mail.ts refuses it again at send time). A CR
+   * or LF here would end the header line early and everything after it would be
+   * parsed as further headers — a Bcc: of the caller's choosing.
+   */
+  it('constrains mail_from to an address safe to put in a header', () => {
+    expect(validateSettingsPatch({ mail_from: 'noreply@example.com' }))
+      .toEqual({ patch: { mail_from: 'noreply@example.com' } })
+    // Empty is a real value: "mail is not configured".
+    expect(validateSettingsPatch({ mail_from: '' })).toEqual({ patch: { mail_from: '' } })
+    // Padding spaces are forgiven; a control character never is.
+    expect(validateSettingsPatch({ mail_from: '  noreply@example.com  ' }))
+      .toEqual({ patch: { mail_from: 'noreply@example.com' } })
+    const cr = String.fromCharCode(13)
+    const lf = String.fromCharCode(10)
+    for (const bad of [
+      `noreply@example.com${cr}${lf}Bcc: attacker@evil.test`,
+      // A plain String.trim() would strip these three and store a valid
+      // address, which is the sanitising this field is not allowed to do.
+      `noreply@example.com${lf}`,
+      `noreply@example.com${cr}`,
+      `noreply@example.com${String.fromCharCode(9)}`,
+      `noreply@example.com${String.fromCharCode(0)}`,
+      'Noreply <noreply@example.com>',
+      'not-an-address',
+      'a@b@c.com',
+      42,
+    ]) {
+      expect(validateSettingsPatch({ mail_from: bad }), String(bad)).toHaveProperty('error')
+    }
+  })
+
+  it('a stored mail_from that is no longer valid coerces to empty, not into a header', () => {
+    process.env.RESUME_DESKTOP = '1'
+    fs.writeFileSync(settingsFilePath(), JSON.stringify({
+      mail_from: `noreply@example.com${String.fromCharCode(13)}${String.fromCharCode(10)}Bcc: x@y.test`,
+    }))
+    expect(loadSettings().mail_from).toBe('')
+  })
+
+  it('accepts every mail transport and smtp security the canonical lists offer', () => {
+    for (const t of MAIL_TRANSPORTS) {
+      expect(validateSettingsPatch({ mail_transport: t }), t).toEqual({ patch: { mail_transport: t } })
+    }
+    for (const s of SMTP_SECURITIES) {
+      expect(validateSettingsPatch({ smtp_security: s }), s).toEqual({ patch: { smtp_security: s } })
+    }
+    expect(validateSettingsPatch({ mail_transport: 'carrier-pigeon' })).toHaveProperty('error')
+    expect(validateSettingsPatch({ smtp_security: 'maybe' })).toHaveProperty('error')
+  })
+
+  it('persists the mail settings and projects them onto env', () => {
+    loadOrInitSettings()
+    saveSettings({
+      mail_transport: 'smtp',
+      mail_from: 'noreply@example.com',
+      smtp_host: 'relay.example.com',
+      smtp_port: 2525,
+      smtp_security: 'tls',
+      smtp_user: 'u',
+      smtp_pass: 'p',
+      app_base_url: 'https://cv.example.com',
+    })
+    expect(process.env.MAIL_TRANSPORT).toBe('smtp')
+    expect(process.env.MAIL_FROM).toBe('noreply@example.com')
+    expect(process.env.SMTP_HOST).toBe('relay.example.com')
+    expect(process.env.SMTP_PORT).toBe('2525')
+    expect(process.env.SMTP_SECURITY).toBe('tls')
+    expect(process.env.SMTP_PASS).toBe('p')
+    expect(process.env.RESUME_APP_BASE_URL).toBe('https://cv.example.com')
+    // The saved settings feed the transport without a second mapping.
+    expect(isMailConfigured(settingsToMailConfig(loadSettings()))).toBe(true)
+  })
+
+  it('reports the SMTP password only as "set", never by value', () => {
+    const view = toView({ ...DEFAULT_SETTINGS, smtp_pass: 'relay-secret' }) as unknown as Record<string, unknown>
+    expect(JSON.stringify(view)).not.toContain('relay-secret')
+    expect(view.smtp_pass_set).toBe(true)
+    expect(view.smtp_pass).toBeUndefined()
+    expect(toView(DEFAULT_SETTINGS).smtp_pass_set).toBe(false)
   })
 
   it('never echoes a secret back through toView', () => {

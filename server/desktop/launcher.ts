@@ -26,7 +26,7 @@
 import fs from 'fs'
 import path from 'path'
 import { createApp } from '../app.js'
-import { getDefaultDb, closeDefaultDb, isCorruptDbError } from '../db.js'
+import { getDefaultDb, closeDefaultDb, isCorruptDbError, SYSTEM_VIEWER } from '../db.js'
 import { resolvePaths } from '../config.js'
 import { loadOrInitSettings } from '../settings.js'
 import { scanBackupDir } from '../backupFiles.js'
@@ -182,14 +182,14 @@ async function main(): Promise<void> {
         // Erasures first, so a tombstone from another machine isn't undone by a
         // stale file for the same resume still sitting in the folder.
         const { keep, pending } = applyTombstoneRules(scan.resumes, scan.tombstones)
-        const summary = db.restoreResumes(keep)
+        const summary = db.restoreResumes(SYSTEM_VIEWER, keep)
         // Merge the shared registry too so synced resumes' canonical links resolve.
         const reg = db.mergeRegistry(scan.registry)
-        const localSavedAt = new Map(db.dumpResumes().map((e) => [e.id, e.saved_at]))
+        const localSavedAt = new Map(db.dumpResumes(SYSTEM_VIEWER).map((e) => [e.id, e.saved_at]))
         let erased = 0
         for (const t of pending) {
           const savedAt = localSavedAt.get(t.id)
-          if (savedAt !== undefined && savedAt <= t.deleted_at && db.deleteResume(t.id)) erased++
+          if (savedAt !== undefined && savedAt <= t.deleted_at && db.deleteResume(SYSTEM_VIEWER, t.id)) erased++
         }
         log(
           `  sync-in    : +${summary.inserted} new, ${summary.updated} updated, ` +

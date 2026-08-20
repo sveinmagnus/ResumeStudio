@@ -4,8 +4,18 @@ import {
   deleteResume, renameResume, listSnapshots, getSnapshot,
   storageStats,
 } from '../db.js'
+import { viewerOf } from '../auth.js'
 import { configuredBackupDir, recordDeletion } from '../backupFiles.js'
 
+/**
+ * Every handler passes `viewerOf(res)` into the db layer rather than deciding
+ * anything itself — the rules live in `server/access.ts`, and a route that
+ * reimplemented one would be a second copy to keep in step.
+ *
+ * The consequence worth knowing when reading the 404s below: a resume that
+ * exists but is not this viewer's to see is reported exactly as one that does
+ * not exist. Anything else would let a member enumerate ids.
+ */
 const router = Router()
 
 // Local param shapes — `req.params` would otherwise widen to string | string[].
@@ -16,7 +26,7 @@ type IdSidParams = { id: string; sid: string }
 
 /** GET /api/resumes — list every resume's metadata, newest saved_at first. */
 router.get('/', (_req: Request, res: Response): void => {
-  res.json({ resumes: listResumes() })
+  res.json({ resumes: listResumes(viewerOf(res)) })
 })
 
 /**
@@ -33,7 +43,7 @@ router.post('/', (req: Request, res: Response): void => {
     res.status(400).json({ error: 'name must be a non-empty string' })
     return
   }
-  const meta = createResume({
+  const meta = createResume(viewerOf(res), {
     name: body.name.trim(),
     data: body.data,
     primary_locale: typeof body.primary_locale === 'string' ? body.primary_locale : undefined,
@@ -50,7 +60,7 @@ router.post('/', (req: Request, res: Response): void => {
  * "measure first"). Registered BEFORE `/:id` so 'storage' isn't matched as an id.
  */
 router.get('/storage', (_req: Request, res: Response): void => {
-  res.json(storageStats())
+  res.json(storageStats(viewerOf(res)))
 })
 
 // ─── Single-resume snapshot history ───────────────────────────────────────────
@@ -60,11 +70,12 @@ router.get('/storage', (_req: Request, res: Response): void => {
 router.get('/:id/snapshots', (req: Request<IdParams>, res: Response): void => {
   // listSnapshots returns [] for an unknown id; tell the caller so they can
   // distinguish "empty history" from "no such resume".
-  if (!getResume(req.params.id)) {
+  const viewer = viewerOf(res)
+  if (!getResume(viewer, req.params.id)) {
     res.status(404).json({ error: 'Resume not found' })
     return
   }
-  res.json({ snapshots: listSnapshots(req.params.id) })
+  res.json({ snapshots: listSnapshots(viewer, req.params.id) })
 })
 
 /** GET /api/resumes/:id/snapshots/:sid — return one snapshot's full data. */
@@ -74,7 +85,7 @@ router.get('/:id/snapshots/:sid', (req: Request<IdSidParams>, res: Response): vo
     res.status(400).json({ error: 'Invalid snapshot id' })
     return
   }
-  const data = getSnapshot(req.params.id, sid)
+  const data = getSnapshot(viewerOf(res), req.params.id, sid)
   if (!data) {
     res.status(404).json({ error: 'Snapshot not found' })
     return
@@ -86,7 +97,7 @@ router.get('/:id/snapshots/:sid', (req: Request<IdSidParams>, res: Response): vo
 
 /** GET /api/resumes/:id — return one resume's full data + metadata. */
 router.get('/:id', (req: Request<IdParams>, res: Response): void => {
-  const full = getResume(req.params.id)
+  const full = getResume(viewerOf(res), req.params.id)
   if (!full) {
     res.status(404).json({ error: 'Resume not found' })
     return
@@ -150,10 +161,10 @@ router.put('/:id', (req: Request<IdParams>, res: Response): void => {
     expectedVersion = v
   }
 
-  // Attribution from the auth middleware (named tokens, F10) — null for the
-  // anonymous single token or when auth is disabled.
-  const savedBy = (res.locals as { userName?: string | null }).userName ?? null
-  const result = saveResume(req.params.id, data, locales, expectedVersion, savedBy)
+  // Attribution: a signed-in user's display name, a named service token's
+  // label, or null for the anonymous token / when auth is disabled.
+  const viewer = viewerOf(res)
+  const result = saveResume(viewer, req.params.id, data, locales, expectedVersion, viewer.name)
   if (result.status === 'not-found') {
     res.status(404).json({ error: 'Resume not found' })
     return
@@ -183,7 +194,7 @@ router.patch('/:id', (req: Request<IdParams>, res: Response): void => {
     res.status(400).json({ error: 'name must be a non-empty string' })
     return
   }
-  const ok = renameResume(req.params.id, body.name.trim())
+  const ok = renameResume(viewerOf(res), req.params.id, body.name.trim())
   if (!ok) {
     res.status(404).json({ error: 'Resume not found' })
     return
@@ -205,7 +216,7 @@ router.patch('/:id', (req: Request<IdParams>, res: Response): void => {
  * folder (offline network share) must not turn a completed delete into an error.
  */
 router.delete('/:id', (req: Request<IdParams>, res: Response): void => {
-  const ok = deleteResume(req.params.id)
+  const ok = deleteResume(viewerOf(res), req.params.id)
   if (!ok) {
     res.status(404).json({ error: 'Resume not found' })
     return

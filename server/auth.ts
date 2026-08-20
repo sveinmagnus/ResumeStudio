@@ -1,12 +1,60 @@
 import type { Request, Response, NextFunction } from 'express'
 import { timingSafeEqual } from 'crypto'
+import type { AccountsStore, Viewer } from './accounts.js'
 
 /**
- * Name of the HttpOnly session cookie that carries the API token in browsers.
- * The browser client never reads or writes this (it can't — it's HttpOnly);
- * it's set by POST /api/auth/login and cleared by /logout (see routes/auth.ts).
+ * Authentication — turning a request into a `Viewer`, or a 401.
+ *
+ * THREE MODES, decided by what exists rather than by configuration:
+ *
+ *  - **accounts** — any user row exists. A session cookie is the way in;
+ *    `RESUME_API_TOKEN` still works as a service credential (see below).
+ *  - **token** — no users, but `RESUME_API_TOKEN`/`RESUME_API_TOKENS` is set.
+ *    The pre-accounts behaviour, kept so an existing server keeps running
+ *    across the upgrade and until its operator creates the first account.
+ *  - **open** — neither. The desktop build and local dev: one person on
+ *    loopback, where a login screen is friction and nothing else.
+ *
+ * The mode is derived, not declared, because the alternative is an env var that
+ * can disagree with the database — and the failure of that disagreement is
+ * either a lockout or an open server.
+ *
+ * WHAT A SERVICE CREDENTIAL IS. `RESUME_API_TOKEN` resolves to a viewer with
+ * `userId: null` and `role: 'owner'`. It is a shared secret, so it cannot
+ * identify a person and is not treated as one: it sees everything, and any
+ * resume it creates is left unowned. Real people get accounts; scripts, CI and
+ * curl get this.
+ *
+ * NAMED TOKENS ARE GONE IN ACCOUNTS MODE (plan D3). `RESUME_API_TOKENS` is read
+ * in `token` mode only, so an un-migrated instance keeps running; bootstrap
+ * converts each one into a real account, and from then on the env var
+ * authenticates nothing. A nickname on a shared secret cannot be revoked,
+ * cannot expire, and names whoever holds it rather than a person — an account
+ * does that job properly.
  */
-export const SESSION_COOKIE = 'rs_token'
+
+/**
+ * Name of the HttpOnly session cookie. The browser client never reads or writes
+ * it — it cannot, it is HttpOnly — and its value is now an opaque session id
+ * rather than the API token it used to carry, so a database leak yields no
+ * usable credential.
+ *
+ * Renamed from `rs_token` deliberately: a cookie left over from the previous
+ * scheme holds a raw token, and under the new scheme it would be looked up as a
+ * session id and simply not resolve. A distinct name makes that a clean 401
+ * rather than an ambiguous one, and `clearLegacyCookie` sweeps the old one.
+ */
+export const SESSION_COOKIE = 'rs_session'
+
+/** The pre-accounts cookie. Only ever cleared, never read. */
+export const LEGACY_COOKIE = 'rs_token'
+
+export type AuthMode = 'open' | 'token' | 'accounts'
+
+/** Everything a service credential is allowed to be: everything, but nobody. */
+function serviceViewer(name: string | null): Viewer {
+  return { userId: null, role: 'owner', name }
+}
 
 // Read lazily (per request) rather than at import time so tests can vary the
 // token with vi.stubEnv. Env doesn't change after boot, so runtime behaviour
@@ -22,12 +70,10 @@ interface NamedToken {
 }
 
 /**
- * Named tokens for small-team attribution (roadmap F10):
- * `RESUME_API_TOKENS="kari:s3cret1,ola:s3cret2"`. The name is stamped as
- * `saved_by` on saves/snapshots — attribution only, NOT a permissions model
- * (every valid token can do everything). Coexists with the single
- * RESUME_API_TOKEN, which authenticates anonymously (saved_by stays null).
- * Malformed pairs (no colon, empty name/token) are skipped.
+ * `RESUME_API_TOKENS="kari:s3cret1,ola:s3cret2"` — being removed (plan D3).
+ *
+ * Honoured only in `token` mode, so an instance that has not migrated yet keeps
+ * working. Malformed pairs are skipped.
  */
 function configuredNamedTokens(): NamedToken[] {
   const raw = process.env.RESUME_API_TOKENS?.trim()
@@ -43,16 +89,23 @@ function configuredNamedTokens(): NamedToken[] {
   return out
 }
 
-/** Whether this deployment requires auth (any token is configured). */
-export function isAuthRequired(): boolean {
+/** True when a token is configured at all. */
+export function isTokenConfigured(): boolean {
   return configuredToken() !== null || configuredNamedTokens().length > 0
 }
 
 /**
- * Constant-time string comparison. Returns false fast when the lengths differ
- * (length itself isn't a meaningful secret for a fixed-size random token), then
- * compares same-length buffers via crypto.timingSafeEqual. Uses bytes rather
- * than chars because timingSafeEqual requires equal-length buffers.
+ * The names on the configured legacy tokens, for the bootstrap migration to
+ * turn into accounts. Secrets are deliberately not exposed: the migration
+ * creates locked accounts, never accounts whose password is the old secret.
+ */
+export function legacyTokenNames(): string[] {
+  return configuredNamedTokens().map((t) => t.name)
+}
+
+/**
+ * Compare in constant time. Length is compared first (and leaks only the
+ * length) because `timingSafeEqual` requires equal-length buffers.
  */
 function safeCompare(a: string, b: Buffer): boolean {
   const aBuf = Buffer.from(a, 'utf8')
@@ -61,28 +114,26 @@ function safeCompare(a: string, b: Buffer): boolean {
 }
 
 /**
- * Validate a presented token against the configured single token AND every
- * named token (constant-time per comparison). When nothing is configured
- * (auth disabled — local dev / desktop), everything is accepted.
+ * Validate a presented token against the single token AND every named token.
+ * Every candidate is evaluated with no early return, so response time does not
+ * reveal which configured token half-matched.
  */
 export function tokenIsValid(provided: string | null | undefined): boolean {
-  if (!isAuthRequired()) return true
   if (!provided) return false
   const single = configuredToken()
-  // Deliberately evaluate every candidate (no early return) so response time
-  // doesn't reveal which configured token half-matched.
   let ok = single ? safeCompare(provided, single) : false
-  for (const nt of configuredNamedTokens()) {
-    if (safeCompare(provided, nt.token)) ok = true
+  // Named tokens authenticate only until the instance has accounts. Checking
+  // the mode here rather than at the call site keeps the one answer to "is this
+  // token good" in one place.
+  if (authMode() !== 'accounts') {
+    for (const nt of configuredNamedTokens()) {
+      if (safeCompare(provided, nt.token)) ok = true
+    }
   }
   return ok
 }
 
-/**
- * The display name behind a presented token: the matching named token's name,
- * or null for the anonymous single token / disabled auth. Call only after
- * tokenIsValid — this is attribution, not authentication.
- */
+/** The label behind a presented token, for `saved_by`. Attribution, not identity. */
 export function identifyToken(provided: string | null | undefined): string | null {
   if (!provided) return null
   for (const nt of configuredNamedTokens()) {
@@ -92,7 +143,7 @@ export function identifyToken(provided: string | null | undefined): string | nul
 }
 
 /** Minimal cookie-header parser — avoids pulling in a cookie-parser dependency. */
-function parseCookies(header: string | undefined): Record<string, string> {
+export function parseCookies(header: string | undefined): Record<string, string> {
   const out: Record<string, string> = {}
   if (!header) return out
   for (const part of header.split(';')) {
@@ -113,38 +164,110 @@ function parseCookies(header: string | undefined): Record<string, string> {
   return out
 }
 
+/** The session id a browser presented, if any. */
+export function presentedSession(req: Request): string | null {
+  return parseCookies(req.headers.cookie)[SESSION_COOKIE] || null
+}
+
 /**
- * The token presented on a request: the `Authorization: Bearer` header (kept
- * for non-browser clients / tests) OR the HttpOnly session cookie (browsers).
+ * The token presented on a request: `Authorization: Bearer` only.
+ *
+ * Unlike the previous scheme this does NOT fall back to the cookie — the cookie
+ * now means a session, and treating its contents as a token would make a stolen
+ * session id usable as a bearer credential.
  */
 export function presentedToken(req: Request): string | null {
   const header = req.headers.authorization
   if (header && header.startsWith('Bearer ')) return header.slice(7).trim()
-  const cookie = parseCookies(req.headers.cookie)[SESSION_COOKIE]
-  return cookie ? cookie : null
+  return null
 }
 
 /**
- * Auth middleware.
- * - If RESUME_API_TOKEN is not set (local dev / desktop): passes through.
- * - If set: requires a valid `Authorization: Bearer <token>` header OR a valid
- *   session cookie.
+ * The accounts store the middleware resolves sessions against.
+ *
+ * Injected rather than imported so `app.ts` stays the only place that knows how
+ * the database is built, and so tests can drive the middleware against an
+ * in-memory store without touching the default connection.
+ */
+let accounts: AccountsStore | null = null
+
+export function setAccountsStore(store: AccountsStore | null): void {
+  accounts = store
+}
+
+export function authMode(): AuthMode {
+  if (accounts?.hasAnyUser()) return 'accounts'
+  return isTokenConfigured() ? 'token' : 'open'
+}
+
+/** Whether the client must present something. Drives the login screen. */
+export function isAuthRequired(): boolean {
+  return authMode() !== 'open'
+}
+
+/**
+ * Resolve a request to a viewer, or null.
+ *
+ * Order matters: a session is checked first so that in `accounts` mode the
+ * common case costs one indexed lookup, and a service token cannot shadow a
+ * real user's identity on a request that carried both.
+ */
+export function resolveViewer(req: Request): Viewer | null {
+  const mode = authMode()
+  if (mode === 'open') return serviceViewer(null)
+
+  if (mode === 'accounts' && accounts) {
+    const sid = presentedSession(req)
+    if (sid) {
+      const user = accounts.resolveSession(sid)
+      if (user) return { userId: user.id, role: user.role, name: user.display_name }
+    }
+  }
+
+  const token = presentedToken(req)
+  if (token && tokenIsValid(token)) return serviceViewer(identifyToken(token))
+
+  // In `token` mode the cookie carries the token itself — there is no session
+  // table to key on — because that is what `POST /api/auth/login` sets. Without
+  // this branch a browser could log in and then be rejected on every subsequent
+  // request, since the token would only be honoured as a Bearer header.
+  if (mode === 'token') {
+    const cookieToken = presentedSession(req)
+    if (cookieToken && tokenIsValid(cookieToken)) return serviceViewer(identifyToken(cookieToken))
+  }
+
+  return null
+}
+
+/**
+ * Auth middleware. Attaches `res.locals.viewer` on success.
  *
  * All failure paths return the same generic 401: distinguishing "missing" from
  * "wrong" leaks what the parser saw.
  */
 export function authMiddleware(req: Request, res: Response, next: NextFunction): void {
-  if (!isAuthRequired()) {
-    next()
+  const viewer = resolveViewer(req)
+  if (!viewer) {
+    res.status(401).json({ error: 'Unauthorized' })
     return
   }
-  const provided = presentedToken(req)
-  if (tokenIsValid(provided)) {
-    // Attribution for downstream routes (saved_by stamping). Null for the
-    // anonymous single token.
-    res.locals.userName = identifyToken(provided)
-    next()
-    return
-  }
-  res.status(401).json({ error: 'Unauthorized' })
+  res.locals.viewer = viewer
+  // Kept for the routes that stamp attribution; a service token still supplies
+  // its label, a real user supplies their display name.
+  res.locals.userName = viewer.name
+  next()
+}
+
+/** The viewer a route handler should act as. Throws only if the middleware was skipped. */
+export function viewerOf(res: Response): Viewer {
+  const v = (res.locals as { viewer?: Viewer }).viewer
+  if (!v) throw new Error('authMiddleware did not run for this route')
+  return v
+}
+
+/** Guard for owner-only routes. Responds 403 and returns false when refused. */
+export function requireOwner(res: Response): boolean {
+  if (viewerOf(res).role === 'owner') return true
+  res.status(403).json({ error: 'Forbidden' })
+  return false
 }

@@ -62,7 +62,7 @@ describe('authMiddleware', () => {
     // `%zz` is an invalid escape — decodeURIComponent would throw. The parser
     // must fall back to the raw value so this resolves to a clean 401.
     expect(() =>
-      authMiddleware(makeReq({ cookie: 'rs_token=%zz' }), res, next),
+      authMiddleware(makeReq({ cookie: 'rs_session=%zz' }), res, next),
     ).not.toThrow()
     expect(next).not.toHaveBeenCalled()
     expect(state.statusCode).toBe(401)
@@ -72,7 +72,7 @@ describe('authMiddleware', () => {
     vi.stubEnv('RESUME_API_TOKEN', 's3kret')
     const { res } = makeRes()
     const next = vi.fn() as unknown as NextFunction
-    authMiddleware(makeReq({ cookie: 'rs_token=s3kret' }), res, next)
+    authMiddleware(makeReq({ cookie: 'rs_session=s3kret' }), res, next)
     expect(next).toHaveBeenCalledOnce()
   })
 
@@ -151,7 +151,7 @@ describe('authMiddleware', () => {
     vi.stubEnv('RESUME_API_TOKEN', 's3kret')
     const { res } = makeRes()
     const next = vi.fn() as unknown as NextFunction
-    authMiddleware(makeReq({ cookie: 'rs_token=s3kret' }), res, next)
+    authMiddleware(makeReq({ cookie: 'rs_session=s3kret' }), res, next)
     expect(next).toHaveBeenCalledOnce()
   })
 
@@ -159,7 +159,7 @@ describe('authMiddleware', () => {
     vi.stubEnv('RESUME_API_TOKEN', 's3kret')
     const { res } = makeRes()
     const next = vi.fn() as unknown as NextFunction
-    authMiddleware(makeReq({ cookie: 'foo=bar; rs_token=s3kret; baz=qux' }), res, next)
+    authMiddleware(makeReq({ cookie: 'foo=bar; rs_session=s3kret; baz=qux' }), res, next)
     expect(next).toHaveBeenCalledOnce()
   })
 
@@ -167,7 +167,7 @@ describe('authMiddleware', () => {
     vi.stubEnv('RESUME_API_TOKEN', 's3kret')
     const { res, state } = makeRes()
     const next = vi.fn() as unknown as NextFunction
-    authMiddleware(makeReq({ cookie: 'rs_token=nope' }), res, next)
+    authMiddleware(makeReq({ cookie: 'rs_session=nope' }), res, next)
     expect(next).not.toHaveBeenCalled()
     expect(state.statusCode).toBe(401)
     expect(state.body).toEqual({ error: 'Unauthorized' })

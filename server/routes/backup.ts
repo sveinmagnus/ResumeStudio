@@ -23,11 +23,20 @@
  *
  * Reads RESUME_BACKUP_DIR lazily per request (env is fixed after boot, but this
  * keeps the module side-effect free and test-friendly, like the rest of server/).
+ *
+ * AUTHORIZATION. `/export` and `/restore` are owner-only: one hands back every
+ * CV on the instance as a file, the other rewrites the instance from one. The
+ * remaining three are scoped by viewer instead of blocked, so a member's
+ * `/status` counts their own resumes, their `/now` publishes their own, and
+ * their `/import` merges into rows they own — with the tombstone pass scoped
+ * too, since a tombstone arrives in an uploaded file.
  */
 
 import { Router, type Request, type Response } from 'express'
 import express from 'express'
 import { dumpResumes, restoreResumes, listRegistry, mergeRegistry, deleteResume } from '../db.js'
+import { requireOwner, viewerOf } from '../auth.js'
+import type { Viewer } from '../accounts.js'
 import { backupSignature, UnreadableBackupError } from '../backup.js'
 import {
   configuredBackupDir, folderLastWrite, reconcileSources, scanBackupDir,
@@ -44,7 +53,7 @@ router.get('/status', (_req: Request, res: Response): void => {
     res.json({ configured: false })
     return
   }
-  const localEntries = dumpResumes()
+  const localEntries = dumpResumes(viewerOf(res))
   const localSig = backupSignature(localEntries)
   const scan = scanBackupDir(dir)
   const exists = scan.resumes.length > 0 || scan.filesByResumeId.size > 0
@@ -77,7 +86,7 @@ router.post('/now', (_req: Request, res: Response): void => {
     return
   }
   try {
-    const entries = dumpResumes()
+    const entries = dumpResumes(viewerOf(res))
     const { written, bytes, removed } = writeResumeFiles(dir, entries, listRegistry())
     // fileCount is one more than the resume count: resume-studio-registry.json.
     res.json({
@@ -101,16 +110,18 @@ router.post('/now', (_req: Request, res: Response): void => {
  * only ever reachable from the explicit "make this machine match" action, never
  * from a background sync.
  */
-function mergeScanned(scan: ScannedFolder, mode: 'merge' | 'replace') {
-  const summary = restoreResumes(scan.resumes, { mode })
+function mergeScanned(viewer: Viewer, scan: ScannedFolder, mode: 'merge' | 'replace') {
+  const summary = restoreResumes(viewer, scan.resumes, { mode })
   const registry = mergeRegistry(scan.registry)
   // Honour erasures: a tombstone deletes a local resume only when the deletion
-  // is at or after that resume's last save (a later edit is a revival).
-  const local = new Map(dumpResumes().map((e) => [e.id, e.saved_at]))
+  // is at or after that resume's last save (a later edit is a revival). Scoped
+  // like every other write: a tombstone file is user-supplied, so an unscoped
+  // delete here would make an upload a way to erase anyone's CV.
+  const local = new Map(dumpResumes(viewer).map((e) => [e.id, e.saved_at]))
   let erased = 0
   for (const t of scan.tombstones) {
     const savedAt = local.get(t.id)
-    if (savedAt !== undefined && savedAt <= t.deleted_at && deleteResume(t.id)) erased++
+    if (savedAt !== undefined && savedAt <= t.deleted_at && deleteResume(viewer, t.id)) erased++
   }
   return { ...summary, deleted: summary.deleted + erased, registry }
 }
@@ -119,8 +130,12 @@ function mergeScanned(scan: ScannedFolder, mode: 'merge' | 'replace') {
  * POST /api/backup/restore — merge the sync folder into this DB.
  * Body: { mode?: 'merge' | 'replace' }. Default 'merge' (newest-wins, no
  * deletes). 'replace' additionally removes local resumes absent from the folder.
+ *
+ * Owner-only: it rewrites resumes across the whole instance from a folder no
+ * individual member controls.
  */
 router.post('/restore', (req: Request, res: Response): void => {
+  if (!requireOwner(res)) return
   const dir = configuredBackupDir()
   if (!dir) {
     res.status(400).json({ error: 'No backup folder configured (set RESUME_BACKUP_DIR).' })
@@ -144,7 +159,7 @@ router.post('/restore', (req: Request, res: Response): void => {
       res.status(404).json({ error: 'No resume files found in the sync folder yet.' })
       return
     }
-    res.json({ ok: true, mode, ...mergeScanned(scan, mode) })
+    res.json({ ok: true, mode, ...mergeScanned(viewerOf(res), scan, mode) })
   } catch (err) {
     if (err instanceof UnreadableBackupError) {
       // A controlled, path-free message describing why the backup won't parse.
@@ -160,10 +175,16 @@ router.post('/restore', (req: Request, res: Response): void => {
  * GET /api/backup/export — download every resume as one zip, in exactly the
  * layout the sync folder uses. Available on every build (it needs no configured
  * folder), because it is the portable "take my data with me" artifact.
+ *
+ * Owner-only: this is the whole instance in one file, and it is also the
+ * supported off-box backup route, which is an operator's job rather than a
+ * consultant's. The dump is scoped anyway, so widening the guard later needs no
+ * second change here.
  */
 router.get('/export', (_req: Request, res: Response): void => {
+  if (!requireOwner(res)) return
   try {
-    const zip = buildBackupZip(dumpResumes(), listRegistry())
+    const zip = buildBackupZip(dumpResumes(viewerOf(res)), listRegistry())
     res.setHeader('Content-Type', 'application/zip')
     res.setHeader('Content-Disposition', `attachment; filename="${zipFileName()}"`)
     res.setHeader('Content-Length', String(zip.length))
@@ -218,7 +239,7 @@ router.post('/import', rawZip, (req: Request, res: Response): void => {
       })
       return
     }
-    res.json({ ok: true, mode: 'merge', ...mergeScanned(scan, 'merge'), unreadable: scan.unreadable })
+    res.json({ ok: true, mode: 'merge', ...mergeScanned(viewerOf(res), scan, 'merge'), unreadable: scan.unreadable })
   } catch (err) {
     if (err instanceof UnreadableBackupError) {
       res.status(422).json({ error: err.message })

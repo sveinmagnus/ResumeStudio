@@ -86,9 +86,14 @@ a one-off try, or for the multi-CV sync flow described in the
 ## Self-host the server build
 
 A second deployment mode runs Resume Studio as a small Node service (typically
-on a VPS) instead of as a desktop app. See the
-[README]({{ site.repo_url }}/blob/main/README.md) and
-[DESKTOP.md]({{ site.repo_url }}/blob/main/DESKTOP.md) for the differences —
+on a VPS) instead of as a desktop app. It needs things the desktop build does
+not: a reverse proxy for TLS, an API token, and backups you take off the box.
+
+**[DEPLOYING.md]({{ site.repo_url }}/blob/main/DEPLOYING.md)** is the guide for
+that — install and run, TLS termination with Caddy or nginx, proxy trust and
+rate limiting, where the database must not live, off-box backups, and a systemd
+unit. The [README]({{ site.repo_url }}/blob/main/README.md) has the feature tour
+and [DESKTOP.md]({{ site.repo_url }}/blob/main/DESKTOP.md) the portable build;
 this site focuses on the desktop download.
 
 ---

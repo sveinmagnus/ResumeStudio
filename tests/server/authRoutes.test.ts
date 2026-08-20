@@ -34,8 +34,9 @@ describe('GET /api/auth/status', () => {
   it('reports auth_required:true when a token is configured', async () => {
     const res = await request(app).get('/api/auth/status')
     expect(res.status).toBe(200)
-    expect(res.body).toEqual({ auth_required: true })
+    expect(res.body).toMatchObject({ auth_required: true, mode: 'token' })
   })
+
 })
 
 describe('POST /api/auth/login', () => {
@@ -54,7 +55,7 @@ describe('POST /api/auth/login', () => {
     const res = await request(app).post('/api/auth/login').send({ token: TOKEN })
     expect(res.status).toBe(200)
     const setCookie = (res.headers['set-cookie'] ?? [])[0] ?? ''
-    expect(setCookie).toMatch(/^rs_token=/)
+    expect(setCookie).toMatch(/^rs_session=/)
     expect(setCookie).toMatch(/HttpOnly/i)
     expect(setCookie).toMatch(/SameSite=Strict/i)
   })
@@ -79,7 +80,7 @@ describe('POST /api/auth/logout', () => {
     const res = await request(app).post('/api/auth/logout')
     expect(res.status).toBe(200)
     const setCookie = (res.headers['set-cookie'] ?? [])[0] ?? ''
-    expect(setCookie).toMatch(/^rs_token=/)
+    expect(setCookie).toMatch(/^rs_session=/)
     expect(setCookie).toMatch(/Max-Age=0/i)
   })
 })
@@ -90,7 +91,7 @@ describe('auth disabled (no token configured)', () => {
     delete process.env.RESUME_API_TOKEN
     try {
       const status = await request(app).get('/api/auth/status')
-      expect(status.body).toEqual({ auth_required: false })
+      expect(status.body).toMatchObject({ auth_required: false, mode: 'open' })
 
       const login = await request(app).post('/api/auth/login').send({})
       expect(login.status).toBe(200)

@@ -487,6 +487,28 @@ export default tseslint.config(
     ...tseslint.configs.disableTypeChecked,
   },
 
+  /**
+   * React Testing Library rules, scoped to the tests that actually render
+   * React.
+   *
+   * The failure they exist for doesn't look like a failure: a `findBy*` without
+   * `await` resolves to a promise, which is always truthy, so the assertion
+   * passes whatever the DOM says.
+   *
+   * Scoped rather than applied to `tests/**` because the rules match by NAME.
+   * `accounts.findByLogin` is a synchronous database lookup with no relation to
+   * RTL, and under the wider glob every call to it was reported as an
+   * unawaited query — a false positive that would push someone toward either a
+   * pointless `await` or a blanket disable.
+   */
+  {
+    files: ['tests/components/**/*.{ts,tsx}'],
+    plugins: { 'testing-library': testingLibrary },
+    rules: {
+      ...testingLibrary.configs['flat/react'].rules,
+    },
+  },
+
   // ── Tests ─────────────────────────────────────────────────────────────────
   {
     files: ['tests/**/*.{ts,tsx}'],
@@ -494,13 +516,6 @@ export default tseslint.config(
     plugins: { vitest, 'testing-library': testingLibrary },
     rules: {
       ...vitest.configs.recommended.rules,
-      /**
-       * The failure that doesn't look like a failure: a `findBy*` without
-       * `await` resolves to a promise, which is always truthy, so the assertion
-       * passes whatever the DOM says. These rules are the reason the test suite
-       * can be trusted as a gate.
-       */
-      ...testingLibrary.configs['flat/react'].rules,
 
       /**
        * Vitest is not Jest, and this suite has deliberate habits. Each of these

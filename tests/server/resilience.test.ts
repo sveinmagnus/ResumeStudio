@@ -15,7 +15,12 @@ import { describe, it, expect } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { createResumeDb, isCorruptDbError } from '../../server/db'
+import { createResumeDb, isCorruptDbError, SYSTEM_VIEWER } from '../../server/db'
+// These suites exercise storage, not authorization: the unrestricted system
+// viewer leaves every query unscoped, so they measure exactly what they
+// measured before. Scoping has its own suite — tests/server/scoping.test.ts.
+const V = SYSTEM_VIEWER
+
 import { scanBackupDir, writeResumeFiles } from '../../server/backupFiles'
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'rs-drill-'))
@@ -24,7 +29,7 @@ const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'rs-drill-'))
 function realDbBytes(dir: string): Buffer {
   const file = path.join(dir, 'source.db')
   const db = createResumeDb(file)
-  db.createResume({ name: 'Drill', data: { projects: [{ id: 'p1' }], shape_version: 14 } })
+  db.createResume(V, { name: 'Drill', data: { projects: [{ id: 'p1' }], shape_version: 14 } })
   db.close()
   return fs.readFileSync(file)
 }
@@ -52,7 +57,7 @@ describe('a damaged database refuses to open rather than starting fresh', () => 
     fs.writeFileSync(file, bytes.subarray(0, Math.max(1, Math.floor(bytes.length / 3))))
 
     let thrown: unknown
-    try { const db = createResumeDb(file); db.listResumes() } catch (err) { thrown = err }
+    try { const db = createResumeDb(file); db.listResumes(V) } catch (err) { thrown = err }
 
     expect(thrown, 'a truncated database was read as if intact').toBeDefined()
     expect(isCorruptDbError(thrown)).toBe(true)
@@ -69,7 +74,7 @@ describe('a damaged database refuses to open rather than starting fresh', () => 
     fs.writeFileSync(file, copy)
 
     let thrown: unknown
-    try { const db = createResumeDb(file); db.listResumes() } catch (err) { thrown = err }
+    try { const db = createResumeDb(file); db.listResumes(V) } catch (err) { thrown = err }
 
     expect(thrown, 'corrupted pages were read as if intact').toBeDefined()
     expect(isCorruptDbError(thrown)).toBe(true)
@@ -84,7 +89,7 @@ describe('a damaged database refuses to open rather than starting fresh', () => 
     fs.writeFileSync(file, '')
 
     const db = createResumeDb(file)
-    expect(db.listResumes()).toEqual([])
+    expect(db.listResumes(V)).toEqual([])
     db.close()
   })
 })

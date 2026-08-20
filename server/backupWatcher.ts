@@ -37,7 +37,7 @@
 import fs from 'fs'
 import { backupSignature } from './backup.js'
 import { folderFingerprint, scanBackupDir, type Tombstone } from './backupFiles.js'
-import type { ResumeBackupEntry, ResumeDb } from './db.js'
+import { SYSTEM_VIEWER, type ResumeBackupEntry, type ResumeDb } from './db.js'
 
 export interface BackupWatcherOptions {
   db: ResumeDb
@@ -179,7 +179,7 @@ export class BackupWatcher {
     // A tombstone only erases a LOCAL row the deletion is newer than. Without
     // this, a resume edited here but not yet published (so no file argues for
     // it) would be destroyed by another machine's older delete.
-    const local = this.db.dumpResumes()
+    const local = this.db.dumpResumes(SYSTEM_VIEWER)
     const localSavedAt = new Map(local.map((e) => [e.id, e.saved_at]))
     const erasedIds = pending
       .filter((t) => {
@@ -195,13 +195,13 @@ export class BackupWatcher {
     try {
       // Merge mode: newest-wins per resume, and no row is removed here —
       // erasure runs below, from the tombstones, never from an absent file.
-      const summary = this.db.restoreResumes(keep)
+      const summary = this.db.restoreResumes(SYSTEM_VIEWER, keep)
       const registry = this.db.mergeRegistry(scan.registry)
 
       // Erasure last, so a stale file for a deleted resume can't re-insert it.
       let deleted = 0
       for (const id of erasedIds) {
-        if (this.db.deleteResume(id)) deleted++
+        if (this.db.deleteResume(SYSTEM_VIEWER, id)) deleted++
       }
 
       const changed = summary.inserted + summary.updated + deleted

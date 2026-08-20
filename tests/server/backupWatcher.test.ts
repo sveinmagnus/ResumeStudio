@@ -9,7 +9,12 @@ import {
   resumeFileName, writeJsonAtomic, type Tombstone,
 } from '../../server/backupFiles'
 import { BACKUP_FILENAME, buildStoreBackup, writeBackupAtomic } from '../../server/backup'
-import { createResumeDb, type ResumeBackupEntry, type ResumeDb } from '../../server/db'
+import { createResumeDb, SYSTEM_VIEWER, type ResumeBackupEntry, type ResumeDb } from '../../server/db'
+// These suites exercise storage, not authorization: the unrestricted system
+// viewer leaves every query unscoped, so they measure exactly what they
+// measured before. Scoping has its own suite — tests/server/scoping.test.ts.
+const V = SYSTEM_VIEWER
+
 
 const entry = (over: Partial<ResumeBackupEntry> = {}): ResumeBackupEntry => ({
   id: 'r1',
@@ -106,7 +111,7 @@ describe('BackupWatcher', () => {
 
   it('merges newer external edits picked up on the poll backstop', () => {
     // Seed r1 (old)
-    db.restoreResumes([entry({ saved_at: '2026-01-01T00:00:00.000Z' })])
+    db.restoreResumes(V, [entry({ saved_at: '2026-01-01T00:00:00.000Z' })])
     const w = make()
     // Empty folder → gate seeded empty
     w.start()
@@ -119,7 +124,7 @@ describe('BackupWatcher', () => {
 
     pollOnce()
 
-    const byId = Object.fromEntries(db.dumpResumes().map((e) => [e.id, e]))
+    const byId = Object.fromEntries(db.dumpResumes(V).map((e) => [e.id, e]))
     expect(Object.keys(byId).sort()).toEqual(['r1', 'r2'])
     // Updated to newer
     expect(byId.r1.saved_at).toBe('2026-02-01T00:00:00.000Z')
@@ -132,7 +137,7 @@ describe('BackupWatcher', () => {
     // The reason the change gate is a folder fingerprint rather than one file's
     // mtime: another machine publishing a new resume adds a file and touches
     // nothing else, which a single-file mtime watch would never see.
-    db.restoreResumes([entry()])
+    db.restoreResumes(V, [entry()])
     putFiles(dir, [entry()], new Date('2027-01-01T00:00:00Z'))
     const w = make()
     w.start()
@@ -140,12 +145,12 @@ describe('BackupWatcher', () => {
     putFiles(dir, [entry({ id: 'r2', name: 'Newcomer' })], new Date('2027-01-02T00:00:00Z'))
     pollOnce()
 
-    expect(db.dumpResumes().map((e) => e.id).sort()).toEqual(['r1', 'r2'])
+    expect(db.dumpResumes(V).map((e) => e.id).sort()).toEqual(['r1', 'r2'])
     w.stop()
   })
 
   it('erases a resume another machine deleted, and says so', () => {
-    db.restoreResumes([entry(), entry({ id: 'r2', name: 'Keeper' })])
+    db.restoreResumes(V, [entry(), entry({ id: 'r2', name: 'Keeper' })])
     const w = make()
     w.start()
 
@@ -154,7 +159,7 @@ describe('BackupWatcher', () => {
     putTombstones(dir, [{ id: 'r1', deleted_at: '2026-06-01T00:00:00.000Z' }], new Date('2027-01-01T00:00:00Z'))
     pollOnce()
 
-    expect(db.dumpResumes().map((e) => e.id)).toEqual(['r2'])
+    expect(db.dumpResumes(V).map((e) => e.id)).toEqual(['r2'])
     expect(logs.some((l) => l.includes('1 erased'))).toBe(true)
     w.stop()
   })
@@ -163,7 +168,7 @@ describe('BackupWatcher', () => {
     // No file here argues for the local copy (this machine hasn't published
     // yet), so the tombstone must be checked against the local row's own
     // saved_at or a stale delete would destroy newer work.
-    db.restoreResumes([entry({ saved_at: '2026-09-01T00:00:00.000Z' })])
+    db.restoreResumes(V, [entry({ saved_at: '2026-09-01T00:00:00.000Z' })])
     const w = make()
     w.start()
 
@@ -171,14 +176,14 @@ describe('BackupWatcher', () => {
     putTombstones(dir, [{ id: 'r1', deleted_at: '2026-06-01T00:00:00.000Z' }], new Date('2027-01-01T00:00:00Z'))
     pollOnce()
 
-    expect(db.dumpResumes().map((e) => e.id).sort()).toEqual(['r1', 'r2'])
+    expect(db.dumpResumes(V).map((e) => e.id).sort()).toEqual(['r1', 'r2'])
     w.stop()
   })
 
   it('a stale file for a deleted resume cannot resurrect it', () => {
     // Erasure runs after the merge for exactly this case: another machine that
     // hasn't synced yet still has the resume's file sitting in the folder.
-    db.restoreResumes([entry()])
+    db.restoreResumes(V, [entry()])
     const w = make()
     w.start()
 
@@ -186,12 +191,12 @@ describe('BackupWatcher', () => {
     putTombstones(dir, [{ id: 'r1', deleted_at: '2026-06-01T00:00:00.000Z' }], new Date('2027-01-01T00:00:00Z'))
     pollOnce()
 
-    expect(db.dumpResumes()).toEqual([])
+    expect(db.dumpResumes(V)).toEqual([])
     w.stop()
   })
 
   it('does nothing when the folder already matches the live store (own-write guard)', () => {
-    db.restoreResumes([entry()])
+    db.restoreResumes(V, [entry()])
     const restoreSpy = vi.spyOn(db, 'restoreResumes')
     const w = make()
     w.start()
@@ -206,7 +211,7 @@ describe('BackupWatcher', () => {
   })
 
   it('skips an unreadable (half-written) file without throwing, then merges once valid', () => {
-    db.restoreResumes([entry()])
+    db.restoreResumes(V, [entry()])
     const w = make()
     w.start()
 
@@ -216,7 +221,7 @@ describe('BackupWatcher', () => {
     fs.utimesSync(file, new Date('2027-01-01T00:00:00Z'), new Date('2027-01-01T00:00:00Z'))
     expect(() => pollOnce()).not.toThrow()
     // Unchanged
-    expect(db.dumpResumes()[0].saved_at).toBe('2026-01-01T00:00:00.000Z')
+    expect(db.dumpResumes(V)[0].saved_at).toBe('2026-01-01T00:00:00.000Z')
     expect(logs.some((l) => l.includes('unreadable'))).toBe(true)
 
     // Once the sync client finishes, a valid newer file merges on the next tick.
@@ -225,12 +230,12 @@ describe('BackupWatcher', () => {
     fs.rmSync(file)
     putFiles(dir, [entry({ saved_at: '2026-03-01T00:00:00.000Z', data: { resume: { full_name: 'Grace' } } })], new Date('2027-02-01T00:00:00Z'))
     pollOnce()
-    expect(db.dumpResumes()[0].saved_at).toBe('2026-03-01T00:00:00.000Z')
+    expect(db.dumpResumes(V)[0].saved_at).toBe('2026-03-01T00:00:00.000Z')
     w.stop()
   })
 
   it('still merges a legacy combined backup, so an un-upgraded machine is not stranded', () => {
-    db.restoreResumes([entry()])
+    db.restoreResumes(V, [entry()])
     const w = make()
     w.start()
 
@@ -239,12 +244,12 @@ describe('BackupWatcher', () => {
     fs.utimesSync(legacy, new Date('2027-01-01T00:00:00Z'), new Date('2027-01-01T00:00:00Z'))
     pollOnce()
 
-    expect(db.dumpResumes().map((e) => e.id).sort()).toEqual(['r1', 'r2'])
+    expect(db.dumpResumes(V).map((e) => e.id).sort()).toEqual(['r1', 'r2'])
     w.stop()
   })
 
   it('does not re-merge what was present at start (boot restore already ran)', () => {
-    db.restoreResumes([entry()])
+    db.restoreResumes(V, [entry()])
     // Files already on disk BEFORE start, carrying newer data than the DB.
     putFiles(dir, [entry({ saved_at: '2099-01-01T00:00:00.000Z' })], new Date('2027-01-01T00:00:00Z'))
     const restoreSpy = vi.spyOn(db, 'restoreResumes')
@@ -259,7 +264,7 @@ describe('BackupWatcher', () => {
   })
 
   it('the outbound scheduler and inbound watcher do not collide (own write is a no-op)', () => {
-    db.restoreResumes([entry()])
+    db.restoreResumes(V, [entry()])
     const w = make()
     // Gate seeded empty (no files yet) so the next poll actually reads
     w.start()
@@ -281,7 +286,7 @@ describe('BackupWatcher', () => {
   })
 
   it('stop() clears the poll timer', () => {
-    db.restoreResumes([entry()])
+    db.restoreResumes(V, [entry()])
     const w = make()
     w.start()
     w.stop()
@@ -305,7 +310,7 @@ describe('BackupScheduler', () => {
   it('publishes one file per resume, then gates until something actually changes', () => {
     vi.useFakeTimers()
     try {
-      db.restoreResumes([entry(), entry({ id: 'r2', name: 'Second' })])
+      db.restoreResumes(V, [entry(), entry({ id: 'r2', name: 'Second' })])
       const logs: string[] = []
       const s = new BackupScheduler({ db, dir, intervalMs: INTERVAL, log: (m) => logs.push(m) })
       // Runs one tick immediately

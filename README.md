@@ -50,6 +50,15 @@ npm run build
 npm start                  # serves dist/ + API from the same Express process
 ```
 
+Note that nothing loads `.env` into the server process — it documents the
+variables; your process manager supplies them.
+
+**Deploying this on a VPS?** [DEPLOYING.md](./DEPLOYING.md) is the sibling of
+DESKTOP.md for the server build: TLS termination (the app has no HTTPS path),
+`NODE_ENV=production`, `RESUME_TRUST_PROXY`, rate limiting, off-box backups,
+a systemd unit — and what the single-tenant token model does and does not
+protect.
+
 On Windows, if PowerShell blocks scripts, use `npm.cmd` instead of `npm`, or
 run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once.
 
