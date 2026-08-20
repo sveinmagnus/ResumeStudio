@@ -35,6 +35,21 @@ export const DOCKER_TRANSLATE_URL = 'http://localhost:5000'
 export const DOCKER_OLLAMA_URL = DEFAULT_OLLAMA_URL
 
 export interface AppSettings {
+  /**
+   * Who is using this desktop install.
+   *
+   * The desktop build has no accounts and never asks anyone to log in — one
+   * person, own machine, loopback. It still needs to know whose CVs these are,
+   * for two reasons: `saved_by` should read "Kari Nordmann" rather than nothing,
+   * and a resume that later moves to a shared instance should arrive carrying
+   * its author instead of arriving anonymous. These are the same three fields an
+   * account has, so the move is a match rather than a re-entry.
+   *
+   * Purely local identity: nothing here authenticates anything.
+   */
+  user_username: string
+  user_display_name: string
+  user_email: string
   /** Which translation backend to use ('off' = no Draft button). */
   translate_provider: TranslateProvider
   /** Explicit LibreTranslate base URL (remote/manual). Ignored if translate_docker. */
@@ -137,6 +152,9 @@ export interface AppSettings {
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
+  user_username: '',
+  user_display_name: '',
+  user_email: '',
   translate_provider: 'off',
   libretranslate_url: '',
   libretranslate_api_key: '',
@@ -239,6 +257,10 @@ interface FieldSpec {
 }
 
 const FIELDS: readonly FieldSpec[] = [
+  // ── Who is using this install (desktop; see AppSettings) ──
+  { key: 'user_username',     kind: 'text',  env: 'RESUME_USER_USERNAME' },
+  { key: 'user_display_name', kind: 'text',  env: 'RESUME_USER_DISPLAY_NAME' },
+  { key: 'user_email',        kind: 'email', env: 'RESUME_USER_EMAIL' },
   // ── Translate ──
   { key: 'translate_provider',     kind: 'enum',   env: 'TRANSLATE_PROVIDER', values: TRANSLATE_PROVIDERS, alwaysSet: true },
   // Projected by applyToEnv's docker override, not the generic walk.

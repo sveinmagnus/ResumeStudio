@@ -7,6 +7,7 @@ import { payloadStats } from './storage.js'
 import {
   createRegistryStore, type RegistryStore,
 } from './registryDb.js'
+import { localIdentity } from './auth.js'
 import { createAccountsStore, type AccountsStore, type Viewer } from './accounts.js'
 import {
   canRead, canWrite, canReshare, isUnrestricted, normaliseVisibility,
@@ -111,6 +112,21 @@ export interface ResumeBackupEntry {
   saved_at: string
   created_at: string
   data: Record<string, unknown>
+  /**
+   * WHO wrote this CV, in human terms, when the instance knows.
+   *
+   * `owner_id` is a UUID and is meaningless anywhere but the instance that
+   * minted it, so on its own a resume arrives at a new instance anonymous.
+   * These are the same three fields an account carries, so a move can be a
+   * match rather than a re-entry — and on a desktop install, which has no
+   * accounts at all, they come from Settings and are the ONLY record of
+   * authorship the file would otherwise have.
+   *
+   * Descriptive, never authorising: an importing instance may use this to
+   * suggest an owner, but a file cannot prove who wrote it, so nothing here is
+   * trusted to assign anything on its own.
+   */
+  author?: { username: string; display_name: string; email: string } | null
   /**
    * The owning account on the instance that wrote the file. Optional: files
    * written before accounts existed carry none, and one from another firm's
@@ -677,6 +693,26 @@ export function createResumeDb(dbPath: string): ResumeDb {
     return { db_bytes: pageCount * pageSize, resumes }
   }
 
+  /**
+   * The human identity behind a row's owner.
+   *
+   * An owned row resolves through the accounts table. An unowned one is a
+   * desktop install, where Settings holds the only answer — that is what makes
+   * a desktop resume transferable rather than anonymous. Null when neither
+   * knows, which is every file written before this existed.
+   */
+  const authorOf = (ownerId: string | null): ResumeBackupEntry['author'] => {
+    if (ownerId) {
+      const user = accounts.getUser(ownerId)
+      return user
+        ? { username: user.username, display_name: user.display_name, email: user.email ?? '' }
+        : null
+    }
+    const local = localIdentity()
+    if (!local.username && !local.displayName && !local.email) return null
+    return { username: local.username, display_name: local.displayName, email: local.email }
+  }
+
   const dumpResumes = (viewer: Viewer): ResumeBackupEntry[] => {
     const where = readableWhere(viewer)
     const rows = where
@@ -702,6 +738,7 @@ export function createResumeDb(dbPath: string): ResumeDb {
         saved_at: row.saved_at,
         created_at: row.created_at,
         owner_id: row.owner_id,
+        author: authorOf(row.owner_id),
         data,
       })
     }

@@ -56,6 +56,39 @@ function serviceViewer(name: string | null): Viewer {
   return { userId: null, role: 'owner', name }
 }
 
+/**
+ * Who is using this install, when there are no accounts to ask.
+ *
+ * The desktop build never requires a login, but it can still know whose CVs
+ * these are: Settings carries a username, display name and email, projected
+ * onto env by `settings.applyToEnv`. Read from env rather than imported from
+ * `settings.ts` for the reason the translate and backup layers do the same —
+ * it keeps the settings module a leaf, and a change takes effect without a
+ * restart.
+ *
+ * This authenticates nothing. It is a label on the person at the keyboard, and
+ * the identity a resume carries with it if it later moves to a shared instance.
+ */
+export interface LocalIdentity {
+  username: string
+  displayName: string
+  email: string
+}
+
+export function localIdentity(): LocalIdentity {
+  return {
+    username: (process.env.RESUME_USER_USERNAME ?? '').trim(),
+    displayName: (process.env.RESUME_USER_DISPLAY_NAME ?? '').trim(),
+    email: (process.env.RESUME_USER_EMAIL ?? '').trim(),
+  }
+}
+
+/** The name to stamp on a save when nobody is signed in. Null when unset. */
+function localViewerName(): string | null {
+  const id = localIdentity()
+  return id.displayName || id.username || null
+}
+
 // Read lazily (per request) rather than at import time so tests can vary the
 // token with vi.stubEnv. Env doesn't change after boot, so runtime behaviour
 // is unchanged.
@@ -214,7 +247,8 @@ export function isAuthRequired(): boolean {
  */
 export function resolveViewer(req: Request): Viewer | null {
   const mode = authMode()
-  if (mode === 'open') return serviceViewer(null)
+  // An unauthenticated install still has an author: whoever filled in Settings.
+  if (mode === 'open') return serviceViewer(localViewerName())
 
   if (mode === 'accounts' && accounts) {
     const sid = presentedSession(req)
