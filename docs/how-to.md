@@ -18,6 +18,7 @@ tasks once you're set up. If you haven't installed it yet, head to the
 - [Snapshot history & undo](#snapshot-history--undo)
 - [Translation assist](#translation-assist)
 - [AI assist](#ai-assist)
+- [Sharing an instance with colleagues](#sharing-an-instance-with-colleagues)
 - [Sync CVs across computers](#sync-cvs-across-computers)
 - [Backups](#backups)
 - [Stopping & uninstalling](#stopping--uninstalling)
@@ -203,6 +204,37 @@ draft you review before it touches your CV.
 No model configured? Every AI feature still works manually: copy the
 generated prompt into whatever AI you already use and paste the answer back.
 Nothing is ever sent by the app itself on that path.
+
+## Sharing an instance with colleagues
+
+Only relevant if you run Resume Studio as a **server** for more than one person.
+The desktop app is single-user and never asks you to sign in.
+
+**First run.** Start the server and look at its output: it prints a one-time
+setup code. Open the app, enter the code, and create your account — it becomes
+the **owner** and takes ownership of every CV already on the instance. Save the
+recovery codes it shows you; that screen appears once.
+
+**Adding someone.** Settings → Team → *Invite*. Copy the link and send it to
+them however you normally would. They open it, pick a password, and they are in.
+
+**What they can see.** Nothing of yours, unless you share it. Each person's CVs
+are private by default. Sharing one makes it **readable and not editable** — a
+colleague opening it sees a read-only copy and cannot change your words. As the
+owner you can see everyone's, which is what makes staffing and backups work.
+
+**If someone forgets their password.** Any of these work:
+
+- they use a **recovery code** from the set they saved when the account was made;
+- you go to Settings → Team and mint them a **reset link**;
+- they click **Forgot password?** — only if you have configured email;
+- and if *you* are locked out with no other owner, run `npm run recover` on the
+  server, which lists the accounts and mints a link.
+
+**Handing over a CV.** If a résumé ends up owned by the wrong person — most
+often after importing somebody's backup, since whoever imports it owns it — an
+owner can reassign it from the picker. A file cannot prove who wrote it, so the
+app never guesses from its contents.
 
 ## Sync CVs across computers
 

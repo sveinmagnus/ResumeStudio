@@ -147,6 +147,36 @@ With the box unticked they are simply not there.
 Runs survive you walking away from them: results are kept per CV, so you can go
 and fix the thing a finding just told you about and come back to the rest.
 
+## Teams and accounts (self-hosted)
+
+The desktop app never asks you to sign in — it is your machine, and a login
+screen would be friction and nothing else. A self-hosted instance can hold
+several people instead.
+
+- **Setting it up is one code.** The server prints a one-time setup code when it
+  starts with no accounts. Spend it, and the account you create becomes the
+  **owner** and takes ownership of every résumé already there.
+- **Invite by link.** The owner generates a single-use link and passes it on
+  however they already talk. No email server required.
+- **Your résumés are private by default.** Nobody else on the instance sees
+  them until you share one — and sharing makes it **readable, never editable**.
+  A colleague opening a shared CV gets it read-only; they cannot change your
+  words.
+- **The owner can see everything.** Deliberate, and stated plainly here because
+  it is the sort of thing you should not discover later: it is what makes
+  staffing work, whole-instance backups, and recovering a CV after somebody
+  leaves possible.
+- **Sign in with your username or your email** — whichever you remember.
+- **Four ways back in** if you forget your password: a recovery code you saved
+  when the account was made, a link the owner mints for you, an email link if
+  the owner has configured mail, or — for an owner locked out with nobody above
+  them — a command run on the server itself.
+
+Email is optional and off unless the owner configures it. It is used for exactly
+two things: a password-reset link and confirming an address. **No CV content is
+ever emailed**, and an address only receives resets after its confirmation link
+has been followed.
+
 ## Multi-resume
 
 - **One app, many master CVs.** Keep separate CVs for different lines of

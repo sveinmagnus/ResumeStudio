@@ -87,7 +87,10 @@ a one-off try, or for the multi-CV sync flow described in the
 
 A second deployment mode runs Resume Studio as a small Node service (typically
 on a VPS) instead of as a desktop app. It needs things the desktop build does
-not: a reverse proxy for TLS, an API token, and backups you take off the box.
+not: a reverse proxy for TLS, user accounts (the server prints a one-time setup
+code on first run, and the account you create with it becomes the owner), and
+backups you take off the box. A server can hold several people, each with their
+own private résumés — see the [how-to](how-to.html#sharing-an-instance-with-colleagues).
 
 **[DEPLOYING.md]({{ site.repo_url }}/blob/main/DEPLOYING.md)** is the guide for
 that — install and run, TLS termination with Caddy or nginx, proxy trust and
