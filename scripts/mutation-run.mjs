@@ -625,8 +625,21 @@ function main() {
   // "Measured" means a score AND the mutant detail that makes the score
   // actionable. A run from before the json reporter left only the former, and
   // skipping those would resume into a state you still can't act on.
+  const unmeasured = (k) => !report.files[k] || report.files[k].error || !existsSync(detailPath(k))
   if (!force) {
-    todo = todo.filter((k) => !report.files[k] || report.files[k].error || !existsSync(detailPath(k)))
+    todo = todo.filter(unmeasured)
+  } else if (!names.length) {
+    /*
+     * A forced whole-tree run measures what nobody has a result for FIRST.
+     *
+     * Keys sort lib/* before server/*, and the lib half is ~7 hours, so the
+     * natural order spent the whole night re-confirming numbers that already
+     * existed and reached the newly-in-scope server modules last — or never, if
+     * the run was interrupted. Results are saved after every module precisely
+     * so an interrupted run is still worth something; the order has to agree
+     * with that. Stable within each group, so the sequence stays predictable.
+     */
+    todo = [...todo.filter(unmeasured), ...todo.filter((k) => !unmeasured(k))]
   }
   todo = todo.slice(0, limit)
 
