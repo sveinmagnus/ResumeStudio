@@ -49,40 +49,53 @@ describe('hashPassword / verifyPassword', SLOW, () => {
   })
 })
 
+/**
+ * Stored values `decode()` must refuse, and the reason they are asserted TWICE.
+ *
+ * Through `verifyPassword` they all answer the same way whatever decode does:
+ * it catches everything and returns false, so a guard that stopped working
+ * would still produce `false` — by mis-parsing and failing the comparison, or by
+ * throwing into the catch. Mutation testing showed exactly that: every guard in
+ * the parser could be deleted with this table still green.
+ *
+ * `needsRehash` is the channel that can tell the difference. It answers TRUE for
+ * a value it cannot read and compares parameters for one it can, so a guard
+ * that stops firing flips it to false. That is also a real property rather than
+ * a testing trick: a row we cannot read has to be replaced at the next
+ * successful login, not left to sit there.
+ */
+const BAD_HASHES = [
+  ['empty', ''],
+  ['not ours', 'bcrypt$2b$12$abcdefg'],
+  ['too few fields', 'scrypt$N=32768,r=8,p=1$c2FsdA'],
+  ['unknown parameter', 'scrypt$N=32768,r=8,p=1,q=2$c2FsdA$aGFzaA'],
+  ['non-numeric cost', 'scrypt$N=abc,r=8,p=1$c2FsdA$aGFzaA'],
+  ['zero cost', 'scrypt$N=0,r=8,p=1$c2FsdA$aGFzaA'],
+  ['negative cost', 'scrypt$N=-1,r=8,p=1$c2FsdA$aGFzaA'],
+  ['missing r', 'scrypt$N=32768,p=1$c2FsdA$aGFzaA'],
+  ['empty salt', 'scrypt$N=32768,r=8,p=1$$aGFzaA'],
+  ['empty key', 'scrypt$N=32768,r=8,p=1$c2FsdA$'],
+  // Reaches scrypt and THROWS without the ceiling guard, turning one crafted
+  // row into a 500 on every login attempt against it.
+  ['cost above the memory ceiling', 'scrypt$N=1048576,r=8,p=1$c2FsdA$aGFzaA'],
+] as const
+
 describe('verifyPassword — malformed stored values', SLOW, () => {
   // A login route must not 500 because a row is corrupt; the answer to "is this
   // the right password" for an unreadable hash is no.
-  const bad = [
-    ['empty', ''],
-    ['not ours', 'bcrypt$2b$12$abcdefg'],
-    ['too few fields', 'scrypt$N=32768,r=8,p=1$c2FsdA'],
-    ['unknown parameter', 'scrypt$N=32768,r=8,p=1,q=2$c2FsdA$aGFzaA'],
-    ['non-numeric cost', 'scrypt$N=abc,r=8,p=1$c2FsdA$aGFzaA'],
-    ['zero cost', 'scrypt$N=0,r=8,p=1$c2FsdA$aGFzaA'],
-    ['negative cost', 'scrypt$N=-1,r=8,p=1$c2FsdA$aGFzaA'],
-    ['missing r', 'scrypt$N=32768,p=1$c2FsdA$aGFzaA'],
-    ['empty salt', 'scrypt$N=32768,r=8,p=1$$aGFzaA'],
-  ] as const
-
-  for (const [label, stored] of bad) {
+  for (const [label, stored] of BAD_HASHES) {
     it(`returns false for ${label}`, async () => {
       expect(await verifyPassword('correct horse battery staple', stored)).toBe(false)
     })
   }
 
-  it('refuses a stored hash whose parameters exceed the memory ceiling', async () => {
-    // Without the guard this reaches scrypt and THROWS rather than returning
-    // false, turning one crafted row into a 500 on every login attempt.
-    const huge = 'scrypt$N=1048576,r=8,p=1$c2FsdA$aGFzaA'
-    await expect(verifyPassword('correct horse battery staple', huge)).resolves.toBe(false)
-  })
 })
 
 describe('needsRehash', () => {
-  it('is true for anything unreadable', () => {
-    expect(needsRehash('')).toBe(true)
-    expect(needsRehash('bcrypt$2b$12$abc')).toBe(true)
-  })
+  // The observable side of every decode guard — see BAD_HASHES.
+  for (const [label, stored] of BAD_HASHES) {
+    it(`is true for ${label}`, () => { expect(needsRehash(stored)).toBe(true) })
+  }
 
   it('is true for a hash made at a lower cost', () => {
     expect(needsRehash('scrypt$N=16384,r=8,p=1$c2FsdA$aGFzaA')).toBe(true)

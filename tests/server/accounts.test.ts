@@ -84,6 +84,40 @@ describe('findByLogin — either identifier (D1)', () => {
   })
 })
 
+describe('usernameInUse — a username collides with USERNAMES', () => {
+  it('reports a taken username', () => {
+    makeUser({ username: 'kari' })
+    expect(acc.usernameInUse('kari')).toBe(true)
+  })
+
+  it('normalises before comparing, so case and padding cannot smuggle a duplicate', () => {
+    makeUser({ username: 'kari' })
+    expect(acc.usernameInUse('  KARI  ')).toBe(true)
+  })
+
+  it('does NOT let one person’s email address deny that word to somebody else', () => {
+    /*
+     * The reason this exists rather than reusing findByLogin, which searches the
+     * email column too: a row whose email is a bare word — planted before
+     * addresses were validated, or set by an owner — would otherwise reserve
+     * that word as a username against a colleague with every right to it.
+     */
+    makeUser({ username: 'ola', email: 'kari' })
+    expect(acc.usernameInUse('kari')).toBe(false)
+  })
+
+  it('lets a user keep their own username when something else about them changes', () => {
+    const u = makeUser({ username: 'kari' })
+    expect(acc.usernameInUse('kari', u.id)).toBe(false)
+    expect(acc.usernameInUse('kari', 'somebody-else')).toBe(true)
+  })
+
+  it('is false for a name nobody holds', () => {
+    makeUser({ username: 'kari' })
+    expect(acc.usernameInUse('nobody')).toBe(false)
+  })
+})
+
 describe('sessions', () => {
   it('resolves the cookie it issued', () => {
     const u = makeUser()

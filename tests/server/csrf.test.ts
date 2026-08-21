@@ -97,6 +97,23 @@ describe('allows what must keep working', () => {
   })
 })
 
+describe('the query string is not part of the path', () => {
+  it('still exempts an exempt path that carries one', async () => {
+    // The exempt list holds bare paths, so the query has to be stripped before
+    // matching. Without that, `/api/auth/login?next=/` is not on the list and a
+    // sign-in with any query parameter answers 403 — a failure nobody would
+    // connect to CSRF.
+    const r = await request(app()).post('/api/auth/login?next=%2Fr%2Fabc').set('Cookie', signedIn)
+    expect(r.status).toBe(200)
+  })
+
+  it('does not let a query string smuggle a non-exempt path past the check', async () => {
+    // The other direction: stripping must not turn into matching loosely.
+    const r = await request(app()).post('/api/resumes?path=/api/auth/login').set('Cookie', signedIn)
+    expect(r.status).toBe(403)
+  })
+})
+
 describe('the exempt list is exact, not a prefix', () => {
   it('does not exempt a new route added under an exempt parent', async () => {
     // A prefix match on `/api/auth` would silently exempt whatever is added

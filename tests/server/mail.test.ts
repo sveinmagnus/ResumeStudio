@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import net from 'node:net'
 import {
   sendMail, isMailConfigured, isValidEmailAddress, encodeHeaderValue, buildMessage,
+  MAX_EMAIL_LENGTH,
   stuffDots, effectiveSmtpPort, resolveMailConfig, sendResetMail, sendVerifyMail,
   type MailConfig,
 } from '../../server/mail'
@@ -228,6 +229,32 @@ describe('isValidEmailAddress', () => {
 
   it('rejects a non-string', () => {
     for (const v of [null, undefined, 42, {}, ['a@b.com']]) expect(isValidEmailAddress(v)).toBe(false)
+  })
+
+  it('caps the whole address, and at the documented boundary', () => {
+    /*
+     * MAX_EMAIL_LENGTH bounds what can be written into a header line. Nothing
+     * exercised it, so every mutant of the cap survived — including `>` to
+     * `>=`, which would reject a legal 254-character address. Both sides of the
+     * boundary are asserted, because only the accepting side catches that one.
+     */
+    const local = 'a'.repeat(64)
+    // 63 + 1 + 63 + 1 + 61 = 189, every label within the 63-character limit.
+    const domain = `${'b'.repeat(63)}.${'c'.repeat(63)}.${'d'.repeat(61)}`
+    const atLimit = `${local}@${domain}`
+    expect(atLimit).toHaveLength(MAX_EMAIL_LENGTH)
+    expect(isValidEmailAddress(atLimit)).toBe(true)
+
+    // Grown on the DOMAIN side: the local part is already at its own 64-char
+    // limit, so adding there would be refused by that rule instead and this
+    // would pass without the total cap existing at all.
+    const overLimit = `${local}@${domain}d`
+    expect(overLimit).toHaveLength(MAX_EMAIL_LENGTH + 1)
+    expect(isValidEmailAddress(overLimit)).toBe(false)
+  })
+
+  it('rejects an empty string, which is not a non-string', () => {
+    expect(isValidEmailAddress('')).toBe(false)
   })
 
   it('accepts the shapes people actually use', () => {

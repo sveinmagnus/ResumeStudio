@@ -119,6 +119,26 @@ describe('POST /reset — the single redemption path', SLOW, () => {
     expect(r.status).toBe(400)
   })
 
+  it('will not accept a reset grant as an invitation — the mirror image', async () => {
+    /*
+     * The other direction of the same rule, and it was unasserted: mutation
+     * testing could delete `/accept`'s kind check with every test still green.
+     *
+     * Without it a reset link becomes an account-creation link. It would not
+     * escalate — a reset grant carries no role, so the new account defaults to
+     * member — but it burns the grant creating a stranger's account instead of
+     * letting the real user back in.
+     */
+    const before = accounts.listUsers().length
+    const token = accounts.mintGrant('reset', { userId: kari.id })
+    const r = await request(app).post('/api/users/accept').set('Cookie', cookie)
+      .send({ token, username: 'gatecrasher', display_name: 'Gate Crasher', password: 'a brand new passphrase' })
+    expect(r.status).toBe(400)
+    expect(accounts.listUsers().length).toBe(before)
+    // And the grant is not spent, so the person it belongs to can still use it.
+    expect(accounts.peekGrant(token)?.kind).toBe('reset')
+  })
+
   it('enforces the password policy before spending the grant', async () => {
     const token = accounts.mintGrant('reset', { userId: kari.id })
     const short = await request(app).post('/api/users/reset').set('Cookie', cookie).send({ token, password: 'short' })
@@ -295,13 +315,64 @@ describe('owner administration', SLOW, () => {
   }
 
   it('will not disable the last owner', async () => {
-    asOwner()
+    /*
+     * Called as the SERVICE credential, not as the owner themselves.
+     *
+     * Signed in as the owner, this asserted nothing: the route refuses to
+     * disable the last owner AND refuses to disable your own account, and an
+     * owner disabling themselves trips the second one first. The test passed
+     * with the last-owner guard deleted — which mutation testing is how we
+     * found out. A service credential is role owner with no user id, so it
+     * clears requireOwner and cannot be the target.
+     */
     leaveOneOwner()
-    const r = await request(app).post(`/api/users/${owner.id}/disabled`).set('Cookie', cookie).send({ disabled: true })
-    expect(r.status).toBe(409)
+    process.env.RESUME_API_TOKEN = SERVICE_TOKEN
+    try {
+      const r = await request(app).post(`/api/users/${owner.id}/disabled`)
+        .set('Authorization', `Bearer ${SERVICE_TOKEN}`).send({ disabled: true })
+      expect(r.status).toBe(409)
+      expect(r.body.error).toMatch(/only owner/i)
+      expect(accounts.getUser(owner.id)?.disabled_at).toBeNull()
+    } finally {
+      delete process.env.RESUME_API_TOKEN
+    }
+  })
+
+  it('refuses an owner disabling their own account', async () => {
+    /*
+     * The second guard on that route, which now needs its own test.
+     *
+     * It used to be covered by accident: the last-owner test signed in as the
+     * owner and disabled themselves, so it passed through here on the way.
+     * Driving that test by the service credential — which is what makes it test
+     * the rule it names — took this path's only coverage with it, and the
+     * mutation report showed the mutants here dropping to no-coverage.
+     *
+     * A second owner exists for the duration so the last-owner rule cannot
+     * fire, leaving this as the only thing that can refuse the request.
+     */
+    const second = accounts.createUser({
+      username: `owner2-${Math.random().toString(36).slice(2, 8)}`,
+      displayName: 'Second Owner',
+      pwHash: accounts.getHash(owner.id) as string,
+      role: 'owner',
+    })
+    try {
+      asOwner()
+      const r = await request(app).post(`/api/users/${owner.id}/disabled`).set('Cookie', cookie).send({ disabled: true })
+      expect(r.status).toBe(409)
+      expect(r.body.error).toMatch(/your own account/i)
+      expect(accounts.getUser(owner.id)?.disabled_at).toBeNull()
+    } finally {
+      // Owners accumulate across this file's shared DB — see leaveOneOwner.
+      accounts.setDisabled(second.id, true)
+    }
   })
 
   it('will not demote the last owner', async () => {
+    // Restored: an earlier edit of mine deleted it along with the span it sat
+    // in. The /role route has no self-guard, so signing in as the owner is a
+    // valid way to reach the last-owner rule here.
     asOwner()
     leaveOneOwner()
     const r = await request(app).post(`/api/users/${owner.id}/role`).set('Cookie', cookie).send({ role: 'member' })

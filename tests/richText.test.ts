@@ -244,6 +244,22 @@ describe('richToPlain', () => {
   it('strips inline markup', () => {
     expect(richToPlain('<b>hello</b> <em>world</em>')).toBe('hello world')
   })
+  it('separates paragraphs, which is the shape everything is stored in', () => {
+    /*
+     * The canonical storage shape is `<p>` at the root, so this is the common
+     * case and it had no test at all — the suite covered inline markup, <br>
+     * and lists. Deleting the paragraph branch left every one of them green
+     * while running every description in the ATS text export together into one
+     * line.
+     */
+    expect(richToPlain('<p>one</p><p>two</p>')).toBe('one\ntwo')
+    expect(richToPlain('<p>a</p><ul><li>b</li></ul><p>c</p>')).toBe('a\n• b\nc')
+  })
+
+  it('does not leave a trailing newline on a single paragraph', () => {
+    expect(richToPlain('<p>solo</p>')).toBe('solo')
+  })
+
   it('renders <br> as newline', () => {
     expect(richToPlain('a<br>b')).toBe('a\nb')
   })

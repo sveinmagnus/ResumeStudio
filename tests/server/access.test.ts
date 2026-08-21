@@ -14,6 +14,17 @@ const owner: Viewer = { userId: 'u-owner', role: 'owner', name: 'Owner' }
 const kari: Viewer = { userId: 'u-kari', role: 'member', name: 'Kari' }
 const ola: Viewer = { userId: 'u-ola', role: 'member', name: 'Ola' }
 const service: Viewer = { userId: null, role: 'owner', name: null }
+/**
+ * A viewer with no id and no owner role.
+ *
+ * Nothing constructs one today — a service credential always carries the owner
+ * role — which is precisely why `isOwnRow`'s `userId !== null` guard needs
+ * pinning: without it, `row.owner_id === viewer.userId` is `null === null` for
+ * an UNOWNED row, so an id-less viewer would own every unowned resume and could
+ * read and rewrite it. Mutation testing found the guard deletable with the
+ * whole matrix below still green.
+ */
+const idless: Viewer = { userId: null, role: 'member', name: null }
 
 const karisPrivate = { owner_id: 'u-kari', visibility: 'private' }
 const karisShared = { owner_id: 'u-kari', visibility: 'instance' }
@@ -31,6 +42,7 @@ describe('canRead — the matrix', () => {
     ['a member CAN read another shared resume', ola, karisShared, true],
     ['a member cannot read an unowned resume', ola, unowned, false],
     ['a member cannot read an unowned resume even if marked shared', ola, unownedShared, false],
+    ['an id-less member does not thereby own every unowned resume', idless, unowned, false],
   ]
   for (const [name, viewer, row, expected] of cases) {
     it(`${name}`, () => { expect(canRead(viewer, row)).toBe(expected) })
@@ -47,6 +59,7 @@ describe('canWrite — sharing grants read only', () => {
     // or "share with the team" would mean "let the team rewrite my CV".
     ['a member does NOT write another SHARED resume', ola, karisShared, false],
     ['a member does not write an unowned resume', ola, unowned, false],
+    ['an id-less member cannot write an unowned resume', idless, unowned, false],
   ]
   for (const [name, viewer, row, expected] of cases) {
     it(`${name}`, () => { expect(canWrite(viewer, row)).toBe(expected) })

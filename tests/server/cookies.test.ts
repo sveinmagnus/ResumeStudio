@@ -93,6 +93,15 @@ describe('mayLoseSecureFlag', () => {
     expect(mayLoseSecureFlag()).toBe(true)
   })
 
+  it('still warns when trust proxy is set to whitespace', () => {
+    // `RESUME_TRUST_PROXY='   '` configures nothing, and treating it as
+    // configured would silence the one warning an operator terminating TLS
+    // upstream gets before their sessions quietly stop being Secure.
+    process.env.NODE_ENV = 'production'
+    process.env.RESUME_TRUST_PROXY = '   '
+    expect(mayLoseSecureFlag()).toBe(true)
+  })
+
   it('stays quiet once trust proxy is configured', () => {
     process.env.NODE_ENV = 'production'
     process.env.RESUME_TRUST_PROXY = '1'
