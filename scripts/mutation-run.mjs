@@ -38,7 +38,11 @@
  *  - **Results are written after EVERY file.** A batch interrupted halfway
  *    still leaves everything it measured — the earlier whole-directory attempts
  *    produced nothing at all when they died.
- *  - **Resumable.** Files already measured are skipped unless --force.
+ *  - **Resumable, including a --force sweep.** A plain run measures what has no
+ *    result. A whole-tree `--force` starts a SWEEP, which records what it has
+ *    finished, so a plain run continues an interrupted one rather than finding
+ *    the not-yet-reached modules still holding the previous run's results and
+ *    concluding there is nothing to do. `--from` starts at a given module.
  *  - **The surviving mutants are kept, not just the score.** Stryker's json
  *    report lands in reports/mutation/files/<name>.json per file. A score of
  *    62% tells you nothing you can act on; the mutant list is the actual
@@ -50,6 +54,10 @@
  *                                                 #   when it is unambiguous;
  *                                                 #   otherwise server/backup)
  *   node scripts/mutation-run.mjs --limit 10      # the next 10 unmeasured
+ *   node scripts/mutation-run.mjs --force         # re-measure everything (a sweep)
+ *   node scripts/mutation-run.mjs                 # …and this resumes that sweep
+ *   node scripts/mutation-run.mjs --from 52       # start at the 52nd queued
+ *   node scripts/mutation-run.mjs --from lib/api  # …or name it
  *   node scripts/mutation-run.mjs --report        # print what's been measured
  *   node scripts/mutation-run.mjs --survivors x   # print x's UNKILLED mutants
  *   node scripts/mutation-run.mjs --survivors --skip StringLiteral
@@ -80,6 +88,16 @@ const survivorsOnly = argv.includes('--survivors')
 const limitIdx = argv.indexOf('--limit')
 const limit = limitIdx >= 0 ? Number(argv[limitIdx + 1]) : Infinity
 /**
+ * `--from 52` or `--from lib/anonCheck` — start the queue at that module.
+ *
+ * For the module that hangs, or the one a crash landed on: everything before it
+ * keeps its result, and the run picks up from there rather than being restarted
+ * whole. A position is 1-based and refers to the queue this run prints, which
+ * is why a NAME is the stable way to say it.
+ */
+const fromIdx = argv.indexOf('--from')
+const from = fromIdx >= 0 ? String(argv[fromIdx + 1] ?? '') : ''
+/**
  * `--skip StringLiteral,Regex` hides those mutators from a --survivors listing.
  *
  * The audit still RECORDS them — this filters the reading, not the run. That
@@ -95,7 +113,8 @@ const skipMutators = new Set(
 )
 const names = argv.filter((a, i) => !a.startsWith('--')
   && !(limitIdx >= 0 && i === limitIdx + 1)
-  && !(skipIdx >= 0 && i === skipIdx + 1))
+  && !(skipIdx >= 0 && i === skipIdx + 1)
+  && !(fromIdx >= 0 && i === fromIdx + 1))
 
 /**
  * Every mutable module, read off disk each run — never a checked-in list.
@@ -270,9 +289,26 @@ function testCost(p) {
 
 function testsFor(key) {
   const base = baseOf(key)
-  const own = (key.startsWith('server/')
-    ? [`tests/server/${base}.test.ts`]
-    : [`tests/${base}.test.ts`, `tests/${base}.test.tsx`])
+  /*
+   * The same-name test, and NOT `tests/server/<base>.test.ts` for a route.
+   *
+   * Six basenames exist in both server/ and server/routes/ (auth, backup, llm,
+   * settings, summarize, translate), so for a route that path names the suite
+   * for a DIFFERENT module. The keys were made path-shaped to fix exactly this
+   * collision and this lookup was left behind: server/routes/summarize was
+   * measured against server/summarize.ts's suite alone and died with "No tests
+   * were executed", while routes/auth and routes/settings quietly carried an
+   * unrelated suite into their numbers.
+   *
+   * The house convention is `<name>Routes.test.ts`, but it is not derivable in
+   * every case (routes/users is covered by userRoutes.test.ts, singular), so
+   * where there is no match the mount scan below is what finds the coverage.
+   */
+  const own = (key.startsWith('server/routes/')
+    ? [`tests/server/${base}Routes.test.ts`]
+    : key.startsWith('server/')
+      ? [`tests/server/${base}.test.ts`]
+      : [`tests/${base}.test.ts`, `tests/${base}.test.tsx`])
     .filter((p) => existsSync(path.join(ROOT, p)))
   const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   // The key IS the tail of the import specifier, so one pattern serves all
@@ -564,6 +600,12 @@ function printSurvivors(key) {
 }
 
 function summarise(report) {
+  if (report.sweep) {
+    const left = candidates().filter((k) => !report.sweep.done.includes(k)).length
+    console.log(`A full sweep started ${report.sweep.startedAt} is UNFINISHED: `
+      + `${report.sweep.done.length} done, ${left} to go. Plain \`npm run test:mutation\` resumes it.`)
+    console.log('Numbers below for a module it has not reached are from the previous run.')
+  }
   const measured = Object.entries(report.files).filter(([, v]) => !v.error)
   if (measured.length) {
     const sum = (k) => measured.reduce((n, [, v]) => n + (v[k] || 0), 0)
@@ -626,31 +668,81 @@ function main() {
     return
   }
 
-  let todo = names.length ? names.map(resolveName).filter(Boolean) : candidates()
-  // "Measured" means a score AND the mutant detail that makes the score
-  // actionable. A run from before the json reporter left only the former, and
-  // skipping those would resume into a state you still can't act on.
+  /*
+   * A SWEEP is a whole-tree `--force`, tracked so it can be resumed.
+   *
+   * Without this, --force was resumable only if the tree had never been
+   * measured: it re-measures everything, but the entries it has not reached
+   * yet still hold the PREVIOUS run's results, so a plain restart saw them as
+   * done and had nothing left to do. A ten-hour sweep interrupted at module 52
+   * could not be picked up — only started again from the beginning.
+   *
+   * So a sweep records which keys it has finished, and a plain run continues
+   * one that is in progress. Nothing is deleted to achieve that: the previous
+   * numbers stay readable through --report until each is replaced, which is
+   * what makes an interrupted sweep worth reading at all.
+   */
   const unmeasured = (k) => !report.files[k] || report.files[k].error || !existsSync(detailPath(k))
-  if (!force) {
-    todo = todo.filter(unmeasured)
-  } else if (!names.length) {
-    /*
-     * A forced whole-tree run measures what nobody has a result for FIRST.
-     *
-     * Keys sort lib/* before server/*, and the lib half is ~7 hours, so the
-     * natural order spent the whole night re-confirming numbers that already
-     * existed and reached the newly-in-scope server modules last — or never, if
-     * the run was interrupted. Results are saved after every module precisely
-     * so an interrupted run is still worth something; the order has to agree
-     * with that. Stable within each group, so the sequence stays predictable.
-     */
+  const wholeTree = !names.length
+
+  if (force && wholeTree) {
+    report.sweep = { startedAt: new Date().toISOString(), done: [] }
+    saveReport(report)
+    console.log('Starting a full sweep. Interrupt it and a plain run resumes where it stopped.\n')
+  }
+  const sweep = wholeTree ? report.sweep : null
+
+  let todo = names.length ? names.map(resolveName).filter(Boolean) : candidates()
+  if (sweep) {
+    todo = todo.filter((k) => !sweep.done.includes(k))
+    // Front-load what has no result AT ALL, so an interrupted sweep has spent
+    // its time on the modules nobody can otherwise say anything about.
     todo = [...todo.filter(unmeasured), ...todo.filter((k) => !unmeasured(k))]
+  } else if (!force) {
+    // "Measured" means a score AND the mutant detail that makes the score
+    // actionable. A run from before the json reporter left only the former, and
+    // skipping those would resume into a state you still can't act on.
+    todo = todo.filter(unmeasured)
+  }
+
+  /*
+   * Whether the SWEEP is finished is decided here, before --from and --limit
+   * narrow the queue. Deciding it afterwards made `--limit 0` — or a --from at
+   * the very end — empty the list, which read as "nothing left" and cleared the
+   * sweep, throwing away the resume state that is the whole point of it.
+   */
+  const sweepFinished = sweep !== null && sweep !== undefined && todo.length === 0
+
+  if (from) {
+    const named = /^[0-9]+$/.test(from) ? null : resolveName(from)
+    if (!/^[0-9]+$/.test(from) && !named) return
+    const at = named ? todo.indexOf(named) : Number(from) - 1
+    if (at < 0 || at >= todo.length) {
+      console.log(`--from ${from}: not among the ${todo.length} module(s) queued. `
+        + 'Give a 1-based position or a module name.')
+      return
+    }
+    console.log(`Starting at ${at + 1}/${todo.length} (${todo[at]}).`)
+    todo = todo.slice(at)
   }
   todo = todo.slice(0, limit)
 
+  if (sweepFinished) {
+    // The sweep reached the end; the next plain run goes back to measuring
+    // only what has no result.
+    delete report.sweep
+    saveReport(report)
+    console.log('Sweep complete — every module measured against the current tree.')
+    summarise(report)
+    return
+  }
   if (!todo.length) {
-    console.log('Nothing to do — everything is measured. --force to re-measure, --report to print,\n'
-      + '--survivors [file…] to list the mutants no test killed.')
+    // Distinguish the two: "everything is measured" is a false statement when
+    // it was a narrowing flag that emptied the queue.
+    console.log(from || limit !== Infinity
+      ? 'Nothing queued — --from/--limit narrowed the list to nothing.'
+      : 'Nothing to do — everything is measured. --force to re-measure, --report to print,\n'
+        + '--survivors [file…] to list the mutants no test killed.')
     reportUnmeasurable()
     return
   }
@@ -661,6 +753,7 @@ function main() {
     if (!tests.length) {
       // Named explicitly on the command line but nothing tests it.
       console.log(`[${i + 1}/${todo.length}] ${key} … SKIPPED — no test reaches it`)
+      if (sweep) { sweep.done.push(key); saveReport(report) }
       continue
     }
     // Read the test files right before handing them to Stryker. If one is
@@ -671,6 +764,7 @@ function main() {
     })
     if (unusable.length) {
       console.log(`[${i + 1}/${todo.length}] ${key} … SKIPPED — missing or empty: ${unusable.join(', ')}`)
+      if (sweep) { sweep.done.push(key); saveReport(report) }
       continue
     }
     // Show the test set when it isn't the obvious same-name one, so a surprising
@@ -687,6 +781,10 @@ function main() {
       result = runOne(key, tests)
     }
     report.files[key] = { ...result, tests, at: new Date().toISOString() }
+    // Marked done even when it errored: a module that cannot be measured will
+    // not measure on the retry either, and a sweep that keeps re-reaching it
+    // never gets past it.
+    if (sweep) sweep.done.push(key)
     // Saved after EVERY file, so an interrupt keeps what it already measured.
     saveReport(report)
     console.log(result.error
