@@ -336,17 +336,44 @@ function testsFor(key) {
   // three shapes: '…/src/lib/richText', '…/server/access', '…/server/routes/
   // users'. The closing quote is what stops `server/backup` also matching
   // server/backupFiles, backupZip, backupWatcher and the rest.
-  const imports = new RegExp(`${escaped}['"]`)
+  const spec = new RegExp(`['"][^'"]*${escaped}['"]`, 'g')
+  /**
+   * Does this test file import the module AT RUNTIME?
+   *
+   * `import type { AccountsStore } from '…/server/accounts'` is erased by the
+   * compiler and covers nothing — but it matched the old specifier test, so a
+   * type-only importer took a slot in the budget and pushed out a suite that
+   * actually drives the module. Measured: two of server/accounts' nine slots
+   * were type-only, and userRoutes.test.ts fell off the end because of it, which
+   * showed up as sixteen mutants going from covered to no-coverage.
+   */
+  const importsAtRuntime = (text) => {
+    for (const m of text.matchAll(spec)) {
+      const before = text.slice(Math.max(0, m.index - 200), m.index)
+      const start = before.lastIndexOf('import')
+      // Not an import at all (a URL, a fixture path): treat as runtime.
+      if (start === -1) return true
+      if (!/^import\s+type\b/.test(before.slice(start))) return true
+    }
+    return false
+  }
   const mount = routeMounts().get(key)
+  const references = (text) => { spec.lastIndex = 0; return spec.test(text) }
+  const typeOnly = new Set()
   const importers = allTestFiles()
-    .filter((f) => imports.test(f.text)
+    .filter((f) => references(f.text)
       // A route is reached through createApp() and a URL, never an import.
       || (mount !== undefined && f.text.includes('server/app') && f.text.includes(mount)))
-    .map((f) => f.path)
+    .map((f) => {
+      if (references(f.text) && !importsAtRuntime(f.text)) typeOnly.add(f.path)
+      return f.path
+    })
     .filter((p) => !own.includes(p) && !NEVER_MEASURE_WITH.has(p))
-    // Cheapest first, then by path so the choice is stable between runs.
-    .sort((a, b) => testCost(a) - testCost(b) || a.localeCompare(b))
-
+    // Cheapest tier first; within a tier a RUNTIME importer before a type-only
+    // one; then by path so the choice is stable between runs.
+    .sort((a, b) => testCost(a) - testCost(b)
+      || (typeOnly.has(a) ? 1 : 0) - (typeOnly.has(b) ? 1 : 0)
+      || a.localeCompare(b))
   // Every cheap importer, then as much of each rationed tier as the budget allows.
   const lib = importers.filter((p) => testCost(p) === 0)
   const server = importers.filter((p) => testCost(p) === 1)
