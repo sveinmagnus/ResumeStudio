@@ -203,6 +203,67 @@ describe('validateSettingsPatch', () => {
     expect(validateSettingsPatch({ llm_model: 42 })).toHaveProperty('error')
   })
 
+  /*
+   * The rest of each kind. This is the gate on the only settings a hosted owner
+   * can write, and whatever passes it lands in settings.json and then on
+   * process.env — so "rejects the wrong type" is not enough; it has to accept
+   * the right ones and refuse the shapes that are numbers only technically.
+   */
+  it('refuses a number that is not finite', () => {
+    // typeof NaN is 'number', so the type check alone lets both of these
+    // through and they reach the environment as "NaN" and "Infinity".
+    expect(validateSettingsPatch({ backup_interval_ms: Number.NaN })).toHaveProperty('error')
+    expect(validateSettingsPatch({ backup_interval_ms: Number.POSITIVE_INFINITY })).toHaveProperty('error')
+    expect(validateSettingsPatch({ backup_interval_ms: '60000' })).toHaveProperty('error')
+  })
+
+  it('accepts both boolean values, not merely rejecting non-booleans', () => {
+    expect(validateSettingsPatch({ translate_docker: true })).toEqual({ patch: { translate_docker: true } })
+    expect(validateSettingsPatch({ translate_docker: false })).toEqual({ patch: { translate_docker: false } })
+  })
+
+  it('names the permitted values when refusing an enum', () => {
+    // The message is the only guidance a caller gets, and an empty list in it
+    // says "must be one of " with nothing after.
+    const r = validateSettingsPatch({ translate_provider: 'carrier-pigeon' })
+    expect(r).toHaveProperty('error')
+    expect((r as { error: string }).error).toContain('deepl')
+  })
+
+  it('holds an address to the same gate the send path uses', () => {
+    // It lands in a From: header, where a control character writes a header of
+    // the caller's choosing.
+    expect(validateSettingsPatch({ mail_from: 'not-an-address' })).toHaveProperty('error')
+    expect(validateSettingsPatch({ mail_from: `a@b.no${String.fromCharCode(13)}Bcc: x@y.no` }))
+      .toHaveProperty('error')
+    expect(validateSettingsPatch({ mail_from: '  noreply@example.no  ' }))
+      .toEqual({ patch: { mail_from: 'noreply@example.no' } })
+    // Empty is a real value: mail is not configured.
+    expect(validateSettingsPatch({ mail_from: '' })).toEqual({ patch: { mail_from: '' } })
+  })
+
+  it('keeps the language list to real locale codes, de-duplicated', () => {
+    // These reach `docker compose` as LT_LOAD_ONLY, so the shape is constrained
+    // rather than trusted.
+    expect(validateSettingsPatch({ translate_languages: ['NO', ' en ', 'no'] }))
+      .toEqual({ patch: { translate_languages: ['no', 'en'] } })
+  })
+
+  it('refuses anything that is not a locale code, rather than dropping it', () => {
+    // Dropping would silently install a different set from the one asked for.
+    expect(validateSettingsPatch({ translate_languages: ['no', 'nonsense!'] })).toHaveProperty('error')
+    expect(validateSettingsPatch({ translate_languages: ['no', 42] })).toHaveProperty('error')
+    expect(validateSettingsPatch({ translate_languages: 'no' })).toHaveProperty('error')
+  })
+
+  it('accepts an empty list here, which the read path then fills in', () => {
+    // Deliberately asymmetric and worth knowing: the WRITE path takes [] as
+    // written, while `coerce` on the way back out substitutes the default,
+    // because an empty LT_LOAD_ONLY is not a configuration anyone wants.
+    expect(validateSettingsPatch({ translate_languages: [] }))
+      .toEqual({ patch: { translate_languages: [] } })
+  })
+
   /**
    * `local_hostname` is written onto the desktop Host guard's allow-list AND
    * into the system hosts file, so the validator is the gate on both. Empty is

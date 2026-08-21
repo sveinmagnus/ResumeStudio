@@ -62,8 +62,23 @@ interface FakeOptions {
   caps?: string[]
   /** Greeting lines before the code (multi-line when more than one). */
   greeting?: string[]
+  /** The greeting's status code. Anything but 220 is a refusal to talk. */
+  greetingCode?: number
   /** Verbatim reply to RCPT TO. */
   rcpt?: string
+  /**
+   * Verbatim replies for the other stages, so a failure can be injected at each
+   * one. Everything the client does after a refusal is error handling, and
+   * error handling is the half of an SMTP client that never runs in a happy
+   * path test.
+   */
+  ehlo?: string
+  mail?: string
+  data?: string
+  auth?: string
+  helo?: string
+  /** Hang up the moment this verb arrives, rather than answering it. */
+  dropOn?: string
 }
 
 interface FakeServer {
@@ -95,23 +110,28 @@ async function startFakeSmtp(opts: FakeOptions = {}): Promise<FakeServer> {
       if (awaiting === 'user') { awaiting = 'pass'; return `334 UGFzc3dvcmQ6${CRLF}` }
       if (awaiting === 'pass') { awaiting = null; return `235 2.7.0 Authentication successful${CRLF}` }
       const verb = line.split(' ')[0].toUpperCase()
-      if (verb === 'EHLO') return multiline(250, ['fake.example.com Hello', ...caps])
-      if (verb === 'HELO') return `250 fake.example.com${CRLF}`
+      if (verb === 'EHLO') return opts.ehlo ?? multiline(250, ['fake.example.com Hello', ...caps])
+      if (verb === 'HELO') return opts.helo ?? `250 fake.example.com${CRLF}`
       if (verb === 'AUTH') {
+        if (opts.auth) return opts.auth
         const mech = (line.split(' ')[1] ?? '').toUpperCase()
         if (mech === 'PLAIN') return `235 2.7.0 Authentication successful${CRLF}`
         if (mech === 'LOGIN') { awaiting = 'user'; return `334 VXNlcm5hbWU6${CRLF}` }
         return `504 5.5.4 Unrecognized authentication type${CRLF}`
       }
-      if (verb === 'MAIL') return `250 2.1.0 Ok${CRLF}`
+      if (verb === 'MAIL') return opts.mail ?? `250 2.1.0 Ok${CRLF}`
       if (verb === 'RCPT') return opts.rcpt ?? `250 2.1.5 Ok${CRLF}`
-      if (verb === 'DATA') { inData = true; return `354 End data with <CR><LF>.<CR><LF>${CRLF}` }
+      if (verb === 'DATA') {
+        if (opts.data) return opts.data
+        inData = true
+        return `354 End data with <CR><LF>.<CR><LF>${CRLF}`
+      }
       if (verb === 'QUIT') return `221 2.0.0 Bye${CRLF}`
       return `502 5.5.2 Error: command not recognized${CRLF}`
     }
 
     sock.setEncoding('utf8')
-    sock.write(multiline(220, opts.greeting ?? ['fake.example.com ESMTP ready']))
+    sock.write(multiline(opts.greetingCode ?? 220, opts.greeting ?? ['fake.example.com ESMTP ready']))
     sock.on('data', (chunk: string) => {
       buf += chunk
       for (;;) {
@@ -133,6 +153,12 @@ async function startFakeSmtp(opts: FakeOptions = {}): Promise<FakeServer> {
           continue
         }
         state.commands.push(line)
+        // A relay that hangs up mid-conversation, which is what a dropped
+        // connection or a killed process looks like from the client's side.
+        if (opts.dropOn && line.split(' ')[0].toUpperCase() === opts.dropOn.toUpperCase()) {
+          sock.destroy()
+          return
+        }
         sock.write(reply(line))
       }
     })
@@ -499,6 +525,89 @@ describe('SMTP transport', () => {
       expect(start).toBeGreaterThanOrEqual(0)
       expect(Buffer.from(server.commands[start + 1], 'base64').toString('utf8')).toBe('relay-user')
       expect(Buffer.from(server.commands[start + 2], 'base64').toString('utf8')).toBe('secret')
+    } finally {
+      await server.close()
+    }
+  })
+
+  /*
+   * A refusal at each stage of the conversation.
+   *
+   * Everything after a non-2xx reply is error handling, and error handling is
+   * the half of an SMTP client a happy-path test never runs: the mutation report
+   * put ~100 survivors in `greet`, `read`, `authenticate`, `abort` and the
+   * session itself. What every one of these must prove is the same pair of
+   * facts — the caller is told it failed, and nothing is silently half-sent.
+   */
+  it.each([
+    ['the greeting is a refusal', { greetingCode: 554, greeting: ['Service not available'] }],
+    ['EHLO and the HELO fallback are both refused',
+      { ehlo: `500 5.5.1 Command unrecognized${CRLF}`, helo: `500 5.5.1 Command unrecognized${CRLF}` }],
+    ['MAIL FROM is refused', { mail: `550 5.7.1 Sender denied${CRLF}` }],
+    ['DATA is refused', { data: `554 5.5.1 No valid recipients${CRLF}` }],
+  ])('reports a failure when %s', async (_name, opts) => {
+    const server = await startFakeSmtp(opts)
+    try {
+      expect(await sendMail(OK_MESSAGE, smtpConfig(server.port)))
+        .toEqual({ ok: false, error: 'send-failed' })
+      // Nothing was accepted, so nothing was queued.
+      expect(server.data).toBe('')
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('reports a failure when AUTH is rejected, and sends no message', async () => {
+    // A wrong password must not fall through to sending unauthenticated.
+    const server = await startFakeSmtp({ auth: `535 5.7.8 Authentication credentials invalid${CRLF}` })
+    try {
+      const cfg = smtpConfig(server.port, { user: 'u', pass: 'wrong' })
+      expect(await sendMail(OK_MESSAGE, cfg)).toEqual({ ok: false, error: 'send-failed' })
+      expect(server.commands).not.toContain('DATA')
+      expect(server.data).toBe('')
+    } finally {
+      await server.close()
+    }
+  })
+
+  it.each([['EHLO'], ['MAIL'], ['DATA']])(
+    'survives the relay hanging up at %s rather than throwing out of sendMail',
+    async (verb) => {
+      // A dropped socket is not a reply, so the read never completes on its
+      // own. The caller still has to get an answer.
+      const server = await startFakeSmtp({ dropOn: verb })
+      try {
+        expect(await sendMail(OK_MESSAGE, smtpConfig(server.port)))
+          .toEqual({ ok: false, error: 'send-failed' })
+      } finally {
+        await server.close()
+      }
+    },
+  )
+
+  it('will not send in the clear when STARTTLS was asked for and is not offered', async () => {
+    // The capability list is the only thing saying TLS is available, and a
+    // missing line is what a downgrade attack looks like.
+    const server = await startFakeSmtp({ caps: ['SIZE 100'] })
+    try {
+      const cfg = smtpConfig(server.port, { security: 'starttls' })
+      expect(await sendMail(OK_MESSAGE, cfg)).toEqual({ ok: false, error: 'send-failed' })
+      expect(server.commands).not.toContain('DATA')
+      expect(server.data).toBe('')
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('falls back to HELO when EHLO is refused, and still delivers', async () => {
+    // An old or minimal relay answers EHLO with 500. That is not a failure, it
+    // is the pre-ESMTP path — and taking it means no capabilities, so nothing
+    // may depend on having read any.
+    const server = await startFakeSmtp({ ehlo: `500 5.5.1 Command unrecognized${CRLF}` })
+    try {
+      expect(await sendMail(OK_MESSAGE, smtpConfig(server.port))).toEqual({ ok: true })
+      expect(server.commands.some((c) => c.startsWith('HELO '))).toBe(true)
+      expect(server.data).toContain('Open the link.')
     } finally {
       await server.close()
     }

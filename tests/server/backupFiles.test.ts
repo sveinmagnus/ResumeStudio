@@ -138,6 +138,65 @@ describe('reconcileSources', () => {
     expect(scan.filesByResumeId.get('r1')).toEqual(['old-name__r1.json', 'new-name__r1.json'])
   })
 
+  it('keeps the newest save when the NEWER source is read first', () => {
+    /*
+     * The same rule as above, in the order that can actually test it.
+     *
+     * Every existing case fed the older copy first, so "keep the newest" and
+     * "keep whichever arrived last" agree and the mutation report showed the
+     * comparison deletable. Reversed, they disagree — and taking the last would
+     * be an older copy overwriting a newer one, which is the two-machines
+     * failure this whole design exists to avoid.
+     */
+    const scan = reconcileSources([
+      asSource('new-name__r1.json', buildResumeFile(entry({ name: 'Renamed', saved_at: '2026-08-02T00:00:00Z' }), [])),
+      asSource('old-name__r1.json', buildResumeFile(entry({ saved_at: '2026-08-01T00:00:00Z' }), [])),
+    ])
+    expect(scan.resumes).toHaveLength(1)
+    expect(scan.resumes[0].name).toBe('Renamed')
+    expect(scan.resumes[0].saved_at).toBe('2026-08-02T00:00:00Z')
+  })
+
+  it('keeps the first of two copies saved at the same instant', () => {
+    // A tie is not a reason to churn: `>` rather than `>=` means an identical
+    // timestamp leaves the held copy alone.
+    const scan = reconcileSources([
+      asSource('a__r1.json', buildResumeFile(entry({ name: 'First', saved_at: '2026-08-01T00:00:00Z' }), [])),
+      asSource('b__r1.json', buildResumeFile(entry({ name: 'Second', saved_at: '2026-08-01T00:00:00Z' }), [])),
+    ])
+    expect(scan.resumes[0].name).toBe('First')
+  })
+
+  it('keeps the newest registry entry when the NEWER source is read first', () => {
+    const scan = reconcileSources([
+      asSource(REGISTRY_FILENAME, {
+        $schema: 'resumestudio-registry/v1', format_version: 1,
+        registry: [reg({ name: { en: 'New' }, updated_at: '2026-09-01T00:00:00Z' })],
+      }),
+      asSource('a__r1.json', {
+        $schema: 'resumestudio-resume/v1', format_version: 1,
+        resume: entry(), registry: [reg({ name: { en: 'Old' }, updated_at: '2026-01-01T00:00:00Z' })],
+      }),
+    ])
+    expect(scan.registry.find((e) => e.id === 'c1')?.name).toEqual({ en: 'New' })
+  })
+
+  it('prefers a dated registry entry over an undated one', () => {
+    // `updated_at ?? ''` makes a missing timestamp the oldest possible, so an
+    // entry from a build that did not stamp them cannot displace a real one.
+    const scan = reconcileSources([
+      asSource(REGISTRY_FILENAME, {
+        $schema: 'resumestudio-registry/v1', format_version: 1,
+        registry: [reg({ name: { en: 'Dated' }, updated_at: '2026-09-01T00:00:00Z' })],
+      }),
+      asSource('a__r1.json', {
+        $schema: 'resumestudio-resume/v1', format_version: 1,
+        resume: entry(), registry: [{ ...reg({ name: { en: 'Undated' } }), updated_at: undefined }],
+      }),
+    ])
+    expect(scan.registry.find((e) => e.id === 'c1')?.name).toEqual({ en: 'Dated' })
+  })
+
   it('unions the registry from resume files and registry.json, newest wins', () => {
     const scan = reconcileSources([
       asSource('a__r1.json', {

@@ -172,6 +172,27 @@ describe('chatComplete()', () => {
     const [url, opts] = fn.mock.calls[0] as [string, RequestInit]
     expect(url).toBe('https://api.openai.com/v1/chat/completions')
     expect((opts.headers as Record<string, string>).Authorization).toBe('Bearer sk-secret')
+    // The Chat Completions shape, asserted rather than assumed: system stays a
+    // message role here, which is the whole difference from the Anthropic path.
+    const body = JSON.parse(opts.body as string)
+    expect(body.model).toBe('gpt-4o-mini')
+    expect(body.max_tokens).toBe(50)
+    expect(body.messages).toEqual([{ role: 'user', content: 'text' }])
+  })
+
+  it('keeps a system prompt as a message role on the Chat Completions path', async () => {
+    vi.stubEnv('LLM_PROVIDER', 'openai')
+    vi.stubEnv('LLM_OPENAI_API_KEY', 'sk-secret')
+    vi.stubEnv('LLM_MODEL', 'gpt-4o-mini')
+    const fn = mockFetch(chat('Short.'))
+    await chatComplete([{ role: 'system', content: 'You are a helper.' }, ...ASK], { maxTokens: 50 })
+    const body = JSON.parse((fn.mock.calls[0] as [string, RequestInit])[1].body as string)
+    expect(body.messages).toEqual([
+      { role: 'system', content: 'You are a helper.' },
+      { role: 'user', content: 'text' },
+    ])
+    // And NOT hoisted to a top-level field, which is the Anthropic convention.
+    expect(body.system).toBeUndefined()
   })
 
   it('posts to Google\'s OpenAI-compat endpoint (Bearer) for gemini', async () => {
@@ -220,7 +241,13 @@ describe('chatComplete()', () => {
     expect(body.temperature).toBeUndefined()
     // The system prompt is a top-level field, not a message role.
     expect(body.system).toBe('You are a helper.')
-    expect(body.messages.some((m: { role: string }) => m.role === 'system')).toBe(false)
+    /*
+     * The conversation itself, asserted whole rather than by absence.
+     * `[].some(...)` is also false, so "no system role in messages" passed for a
+     * mutant that dropped every message — the request would have carried a
+     * system prompt and nothing to answer.
+     */
+    expect(body.messages).toEqual([{ role: 'user', content: 'text' }])
   })
 
   it('falls back to the anthropic default model when none is set', async () => {

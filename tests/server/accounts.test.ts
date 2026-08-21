@@ -84,6 +84,62 @@ describe('findByLogin — either identifier (D1)', () => {
   })
 })
 
+describe('the mutators, which only the routes were exercising', () => {
+  /*
+   * setRole, setDisplayName and setUsername had NO coverage in this file at all
+   * — ten mutants that no test in the module's own measured set reached. They
+   * are driven through the routes, in a suite that gets its store from
+   * server/db and so never appears here. Worth stating directly: these are the
+   * writes that change who somebody is.
+   */
+  it('changes a role, and back', () => {
+    const u = makeUser({ role: 'member' })
+    acc.setRole(u.id, 'owner')
+    expect(acc.getUser(u.id)?.role).toBe('owner')
+    acc.setRole(u.id, 'member')
+    expect(acc.getUser(u.id)?.role).toBe('member')
+  })
+
+  it('changes a display name without touching the login identifiers', () => {
+    const u = makeUser({ username: 'kari', email: 'kari@example.no' })
+    acc.setDisplayName(u.id, 'Kari N. Nordmann')
+    const after = acc.getUser(u.id)
+    expect(after?.display_name).toBe('Kari N. Nordmann')
+    expect(after?.username).toBe('kari')
+    expect(after?.email).toBe('kari@example.no')
+  })
+
+  it('renames to a free username and reports success', () => {
+    const u = makeUser({ username: 'kari' })
+    expect(acc.setUsername(u.id, 'kari-nordmann')).toBe(true)
+    expect(acc.getUser(u.id)?.username).toBe('kari-nordmann')
+  })
+
+  it('normalises on the way in, so case cannot create a second spelling', () => {
+    const u = makeUser({ username: 'kari' })
+    expect(acc.setUsername(u.id, '  KARI-N  ')).toBe(true)
+    expect(acc.getUser(u.id)?.username).toBe('kari-n')
+  })
+
+  it('refuses a name another account holds, and changes nothing', () => {
+    // The check and the write share a transaction so two simultaneous renames
+    // cannot both see the name as free.
+    const kari = makeUser({ username: 'kari' })
+    const ola = makeUser({ username: 'ola' })
+    expect(acc.setUsername(ola.id, 'kari')).toBe(false)
+    expect(acc.getUser(ola.id)?.username).toBe('ola')
+    expect(acc.getUser(kari.id)?.username).toBe('kari')
+  })
+
+  it('lets an account keep its own name, which is not a clash', () => {
+    // `clash.id !== userId` is what separates the two, and renaming to the name
+    // you already hold has to succeed — a form that submits every field does it.
+    const u = makeUser({ username: 'kari' })
+    expect(acc.setUsername(u.id, 'kari')).toBe(true)
+    expect(acc.getUser(u.id)?.username).toBe('kari')
+  })
+})
+
 describe('usernameInUse — a username collides with USERNAMES', () => {
   it('reports a taken username', () => {
     makeUser({ username: 'kari' })

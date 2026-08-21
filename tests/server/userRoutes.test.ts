@@ -272,6 +272,82 @@ describe('PUT /me — which edits cost a password', SLOW, () => {
       .send({ username: olaUser?.username, current_password: PASSWORD })
     expect(r.status).toBe(409)
   })
+
+  it('refuses a WRONG current password, not merely a missing one', async () => {
+    // The guard is three conditions and the tests above only exercised the
+    // "absent" one, so a verification that always passed would have gone
+    // unnoticed — which is the whole protection against a stolen session.
+    asKari()
+    const r = await request(app).put('/api/users/me').set('Cookie', cookie)
+      .send({ username: 'kari-hijacked', current_password: 'not-the-password' })
+    expect(r.status).toBe(403)
+    expect(accounts.getUser(kari.id)?.username).not.toBe('kari-hijacked')
+  })
+
+  it('does not ask for a password to change only the display name', async () => {
+    // `changesLogin` is what decides. If it read as always-true, a cosmetic
+    // edit would start demanding a password; always-false and an identifier
+    // change would stop needing one.
+    asKari()
+    const r = await request(app).put('/api/users/me').set('Cookie', cookie)
+      .send({ display_name: 'Kari Only' })
+    expect(r.status).toBe(200)
+  })
+
+  it('refuses to blank its own display name', async () => {
+    asKari()
+    const before = accounts.getUser(kari.id)?.display_name
+    const r = await request(app).put('/api/users/me').set('Cookie', cookie).send({ display_name: '  ' })
+    expect(r.status).toBe(400)
+    expect(accounts.getUser(kari.id)?.display_name).toBe(before)
+  })
+
+  it('applies the username rules to itself', async () => {
+    asKari()
+    const r = await request(app).put('/api/users/me').set('Cookie', cookie)
+      .send({ username: 'a', current_password: PASSWORD })
+    expect(r.status).toBe(400)
+  })
+
+  it('refuses an address that is not one', async () => {
+    asKari()
+    const r = await request(app).put('/api/users/me').set('Cookie', cookie)
+      .send({ email: 'not-an-address', current_password: PASSWORD })
+    expect(r.status).toBe(400)
+  })
+
+  it('refuses an address another account already holds', async () => {
+    const taken = `taken-me-${Math.random().toString(36).slice(2, 8)}@example.no`
+    asOwner()
+    await request(app).put(`/api/users/${ola.id}`).set('Cookie', cookie).send({ email: taken })
+    asKari()
+    const r = await request(app).put('/api/users/me').set('Cookie', cookie)
+      .send({ email: taken, current_password: PASSWORD })
+    expect(r.status).toBe(409)
+  })
+
+  it('clears its own address when given an empty one', async () => {
+    asKari()
+    await request(app).put('/api/users/me').set('Cookie', cookie)
+      .send({ email: `mine-${Math.random().toString(36).slice(2, 8)}@example.no`, current_password: PASSWORD })
+    expect(accounts.getUser(kari.id)?.email).not.toBeNull()
+    const r = await request(app).put('/api/users/me').set('Cookie', cookie)
+      .send({ email: '', current_password: PASSWORD })
+    expect(r.status).toBe(200)
+    expect(accounts.getUser(kari.id)?.email).toBeNull()
+  })
+
+  it('refuses a service credential, which is nobody', async () => {
+    // requirePerson: a token authenticates but has no account to edit.
+    process.env.RESUME_API_TOKEN = SERVICE_TOKEN
+    try {
+      const r = await request(app).put('/api/users/me')
+        .set('Authorization', `Bearer ${SERVICE_TOKEN}`).send({ display_name: 'Nobody' })
+      expect(r.status).toBe(403)
+    } finally {
+      delete process.env.RESUME_API_TOKEN
+    }
+  })
 })
 
 describe('owner administration', SLOW, () => {
@@ -304,6 +380,89 @@ describe('owner administration', SLOW, () => {
     asOwner()
     await request(app).put(`/api/users/${kari.id}`).set('Cookie', cookie).send({ email: 'typo@example.no' })
     expect(accounts.getUser(kari.id)?.email_verified_at).toBeNull()
+  })
+
+  /*
+   * The rest of PUT /:id. It had three tests for eight decision points, and the
+   * mutation report showed 21 survivors in it — the largest cluster in this
+   * router. It is an owner-only route that rewrites another person's login
+   * identifiers, so each refusal is worth stating.
+   */
+  it('404s for a user id that does not exist', async () => {
+    asOwner()
+    const r = await request(app).put('/api/users/no-such-user').set('Cookie', cookie).send({ display_name: 'X' })
+    expect(r.status).toBe(404)
+  })
+
+  it('refuses to blank a display name', async () => {
+    asOwner()
+    const before = accounts.getUser(kari.id)?.display_name
+    const r = await request(app).put(`/api/users/${kari.id}`).set('Cookie', cookie).send({ display_name: '   ' })
+    expect(r.status).toBe(400)
+    expect(accounts.getUser(kari.id)?.display_name).toBe(before)
+  })
+
+  it('trims a display name rather than storing the padding', async () => {
+    asOwner()
+    await request(app).put(`/api/users/${kari.id}`).set('Cookie', cookie).send({ display_name: '  Kari N.  ' })
+    expect(accounts.getUser(kari.id)?.display_name).toBe('Kari N.')
+  })
+
+  it('applies the username rules on another persons behalf', async () => {
+    asOwner()
+    const r = await request(app).put(`/api/users/${kari.id}`).set('Cookie', cookie).send({ username: 'has space' })
+    expect(r.status).toBe(400)
+  })
+
+  it('refuses a username another account already holds', async () => {
+    asOwner()
+    const taken = accounts.getUser(ola.id)?.username
+    const r = await request(app).put(`/api/users/${kari.id}`).set('Cookie', cookie).send({ username: taken })
+    expect(r.status).toBe(409)
+    expect(accounts.getUser(kari.id)?.username).not.toBe(taken)
+  })
+
+  it('renames when the username is free', async () => {
+    asOwner()
+    const fresh = `kari-renamed-${Math.random().toString(36).slice(2, 8)}`
+    const r = await request(app).put(`/api/users/${kari.id}`).set('Cookie', cookie).send({ username: fresh })
+    expect(r.status).toBe(200)
+    expect(accounts.getUser(kari.id)?.username).toBe(fresh)
+  })
+
+  it('refuses an address that is not one', async () => {
+    asOwner()
+    const r = await request(app).put(`/api/users/${kari.id}`).set('Cookie', cookie).send({ email: 'not-an-address' })
+    expect(r.status).toBe(400)
+  })
+
+  it('refuses an address another account already holds', async () => {
+    asOwner()
+    const taken = `taken-${Math.random().toString(36).slice(2, 8)}@example.no`
+    await request(app).put(`/api/users/${ola.id}`).set('Cookie', cookie).send({ email: taken })
+    const r = await request(app).put(`/api/users/${kari.id}`).set('Cookie', cookie).send({ email: taken })
+    expect(r.status).toBe(409)
+  })
+
+  it('clears an address when given an empty one', async () => {
+    // Distinct from omitting the key: `'email' in body` is the switch, so an
+    // explicit empty value is how an owner removes a wrong address.
+    asOwner()
+    await request(app).put(`/api/users/${kari.id}`).set('Cookie', cookie).send({ email: 'temp@example.no' })
+    expect(accounts.getUser(kari.id)?.email).toBe('temp@example.no')
+    await request(app).put(`/api/users/${kari.id}`).set('Cookie', cookie).send({ email: '' })
+    expect(accounts.getUser(kari.id)?.email).toBeNull()
+  })
+
+  it('leaves an identifier alone when the key is absent', async () => {
+    // The opposite of the case above: no key means no change, so a partial
+    // update cannot wipe a field it never mentioned.
+    asOwner()
+    const before = accounts.getUser(kari.id)
+    await request(app).put(`/api/users/${kari.id}`).set('Cookie', cookie).send({ display_name: 'Only This' })
+    const after = accounts.getUser(kari.id)
+    expect(after?.username).toBe(before?.username)
+    expect(after?.email).toBe(before?.email)
   })
 
   /** Owners accumulate across this file's shared DB, so make `owner` the last. */
