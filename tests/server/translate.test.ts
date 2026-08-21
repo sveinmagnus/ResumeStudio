@@ -5,12 +5,78 @@ import {
   translate,
   ltLoadOnly,
   looksWrongLanguage,
+  tidyTranslation,
   TranslateError,
 } from '../../server/translate'
 
 afterEach(() => {
   vi.unstubAllEnvs()
   vi.unstubAllGlobals()
+})
+
+
+/**
+ * The last thing that touches a model's translation before it becomes the
+ * user's CV text — and it had no test at all, which is every one of its thirty
+ * surviving mutants.
+ *
+ * Unlike the summarize path's tidyLine, this must PRESERVE the body: a CV field
+ * runs to several sentences or lines. Only the wrapper comes off.
+ */
+describe('tidyTranslation()', () => {
+  it('leaves ordinary text alone, bar surrounding whitespace', () => {
+    expect(tidyTranslation('  Ledet en skymigrering.  ')).toBe('Ledet en skymigrering.')
+  })
+
+  it('keeps a multi-line body intact', () => {
+    const body = 'Første avsnitt.\n\nAndre avsnitt.'
+    expect(tidyTranslation(body)).toBe(body)
+  })
+
+  it('strips a code fence, tagged or bare', () => {
+    expect(tidyTranslation('```\nLedet en skymigrering.\n```')).toBe('Ledet en skymigrering.')
+    expect(tidyTranslation('```text\nLedet en skymigrering.\n```')).toBe('Ledet en skymigrering.')
+  })
+
+  it('strips the delimiter lines the prompt wraps the source in', () => {
+    // Delimiters are what make a weak model treat the text as data rather than
+    // instructions; the price is that it sometimes echoes them back.
+    expect(tidyTranslation('###\nLedet en skymigrering.\n###')).toBe('Ledet en skymigrering.')
+  })
+
+  it('keeps a ### that is part of the text', () => {
+    // Leading and trailing only. A row of hashes inside the body is the user's.
+    const body = 'Før.\n###\nEtter.'
+    expect(tidyTranslation(body)).toBe(body)
+  })
+
+  it('strips quotes that wrap the WHOLE text', () => {
+    expect(tidyTranslation('"Ledet en skymigrering."')).toBe('Ledet en skymigrering.')
+    expect(tidyTranslation('“Ledet en skymigrering.”')).toBe('Ledet en skymigrering.')
+  })
+
+  it('keeps quotes that are part of the sentence', () => {
+    // The test is whether they ENCLOSE everything. An inner quote means they do
+    // not, and stripping would take a character off each end of real text.
+    const inner = 'Han sa "hei" til kunden.'
+    expect(tidyTranslation(inner)).toBe(inner)
+    expect(tidyTranslation('"Hei" og "hade"')).toBe('"Hei" og "hade"')
+  })
+
+  it('does not strip a lone quote character', () => {
+    // length > 1 guards this: a single `"` both starts and ends the string.
+    expect(tidyTranslation('"')).toBe('"')
+  })
+
+  it('handles an empty reply without inventing one', () => {
+    expect(tidyTranslation('')).toBe('')
+    expect(tidyTranslation('   ')).toBe('')
+  })
+
+  it('strips a fence and the quotes inside it', () => {
+    // A model that does both. Each pass runs in turn, so the order matters.
+    expect(tidyTranslation('```\n"Ledet en skymigrering."\n```')).toBe('Ledet en skymigrering.')
+  })
 })
 
 describe('toServiceLocale()', () => {
