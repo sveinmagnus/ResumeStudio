@@ -159,6 +159,10 @@ export function applyView(store: ResumeStore, view: ResumeView): ResumeStore {
   // agrees with the UI — otherwise a freshly-added profile (not yet in any
   // view's excluded list) would surface as a surprise second block. Keep the
   // first surviving profile, matching the editor radio's `includedIds[0]`.
+  // Stryker disable next-line ConditionalExpression,EqualityOperator: the guard
+  // is a shortcut, not a rule. `slice(0, 1)` is idempotent at length 0 and 1, so
+  // running it unconditionally produces the same array — no test can separate
+  // them.
   if (filtered.key_qualifications.length > 1) {
     filtered.key_qualifications = filtered.key_qualifications.slice(0, 1)
   }
@@ -177,6 +181,9 @@ export function applyView(store: ResumeStore, view: ResumeView): ResumeStore {
     const compById = new Map<string, KeyCompetency>(store.key_competencies.map((c) => [c.id, c]))
     const starredOnly = sectionStarredOnly(view, 'key_competencies')
     filtered.key_competencies = (bundleProfile.competency_ids ?? [])
+      // Stryker disable next-line ArrayDeclaration: whatever stands in for the
+      // empty fallback is looked up by id on the next line and drops out, so the
+      // result is [] either way.
       .map((id) => compById.get(id))
       .filter((c): c is KeyCompetency =>
         !!c && !c.disabled && !excluded.has(c.id) && (!starredOnly || !!c.starred))

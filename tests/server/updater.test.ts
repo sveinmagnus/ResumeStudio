@@ -214,6 +214,34 @@ describe('parseChecksum', () => {
     expect(parseChecksum(`${'A'.repeat(64)}  pkg.tar.gz`, 'pkg.tar.gz')).toBe('a'.repeat(64))
   })
 
+  it('will not read a digest out of a COMMENTED line', () => {
+    // A commented-out entry is a revoked one. Recognising comments only at the
+    // START of a line is what separates the two, and honouring a digest from
+    // inside a comment would validate an archive somebody deliberately withdrew.
+    expect(parseChecksum(`# ${digest}  pkg.tar.gz`, 'pkg.tar.gz')).toBeNull()
+  })
+
+  it('requires the digest to START the line', () => {
+    // Unanchored, the pattern finds a 64-hex run anywhere — so a line whose
+    // real content is something else entirely would still yield a digest.
+    expect(parseChecksum(`sha256: ${digest}  pkg.tar.gz`, 'pkg.tar.gz')).toBeNull()
+  })
+
+  it('refuses a run of hex that is not exactly 64 characters', () => {
+    expect(parseChecksum(`${'a'.repeat(63)}  pkg.tar.gz`, 'pkg.tar.gz')).toBeNull()
+    expect(parseChecksum(`${'a'.repeat(65)}  pkg.tar.gz`, 'pkg.tar.gz')).toBeNull()
+  })
+
+  it('matches on the base name, so a path in either side still lines up', () => {
+    expect(parseChecksum(`${digest}  ./dist/pkg.tar.gz`, 'pkg.tar.gz')).toBe(digest)
+    expect(parseChecksum(`${digest}  pkg.tar.gz`, '  /tmp/pkg.tar.gz  ')).toBe(digest)
+  })
+
+  it('returns null for an empty or digest-free file', () => {
+    expect(parseChecksum('', 'pkg.tar.gz')).toBeNull()
+    expect(parseChecksum('# nothing here\n\n', 'pkg.tar.gz')).toBeNull()
+  })
+
   it('returns null when no line matches the asset', () => {
     expect(parseChecksum(`${digest}  other.tar.gz\n`, 'pkg.tar.gz')).toBeNull()
   })
