@@ -58,6 +58,9 @@
  *   node scripts/mutation-run.mjs                 # …and this resumes that sweep
  *   node scripts/mutation-run.mjs --from 52       # start at the 52nd queued
  *   node scripts/mutation-run.mjs --from lib/api  # …or name it
+ *   node scripts/mutation-run.mjs --force server/db --budget 20
+ *                                                 # a true figure for a module
+ *                                                 #   the default budget caps
  *   node scripts/mutation-run.mjs --report        # print what's been measured
  *   node scripts/mutation-run.mjs --survivors x   # print x's UNKILLED mutants
  *   node scripts/mutation-run.mjs --survivors --skip StringLiteral
@@ -98,6 +101,23 @@ const limit = limitIdx >= 0 ? Number(argv[limitIdx + 1]) : Infinity
 const fromIdx = argv.indexOf('--from')
 const from = fromIdx >= 0 ? String(argv[fromIdx + 1] ?? '') : ''
 /**
+ * `--budget 20` — raise the per-tier ceiling on how many test files one module
+ * may be measured against.
+ *
+ * The default exists so a whole-tree run terminates, and the run summary names
+ * every module that hit it. But the cut within a tier is alphabetical, which is
+ * arbitrary: `server/db` is reached by 17 suites, takes 8, and the ones it
+ * drops include `scoping.test.ts` — the route × role matrix, i.e. exactly the
+ * suite that exercises the authorization rule this module turns into SQL. Its
+ * number is therefore not what a reader assumes it is.
+ *
+ * Rather than guess at a better ranking, this makes the true figure obtainable
+ * for one module at a time: `--force server/db --budget 20`. Slow on purpose,
+ * which is why it is not the default.
+ */
+const budgetIdx = argv.indexOf('--budget')
+const budgetOverride = budgetIdx >= 0 ? Number(argv[budgetIdx + 1]) : null
+/**
  * `--skip StringLiteral,Regex` hides those mutators from a --survivors listing.
  *
  * The audit still RECORDS them — this filters the reading, not the run. That
@@ -114,7 +134,8 @@ const skipMutators = new Set(
 const names = argv.filter((a, i) => !a.startsWith('--')
   && !(limitIdx >= 0 && i === limitIdx + 1)
   && !(skipIdx >= 0 && i === skipIdx + 1)
-  && !(fromIdx >= 0 && i === fromIdx + 1))
+  && !(fromIdx >= 0 && i === fromIdx + 1)
+  && !(budgetIdx >= 0 && i === budgetIdx + 1))
 
 /**
  * Every mutable module, read off disk each run — never a checked-in list.
@@ -228,7 +249,7 @@ function allTestFiles() {
  * expensive ones are rationed. `coverageAnalysis: perTest` means the extra
  * cheap files cost one dry run, not a re-run per mutant.
  */
-const MAX_COMPONENT_TEST_FILES = 2
+const MAX_COMPONENT_TEST_FILES = budgetOverride ?? 2
 /**
  * Adding server/ needed a THIRD tier, not a second use of the second.
  *
@@ -240,9 +261,9 @@ const MAX_COMPONENT_TEST_FILES = 2
  * React, but a login suite pays for scrypt on nearly every request, so it is
  * rationed too — just far higher.
  */
-const MAX_SERVER_TEST_FILES = 8
+const MAX_SERVER_TEST_FILES = budgetOverride ?? 8
 /** A backstop for a module half the suite imports, so a run still terminates. */
-const MAX_TEST_FILES = 24
+const MAX_TEST_FILES = budgetOverride !== null ? Math.max(24, budgetOverride) : 24
 
 /** Modules whose importer list was truncated this run (see testsFor). */
 const capped = new Set()
@@ -602,9 +623,18 @@ function printSurvivors(key) {
 function summarise(report) {
   if (report.sweep) {
     const left = candidates().filter((k) => !report.sweep.done.includes(k)).length
-    console.log(`A full sweep started ${report.sweep.startedAt} is UNFINISHED: `
-      + `${report.sweep.done.length} done, ${left} to go. Plain \`npm run test:mutation\` resumes it.`)
-    console.log('Numbers below for a module it has not reached are from the previous run.')
+    if (left === 0) {
+      // A finished sweep is not state worth keeping, and announcing it as
+      // unfinished is worse than keeping nothing: it warns that the numbers
+      // are stale about the very run that just replaced them all. Cleared here
+      // too, so --report is self-correcting rather than waiting for a run.
+      delete report.sweep
+      saveReport(report)
+    } else {
+      console.log(`A full sweep started ${report.sweep.startedAt} is UNFINISHED: `
+        + `${report.sweep.done.length} done, ${left} to go. Plain \`npm run test:mutation\` resumes it.`)
+      console.log('Numbers below for a module it has not reached are from the previous run.')
+    }
   }
   const measured = Object.entries(report.files).filter(([, v]) => !v.error)
   if (measured.length) {
@@ -790,6 +820,17 @@ function main() {
     console.log(result.error
       ? `ERROR — ${result.error} [${result.seconds}s]`
       : `${result.score}% (${result.killed} killed, ${result.survived} survived, ${result.noCoverage} no-cov) [${result.seconds}s]`)
+  }
+
+  // Close the sweep HERE, not only when the next run starts. Deciding it on
+  // entry meant the run that finished the last module still left the sweep
+  // open, so --report went on announcing "UNFINISHED: 153 done, 0 to go" and
+  // warning that the numbers were from a previous run — about a sweep that had
+  // just replaced every one of them.
+  if (sweep && candidates().every((k) => sweep.done.includes(k))) {
+    delete report.sweep
+    saveReport(report)
+    console.log('\nSweep complete — every module measured against the current tree.')
   }
   summarise(report)
 }
