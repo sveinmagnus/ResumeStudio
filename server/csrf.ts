@@ -50,7 +50,7 @@ const UNSAFE = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
  * matched nothing. The endpoints that must work without a token were all being
  * checked for one.
  */
-const EXEMPT = new Set([
+export const EXEMPT_PATHS = [
   '/api/auth/login',
   '/api/auth/logout',
   '/api/auth/bootstrap',
@@ -59,7 +59,15 @@ const EXEMPT = new Set([
   '/api/users/recover',
   '/api/users/forgot',
   '/api/users/verify-email',
-])
+] as const
+
+/**
+ * Exported so the suite can assert EVERY entry rather than a representative
+ * two. Dropping one is silent in the worst way: `/api/auth/logout` would start
+ * answering 403 to anyone holding a session, i.e. exactly the people trying to
+ * end one.
+ */
+const EXEMPT = new Set<string>(EXEMPT_PATHS)
 
 export function newCsrfToken(): string {
   return randomBytes(32).toString('base64url')
@@ -87,7 +95,10 @@ function requestPath(req: Request): string {
 }
 
 function equal(a: string, b: string): boolean {
+  // Stryker disable next-line StringLiteral: 'utf8' is Buffer.from's default,
+  // so naming it is documentation rather than behaviour.
   const ab = Buffer.from(a, 'utf8')
+  // Stryker disable next-line StringLiteral: as above.
   const bb = Buffer.from(b, 'utf8')
   if (ab.length === 0 || ab.length !== bb.length) return false
   return timingSafeEqual(ab, bb)

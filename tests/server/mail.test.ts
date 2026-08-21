@@ -21,6 +21,10 @@ const DEL = String.fromCharCode(127)
 const NEL = String.fromCharCode(0x85)
 const LINE_SEP = String.fromCharCode(0x2028)
 const PARA_SEP = String.fromCharCode(0x2029)
+/** The C1 block's edges. The range between them is rejected wholesale. */
+const C1_FIRST = String.fromCharCode(0x80)
+const C1_LAST = String.fromCharCode(0x9f)
+const TILDE = String.fromCharCode(0x7e)
 const CRLF = CR + LF
 
 // ─── sendmail: child_process is mocked so nothing is ever executed ───────────
@@ -322,7 +326,14 @@ describe('header-bound values other than the address', () => {
     ['bare CR', `Reset${CR}`],
     ['NUL', `Reset${NUL}`],
     ['U+2028', `Reset${LINE_SEP}`],
+    ['U+2029', `Reset${PARA_SEP}`],
     ['NEL', `Reset${NEL}`],
+    // The edges of each rejected range. NEL sits in the middle of the C1
+    // block, so it cannot tell `>= 0x80` from `> 0x80`, nor `<= 0x9f` from
+    // `< 0x9f` — and DEL is its own case, between the C0 range and C1.
+    ['DEL', `Reset${DEL}`],
+    ['the first C1 control', `Reset${C1_FIRST}`],
+    ['the last C1 control', `Reset${C1_LAST}`],
   ])('encodeHeaderValue rejects a subject with %s', (_name, subject) => {
     expect(encodeHeaderValue(subject)).toBeNull()
   })
@@ -365,6 +376,12 @@ describe('header-bound values other than the address', () => {
 
   it('leaves a plain ASCII subject alone', () => {
     expect(encodeHeaderValue('Reset your password')).toBe('Reset your password')
+  })
+
+  it('treats the last printable ASCII character as printable', () => {
+    // `~` is 0x7e, the top of the printable range and the boundary the
+    // encode-or-pass-through decision is made on.
+    expect(encodeHeaderValue(`Reset ${TILDE}`)).toBe(`Reset ${TILDE}`)
   })
 })
 

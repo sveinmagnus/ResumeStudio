@@ -65,6 +65,34 @@ describe('parseEnvFile', () => {
   it('handles CRLF, since a .env can be edited on Windows', () => {
     expect(parseEnvFile('A=1\r\nB=2\r\n')).toEqual({ A: '1', B: '2' })
   })
+
+  it('skips a key that only STARTS valid', () => {
+    // The regex is anchored at both ends. Unanchored it matches the leading
+    // run and accepts `A-B` as a key, which is not a name a shell can export.
+    expect(parseEnvFile('A-B=x\nA.B=x\nA B=x\nOK=1')).toEqual({ OK: '1' })
+  })
+
+  it('strips an empty quoted value down to empty, not to the quotes', () => {
+    // The two-character boundary: `""` is a quoted empty string.
+    expect(parseEnvFile(`A=""\nB=''`)).toEqual({ A: '', B: '' })
+  })
+
+  it('only strips actual quotes, not any repeated first and last character', () => {
+    // `xx` starts and ends with the same character; that is not a quote.
+    expect(parseEnvFile('A=xx\nB=1abc1')).toEqual({ A: 'xx', B: '1abc1' })
+  })
+
+  it('does not treat a trailing hash as a comment marker', () => {
+    // Comments are recognised at the START of a line. A value may legitimately
+    // end in `#` — a URL fragment, a colour.
+    expect(parseEnvFile('A=1#\nCOLOUR=#002E6E')).toEqual({ A: '1#', COLOUR: '#002E6E' })
+  })
+
+  it('reads an indented line, including an indented export', () => {
+    // Pasted from shell notes, which is where the export prefix comes from in
+    // the first place, and those are usually indented.
+    expect(parseEnvFile('  A=1\n\texport B=2')).toEqual({ A: '1', B: '2' })
+  })
 })
 
 describe('loadDotEnv', () => {
@@ -72,7 +100,10 @@ describe('loadDotEnv', () => {
     const file = writeEnv('RS_TEST_A=from-file')
     const result = loadDotEnv(file)
     expect(process.env.RS_TEST_A).toBe('from-file')
-    expect(result.applied).toContain('RS_TEST_A')
+    // Exactly, not merely containing: the report is what a caller logs, and an
+    // invented entry in it is a lie about what the file did.
+    expect(result.applied).toEqual(['RS_TEST_A'])
+    expect(result.skipped).toEqual([])
   })
 
   it('NEVER overrides the real environment', () => {
@@ -83,8 +114,8 @@ describe('loadDotEnv', () => {
     const file = writeEnv('RS_TEST_PRESET=from-file')
     const result = loadDotEnv(file)
     expect(process.env.RS_TEST_PRESET).toBe('from-environment')
-    expect(result.skipped).toContain('RS_TEST_PRESET')
-    expect(result.applied).not.toContain('RS_TEST_PRESET')
+    expect(result.skipped).toEqual(['RS_TEST_PRESET'])
+    expect(result.applied).toEqual([])
   })
 
   it('reports no file rather than throwing when there is none', () => {

@@ -178,6 +178,10 @@ export function isValidEmailAddress(value: unknown): value is string {
   const local = value.slice(0, at)
   const domain = value.slice(at + 1)
   if (!local || local.length > MAX_LOCAL_LENGTH || !LOCAL_PART.test(local)) return false
+  // Stryker disable next-line all: MAX_DOMAIN_LENGTH (255) sits behind
+  // MAX_EMAIL_LENGTH (254), which is checked first — a domain long enough to
+  // trip this rule cannot reach it. Kept as belt and braces in case the two
+  // limits are ever changed independently, but no test can distinguish it.
   if (!domain || domain.length > MAX_DOMAIN_LENGTH) return false
   // An empty label — a leading, trailing or doubled dot — fails the label test.
   return domain.split('.').every((label) => DOMAIN_LABEL.test(label))

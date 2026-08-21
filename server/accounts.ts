@@ -327,6 +327,9 @@ export function createAccountsStore(db: SqliteDatabase): AccountsStore {
    * touching this code.
    */
   function resolveSession(raw: string): UserRow | null {
+    // Stryker disable next-line ConditionalExpression: a short-circuit, not a
+    // rule — an empty token hashes to a value no session row carries, so the
+    // lookup below returns null anyway.
     if (!raw) return null
     const row = stmt.selectSession.get(tokenHash(raw)) as
       | (UserRow & { expires_at: string | null; last_seen_at: string })

@@ -75,6 +75,11 @@ const BAD_HASHES = [
   ['missing r', 'scrypt$N=32768,p=1$c2FsdA$aGFzaA'],
   ['empty salt', 'scrypt$N=32768,r=8,p=1$$aGFzaA'],
   ['empty key', 'scrypt$N=32768,r=8,p=1$c2FsdA$'],
+  // Both of these parse cleanly ONCE past the first line, so only that line can
+  // refuse them: without it they yield a ParsedHash at the current cost and
+  // `needsRehash` answers false about a value we do not recognise.
+  ['our shape under another algorithm name', 'bcrypt$N=32768,r=8,p=1$c2FsdA$aGFzaA'],
+  ['a fifth field', 'scrypt$N=32768,r=8,p=1$c2FsdA$aGFzaA$extra'],
   // Reaches scrypt and THROWS without the ceiling guard, turning one crafted
   // row into a 500 on every login attempt against it.
   ['cost above the memory ceiling', 'scrypt$N=1048576,r=8,p=1$c2FsdA$aGFzaA'],

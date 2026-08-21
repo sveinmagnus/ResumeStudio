@@ -83,6 +83,9 @@ function decode(stored: string): ParsedHash | null {
   const params: ScryptParams = { N: 0, r: 0, p: 0 }
   for (const kv of parts[1].split(',')) {
     const eq = kv.indexOf('=')
+    // Stryker disable next-line EqualityOperator: `eq < 0` behaves identically.
+    // An `=` at index 0 yields an empty name, which falls through to the `else`
+    // below and returns null by that route instead.
     if (eq <= 0) return null
     const name = kv.slice(0, eq)
     const value = Number(kv.slice(eq + 1))

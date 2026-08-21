@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import request from 'supertest'
 import express from 'express'
-import { csrfMiddleware, csrfCookie, newCsrfToken, CSRF_COOKIE, CSRF_HEADER } from '../../server/csrf'
+import {
+  csrfMiddleware, csrfCookie, newCsrfToken, CSRF_COOKIE, CSRF_HEADER, EXEMPT_PATHS,
+} from '../../server/csrf'
 
 /**
  * The double-submit brake.
@@ -33,6 +35,9 @@ function app() {
   a.post('/api/auth/login', (_req, res) => { res.json({ ok: true }) })
   a.post('/api/users/reset', (_req, res) => { res.json({ ok: true }) })
   a.post('/api/auth/somethingnew', (_req, res) => { res.json({ ok: true }) })
+  a.patch('/api/resumes/x', (_req, res) => { res.json({ ok: true }) })
+  // Every exempt path, so the list can be asserted entry by entry.
+  for (const p of EXEMPT_PATHS) a.post(p, (_req, res) => { res.json({ ok: true }) })
   return a
 }
 
@@ -64,9 +69,18 @@ describe('refuses a forged request', () => {
     expect(r.status).toBe(403)
   })
 
-  it('on PUT and DELETE, not just POST', async () => {
+  it('on every state-changing method, not just POST', async () => {
+    // PATCH was in the set and in no test: a PATCH route added later would have
+    // been unprotected with the suite still green.
     expect((await request(app()).put('/api/resumes/x').set('Cookie', signedIn)).status).toBe(403)
+    expect((await request(app()).patch('/api/resumes/x').set('Cookie', signedIn)).status).toBe(403)
     expect((await request(app()).delete('/api/resumes/x').set('Cookie', signedIn)).status).toBe(403)
+  })
+
+  it('says why, so the client can tell this apart from a permissions failure', () => {
+    return request(app()).post('/api/resumes').set('Cookie', signedIn)
+      .expect(403)
+      .expect((r) => { expect(r.body.error).toMatch(/CSRF/i) })
   })
 })
 
@@ -89,10 +103,18 @@ describe('allows what must keep working', () => {
     expect(r.status).toBe(200)
   })
 
-  it('the exempt endpoints, which carry their own proof', async () => {
-    for (const path of ['/api/auth/login', '/api/users/reset']) {
+  it('EVERY exempt endpoint, each of which carries its own proof', async () => {
+    /*
+     * All of them, not a representative two. Each entry is a flow that must
+     * work without a token — signing in, signing out, redeeming an invitation,
+     * spending a reset or recovery code, confirming an address — and dropping
+     * one is invisible until somebody cannot do that thing. `/api/auth/logout`
+     * is the sharpest: it would answer 403 to precisely the people holding a
+     * session they want to end.
+     */
+    for (const path of EXEMPT_PATHS) {
       const r = await request(app()).post(path).set('Cookie', signedIn)
-      expect(r.status).toBe(200)
+      expect(r.status, path).toBe(200)
     }
   })
 })

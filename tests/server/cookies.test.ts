@@ -68,6 +68,20 @@ describe('buildCookie', () => {
   it('percent-encodes the value', () => {
     expect(buildCookie(req(false), 'a', 'x y;z')).toContain('a=x%20y%3Bz')
   })
+
+  it('emits the whole header, attributes and separators included', () => {
+    /*
+     * Asserted WHOLE, because every other case here matches a fragment and a
+     * fragment match cannot see structure. Two mutants proved it: dropping
+     * `Path=/` left them all green while scoping the session cookie to whatever
+     * path it was set on — so a cookie issued at /api/auth/login would not be
+     * sent to /api/resumes — and replacing the '; ' separator with '' produced
+     * `a=bPath=/SameSite=StrictHttpOnly`, which `toContain('HttpOnly')` still
+     * accepts and no browser does.
+     */
+    expect(buildCookie(req(false), 'a', 'b')).toBe('a=b; Path=/; SameSite=Strict; HttpOnly')
+    expect(buildCookie(req(true), 'a', 'b')).toBe('a=b; Path=/; SameSite=Strict; HttpOnly; Secure')
+  })
 })
 
 describe('sessionCookie', () => {
@@ -84,6 +98,13 @@ describe('clearCookie', () => {
     // it is meant to remove.
     expect(c).toContain('Secure')
     expect(c).toContain('SameSite=Strict')
+  })
+
+  it('blanks the value as well as expiring it', () => {
+    // Max-Age=0 is what removes it, but a clear that left the old session id in
+    // the header hands it back to anything reading Set-Cookie on the way out.
+    expect(clearCookie(req(false), 'rs_session'))
+      .toBe('rs_session=; Path=/; SameSite=Strict; HttpOnly; Max-Age=0')
   })
 })
 

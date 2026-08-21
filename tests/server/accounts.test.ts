@@ -148,6 +148,21 @@ describe('sessions', () => {
     expect(acc.resolveSession(raw)).toBeNull()
   })
 
+  it('refuses a session that exists for a disabled account', () => {
+    /*
+     * Defence in depth, and reachable only in this order. `setDisabled` deletes
+     * the user's sessions in the same transaction, so the ordinary path never
+     * reaches the disabled check inside resolveSession — the row is simply
+     * gone. Minting a session AFTER the disable is what leaves one behind, and
+     * it stands in for the case that matters: any future path that disables an
+     * account without clearing its sessions.
+     */
+    const u = makeUser()
+    acc.setDisabled(u.id, true)
+    const raw = acc.createSession(u.id)
+    expect(acc.resolveSession(raw)).toBeNull()
+  })
+
   it('ends every session when the password changes', () => {
     const u = makeUser()
     const a = acc.createSession(u.id)
@@ -194,6 +209,21 @@ describe('grants — one mechanism behind every trigger', () => {
     expect(acc.peekGrant(raw)?.kind).toBe('reset')
     expect(acc.peekGrant(raw)?.kind).toBe('reset')
     expect(acc.redeemGrant(raw)).not.toBeNull()
+  })
+
+  it('stops peeking at a grant once it has been spent', () => {
+    // Peeking is how a route decides whether to SHOW the accept form. A spent
+    // grant that still peeks renders a form whose submit can only fail.
+    const u = makeUser()
+    const raw = acc.mintGrant('reset', { userId: u.id })
+    expect(acc.redeemGrant(raw)).not.toBeNull()
+    expect(acc.peekGrant(raw)).toBeNull()
+  })
+
+  it('mints a grant with no options at all', () => {
+    // Every call site passes options today; the signature says they are
+    // optional, and a call without them must not throw.
+    expect(() => acc.mintGrant('reset')).not.toThrow()
   })
 
   it('carries the invited role, so an invite cannot be upgraded by the invitee', () => {
@@ -311,6 +341,10 @@ describe('validators', () => {
   it('accepts a reasonable username', () => {
     expect(usernameProblem('kari.nordmann')).toBeNull()
     expect(usernameProblem('ola_2')).toBeNull()
+    // Starts with digits but is not ONLY digits. The all-digits rule is
+    // anchored at both ends; unanchored it matches the leading run and refuses
+    // a perfectly ordinary name.
+    expect(usernameProblem('123abc')).toBeNull()
   })
 
   it('rejects the shapes that cause trouble downstream', () => {
