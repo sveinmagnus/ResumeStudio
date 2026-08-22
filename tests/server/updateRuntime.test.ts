@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach, vi } from 'vitest'
 import {
-  buildSwapScript, initUpdateRuntime, runCheck, getUpdateStatus, __resetUpdateRuntimeForTests,
+  buildSwapScript, initUpdateRuntime, runCheck, runInstall, getUpdateStatus, trayView,
+  setTrayRefresher, handleCheckClick, handleInstallClick, __resetUpdateRuntimeForTests,
 } from '../../server/desktop/updateRuntime'
 import { assetNameFor } from '../../server/desktop/updater'
 
@@ -200,5 +201,153 @@ describe('getUpdateStatus() — currentVersion', () => {
   it('prefers an explicit RESUME_APP_VERSION (the published build stamps it)', () => {
     vi.stubEnv('RESUME_APP_VERSION', '9.9.9')
     expect(getUpdateStatus().currentVersion).toBe('9.9.9')
+  })
+})
+
+/*
+ * The tray view and the click handlers — the user's ONLY window into the
+ * updater, and until now the largest untested block in the module (35 unreached
+ * mutants in trayView alone). Everything below drives the real state machine
+ * through the public surface: a wired runtime, a stubbed GitHub answer, and the
+ * tray refresher as the observer.
+ */
+describe('trayView — every state the user can see', () => {
+  afterEach(() => { __resetUpdateRuntimeForTests(); vi.unstubAllGlobals() })
+
+  const wireRelease = (over: { withChecksum?: boolean; tag?: string } = {}) => {
+    const decline = () => Promise.resolve(false)
+    initUpdateRuntime({
+      installDir: '/tmp/rs', appVersion: '0.0.1', log: () => {},
+      requestShutdown: () => {}, confirmInstall: decline,
+    })
+    const asset = assetNameFor()
+    const tag = over.tag ?? 'v9.9.9'
+    const url = `https://github.com/sveinmagnus/resumestudio/releases/download/${tag}/${asset}`
+    const assets = [{ name: asset, browser_download_url: url }]
+    if (over.withChecksum !== false) {
+      assets.push({ name: `${asset}.sha256`, browser_download_url: `${url}.sha256` })
+    }
+    vi.stubGlobal('fetch', (async () => new Response(
+      JSON.stringify({ tag_name: tag, assets }), { status: 200 },
+    )) as unknown as typeof fetch)
+  }
+
+  it('offers both items at rest: Check enabled, Install disabled', () => {
+    initUpdateRuntime({ installDir: '/tmp/rs', appVersion: '0.0.1', log: () => {}, requestShutdown: () => {} })
+    expect(trayView()).toMatchObject({
+      checkTitle: 'Check for updates', checkEnabled: true,
+      installTitle: 'Install update', installEnabled: false,
+    })
+  })
+
+  it('enables Install, NAMING the version, once an installable update is found', async () => {
+    wireRelease()
+    await runCheck(false)
+    expect(trayView()).toMatchObject({
+      installTitle: 'Install update (v9.9.9)', installEnabled: true, checkEnabled: true,
+    })
+  })
+
+  it('keeps Install DISABLED for a release with no checksum, and says why', async () => {
+    // Fail-closed: newer version, nothing to verify it against. The title
+    // points at the manual path rather than pretending no update exists.
+    wireRelease({ withChecksum: false })
+    await runCheck(false)
+    expect(trayView()).toMatchObject({ installEnabled: false })
+    expect(trayView().installTitle).toMatch(/download manually/)
+  })
+
+  it('disables Check while a check is in flight, and re-enables after', async () => {
+    // The refresher observes every transition, so the mid-flight view is
+    // captured without racing the check.
+    wireRelease()
+    const seen: string[] = []
+    setTrayRefresher((v) => { seen.push(`${v.checkTitle}|${v.checkEnabled}`) })
+    await runCheck(false)
+    expect(seen).toContain('Checking for updates…|false')
+    expect(trayView().checkEnabled).toBe(true)
+  })
+
+  it('pushes the CURRENT view the moment a refresher registers', () => {
+    initUpdateRuntime({ installDir: '/tmp/rs', appVersion: '0.0.1', log: () => {}, requestShutdown: () => {} })
+    const fn = vi.fn()
+    setTrayRefresher(fn)
+    expect(fn).toHaveBeenCalledTimes(1)
+    expect(fn.mock.calls[0][0].versionLabel).toMatch(/^Cartavio Resume Studio /)
+  })
+
+  it('stops pushing once unregistered', async () => {
+    wireRelease()
+    const fn = vi.fn()
+    setTrayRefresher(fn)
+    setTrayRefresher(null)
+    const before = fn.mock.calls.length
+    await runCheck(false)
+    expect(fn.mock.calls.length).toBe(before)
+  })
+})
+
+describe('the click handlers', () => {
+  afterEach(() => { __resetUpdateRuntimeForTests(); vi.unstubAllGlobals() })
+
+  it('Install is a no-op with nothing staged or available', () => {
+    const requestShutdown = vi.fn()
+    initUpdateRuntime({ installDir: '/tmp/rs', appVersion: '0.0.1', log: () => {}, requestShutdown })
+    handleInstallClick()
+    expect(requestShutdown).not.toHaveBeenCalled()
+    expect(getUpdateStatus().state).toBe('idle')
+  })
+
+  it('Check runs a MANUAL check — the result pops even when up to date', async () => {
+    const notify = vi.fn()
+    initUpdateRuntime({
+      installDir: '/tmp/rs', appVersion: '0.0.1', log: () => {}, requestShutdown: () => {}, notify,
+    })
+    vi.stubGlobal('fetch', (async () => new Response(
+      JSON.stringify({ tag_name: 'v0.0.1', assets: [] }), { status: 200 },
+    )) as unknown as typeof fetch)
+    handleCheckClick()
+    await vi.waitFor(() => expect(notify).toHaveBeenCalled())
+    expect(getUpdateStatus().state).toBe('uptodate')
+  })
+})
+
+describe('runInstall — the checksum rejection, end to end', () => {
+  afterEach(() => { __resetUpdateRuntimeForTests(); vi.unstubAllGlobals() })
+
+  it('rejects a download whose checksum does not verify, and installs NOTHING', async () => {
+    /*
+     * The universal fetch stub answers every URL with the release JSON — so the
+     * archive downloads "successfully" and then fails verification, which is
+     * exactly what a tampered or corrupted asset looks like. The promise under
+     * test: the failure is loud, names the checksum, and the state machine
+     * lands in `error` without ever reaching the swap script (nothing spawned,
+     * no shutdown requested).
+     */
+    const requestShutdown = vi.fn()
+    initUpdateRuntime({
+      installDir: '/tmp/rs', appVersion: '0.0.1', log: () => {},
+      requestShutdown, confirmInstall: () => Promise.resolve(false),
+    })
+    const asset = assetNameFor()
+    const url = `https://github.com/sveinmagnus/resumestudio/releases/download/v9.9.9/${asset}`
+    vi.stubGlobal('fetch', (async () => new Response(JSON.stringify({
+      tag_name: 'v9.9.9',
+      assets: [
+        { name: asset, browser_download_url: url },
+        { name: `${asset}.sha256`, browser_download_url: `${url}.sha256` },
+      ],
+    }), { status: 200 })) as unknown as typeof fetch)
+
+    await runCheck(false)
+    expect(getUpdateStatus()).toMatchObject({ state: 'available', downloadable: true, latestVersion: '9.9.9' })
+
+    await runInstall()
+    const status = getUpdateStatus()
+    expect(status.state).toBe('error')
+    expect(status.error).toMatch(/checksum|failed/i)
+    expect(requestShutdown).not.toHaveBeenCalled()
+    // And the tray reflects it: back to a plain disabled Install.
+    expect(trayView().installEnabled).toBe(false)
   })
 })
