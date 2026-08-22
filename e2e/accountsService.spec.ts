@@ -40,8 +40,8 @@ test.beforeAll(async () => {
   })
 })
 
-test.afterAll(() => {
-  server?.stop()
+test.afterAll(async () => {
+  await server?.stop()
 })
 
 /**
@@ -113,7 +113,10 @@ test('creating the first account does not revoke the service credential', async 
   // A second server, because the migration has to be ASKED for: `RESUME_SETUP=1`
   // is what an operator of a running token instance passes to be offered it, and
   // it is the only way a bootstrap code exists to spend.
-  server?.stop()
+  // Awaited: the replacement binds the SAME port, and the CI failure this
+  // sequence produced is documented on stopServer — the old process outliving
+  // the signal and answering the new server's traffic.
+  await server?.stop()
   server = await startServer({
     port: PORT,
     env: { RESUME_API_TOKEN: TOKEN, RESUME_SETUP: '1' },

@@ -94,7 +94,7 @@ test.beforeAll(async ({ browser }) => {
 test.afterAll(async () => {
   await ownerContext?.close()
   await memberContext?.close()
-  server?.stop()
+  await server?.stop()
 })
 
 // ─── First run ───────────────────────────────────────────────────────────────

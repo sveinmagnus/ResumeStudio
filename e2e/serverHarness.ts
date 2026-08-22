@@ -32,7 +32,8 @@ export interface ServerHandle {
    * reads it off their console. Empty when the instance printed none.
    */
   bootstrapCode: string
-  stop(): void
+  /** Resolves once the process tree is actually dead, not merely signalled. */
+  stop(): Promise<void>
 }
 
 /** Matches the code in the start-up banner: four groups of five. */
@@ -57,7 +58,38 @@ export interface StartServerOptions {
  * are written from inside the `listen` callback, so either arriving means the
  * port is open.
  */
-export function startServer(opts: StartServerOptions): Promise<ServerHandle> {
+export async function startServer(opts: StartServerOptions): Promise<ServerHandle> {
+  const handle = await bootServer(opts)
+  /*
+   * Prove the process the banner came from is the one answering the port.
+   *
+   * The CI failure this guards against: on Linux, a stopped server's node
+   * process could outlive the SIGTERM sent to its wrapper shell and keep the
+   * listener. The replacement then boots, prints its banner and code — and the
+   * STALE process answers the HTTP traffic, so a "fresh instance" test sees a
+   * signed-in server and a bootstrap code is refused with 401 by a process
+   * that never issued one. The kill is fixed too (tree-kill, awaited), but a
+   * wrong server answering must fail HERE, loudly, not three asserts later.
+   */
+  const status = await fetch(`${handle.base}/api/auth/status`).then(
+    (r) => r.json() as Promise<{ bootstrap_available?: boolean }>,
+    () => null,
+  )
+  if (!status) {
+    await handle.stop()
+    throw new Error(`the server on ${handle.base} answered no /api/auth/status probe`)
+  }
+  if (opts.expectBootstrapCode !== false && status.bootstrap_available !== true) {
+    await handle.stop()
+    throw new Error(
+      `the server answering ${handle.base} offers no bootstrap despite printing a code - `
+      + 'a stale server from an earlier spec is still holding the port',
+    )
+  }
+  return handle
+}
+
+function bootServer(opts: StartServerOptions): Promise<ServerHandle> {
   const base = `http://127.0.0.1:${opts.port}`
   const wantsCode = opts.expectBootstrapCode !== false
 
@@ -66,6 +98,10 @@ export function startServer(opts: StartServerOptions): Promise<ServerHandle> {
   return new Promise<ServerHandle>((resolve, reject) => {
     const child = spawn('npx tsx server/index.ts', {
       shell: true,
+      // Its own process group on POSIX, so stop() can kill the WHOLE tree.
+      // `sh -c npx tsx node` is four processes deep, and a signal to the top
+      // of the chain is not reliably forwarded to the node at the bottom.
+      detached: process.platform !== 'win32',
       env: {
         ...process.env,
         NODE_ENV: 'production',
@@ -81,8 +117,8 @@ export function startServer(opts: StartServerOptions): Promise<ServerHandle> {
     const handle: ServerHandle = {
       base,
       bootstrapCode: '',
-      stop: () => {
-        stopServer(child)
+      stop: async () => {
+        await stopServer(child)
         // The database is in memory; only the log file is left behind, and a
         // run over three engines makes one of these directories per spec per
         // engine. Best-effort with retries: on Windows the log handle can
@@ -117,19 +153,36 @@ export function startServer(opts: StartServerOptions): Promise<ServerHandle> {
 }
 
 /**
- * Kill the server and everything under it.
+ * Kill the server and everything under it, and only return once it is dead.
  *
- * It runs under a shell, so killing the shell alone leaves node holding the port
- * and the next run fails at boot. Synchronous because the test process can exit
- * before an async kill has run.
+ * It runs under a shell, so the tree is `sh → npx → tsx → node`, four deep.
+ * On Windows, `taskkill /T /F` walks that tree and is synchronous. The POSIX
+ * branch used to send SIGTERM to the shell alone and return immediately — and
+ * npm does not forward signals reliably, so on CI the node at the bottom kept
+ * the port. Every later server on that port then LOOKED up (banner, code)
+ * while the stale one answered the traffic: a "fresh instance" spec saw a
+ * signed-in server, and a bootstrap code was 401'd by a process that never
+ * issued one. Hence the process GROUP (the child is spawned detached, making
+ * it a group leader) and SIGKILL — a test server merits no graceful period —
+ * and awaiting the exit, so start-after-stop cannot race the death.
  */
-function stopServer(child: ChildProcess | null): void {
-  if (!child?.pid) return
+function stopServer(child: ChildProcess | null): Promise<void> {
+  if (!child?.pid || child.exitCode !== null) return Promise.resolve()
+  const dead = new Promise<void>((resolve) => {
+    child.once('exit', () => resolve())
+    // A process that ignores even SIGKILL is beyond a test's help; don't hang.
+    setTimeout(resolve, 5_000).unref?.()
+  })
   if (process.platform === 'win32') {
     spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' })
   } else {
-    child.kill('SIGTERM')
+    try {
+      process.kill(-child.pid, 'SIGKILL')
+    } catch {
+      try { child.kill('SIGKILL') } catch { /* already gone */ }
+    }
   }
+  return dead
 }
 
 // ─── A mailbox the tests can read ───────────────────────────────────────────
