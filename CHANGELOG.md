@@ -6,6 +6,97 @@ The version a build reports is the git tag it was built from; anything else
 reports `Dev-<commit>`. Desktop builds update themselves — see
 [DESKTOP.md](./DESKTOP.md).
 
+## 1.1.0 — 2026-08-22
+
+Multi-user accounts for hosted instances. A server used to authenticate a
+shared secret; it now authenticates a person, and scopes what each person can
+see. The desktop build is untouched by all of it — one person on loopback gains
+nothing from a login screen, so it never shows one.
+
+### Added
+
+- **Accounts and roles.** Sign in with a username or email address and a
+  password (scrypt from `node:crypto` — no new dependency, no native addon).
+  An **owner** sees and administers everything; a **member** owns what they
+  create, may read what a colleague has shared, and may write only their own.
+  Sharing grants READ — "share with the team" never means "let the team rewrite
+  my CV". A resume that exists but is not yours to see answers as if it did not
+  exist, so ids cannot be enumerated. Sessions never expire on a timer; they
+  end on sign-out, a password change, or an account being disabled.
+- **First-run setup with a one-time code.** A fresh instance prints a bootstrap
+  code to its console — "first visitor becomes the owner" is a race a port
+  scanner wins, so the trust boundary is "can read this machine's log", where
+  it already sits. The first account becomes the owner, inherits any existing
+  resumes, and receives ten single-use **recovery codes**, shown once.
+  A token-authenticated instance keeps working untouched; start it with
+  `RESUME_SETUP=1` to migrate, and any named legacy tokens become real accounts
+  awaiting a reset link. `RESUME_API_TOKEN` survives as a service credential
+  for scripts and CI — it authenticates but is nobody.
+- **Four ways back in, one mechanism.** An owner-issued reset link, a recovery
+  code, `npm run recover` on the machine itself, and — when mail is configured
+  — a self-service reset email. All four end at the same redemption, and
+  redeeming any of them signs out every session for that account.
+- **Optional email**, off by default: sendmail or a dependency-free SMTP client
+  (STARTTLS/TLS, AUTH PLAIN/LOGIN), used for exactly two messages — the reset
+  link and address verification. An address must be verified before a reset
+  will be mailed to it, and **no CV content is ever emailed**. Addresses with
+  control characters are rejected outright, never sanitised.
+- **Team administration** for owners: invite links that carry their role,
+  enable/disable, promote/demote (never the last owner), owner-issued resets,
+  and editing a colleague's identifiers. Members edit their own profile;
+  changing a login identifier or replacing recovery codes costs the current
+  password, so a borrowed screen cannot take the account over.
+- **Hosted settings, the safe subset.** A hosted owner can configure mail, the
+  app's base URL and their identity from the gear icon; everything
+  machine-level (ports, folders, hostnames, providers) stays with the
+  environment, because a web request that could move those is how an instance
+  talks itself off the network. On a server, `settings.json` is a sparse
+  overlay holding only what was saved in the app — delete it and the instance
+  is back on its environment.
+- **Identity without accounts.** The desktop build gets an optional profile
+  (username, display name, email) so saves are attributed and an exported
+  resume carries its author — descriptive, never authorising: an import assigns
+  nothing from it.
+- **The app shell loads offline** (a minimal service worker, deliberately not a
+  PWA): the editor opens and cached work is readable while the server or
+  network is away. `/api` responses are never cached — the worker has no code
+  path that could.
+- **Session cookies follow the connection, not the build.** `Secure` is set
+  when the request arrived over TLS — deciding it from NODE_ENV broke sign-in
+  on plain-http LAN boxes in Safari (and only visibly there). Behind a TLS
+  proxy, set `RESUME_TRUST_PROXY`; the server warns at startup when that looks
+  forgotten. CSRF is a double-submit pair; recovery routes carry their own
+  success-inclusive rate limit so the mail-sending endpoint cannot be a mail
+  bomb, while accepting an invitation counts only failures — a whole office
+  onboarding through one NAT address is not an attack.
+
+### Fixed
+
+- **A hosted instance could overwrite its own environment with defaults.** The
+  settings file was read as if every key in it had been chosen, but the parser
+  fills absent keys in — so the first in-app save wrote all 36 keys and handed
+  the default set authority over the operator's real environment:
+  `RESUME_APP_BASE_URL` cleared (reset links became bare unopenable paths) and
+  `MAIL_TRANSPORT` forced off, silently. Presence is now read from the raw
+  file, and a server's save accumulates only the keys actually set.
+- **Spending a recovery code threw the replacement set away.** Setting a
+  password clears every code, so the server mints ten more and returns them
+  once — the client read a field the server never sent, told the user "that was
+  your last recovery code", and dropped the only readable copy. The profile's
+  "generate a new set" button could never succeed either: the endpoint requires
+  the current password and the form never asked for one.
+- **The hosts-file reader counted an inline comment's words as managed
+  hostnames**, diverging from the sibling that reads the same line correctly.
+
+### Tested
+
+The suite grew from 6,403 to **7,093 tests in 227 files**, and the mutation
+audit now covers `server/` — where every authorization decision lives — as
+well as `src/lib`: `access.ts`, the one module that answers "may this person
+read this row", measures **100%**. New end-to-end journeys drive the whole
+account lifecycle on all three browser engines, WebKit included, against a real
+server with a real SMTP sink — which is how three of the bugs above were found.
+
 ## 1.0.2 — 2026-08-20
 
 A security fix and the tail of the mutation-testing work 1.0.1 started. No new
