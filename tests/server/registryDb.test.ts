@@ -56,6 +56,21 @@ describe('registry CRUD', () => {
     if (stale.reason === 'conflict') expect(stale.current.version).toBe(2)
   })
 
+  it('accepts an update whose expectedVersion MATCHES', () => {
+    // The conflict check has two directions and only the stale one was pinned:
+    // mutated to always-conflict, every version-carrying save fails and the
+    // stale test still passes. This is the half a working client exercises on
+    // every rename.
+    const db = freshDb()
+    const created = db.upsertRegistryEntry({ kind: 'role', name: { en: 'SRE' } })
+    if (!created.ok) throw new Error('setup')
+    const upd = db.upsertRegistryEntry({
+      id: created.entry.id, kind: 'role', name: { en: 'Platform SRE' }, expectedVersion: 1,
+    })
+    expect(upd.ok).toBe(true)
+    if (upd.ok) expect(upd.entry.version).toBe(2)
+  })
+
   it('reports not_found for an update to a missing id', () => {
     const db = freshDb()
     const r = db.upsertRegistryEntry({ id: 'ghost', kind: 'skill', name: { en: 'x' } })
@@ -147,6 +162,22 @@ describe('promoteFromResumes()', () => {
     const second = db.promoteFromResumes([resumeA, resumeB])
     expect(db.listRegistry().length).toBe(before)
     expect(second.created).toEqual({ skill: 0, role: 0, industry: 0, category: 0 })
+    // And nothing is COUNTED as merged either: a union that added no locale is
+    // not written, so a nightly promote reports quiet rather than churn.
+    expect(second.merged).toEqual({ skill: 0, role: 0, industry: 0, category: 0 })
+  })
+
+  it('does not let a BLANK incoming locale overwrite or fill anything', () => {
+    // unionNames fills a locale only when the existing slot is empty AND the
+    // incoming value has content. A blank fills nothing — and an incoming
+    // blank over existing text must never blank it.
+    const db = freshDb()
+    db.promoteFromResumes([{ skills: [{ name: { en: 'React', no: 'React' } }] }])
+    const merged = db.promoteFromResumes([{ skills: [{ name: { en: 'React', no: '  ', da: '' } }] }])
+    expect(merged.merged.skill).toBe(0)
+    const entry = db.listRegistry('skill')[0]
+    expect(entry.name.no).toBe('React')
+    expect(entry.name.da).toBeUndefined()
   })
 
   it('tolerates junk data blobs without throwing', () => {
@@ -177,6 +208,19 @@ describe('mergeRegistry() — desktop cross-machine sync', () => {
     // The existing id is kept; only the name updated.
     expect(db.getRegistryEntry(local.entry.id)?.name.en).toBe('ReactJS')
     expect(db.getRegistryEntry('remote-1')).toBeNull()
+  })
+
+  it('keeps the existing entry on an exact timestamp tie', () => {
+    // The same strictly-newer rule the sync folder uses (backupFiles): a tie is
+    // not a reason to churn, and `>=` here would rewrite every entry on every
+    // sync round in which nothing changed.
+    const db = freshDb()
+    const local = db.upsertRegistryEntry({ kind: 'skill', name: { en: 'React' } })
+    if (!local.ok) throw new Error('setup')
+    const at = db.getRegistryEntry(local.entry.id)!.updated_at
+    const r = db.mergeRegistry([entry('remote-1', 'skill', 'react', { en: 'ReactJS' }, at)])
+    expect(r).toEqual({ added: 0, updated: 0 })
+    expect(db.getRegistryEntry(local.entry.id)?.name.en).toBe('React')
   })
 
   it('does NOT overwrite a newer local entry with an older incoming one', () => {

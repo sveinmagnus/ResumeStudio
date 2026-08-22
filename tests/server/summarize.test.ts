@@ -41,6 +41,30 @@ describe('tidyLine()', () => {
       .toBe('Ledet skymigrering for en bank.')
   })
 
+  it('caps the line at 240 characters', () => {
+    // The field is a one-liner; a model that ignores that must not be able to
+    // push a paragraph into it.
+    expect(tidyLine('x'.repeat(500))).toHaveLength(240)
+  })
+
+  it('strips a NUMBERED list marker, both punctuation shapes', () => {
+    expect(tidyLine('1. Led the team')).toBe('Led the team')
+    expect(tidyLine('2) Led the team')).toBe('Led the team')
+  })
+
+  it('answers an empty or whitespace reply with an empty string, not a crash', () => {
+    expect(tidyLine('')).toBe('')
+    expect(tidyLine('   \n  \n')).toBe('')
+  })
+
+  it('treats a LONG line ending in a colon as content, not a preamble', () => {
+    // The preamble heuristic is structural: short AND colon-terminated. A long
+    // colon-terminated line is somebody's actual sentence.
+    const long = 'A detailed account of the multi-year migration effort involving four teams:'
+    expect(long.length).toBeGreaterThan(60)
+    expect(tidyLine(long + '\nsecond line')).toBe(long)
+  })
+
   it('keeps a line that merely CONTAINS a colon', () => {
     expect(tidyLine('Kubernetes: migrated 40 services onto it')).toBe('Kubernetes: migrated 40 services onto it')
   })

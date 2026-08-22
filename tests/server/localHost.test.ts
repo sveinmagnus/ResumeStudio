@@ -111,6 +111,67 @@ describe('applyHostsBlock()', () => {
   })
 })
 
+describe('managedHostnames()', () => {
+  /*
+   * The transforms run over a file OTHER tools also edit, so the shapes here
+   * are the ones a hosts file actually contains — LF endings from a Linux
+   * editor, indentation, comments — not only what applyHostsBlock writes.
+   */
+  it('reads a block from an LF file, not only a CRLF one', () => {
+    const lf = applyHostsBlock('127.0.0.1 localhost\n', ['a.local'])
+    expect(lf).not.toContain('\r')
+    expect(managedHostnames(lf)).toEqual(['a.local'])
+  })
+
+  it('tolerates a hand-indented block, as an edited file may be', () => {
+    const indented = [
+      '  # >>> Resume Studio (managed) >>>',
+      '  127.0.0.1\ta.local',
+      '  # <<< Resume Studio (managed) <<<',
+    ].join('\n')
+    expect(managedHostnames(indented)).toEqual(['a.local'])
+  })
+
+  it('stops at the block end — a later loopback line is NOT ours', () => {
+    // What managedHostnames answers is "ours to remove". Counting a line the
+    // user wrote below our block would make uninstall claim their entry.
+    const content = applyHostsBlock('127.0.0.1 localhost\n', ['a.local'])
+      + '127.0.0.1 theirs.local\n'
+    expect(managedHostnames(content)).toEqual(['a.local'])
+  })
+
+  it('skips a comment line inside the block', () => {
+    const content = [
+      '# >>> Resume Studio (managed) >>>',
+      '# a note somebody left',
+      '127.0.0.1\ta.local',
+      '# <<< Resume Studio (managed) <<<',
+    ].join('\n')
+    expect(managedHostnames(content)).toEqual(['a.local'])
+  })
+
+  it('ends the names at an inline comment, as hostsMapsToLoopback does', () => {
+    // Filtering only the `#` token kept the comment's WORDS: a hand-added
+    // "# mine" on our block's line reported "mine" as a managed hostname.
+    const content = [
+      '# >>> Resume Studio (managed) >>>',
+      '127.0.0.1\ta.local # mine',
+      '# <<< Resume Studio (managed) <<<',
+    ].join('\n')
+    expect(managedHostnames(content)).toEqual(['a.local'])
+  })
+
+  it('ignores a non-loopback line inside the block', () => {
+    const content = [
+      '# >>> Resume Studio (managed) >>>',
+      '10.0.0.5\tother.local',
+      '127.0.0.1\ta.local',
+      '# <<< Resume Studio (managed) <<<',
+    ].join('\n')
+    expect(managedHostnames(content)).toEqual(['a.local'])
+  })
+})
+
 describe('hostsMapsToLoopback()', () => {
   it('finds a hand-written entry outside our block', () => {
     const hand = `${REAL_HOSTS}\r\n127.0.0.1   resumestudio.local   # added by me`
@@ -130,6 +191,17 @@ describe('hostsMapsToLoopback()', () => {
 
   it('does not match a name that merely contains the one asked for', () => {
     expect(hostsMapsToLoopback('127.0.0.1 notresumestudio.local', 'resumestudio.local')).toBe(false)
+  })
+
+  it('is case- and padding-insensitive on both sides', () => {
+    // The file is edited by hand and the query comes from settings; neither
+    // side owns the casing.
+    expect(hostsMapsToLoopback('127.0.0.1 RESUMESTUDIO.LOCAL', 'resumestudio.local')).toBe(true)
+    expect(hostsMapsToLoopback('127.0.0.1 resumestudio.local', '  ResumeStudio.LOCAL  ')).toBe(true)
+  })
+
+  it('reads an LF file', () => {
+    expect(hostsMapsToLoopback('# comment\n127.0.0.1 a.local\n', 'a.local')).toBe(true)
   })
 })
 

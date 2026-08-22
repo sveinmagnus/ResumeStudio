@@ -16,45 +16,11 @@ import { useStore } from '../../src/store/useStore'
 import { ReadOnlyNotice } from '../../src/components/ReadOnlyNotice'
 import { AppHeader } from '../../src/components/AppHeader'
 import { RichField } from '../../src/components/ui/RichField'
-import { canWriteResume, type MeInfo, type ResumeMeta } from '../../src/lib/api'
 import { resetStore } from '../helpers/store-reset'
 import { emptyStore, makeProject } from '../fixtures'
 
-const OWNER: MeInfo = { user_id: null, name: 'svc', role: 'owner', service: true, mode: 'accounts' }
-const KARI: MeInfo = { user_id: 'u-kari', name: 'Kari', role: 'member', service: false, mode: 'accounts' }
-
-const meta = (over: Partial<ResumeMeta> = {}): ResumeMeta => ({
-  id: 'r1', name: 'CV', primary_locale: 'en', secondary_locale: null,
-  saved_at: 'x', created_at: 'x', version: 1, ...over,
-})
-
 beforeEach(() => { resetStore() })
 afterEach(() => { vi.restoreAllMocks() })
-
-describe('canWriteResume', () => {
-  it('lets an account write what it owns', () => {
-    expect(canWriteResume(meta({ owner_id: 'u-kari' }), KARI)).toBe(true)
-  })
-
-  it('refuses a member a resume shared by somebody else', () => {
-    expect(canWriteResume(meta({ owner_id: 'u-ola', visibility: 'instance' }), KARI)).toBe(false)
-  })
-
-  it('refuses a member an UNOWNED resume — it is not shared with everyone', () => {
-    expect(canWriteResume(meta({ owner_id: null }), KARI)).toBe(false)
-  })
-
-  it('lets the owner role — including a service credential — write anything', () => {
-    expect(canWriteResume(meta({ owner_id: 'u-ola' }), OWNER)).toBe(true)
-  })
-
-  it('reads a server that reports no ownership at all as writable', () => {
-    // Every pre-accounts server and the whole desktop build. Assuming the
-    // opposite would lock the single-user case out of its own editor.
-    expect(canWriteResume(meta(), KARI)).toBe(true)
-    expect(canWriteResume(meta({ owner_id: 'u-ola' }), null)).toBe(true)
-  })
-})
 
 describe('the store under readOnly', () => {
   const seed = () => {

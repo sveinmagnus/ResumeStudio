@@ -137,9 +137,17 @@ export function managedHostnames(content: string): string[] {
     if (t === BLOCK_BEGIN) { inBlock = true; continue }
     if (t === BLOCK_END) { inBlock = false; continue }
     if (!inBlock || !t || t.startsWith('#')) continue
-    // `<address> <name> [name…]` — take every name mapped to loopback.
-    const [addr, ...names] = t.split(/\s+/)
-    if (addr === '127.0.0.1') out.push(...names.filter((n) => !n.startsWith('#')))
+    // `<address> <name> [name…]` — take every name mapped to loopback. An
+    // inline comment ends the names, exactly as hostsMapsToLoopback reads it:
+    // filtering only the `#` token kept the comment's WORDS, so a hand-added
+    // "# mine" on our block's line reported "mine" as a managed hostname.
+    const [addr, ...rest] = t.split(/\s+/)
+    const names: string[] = []
+    for (const n of rest) {
+      if (n.startsWith('#')) break
+      names.push(n)
+    }
+    if (addr === '127.0.0.1') out.push(...names)
   }
   return out
 }

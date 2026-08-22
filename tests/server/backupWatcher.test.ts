@@ -85,6 +85,22 @@ describe('applyTombstoneRules', () => {
     const entries = [entry()]
     expect(applyTombstoneRules(entries, [])).toEqual({ keep: entries, pending: [] })
   })
+
+  it('lets the DELETE win an exact timestamp tie', () => {
+    /*
+     * The revival rule is `saved_at > deleted_at` — strictly after. A copy
+     * carrying the very same instant is the deleted state itself (both stamps
+     * come from the same machine's clock in the same operation), and keeping it
+     * would resurrect every resume at the moment of its own deletion. The
+     * boundary was untested, so `>` and `>=` were interchangeable to the suite.
+     */
+    const { keep, pending } = applyTombstoneRules(
+      [entry({ saved_at: '2026-02-01T00:00:00.000Z' })],
+      [{ id: 'r1', deleted_at: '2026-02-01T00:00:00.000Z' }],
+    )
+    expect(keep).toEqual([])
+    expect(pending.map((t) => t.id)).toEqual(['r1'])
+  })
 })
 
 describe('BackupWatcher', () => {

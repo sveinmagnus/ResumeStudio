@@ -4,7 +4,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
   api, UnauthorizedError, NotFoundError, ServerError, ConflictError,
-  isAbortError, forgetIdentity,
+  isAbortError, forgetIdentity, canWriteResume, type MeInfo,
 } from '../src/lib/api'
 import { emptyStore, makeResume } from './fixtures'
 import type { ResumeMeta } from '../src/lib/api'
@@ -1301,6 +1301,44 @@ describe('api — the CSRF header', () => {
     fetchMock.mockResolvedValue(mockRes({ body: { ok: true } }))
     await api.logout()
     expect(headersOf()[CSRF]).toBe('tok-123')
+  })
+})
+
+/*
+ * Moved here from tests/components/ReadOnlyMode.test.tsx, unchanged in
+ * substance: it is a pure function's truth table and was living in a jsdom
+ * component suite — which the mutation runner's per-tier budget excluded from
+ * lib/api's measured set, so all fourteen of the function's mutants read as
+ * survivors while being covered two files away. The client's copy of the
+ * server's write rule belongs beside the client the same way access.test.ts
+ * sits beside access.ts.
+ */
+describe('canWriteResume — the client copy of the write rule', () => {
+  const OWNER_ME: MeInfo = { user_id: null, name: 'svc', role: 'owner', service: true, mode: 'accounts' }
+  const KARI_ME: MeInfo = { user_id: 'u-kari', name: 'Kari', role: 'member', service: false, mode: 'accounts' }
+  const ownedMeta = (over: Partial<ResumeMeta> = {}): ResumeMeta => ({ ...META, ...over })
+
+  it('lets an account write what it owns', () => {
+    expect(canWriteResume(ownedMeta({ owner_id: 'u-kari' }), KARI_ME)).toBe(true)
+  })
+
+  it('refuses a member a resume shared by somebody else', () => {
+    expect(canWriteResume(ownedMeta({ owner_id: 'u-ola', visibility: 'instance' }), KARI_ME)).toBe(false)
+  })
+
+  it('refuses a member an UNOWNED resume — it is not shared with everyone', () => {
+    expect(canWriteResume(ownedMeta({ owner_id: null }), KARI_ME)).toBe(false)
+  })
+
+  it('lets the owner role — including a service credential — write anything', () => {
+    expect(canWriteResume(ownedMeta({ owner_id: 'u-ola' }), OWNER_ME)).toBe(true)
+  })
+
+  it('reads a server that reports no ownership at all as writable', () => {
+    // Every pre-accounts server and the whole desktop build. Assuming the
+    // opposite would lock the single-user case out of its own editor.
+    expect(canWriteResume(ownedMeta(), KARI_ME)).toBe(true)
+    expect(canWriteResume(ownedMeta({ owner_id: 'u-ola' }), null)).toBe(true)
   })
 })
 
