@@ -118,6 +118,52 @@ describe('buildStandaloneViewHtml()', () => {
     expect(html).toContain('&lt;script&gt;')
     expect(html).toContain('&lt;/script&gt;')
   })
+
+  it('refuses to inline a fontData value that is not a woff2 data URI (style breakout)', () => {
+    // fontData normally comes from collectFontAssets, but the interpolation is
+    // validated at the boundary, not by provenance: a value that could close
+    // the url()/style context is treated as missing — block removed, payload
+    // never emitted.
+    const payload = "x'); } </style><script>alert(1)</script>"
+    const fontData = fakeFontData()
+    fontData['/fonts/ubuntu-400-latin.woff2'] = payload
+    const html = buildStandaloneViewHtml(baseStore(), fullView(), 'en', undefined, fontData)
+
+    expect(html).not.toContain(payload)
+    expect(html).not.toContain('<script')
+    expect(count(html, '@font-face')).toBe(5)
+  })
+
+  it('rejects a value that merely CONTAINS a well-formed data URI (the anchor is load-bearing)', () => {
+    const fontData = fakeFontData()
+    fontData['/fonts/ubuntu-400-latin.woff2'] = "x'); } </style> data:font/woff2;base64,AAAA"
+    const html = buildStandaloneViewHtml(baseStore(), fullView(), 'en', undefined, fontData)
+    expect(html).not.toContain("x'); }")
+    expect(count(html, '@font-face')).toBe(5)
+  })
+
+  it('rejects a data URI whose base64 half carries a non-base64 character', () => {
+    const fontData = fakeFontData()
+    fontData['/fonts/ubuntu-400-latin.woff2'] = "data:font/woff2;base64,AAAA'AAAA"
+    const html = buildStandaloneViewHtml(baseStore(), fullView(), 'en', undefined, fontData)
+    expect(html).not.toContain("AAAA'AAAA")
+    expect(count(html, '@font-face')).toBe(5)
+  })
+
+  it('font surgery is bounded to the head: body prose shaped like a font block survives', () => {
+    const store = baseStore()
+    // A description that TEXTUALLY resembles the block the removal regex hunts.
+    // With that font missing from fontData, only the head's real block may go.
+    store.projects[0].long_description = {
+      en: 'Wrote docs on @font-face { src: /fonts/ubuntu-400-latin.woff2 } quirks.',
+    }
+    const fontData = fakeFontData(STANDALONE_FONT_FILES.filter((p) => p !== '/fonts/ubuntu-400-latin.woff2'))
+    const html = buildStandaloneViewHtml(store, fullView(), 'en', undefined, fontData)
+
+    expect(html).toContain('quirks.')
+    expect(html).toContain('Wrote docs on @font-face')
+    expect(count(html, '@font-face { src:')).toBe(1)
+  })
 })
 
 // ─── collectFontAssets ───────────────────────────────────────────────────────

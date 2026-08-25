@@ -16,11 +16,16 @@ import { SkillsEditor, RolesEditor, IndustriesEditor, ReferencesEditor } from '.
 import { WorkEditor, PublicationsEditor } from '../../src/components/editor/SimpleEditors'
 import { HeaderEditor } from '../../src/components/editor/HeaderEditor'
 import { Overview } from '../../src/components/editor/Overview'
+import { EvidencePanels } from '../../src/components/editor/EvidencePanels'
+import { DebriefModal } from '../../src/components/editor/DebriefModal'
+import { ReadThroughMode } from '../../src/components/editor/views/ReadThroughMode'
+import { resetLlmAvailability } from '../../src/lib/llmClient'
+import { api, ASSIST_OFF } from '../../src/lib/api'
 import { useStore } from '../../src/store/useStore'
 import { resetStore } from '../helpers/store-reset'
 import {
   emptyStore, makeResume, makeProject, makeSkill, makeRole, makeIndustry, makeReference,
-  makeCertification, makeWork, makePublication, makeSkillCategory,
+  makeCertification, makeWork, makePublication, makeSkillCategory, makeView,
 } from '../fixtures'
 import type { ResumeStore } from '../../src/types'
 
@@ -134,6 +139,38 @@ describe('accessibility (axe) — editor surfaces', () => {
       })],
     }, { activeSection: 'overview' })
     const { container } = render(<Overview />)
+    expect(await axe(container)).toHaveNoViolations()
+  })
+
+  it('EvidencePanels (claim-evidence + repetition findings showing) has no violations', async () => {
+    const twice = 'Delivered the migration two months early and cut the operating costs by forty percent overall.'
+    seed({
+      skills: [makeSkill({ id: 's1', name: { en: 'Kubernetes' }, proficiency: 5 })],
+      projects: [makeProject({ id: 'p1', customer: { en: 'Acme' }, long_description: { en: `<p>${twice}</p>` } })],
+      work_experiences: [makeWork({ id: 'w1', long_description: { en: `<p>${twice}</p>` } })],
+    }, { activeSection: 'overview' })
+    const { container } = render(<EvidencePanels />)
+    expect(await axe(container)).toHaveNoViolations()
+  })
+
+  it('DebriefModal (questions + manual path) has no violations', async () => {
+    resetLlmAvailability()
+    vi.spyOn(api, 'llmStatus').mockResolvedValue(ASSIST_OFF)
+    const project = makeProject({ id: 'p1', customer: { en: 'Acme' }, end: { year: 2026, month: 5 } })
+    seed({ projects: [project] }, { activeSection: 'projects' })
+    const { container } = render(<DebriefModal project={project} onClose={() => {}} />)
+    await screen.findByLabelText('Paste the AI reply')
+    expect(await axe(container)).toHaveNoViolations()
+  })
+
+  it('ReadThroughMode (document + a flagged item in the rail) has no violations', async () => {
+    const view = makeView({ id: 'v1', introduction: { en: 'Intro.' } })
+    seed({
+      projects: [makeProject({ id: 'p1', customer: { en: 'Acme' }, long_description: { en: '<p>Built it.</p>' } })],
+      views: [view],
+    }, { activeSection: 'views' })
+    const { container } = render(<ReadThroughMode view={view} locale="en" onClose={() => {}} />)
+    await userEvent.click(screen.getByRole('button', { name: /flag acme as reading wrong/i }))
     expect(await axe(container)).toHaveNoViolations()
   })
 })

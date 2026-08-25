@@ -647,6 +647,27 @@ describe('freshnessReport — reference consent', () => {
     expect(r.referenceConsent).toEqual([])
     expect(r.snoozed.map((x) => x.key)).toEqual([consentWarningKey('r1')])
   })
+
+  it('keys consent warnings distinctly, in the refconsent namespace', () => {
+    expect(consentWarningKey('x')).toBe('refconsent:x')
+  })
+
+  it('a confirmation exactly AT the staleness cutoff is still fresh — the cutoff is strict', () => {
+    const cutoff = new Date(
+      NOW.getTime() - DEFAULT_FRESHNESS.consentStaleMonths * 30.44 * 24 * 3600 * 1000,
+    ).toISOString()
+    const s = emptyStore()
+    s.references = [makeReference({
+      include_in_exports: true, consent_status: 'confirmed', consent_confirmed_at: cutoff,
+    })]
+    expect(freshnessReport(s, NOW, 'en').referenceConsent).toEqual([])
+  })
+
+  it('a whitespace-only name reads as "Unnamed reference" in the warning', () => {
+    const s = emptyStore()
+    s.references = [makeReference({ name: '   ', include_in_exports: true })]
+    expect(freshnessReport(s, NOW, 'en').referenceConsent[0].name).toBe('Unnamed reference')
+  })
 })
 
 describe('isResumeStale — the cutoff', () => {

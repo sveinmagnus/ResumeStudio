@@ -181,7 +181,11 @@ describe('buildJsonResume — sections', () => {
     })
   })
 
-  it('maps proficiency onto the level scale and omits an unstated one', () => {
+  // The skills contract changed deliberately: the raw registry no longer ships.
+  // Skills follow the VIEW's skill sections — the Skills Showcase contributes
+  // its category groups, the Skill Matrix its rows — exactly what the paged
+  // exports show for the same view.
+  it('maps proficiency onto the level scale via the skill matrix, omitting an unstated one', () => {
     const store = seeded({
       skills: [
         makeSkill({ name: { en: 'K8s' }, proficiency: 5 }),
@@ -192,13 +196,57 @@ describe('buildJsonResume — sections', () => {
         makeSkill({ name: { en: 'Docker' }, proficiency: 0 }),
       ],
     })
-    expect(rows(buildJsonResume(store, makeView(), 'en'), 'skills')).toEqual([
-      { name: 'K8s', level: 'Master' },
-      { name: 'Terraform', level: 'Advanced' },
-      { name: 'Go', level: 'Intermediate' },
-      { name: 'Rust', level: 'Beginner' },
-      { name: 'Elm', level: 'Beginner' },
+    const view = makeView({ sections: [{ key: 'skill_matrix', detail: 'full', sort_order: 0 }] })
+    // The matrix's own order (highlighted, then years, then name) — here all
+    // equal on the first two, so alphabetical, matching the in-app table.
+    expect(rows(buildJsonResume(store, view, 'en'), 'skills')).toEqual([
       { name: 'Docker' },
+      { name: 'Elm', level: 'Beginner' },
+      { name: 'Go', level: 'Intermediate' },
+      { name: 'K8s', level: 'Master' },
+      { name: 'Rust', level: 'Beginner' },
+      { name: 'Terraform', level: 'Advanced' },
+    ])
+  })
+
+  it('emits the Skills Showcase as category groups with keywords', () => {
+    const store = seeded({
+      skills: [
+        makeSkill({ name: { en: 'React' }, is_highlighted: true, category_id: 'cat-fe' }),
+        makeSkill({ name: { en: 'CSS' }, is_highlighted: true, category_id: 'cat-fe' }),
+        // Not highlighted → not in the showcase, and the matrix is off.
+        makeSkill({ name: { en: 'Go' }, category_id: 'cat-fe' }),
+      ],
+      skill_categories: [{ id: 'cat-fe', resume_id: 'resume-1', name: { en: 'Frontend' }, sort_order: 0 }],
+    })
+    expect(rows(buildJsonResume(store, makeView(), 'en'), 'skills')).toEqual([
+      { name: 'Frontend', keywords: ['CSS', 'React'] },
+    ])
+  })
+
+  it('ships no skills at all when the view shows no skills section', () => {
+    const store = seeded({
+      skills: [makeSkill({ name: { en: 'React' }, is_highlighted: true, category_id: 'cat-fe' })],
+      skill_categories: [{ id: 'cat-fe', resume_id: 'resume-1', name: { en: 'Frontend' }, sort_order: 0 }],
+    })
+    const view = makeView({
+      sections: [{ key: 'technology_categories', detail: 'off', sort_order: 0 }],
+    })
+    expect(buildJsonResume(store, view, 'en')).not.toHaveProperty('skills')
+  })
+
+  it('never repeats a showcase skill as a matrix row', () => {
+    const store = seeded({
+      skills: [
+        makeSkill({ name: { en: 'React' }, is_highlighted: true, category_id: 'cat-fe', proficiency: 5 }),
+        makeSkill({ name: { en: 'Go' }, proficiency: 3 }),
+      ],
+      skill_categories: [{ id: 'cat-fe', resume_id: 'resume-1', name: { en: 'Frontend' }, sort_order: 0 }],
+    })
+    const view = makeView({ sections: [{ key: 'skill_matrix', detail: 'full', sort_order: 0 }] })
+    expect(rows(buildJsonResume(store, view, 'en'), 'skills')).toEqual([
+      { name: 'Frontend', keywords: ['React'] },
+      { name: 'Go', level: 'Intermediate' },
     ])
   })
 
@@ -324,7 +372,10 @@ describe('JSON Resume round trip', () => {
       spoken_languages: [makeSpokenLanguage()],
       skills: [makeSkill({ name: { en: 'TypeScript' }, proficiency: 4 })],
     })
-    const back = importFromJsonResume(buildJsonResume(store, makeView(), 'en'))
+    // The matrix is what carries per-skill levels since the registry stopped
+    // shipping wholesale — turn it on so the round trip covers proficiency.
+    const view = makeView({ sections: [{ key: 'skill_matrix', detail: 'full', sort_order: 0 }] })
+    const back = importFromJsonResume(buildJsonResume(store, view, 'en'))
 
     expect(back.resume?.full_name).toBe('Test Person')
     expect(back.resume?.email).toBe('test@example.com')
@@ -353,5 +404,98 @@ describe('JSON Resume round trip', () => {
     expect(back.educations[0].school).toEqual({ en: 'University' })
     expect(back.educations[0].degree).toEqual({ en: 'BSc' })
     expect(back.spoken_languages[0].name).toEqual({ en: 'English' })
+  })
+})
+
+// ─── Mutation-audit tripwires ────────────────────────────────────────────────
+// Each case kills a mutant the first Stryker pass reported surviving.
+
+describe('buildJsonResume — boundaries and filters (mutation audit)', () => {
+  it('honours a per-section sort override, like every other export path', () => {
+    const store = seeded({
+      work_experiences: [
+        makeWork({ id: 'new', employer: { en: 'Newest' }, start: { year: 2024, month: 1 }, sort_order: 0 }),
+        makeWork({ id: 'old', employer: { en: 'Oldest' }, start: { year: 2010, month: 1 }, sort_order: 1 }),
+      ],
+    })
+    const custom = rows(buildJsonResume(store, makeView(), 'en'), 'work').map((w) => w.name)
+    expect(custom).toEqual(['Newest', 'Oldest'])
+    const byStart = rows(buildJsonResume(store, makeView({
+      sections: [{ key: 'work_experiences', detail: 'full', sort_order: 0, sort: 'start_asc' }],
+    }), 'en'), 'work').map((w) => w.name)
+    expect(byStart).toEqual(['Oldest', 'Newest'])
+  })
+
+  it('resolves each skill section detail by ITS key, not the first stored section', () => {
+    const store = seeded({
+      skills: [
+        makeSkill({ name: { en: 'React' }, is_highlighted: true, category_id: 'cat-fe' }),
+        makeSkill({ name: { en: 'Go' }, proficiency: 3 }),
+      ],
+      skill_categories: [{ id: 'cat-fe', resume_id: 'resume-1', name: { en: 'Frontend' }, sort_order: 0 }],
+    })
+    const view = makeView({
+      sections: [
+        { key: 'technology_categories', detail: 'off', sort_order: 0 },
+        { key: 'skill_matrix', detail: 'full', sort_order: 1 },
+      ],
+    })
+    // Showcase off, matrix on: only matrix rows (highlighted first, per the
+    // matrix's own order), no category group.
+    expect(rows(buildJsonResume(store, view, 'en'), 'skills')).toEqual([
+      { name: 'React' },
+      { name: 'Go', level: 'Intermediate' },
+    ])
+  })
+
+  it('a summary-detail matrix ships highlighted skills only', () => {
+    const store = seeded({
+      skills: [
+        makeSkill({ name: { en: 'Starred' }, is_highlighted: true, proficiency: 4 }),
+        makeSkill({ name: { en: 'Plain' }, proficiency: 4 }),
+      ],
+    })
+    const view = makeView({ sections: [{ key: 'skill_matrix', detail: 'summary', sort_order: 0 }] })
+    expect(rows(buildJsonResume(store, view, 'en'), 'skills')).toEqual([
+      { name: 'Starred', level: 'Advanced' },
+    ])
+  })
+
+  it('a plain-http twitter link is still a URL, not a username', () => {
+    const store = seeded({ resume: makeResume({ twitter: 'http://x.com/tp' }) })
+    expect((basicsOf(buildJsonResume(store, makeView(), 'en')).profiles as Json[])[0])
+      .toEqual({ network: 'Twitter', url: 'http://x.com/tp' })
+  })
+
+  it('omits basics entirely when the resume carries nothing', () => {
+    const store = seeded({
+      resume: makeResume({
+        full_name: '', email: '', phone: null, title: {}, website_url: null,
+        place_of_residence: {}, linkedin_url: null, twitter: null,
+      }),
+    })
+    expect(buildJsonResume(store, makeView(), 'en')).not.toHaveProperty('basics')
+  })
+
+  it('an all-empty item compacts away and never leaves an empty section behind', () => {
+    const store = seeded({
+      work_experiences: [makeWork({
+        employer: {}, role_title: {}, description: {}, long_description: {},
+        company_url: null, start: null, end: null,
+      })],
+    })
+    expect(buildJsonResume(store, makeView(), 'en')).not.toHaveProperty('work')
+  })
+
+  it('trims prose and drops empty highlights on the way out', () => {
+    const store = seeded({
+      projects: [makeProject({
+        long_description: { en: 'Did the work.   ' },
+        highlights: [{ en: '' }, { en: 'Real result' }],
+      })],
+    })
+    const p = rows(buildJsonResume(store, makeView(), 'en'), 'projects')[0]
+    expect(p.description).toBe('Did the work.')
+    expect(p.highlights).toEqual(['Real result'])
   })
 })

@@ -22,8 +22,11 @@ import type {
 } from '../types'
 import { resolve } from './locales'
 import { richToPlain } from './richText'
-import { applyView, viewProfileTagLine } from './viewFilter'
+import { applyView, viewProfileTagLine, defaultViewDetail } from './viewFilter'
 import { sortItems } from './sectionSort'
+import { showcaseGroups } from './showcase'
+import { skillMatrixRows } from './skillMatrix'
+import { skillKey } from './skillExtract'
 
 export const JSON_RESUME_SCHEMA =
   'https://raw.githubusercontent.com/jsonresume/resume-schema/v1.0.0/schema.json'
@@ -167,12 +170,32 @@ export function buildJsonResume(
     summary: plain(p.abstract, locale),
   }))
 
-  const skills = filtered.skills
-    .filter((s) => resolve(s.name, locale).trim())
-    .map((s) => compact({
-      name: resolve(s.name, locale),
-      level: levelOf(s.proficiency),
-    }))
+  // The view decides which skills ship, exactly as it does for the paged
+  // exports: the Skills Showcase contributes its category groups (the inverse
+  // of the importer's keywords rule) and the Skill Matrix its rows. Both off =
+  // no skills section. Emitting the raw registry instead would ship every
+  // skill on every view — more than any other target shows, and on an
+  // anonymized view a skill named after a client would ride along.
+  const detailOf = (key: string): string =>
+    view.sections.find((s) => s.key === key)?.detail ?? defaultViewDetail(key)
+  const skills: Json[] = []
+  const seenSkill = new Set<string>()
+  if (detailOf('technology_categories') !== 'off') {
+    for (const g of showcaseGroups(store, view, locale)) {
+      const keywords = g.skills.map((s) => resolve(s.name, locale)).filter(Boolean)
+      for (const n of keywords) seenSkill.add(skillKey(n))
+      if (keywords.length) skills.push(compact({ name: resolve(g.name, locale), keywords }))
+    }
+  }
+  const matrixDetail = detailOf('skill_matrix')
+  if (matrixDetail !== 'off') {
+    for (const row of skillMatrixRows(store, view, locale, { highlightedOnly: matrixDetail === 'summary' })) {
+      const key = skillKey(row.name)
+      if (!key || seenSkill.has(key)) continue
+      seenSkill.add(key)
+      skills.push(compact({ name: row.name, level: levelOf(row.proficiency) }))
+    }
+  }
 
   const languages = sortBy('spoken_languages', filtered.spoken_languages)
     .filter((l) => resolve(l.name, locale).trim())
