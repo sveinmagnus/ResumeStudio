@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import {
   freshnessReport, isResumeStale, DEFAULT_FRESHNESS,
-  snoozeUntil, certWarningKey, staleWarningKey,
+  snoozeUntil, certWarningKey, staleWarningKey, consentWarningKey,
 } from '../src/lib/freshness'
-import { emptyStore, makeCertification, makeProject, makeWork, makeResume } from './fixtures'
+import { emptyStore, makeCertification, makeProject, makeWork, makeResume, makeReference } from './fixtures'
 import type { ResumeStore } from '../src/types'
 
 // Fixed "now" so the relative checks are deterministic.
@@ -599,6 +599,53 @@ describe('freshnessReport — the snooze window', () => {
     expect(certWarningKey('x')).toBe('cert:x')
     expect(staleWarningKey('projects', 'x')).not.toBe(certWarningKey('x'))
     expect(staleWarningKey('projects', 'x')).not.toBe(staleWarningKey('work_experiences', 'x'))
+  })
+})
+
+describe('freshnessReport — reference consent', () => {
+  it('flags an export-included reference without confirmed consent', () => {
+    const s = emptyStore()
+    s.references = [makeReference({ id: 'r1', name: 'Jane Doe', include_in_exports: true })]
+    const r = freshnessReport(s, NOW, 'en')
+    expect(r.referenceConsent.map((c) => [c.id, c.status])).toEqual([['r1', 'missing']])
+    expect(r.total).toBe(1)
+  })
+
+  it('never flags a private reference — it does not leave the machine', () => {
+    const s = emptyStore()
+    s.references = [makeReference({ include_in_exports: false })]
+    expect(freshnessReport(s, NOW, 'en').total).toBe(0)
+  })
+
+  it('flags a declined reference still included in exports, ahead of the rest', () => {
+    const s = emptyStore()
+    s.references = [
+      makeReference({ id: 'ask', name: 'A Asked', include_in_exports: true, consent_status: 'asked' }),
+      makeReference({ id: 'no', name: 'B Declined', include_in_exports: true, consent_status: 'declined' }),
+    ]
+    const r = freshnessReport(s, NOW, 'en')
+    expect(r.referenceConsent.map((c) => c.status)).toEqual(['declined', 'missing'])
+  })
+
+  it('ages out an old confirmation but accepts a recent or undated one', () => {
+    const s = emptyStore()
+    s.references = [
+      makeReference({ id: 'old', include_in_exports: true, consent_status: 'confirmed', consent_confirmed_at: '2023-01-01T00:00:00Z' }),
+      makeReference({ id: 'new', include_in_exports: true, consent_status: 'confirmed', consent_confirmed_at: '2026-01-01T00:00:00Z' }),
+      makeReference({ id: 'undated', include_in_exports: true, consent_status: 'confirmed' }),
+    ]
+    const r = freshnessReport(s, NOW, 'en')
+    expect(r.referenceConsent.map((c) => [c.id, c.status])).toEqual([['old', 'stale']])
+    expect(r.referenceConsent[0].confirmedAt).toBe('2023-01-01T00:00:00Z')
+  })
+
+  it('snoozes a dismissed consent warning like any other', () => {
+    const s = emptyStore()
+    s.references = [makeReference({ id: 'r1', name: 'Jane Doe', include_in_exports: true })]
+    s.resume = makeResume({ attention_dismissals: { [consentWarningKey('r1')]: '2027-01-01T00:00:00Z' } })
+    const r = freshnessReport(s, NOW, 'en')
+    expect(r.referenceConsent).toEqual([])
+    expect(r.snoozed.map((x) => x.key)).toEqual([consentWarningKey('r1')])
   })
 })
 

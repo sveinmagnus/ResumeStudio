@@ -289,6 +289,29 @@ describe('<ReferencesEditor>', () => {
     await userEvent.click(screen.getByRole('checkbox'))
     expect(useStore.getState().data.references[0].include_in_exports).toBe(true)
   })
+
+  it('confirming consent stamps the date; an exported-but-unconfirmed reference warns', async () => {
+    seed()
+    render(<ReferencesEditor />)
+    await userEvent.click(screen.getByRole('button', { name: /add reference/i }))
+    await userEvent.click(screen.getByRole('checkbox'))
+
+    // In exports, consent still 'not_asked' → the inline warning shows.
+    expect(screen.getByText(/in exports without confirmed consent/i)).toBeInTheDocument()
+
+    await userEvent.selectOptions(screen.getByLabelText(/consent/i), 'confirmed')
+    const ref = useStore.getState().data.references[0]
+    expect(ref.consent_status).toBe('confirmed')
+    expect(ref.consent_confirmed_at).toBeTruthy()
+    expect(screen.queryByText(/in exports without confirmed consent/i)).not.toBeInTheDocument()
+    expect(screen.getByText(/confirmed/i, { selector: '.rcc-stamp' })).toBeInTheDocument()
+
+    // Declining while still exported is the loudest state.
+    await userEvent.selectOptions(screen.getByLabelText(/consent/i), 'declined')
+    expect(screen.getByText(/declined — remove them from exports/i)).toBeInTheDocument()
+    // The confirmation timestamp is a record of what happened — it survives.
+    expect(useStore.getState().data.references[0].consent_confirmed_at).toBeTruthy()
+  })
 })
 
 describe('<IndustriesEditor> (A8.1)', () => {

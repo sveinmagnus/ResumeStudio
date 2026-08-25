@@ -1,13 +1,16 @@
 import { useState, useEffect, useRef } from 'react'
-import { ChevronDown, ChevronRight, MoreHorizontal, Trash2, FileSearch, X, AlertTriangle, Clock, Check, RotateCcw, EyeOff } from 'lucide-react'
+import { ChevronDown, ChevronRight, MoreHorizontal, Trash2, FileSearch, X, AlertTriangle, Clock, Check, RotateCcw, EyeOff, MessageSquareText } from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import { LOCALE_LABELS, resolve, fmtDate } from '../../lib/locales'
 import { computeCompleteness, computeSectionCoverage, type MissingField, type SectionCoverage } from '../../lib/completeness'
 import { computeDrift } from '../../lib/drift'
 import { freshnessReport, snoozeUntil } from '../../lib/freshness'
+import { debriefCandidates } from '../../lib/debrief'
 import { wipeLocale } from '../../lib/wipeLocale'
 import { CareerTimeline } from './CareerTimeline'
 import { CvAdvisors } from './CvAdvisors'
+import { DebriefModal } from './DebriefModal'
+import { EvidencePanels } from './EvidencePanels'
 import { useDialog } from '../ui/useDialog'
 
 interface CoreStat { label: string; count: number; key: string }
@@ -40,6 +43,7 @@ export function Overview() {
 
   const completeness = computeCompleteness(data, locales)
   const freshness = freshnessReport(data, new Date(), locales[0])
+  const debriefs = debriefCandidates(data, new Date(), data.resume?.attention_dismissals ?? {}, locales[0])
   // Drift is only meaningful with two languages in play — it compares the pair
   // the user is editing in. In single-column mode there's nothing to compare.
   const drift = secondaryLocale
@@ -59,6 +63,8 @@ export function Overview() {
   const [coverageLocale, setCoverageLocale] = useState<string | null>(null)
   const [snoozedOpen, setSnoozedOpen] = useState(false)
   const [driftOpen, setDriftOpen] = useState(false)
+  const [debriefId, setDebriefId] = useState<string | null>(null)
+  const debriefProject = debriefId ? data.projects.find((p) => p.id === debriefId) ?? null : null
 
   const goToField = (m: MissingField) => {
     setActiveSection(m.section)
@@ -147,6 +153,23 @@ export function Overview() {
                     <DismissButton label={s.label} onDismiss={() => dismiss(s.dismissKey)} />
                   </li>
                 ))}
+                {freshness.referenceConsent.map((c) => (
+                  <li key={`consent-${c.id}`} className="ov-attn-li">
+                    <button
+                      className={`ov-attn-row ${c.status === 'declined' ? 'ov-attn-err' : c.status === 'missing' ? 'ov-attn-warn' : 'ov-attn-muted'}`}
+                      onClick={() => goToItem('references', c.id)}
+                    >
+                      <span className="ov-attn-badge">Consent</span>
+                      <span className="ov-attn-name">{c.name}</span>
+                      <span className="ov-attn-meta">
+                        {c.status === 'declined' && 'declined, but still in exports'}
+                        {c.status === 'missing' && 'in exports without confirmed consent'}
+                        {c.status === 'stale' && `confirmed ${fmtSnooze(c.confirmedAt ?? '')} · confirm again?`}
+                      </span>
+                    </button>
+                    <DismissButton label={c.name} onDismiss={() => dismiss(c.dismissKey)} />
+                  </li>
+                ))}
               </ul>
             </>
           ) : (
@@ -187,6 +210,29 @@ export function Overview() {
               )}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Recently finished projects — the debrief nudge (lib/debrief.ts).
+          Offered while the memory is fresh; a dismissal snoozes it for a year
+          like any attention row, and applying (or "nothing new") retires it. */}
+      {debriefs.length > 0 && (
+        <div className="ov-debrief" role="region" aria-label="Recently finished projects">
+          <div className="ov-debrief-head">
+            <MessageSquareText size={15} /> Recently finished — capture it while it's fresh
+          </div>
+          <ul className="ov-attn-list">
+            {debriefs.map((d) => (
+              <li key={d.id} className="ov-attn-li">
+                <button className="ov-attn-row" onClick={() => setDebriefId(d.id)}>
+                  <span className="ov-attn-badge ov-debrief-badge">Debrief</span>
+                  <span className="ov-attn-name">{d.label}</span>
+                  <span className="ov-attn-meta">ended {fmtDate(d.end)} · five questions, two minutes</span>
+                </button>
+                <DismissButton label={d.label} onDismiss={() => dismiss(d.dismissKey)} />
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 
@@ -342,12 +388,20 @@ export function Overview() {
         </div>
       )}
 
+      {/* Claim–evidence and repetition checks — structural, offline, like the
+          drift panel above them. */}
+      <EvidencePanels />
+
       {confirmWipe && (
         <ConfirmWipeModal
           locale={confirmWipe}
           onCancel={() => setConfirmWipe(null)}
           onConfirm={() => doWipe(confirmWipe)}
         />
+      )}
+
+      {debriefProject && (
+        <DebriefModal project={debriefProject} onClose={() => setDebriefId(null)} />
       )}
 
       {coverageLocale && (
@@ -440,6 +494,21 @@ export function Overview() {
         .ov-attn-name { font-weight: 600; color: var(--ink); font-size: 13.5px;
           white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .ov-attn-meta { margin-left: auto; flex-shrink: 0; font-size: 12px; color: var(--ink-faint); }
+
+        /* Debrief nudge — same row anatomy as Needs attention, accent-toned:
+           it's an invitation, not a warning. */
+        .ov-debrief {
+          margin-bottom: 24px; padding: 14px 16px;
+          background: var(--accent-wash); border: 1px solid var(--secondary-line);
+          border-radius: var(--r-md);
+        }
+        .ov-debrief-head {
+          display: flex; align-items: center; gap: 8px;
+          font-size: 13px; font-weight: 700; color: var(--accent);
+          text-transform: uppercase; letter-spacing: .04em; margin-bottom: 10px;
+        }
+        .ov-debrief .ov-attn-row:hover { background: rgba(0,46,110,.07); }
+        .ov-debrief-badge { background: var(--accent); color: #fff; }
 
         /* Big core cards */
         .ov-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin-bottom: 14px; }

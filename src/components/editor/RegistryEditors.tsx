@@ -34,10 +34,10 @@ import {
   type ExperienceSummary,
 } from '../../lib/experience'
 import type {
-  Skill, Role, Industry, Reference,
+  Skill, Role, Industry, Reference, ReferenceConsentStatus,
   LocalizedString, Project, WorkExperience,
 } from '../../types'
-import { X, Plus, Sparkles, Combine, Filter as FilterIcon, Briefcase, FolderKanban, List, LayoutGrid, Wand2, Check } from 'lucide-react'
+import { X, Plus, Sparkles, Combine, Filter as FilterIcon, Briefcase, FolderKanban, List, LayoutGrid, Wand2, Check, ShieldCheck, ShieldAlert } from 'lucide-react'
 
 /** Filter-dropdown sentinel for "no category" — never collides with a real category uuid. */
 const UNCATEGORIZED_FILTER = '__uncategorized__'
@@ -1193,11 +1193,92 @@ export function ReferencesEditor() {
             <input type="checkbox" checked={ref.include_in_exports} onChange={(e) => updateItem('references', ref.id, { include_in_exports: e.target.checked })} />
             Include this reference in exports
           </label>
+          <ReferenceConsentRow reference={ref} />
         </EditorCard>
       ))}
       </AddButtons>
       <RegistryStyles />
       {/* .check-row styling lives in src/index.css */}
+    </div>
+  )
+}
+
+/**
+ * Consent tracking for one reference — a reference is another person's contact
+ * data, so the editor records whether they know about and agreed to the listing
+ * (see `Reference.consent_status`). Switching to "confirmed" stamps the date;
+ * the timestamp is kept when the status changes away, as a record of what
+ * happened. The inline warning only fires for export-included references — the
+ * same rule as the Overview's consent warnings (`lib/freshness.ts`).
+ */
+function ReferenceConsentRow({ reference }: { reference: Reference }) {
+  const { updateItem } = useStore()
+  const selectId = useId()
+  const status = reference.consent_status ?? 'not_asked'
+
+  const setStatus = (next: ReferenceConsentStatus) => {
+    updateItem('references', reference.id, {
+      consent_status: next,
+      ...(next === 'confirmed' ? { consent_confirmed_at: new Date().toISOString() } : {}),
+    })
+  }
+
+  const confirmedAt = reference.consent_confirmed_at
+    ? new Date(reference.consent_confirmed_at).toLocaleDateString(undefined, { year: 'numeric', month: 'short' })
+    : null
+  const needsConsent = reference.include_in_exports && status !== 'confirmed'
+
+  return (
+    <div className="rcc-wrap">
+      <label className="rcc-label" htmlFor={selectId}>
+        Consent <span className="rcc-hint">— does this person know they're listed?</span>
+      </label>
+      <div className="rcc-row">
+        <select
+          id={selectId}
+          className="rcc-select"
+          value={status}
+          onChange={(e) => setStatus(e.target.value as ReferenceConsentStatus)}
+        >
+          <option value="not_asked">Not asked</option>
+          <option value="asked">Asked — waiting</option>
+          <option value="confirmed">Confirmed</option>
+          <option value="declined">Declined</option>
+        </select>
+        {status === 'confirmed' && confirmedAt && (
+          <span className="rcc-stamp"><ShieldCheck size={13} /> Confirmed {confirmedAt}</span>
+        )}
+        {needsConsent && (
+          <span className={`rcc-warn${status === 'declined' ? ' rcc-declined' : ''}`}>
+            <ShieldAlert size={13} />
+            {status === 'declined'
+              ? 'Declined — remove them from exports.'
+              : 'In exports without confirmed consent.'}
+          </span>
+        )}
+      </div>
+      <style>{`
+        .rcc-wrap { margin-top: 10px; }
+        .rcc-label {
+          display: block; font-size: 11px; font-weight: 600; letter-spacing: .08em;
+          text-transform: uppercase; color: var(--ink-faint); margin-bottom: 7px;
+        }
+        .rcc-hint { font-weight: 500; letter-spacing: 0; text-transform: none; margin-left: 2px; }
+        .rcc-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+        .rcc-select {
+          padding: 6px 10px; border: 1px solid var(--line-strong); border-radius: var(--r-sm);
+          background: var(--paper); font-size: 13px; color: var(--ink);
+        }
+        .rcc-stamp {
+          display: inline-flex; align-items: center; gap: 5px;
+          font-size: 12.5px; color: var(--ok-ink);
+        }
+        .rcc-warn {
+          display: inline-flex; align-items: center; gap: 5px;
+          font-size: 12.5px; color: var(--warn-ink);
+        }
+        .rcc-declined { color: var(--err-ink); }
+      `}</style>
     </div>
   )
 }
