@@ -372,6 +372,13 @@ export interface Project {
   sort_order: number
   starred: boolean
   disabled: boolean
+  /**
+   * When the project was last debriefed (the guided post-engagement interview,
+   * `lib/debrief.ts`) — stamped on apply, also by "mark as debriefed". Gates
+   * the Overview's "recently finished — debrief it?" nudge so a captured
+   * project stops nagging. Editor-only, never exported. Additive/optional.
+   */
+  debriefed_at?: string | null
   internal_notes: string | null
 }
 
@@ -584,6 +591,13 @@ export interface Publication {
   internal_notes: string | null
 }
 
+/**
+ * Where the app stands with a referee's permission to be listed. A reference is
+ * another person's contact data, so the editor tracks whether they know about
+ * and agreed to the listing (GDPR consent). Editor-only — never exported.
+ */
+export type ReferenceConsentStatus = 'not_asked' | 'asked' | 'confirmed' | 'declined'
+
 export interface Reference {
   id: string
   resume_id: string
@@ -597,6 +611,19 @@ export interface Reference {
   project_id: string | null
   work_experience_id: string | null
   include_in_exports: boolean
+  /**
+   * Consent tracking (see {@link ReferenceConsentStatus}). Additive/optional —
+   * absent reads as 'not_asked'. Drives the Overview's consent warnings
+   * (`lib/freshness.ts`): an export-included reference without confirmed
+   * consent is flagged, and a confirmation ages out after a couple of years.
+   */
+  consent_status?: ReferenceConsentStatus
+  /**
+   * ISO timestamp of the LAST consent confirmation — stamped by the editor when
+   * `consent_status` is set to 'confirmed', kept when it changes away (it is a
+   * record of what happened, not the current state). Additive/optional.
+   */
+  consent_confirmed_at?: string | null
   internal_notes: string | null
 }
 

@@ -17,7 +17,7 @@ units:
     intent: "How must an agent work in this codebase? Architecture map (complete by CI gate — see arch-map-policy, and now covering the accounts/authorization/mail server modules and the shell service worker), data model, store patterns, conventions (incl. the v0.3.1 accessibility invariants, the three-surface contrast rule, and the version/build-channel source-of-truth rules), and what not to change. Holds invariants only — the exhaustive feature catalog is in feature-map."
     scope: global
     audience: [agent, developer]
-    validated: "2026-08-21"
+    validated: "2026-08-25"
     update_frequency: weekly
     triggers: [conventions, architecture, data-model, store, persistence, sections, accessibility, routing, export-parity, lookup]
     content_structure:
@@ -34,7 +34,7 @@ units:
     intent: "What features exist and how does each hang together? The exhaustive per-feature design catalog + the recently-shipped changelog, extracted from CLAUDE.md §1 to keep the instruction file lean."
     scope: global
     audience: [agent, developer]
-    validated: "2026-08-21"
+    validated: "2026-08-25"
     update_frequency: weekly
     depends_on: [claude-instructions]
     triggers: [features, changelog, skills-showcase, skill-category, registry, resume-views, import, what-exists]
@@ -94,11 +94,11 @@ units:
   - id: data-model
     kind: schema
     path: src/types/index.ts
-    intent: "What is the resume data model? Single source of truth for every entity, localized field, view-config type, cover letters (shape v10), profile competency bundles (KeyQualification.competency_ids, shape v12), the per-view optional-extras switch (SectionStyle.extras), and the shape_version stamp (currently 14)."
+    intent: "What is the resume data model? Single source of truth for every entity, localized field, view-config type, cover letters (shape v10), profile competency bundles (KeyQualification.competency_ids, shape v12), the per-view optional-extras switch (SectionStyle.extras), the additive editor-only fields (Reference consent tracking, Project.debriefed_at), and the shape_version stamp (currently 14)."
     format: text
     scope: global
     audience: [developer, agent]
-    validated: "2026-08-19"
+    validated: "2026-08-25"
     update_frequency: monthly
     triggers: [types, entities, LocalizedString, ResumeStore, ResumeView, schema]
     not_for: ["runtime behavior", "business logic", "how a feature works"]

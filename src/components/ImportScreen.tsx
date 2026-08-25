@@ -15,6 +15,7 @@ import { isLinkedInExport, importFromLinkedIn } from '../lib/importerLinkedIn'
 import {
   isEuropassJson, isEuropassXml, importFromEuropassJson, importFromEuropassXml,
 } from '../lib/importerEuropass'
+import { isJsonResumeFormat, importFromJsonResume } from '../lib/importerJsonResume'
 import { AIImportModal } from './AIImportModal'
 import { loadSkillTaxonomy, loadSkillClassifications } from '../lib/skillTaxonomy'
 import { normalizeImportedSkills } from '../lib/skillNormalize'
@@ -111,7 +112,7 @@ async function importResumeStudio(
   }
   throw new Error(
     'this file is not a recognised resume format (expected a Resume Studio backup, ' +
-    'or a CVpartner, LinkedIn, Europass, or AI-import file).',
+    'or a CVpartner, LinkedIn, Europass, JSON Resume, or AI-import file).',
   )
 }
 
@@ -227,6 +228,10 @@ export function ImportScreen({ compact = false, onStartFresh, onImported, onRest
         // CVpartner export — a large, real-world-messy third-party object.
         const store = await normalizeImported(importFromCVPartner(json as Record<string, unknown>))
         await onImported(store, deriveName(store, 'Imported CV'))
+      } else if (isJsonResumeFormat(json)) {
+        // JSON Resume (jsonresume.org) — the open interchange schema.
+        const store = await normalizeImported(importFromJsonResume(json))
+        await onImported(store, deriveName(store, 'JSON Resume import'))
       } else {
         await importResumeStudio(json, onImported)
       }
@@ -287,7 +292,7 @@ export function ImportScreen({ compact = false, onStartFresh, onImported, onRest
         >
           <div className="is-drop-icon"><Upload size={28} /></div>
           <div className="is-drop-title">Drop your resume file here</div>
-          <div className="is-drop-sub">or click to browse — Resume Studio backups (.json or .zip), CVpartner exports, LinkedIn data exports (.zip), Europass (.xml/.json), or AI import files</div>
+          <div className="is-drop-sub">or click to browse — Resume Studio backups (.json or .zip), CVpartner exports, LinkedIn data exports (.zip), Europass (.xml/.json), JSON Resume, or AI import files</div>
           <input
             ref={inputRef}
             type="file"
@@ -304,7 +309,7 @@ export function ImportScreen({ compact = false, onStartFresh, onImported, onRest
           <div className="is-features">
             <div className="is-feat"><FileJson size={16} /> Resume Studio backup (.json or .zip) — restores your resumes in place, without duplicating them</div>
             <div className="is-feat"><FileJson size={16} /> CVpartner export (.json) — import projects, employment, education, skills &amp; more</div>
-            <div className="is-feat"><FileJson size={16} /> LinkedIn data export (.zip) and Europass CV (.xml / .json)</div>
+            <div className="is-feat"><FileJson size={16} /> LinkedIn data export (.zip), Europass CV (.xml / .json) and JSON Resume</div>
             <div className="is-feat"><Wand2 size={16} /> Start from a PDF/Word CV with your own AI — no account or API key needed</div>
             <div className="is-feat"><Sparkles size={16} /> Side-by-side dual-language editing in any two locales</div>
           </div>

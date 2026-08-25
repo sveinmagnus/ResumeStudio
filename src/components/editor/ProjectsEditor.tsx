@@ -24,13 +24,18 @@ import {
 } from '../../lib/skillExtract'
 import { resolve, fmtRange } from '../../lib/locales'
 import { richToPlain } from '../../lib/richText'
+import { DebriefModal } from './DebriefModal'
 import type { Project, ProjectRole, ProjectIndustry, ProjectSkill, Skill, Industry, Role, LocalizedString } from '../../types'
-import { Plus, X } from 'lucide-react'
+import { Plus, X, MessageSquareText } from 'lucide-react'
 
 export function ProjectsEditor() {
   const { data, primaryLocale, addItem, updateItem } = useStore()
   const projects = useSortedItems('projects')
 
+  // The open debrief is tracked by ID, not object, so the modal re-reads the
+  // live project as answers/applies mutate it.
+  const [debriefId, setDebriefId] = useState<string | null>(null)
+  const debriefProject = debriefId ? projects.find((p) => p.id === debriefId) ?? null : null
 
   const addProject = () => {
     const p: Project = {
@@ -113,9 +118,18 @@ export function ProjectsEditor() {
             <TextField label="External case-study URL" value={p.external_url || ''} onChange={(v) => updateItem('projects', p.id, { external_url: v })} />
             <TextField label="Country code" value={p.location_country_code || ''} onChange={(v) => updateItem('projects', p.id, { location_country_code: v })} placeholder="e.g. NO — exported as the country name" />
           </div>
+
+          {/* The debrief interview — most valuable right after the engagement
+              ends (the Overview nudges then), but available any time. */}
+          <button className="pj-debrief" onClick={() => setDebriefId(p.id)}>
+            <MessageSquareText size={14} /> Debrief this project
+          </button>
         </EditorCard>
       ))}
       </SortableList>
+      {debriefProject && (
+        <DebriefModal project={debriefProject} onClose={() => setDebriefId(null)} />
+      )}
       <PaneStyles />
     </div>
   )
@@ -623,6 +637,13 @@ function PaneStyles() {
       .hl-del:hover { background: var(--accent-wash); color: var(--accent); }
       .sub-add { display: inline-flex; align-items: center; gap: 5px; padding: 6px 12px; font-size: 13px; font-weight: 600; color: var(--accent); border-radius: var(--r-sm); }
       .sub-add:hover { background: var(--accent-wash); }
+      .pj-debrief {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 7px 13px; font-size: 12.5px; font-weight: 600;
+        color: var(--accent); border: 1px solid var(--accent); border-radius: var(--r-sm);
+        background: var(--paper); transition: background .12s, color .12s;
+      }
+      .pj-debrief:hover { background: var(--accent-wash); }
     `}</style>
   )
 }

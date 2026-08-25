@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode, type CSSProperties } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode, type CSSProperties } from 'react'
 import { useStore } from '../../../store/useStore'
 import { DualField } from '../../ui/DualField'
 import { SECTIONS } from '../../../lib/sections'
@@ -31,8 +31,10 @@ import type {
 import {
   Trash2, ChevronUp, ChevronDown, ChevronRight, GripVertical, Pencil,
   ArrowLeft, Star, FileText, FileDown, FileType, FileCode,
-  PanelRight, PanelRightClose, PanelRightOpen, ExternalLink,
+  PanelRight, PanelRightClose, PanelRightOpen, ExternalLink, BookOpen,
 } from 'lucide-react'
+import { ReadThroughMode } from './ReadThroughMode'
+import { countFlags } from '../../../lib/readThrough'
 import {
   DetailToggle, SectionStylePanel, sectionModes, type SectionMode,
   SUMMARY_LAYOUT_OPTIONS, FULL_LAYOUT_OPTIONS,
@@ -133,14 +135,17 @@ function SortableSecRow({ id, off, children }: {
  * trigger so exporting — the frequent task — is always one click away without
  * scrolling to the bottom of the config. Closes on outside-click / Escape.
  */
-function ExportMenu({ onPdf, onDocx, onText, onMarkdown, onEuropass, pdfBusy, docxBusy, lastExportedAt }: {
+function ExportMenu({ onPdf, onDocx, onHtml, onText, onMarkdown, onEuropass, onJsonResume, pdfBusy, docxBusy, htmlBusy, lastExportedAt }: {
   onPdf: () => void
   onDocx: () => void
+  onHtml: () => void
   onText: () => void
   onMarkdown: () => void
   onEuropass: () => void
+  onJsonResume: () => void
   pdfBusy: boolean
   docxBusy: boolean
+  htmlBusy: boolean
   lastExportedAt: string | null
 }) {
   const [open, setOpen] = useState(false)
@@ -184,6 +189,16 @@ function ExportMenu({ onPdf, onDocx, onText, onMarkdown, onEuropass, pdfBusy, do
           <button type="button" role="menuitem" className="rv-export-item" onClick={() => pick(onDocx, true)} disabled={docxBusy}>
             <FileDown size={15} /> {docxBusy ? 'Building DOCX…' : 'Export DOCX'}
           </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="rv-export-item"
+            onClick={() => pick(onHtml, true)}
+            disabled={htmlBusy}
+            title="One self-contained .html file — fonts embedded, opens anywhere, share as a link-sized attachment"
+          >
+            <FileCode size={15} /> {htmlBusy ? 'Building HTML…' : 'HTML (single file)'}
+          </button>
           <button type="button" role="menuitem" className="rv-export-item" onClick={() => pick(onText)}>
             <FileType size={15} /> Text (ATS)
           </button>
@@ -198,6 +213,15 @@ function ExportMenu({ onPdf, onDocx, onText, onMarkdown, onEuropass, pdfBusy, do
             title="Europass covers identity, work, education and languages — other sections are not part of the format"
           >
             <FileType size={15} /> Europass XML
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="rv-export-item"
+            onClick={() => pick(onJsonResume)}
+            title="The open jsonresume.org interchange format — for themes, other CV tools and pipelines"
+          >
+            <FileCode size={15} /> JSON Resume
           </button>
           {lastExportedAt && (
             <div className="rv-export-menu-foot">
@@ -359,8 +383,8 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
   // ── Exports (see useViewExport) ───────────────────────────────────────────
   const stampExported = () => onUpdate({ last_exported_at: new Date().toISOString() })
   const {
-    pdfBusy, docxBusy, error: exportError, clearError,
-    exportPdf, exportDocx, exportTextual,
+    pdfBusy, docxBusy, htmlBusy, error: exportError, clearError,
+    exportPdf, exportDocx, exportHtml, exportTextual,
   } = useViewExport(data, view, exportLocale, globalFonts, stampExported)
 
   // A blocked pop-up is reported through the same banner as an export failure:
@@ -378,6 +402,14 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
   // both are "note to self" identity, not editable-every-time config.
   const [editingName, setEditingName] = useState(false)
   const [editingPurpose, setEditingPurpose] = useState(false)
+  // Read-through mode (full-screen reading overlay). The flag count re-reads
+  // localStorage only when the overlay opens/closes, not per keystroke.
+  const [reading, setReading] = useState(false)
+  const flagCount = useMemo(
+    () => countFlags(data.resume?.id ?? '', view.id),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `reading` is the refresh trigger: flags change only inside the overlay
+    [data.resume?.id, view.id, reading],
+  )
   // Which section rows are expanded (item list + style overrides shown). All
   // collapsed by default so the list reads as a sortable overview.
   const [openSections, setOpenSections] = useState<Set<string>>(() => new Set())
@@ -429,13 +461,24 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
           <ExportMenu
             onPdf={exportPdf}
             onDocx={exportDocx}
+            onHtml={exportHtml}
             onText={() => exportTextual('txt')}
             onMarkdown={() => exportTextual('md')}
             onEuropass={() => exportTextual('xml')}
+            onJsonResume={() => exportTextual('jsonresume')}
             pdfBusy={pdfBusy}
             docxBusy={docxBusy}
+            htmlBusy={htmlBusy}
             lastExportedAt={view.last_exported_at}
           />
+          <button
+            className="rv-prev-ctrl"
+            onClick={() => setReading(true)}
+            title="Read the whole view as one document and flag what reads wrong"
+          >
+            <BookOpen size={15} />
+            Read through{flagCount > 0 ? ` (${flagCount})` : ''}
+          </button>
           <button
             className="rv-prev-ctrl"
             onClick={() => setShowPreview((v) => !v)}
@@ -956,6 +999,10 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
         </aside>
         )}
       </div>
+
+      {reading && (
+        <ReadThroughMode view={view} locale={exportLocale} onClose={() => setReading(false)} />
+      )}
 
       <Styles />
     </div>

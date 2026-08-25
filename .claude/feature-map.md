@@ -122,18 +122,67 @@ prescriptive.
   the main project), and any remaining warning can be dismissed ("looks fine")
   to snooze it for a year (`Resume.attention_dismissals`, surfaced as a
   recoverable "snoozed" list).
+- **Reference consent tracking** — a reference is another person's contact
+  data, so each carries a consent status (`not_asked / asked / confirmed /
+  declined`, `Reference.consent_status` + `consent_confirmed_at`, stamped when
+  confirmed; editor-only, never exported). The References editor shows the
+  state inline; `freshnessReport` adds consent rows to Needs attention for
+  **export-included** references only (private entries never leave the machine):
+  declined-but-exported (loudest), never-confirmed, and confirmations older
+  than 24 months ("confirm again?"). Same snooze/dismiss machinery as the rest.
+- **Claim–evidence check** (`lib/claimEvidence.ts` + `EvidencePanels`) — the
+  inverse of `lib/experience.ts`: offline, structural findings for claims the
+  CV's own structure doesn't back. Four kinds: a proficiency ≥ 4 skill with no
+  dated project usage (high) or thin usage (low), a showcased skill no project
+  links, a role whose legacy years claim has no dated assignments, and a
+  bundled competency whose title words appear in no project/employment prose.
+  Hints, not verdicts — each row navigates to the item; dismissals snooze a
+  year via `attention_dismissals` (`claim:<kind>:<id>`).
+- **Repetition check** (`lib/redundancy.ts` + `EvidencePanels`) — near-duplicate
+  prose across DIFFERENT items (the same achievement pasted into both the
+  employment and its project): exact + Jaccard sentence matching (≥ 8 tokens)
+  and whole-field trigram similarity, across every locale, one finding per item
+  pair with both sides clickable. Same-item overlap is by design (a summary
+  restates its long description) and never flagged.
+- **Project debrief interview** (`lib/debrief.ts` + `DebriefModal`) — the
+  maintenance ritual: when an engagement ends (Overview nudges for projects
+  ended within 6 months, `debriefCandidates`; also a per-card button in the
+  Projects editor), the app asks 3–6 pointed questions DERIVED from what the
+  project lacks (no model needed to ask). Answers are reshaped — configured
+  model or BYO copy-prompt/paste-JSON (`resumestudio-debrief/v1`) — into
+  highlights, registry-interned skill links (`skillExtract` machinery: existing
+  pre-ticked, new deliberate) and an optional short description; a drafted
+  one-liner never overwrites an existing line without an explicit tick. Applies
+  as ONE `replaceData` undo step and stamps `Project.debriefed_at`, which
+  retires the nudge; "nothing new" stamps without changes.
 - **Targeted exports via Resume Views** — pick sections, exclude items,
   starred-only filter, custom intro, then export PDF (one-click vector
   download via lazy-loaded pdfmake), DOCX (lazy-loaded docx lib),
-  ATS-friendly **plain text / Markdown** (`lib/viewText.ts`), or **Europass
+  ATS-friendly **plain text / Markdown** (`lib/viewText.ts`), **Europass
   XML** (`lib/exporterEuropass.ts` — the `SkillsPassport` format public
   tenders ask for, round-trip partner of the Europass importer; covers
   identity/work/education/languages only, by the schema's design, and builds
-  a DOM serialized by XMLSerializer so escaping is structural). A **live
+  a DOM serialized by XMLSerializer so escaping is structural), **JSON
+  Resume** (`lib/exporterJsonResume.ts` — the open jsonresume.org v1
+  interchange object over the same `applyView` filter, anonymization rule
+  regression-tested), or a **single-file HTML** (`lib/htmlExport.ts` — the
+  `buildViewHtml` document made genuinely standalone: the six brand woff2
+  fonts fetched and inlined as data: URIs, CSP rewritten for `file://`, images
+  already data: URLs by construction; failed font fetches degrade to the
+  fallback stacks rather than failing the export). A **live
   preview pane** in the view editor re-renders the document as you tune it
   (iframe + page-count estimate + optional pop-out window). All catalog-driven
   render paths share the
   **section-descriptor catalog** (`lib/sectionCatalog.ts`).
+- **Read-through mode** (`views/ReadThroughMode.tsx` + `lib/readThrough.ts`) —
+  a full-screen reading overlay ("Read through" in the view editor header):
+  the view's content as ONE flowing document, rendered from the same section
+  catalog the exports use (so it can't drift from what ships), with a **flag**
+  gutter on every item and a rail of flagged items with notes. Flags persist
+  in localStorage per (resume, view) — deliberately NOT store data, so they
+  never sync/snapshot/undo — and survive leaving to fix one ("Open in editor"
+  navigates and closes; the other flags wait). The view editor button shows
+  the outstanding count.
 - **Item bullets** (opt-in, `viewStyle.item_bullets` + `bullet_style`): a glyph
   (• – › ▪) before each item heading with the item's content **hang-indented**
   to line up under the heading, not the bullet. View-wide default + per-section
@@ -297,9 +346,13 @@ prescriptive.
   a versioned format and a migration scaffold. Loading either kind of file
   from the picker creates a new resume (the in-editor "load file" button is
   gone — backup load is picker-only). The picker also imports **LinkedIn data
-  exports** (.zip of CSVs, lazy fflate; `lib/importerLinkedIn.ts`) and
+  exports** (.zip of CSVs, lazy fflate; `lib/importerLinkedIn.ts`),
   **Europass CVs** (SkillsPassport XML + profile JSON;
-  `lib/importerEuropass.ts`).
+  `lib/importerEuropass.ts`) and **JSON Resume** files
+  (`lib/importerJsonResume.ts` — positive detector that can never claim our own
+  or CVpartner files; a skills entry with keywords becomes a SkillCategory
+  plus member skills; JSON Resume "references" are testimonial quotes, so they
+  land as Recommendations, not our contactable References).
 - **AI-assisted import from PDF/Word** (`lib/aiImport.ts`,
   `components/AIImportModal.tsx`) — a *bring-your-own-LLM* flow, no external
   service or API key. The picker hands the user a downloadable template

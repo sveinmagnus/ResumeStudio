@@ -81,13 +81,28 @@ The full catalog with per-feature design detail is in
   resumes and ride the desktop sync (§14).
 - **Resume Views & export** — targeted section/item selection, per-view style +
   header/footer, export templates, BYO-LLM tailoring, anonymization, skill
-  matrix, per-view sort; export to PDF / DOCX (lazy) / ATS text+Markdown; live
-  preview pane. **Cover Letters** are their own entity referencing a view, with
+  matrix, per-view sort; export to PDF / DOCX (lazy) / ATS text+Markdown /
+  Europass XML / **JSON Resume** (jsonresume.org interchange) / **single-file
+  HTML** (fonts inlined, opens from disk — `lib/htmlExport.ts`); live preview
+  pane, plus a **read-through mode** (the view as one flowing document with
+  flag-and-fix annotations that survive navigation — `lib/readThrough.ts`).
+  **Cover Letters** are their own entity referencing a view, with
   PDF/DOCX/text export (`CoverLettersEditor`, `lib/coverLetter.ts`).
-- **Import** — CVpartner JSON, LinkedIn (.zip), Europass XML, AI-assisted
+- **Import** — CVpartner JSON, LinkedIn (.zip), Europass XML, JSON Resume
+  (positive detector, never the fallback), AI-assisted
   PDF/Word (BYO-LLM), per-section bulk add (BYO-LLM, `lib/bulkImport.ts`),
   portable JSON backup, and the identity-bearing backups (a sync file, a
   whole-set `.zip`) which **merge by resume id** rather than creating copies.
+- **Truth & maintenance** — the Overview's structural, offline checks beside
+  drift: **claim–evidence** (`lib/claimEvidence.ts` — expert ratings with no
+  dated usage, showcased-but-unused skills, unmentioned competencies) and
+  **repetition** (`lib/redundancy.ts` — the same sentence sold twice across
+  items); **reference consent tracking** (status + confirmed-date on each
+  reference, warned via `freshness.ts` for export-included ones only); and the
+  **project debrief interview** (`lib/debrief.ts` — a recently-ended project
+  nudges for a five-question debrief whose answers become highlights/skills/
+  summary through review-required drafts; questions need no model, answers can
+  go through BYO copy-paste).
 - **Persistence & safety** — auth-gated server (cookie/bearer, named tokens),
   offline editing + conflict safety, per-resume snapshot history, freshness
   warnings, storage readout, React error boundary.
@@ -293,7 +308,14 @@ src/
 │   │   mergeRegistry), completeness (+ shared collectTrackedFields), drift
 │   │   (cross-language divergence; reuses collectTrackedFields), wipeLocale,
 │   │   contentSearch, careerTimeline, experience (months/years arithmetic),
-│   │   freshness, undoHistory (the pure burst-undo rule), download (blob → file),
+│   │   freshness (incl. reference-consent warnings), claimEvidence (claims the
+│   │     CV's own structure doesn't back — expert ratings with no dated usage,
+│   │     showcased-but-unused skills, unmentioned competencies; drift's sibling),
+│   │   redundancy (near-duplicate prose across items — the same sentence sold
+│   │     twice; sentence + whole-field passes, offline),
+│   │   readThrough (read-through mode's flags: per-(resume,view) localStorage
+│   │     annotations — deliberately NOT store data, so they never sync/undo),
+│   │   undoHistory (the pure burst-undo rule), download (blob → file),
 │   │   coerce (defensive JSON narrowing), settingsBus, uuid (the one id generator —
 │   │   crypto.randomUUID with a non-secure-context fallback; no `uuid` package),
 │   │   lookup (getBy/hasKey — the ONLY safe read of a map keyed by DATA; see §2)
@@ -317,7 +339,14 @@ src/
 │   │   exporter (LAZY-LOADED docx; SECURITY: TextRun escapes),
 │   │   pdfExporter (LAZY-LOADED pdfmake; the vector .pdf, same catalog),
 │   │   viewText (ATS text/MD),
+│   │   htmlExport (the single-file standalone .html: buildViewHtml with the six
+│   │     brand fonts inlined as data: URIs and the CSP rewritten for file:// —
+│   │     its tests pin the exact font paths + CSP literals so viewFilter can't
+│   │     drift under it silently),
 │   │   exporterEuropass (SkillsPassport XML; DOM+XMLSerializer, NOT string XML; round-trips importerEuropass),
+│   │   exporterJsonResume (jsonresume.org v1 over a VIEW: applyView first, so
+│   │     exclusions + anonymization hold — the anonymized-customer rule is
+│   │     regression-tested; round-trips importerJsonResume),
 │   │   coverLetter (letter prompt + resolveLetterParts + text export; PDF/DOCX letter builders ride the lazy exporter/pdfmake chunks),
 │   │   viewStyle (tokens + dividerSpec/tagChipHex — one description per visual
 │   │     effect) + viewHeader (render-boundary sanitisers), richText (allowlist;
@@ -337,7 +366,12 @@ src/
 │   │   + high-end probe), llmAssist (looksHighEnd + the shared prompt scaffolding),
 │   │   summarizeBatch (SUMMARY_FIELDS source→target per section; emptySummaryTargets
 │   │   work list; summarizableSource — the ONE "has a source" rule, shared with DualField),
-│   │   skillExtract, keyPoints, writingCoach, modelPicker + cloudModelCatalog,
+│   │   skillExtract, keyPoints, writingCoach, debrief (the project debrief
+│   │     interview: structural questions derived from what the project lacks —
+│   │     NO model needed for pass 1 — then answers reshaped via the
+│   │     resumestudio-debrief/v1 contract into highlights/skills/summary;
+│   │     applyDebrief is one replaceData batch; debriefCandidates drives the
+│   │     Overview "recently finished" nudge), modelPicker + cloudModelCatalog,
 │   │   ollamaCatalog (curated open-weight models + sizes; merged with installed),
 │   │   translateLanguages (which Argos langs to install; forced pivot + editing pair),
 │   │   glossary (C3 — term pairs harvested from the registries; NOT gated)
@@ -347,7 +381,10 @@ src/
 │   │   profileGenerator, introDraft, sectionAdvice, jobFit, letterAdvice,
 │   │   atsAudit (pass 1 needs no model), registryHygiene (proposal-only)
 │   └ — importers: importer (CVpartner), importerLinkedIn (CSV/zip), importerEuropass
-│       (XML+JSON), aiImport (resumestudio-ai/v1), bulkImport (resumestudio-bulk/v1;
+│       (XML+JSON), importerJsonResume (jsonresume.org v1; POSITIVE detector that
+│       can never claim our own or CVpartner files; skills-with-keywords become a
+│       SkillCategory + member skills), aiImport (resumestudio-ai/v1), bulkImport
+│       (resumestudio-bulk/v1;
 │       ONE spec per section drives instructions+validation+mapping+preview), translateClient
 ├── components/
 │   ├── shell: App (routes + URL⇄store sync), AppHeader, ErrorBoundary, ResumeList (picker),
@@ -369,9 +406,13 @@ src/
 │   └── editor/      ← Overview, HeaderEditor, ProjectsEditor, SimpleEditors (every
 │                      list section INCLUDING Profiles + Key Competencies and their
 │                      bundles), RegistryEditors, RegistryCategoryView, CareerTimeline,
-│                      UsagePanel, CvAdvisors (§15), ResumeViewsEditor,
+│                      UsagePanel, CvAdvisors (§15), EvidencePanels (the claim-evidence
+│                      + repetition Overview cards), DebriefModal (the debrief
+│                      interview, opened from a project card + the Overview nudge),
+│                      ResumeViewsEditor,
 │                      CoverLettersEditor (own entity referencing a view; letter exports),
-│                      views/ (ViewEditor + the style/header/footer/item-select panels)
+│                      views/ (ViewEditor + the style/header/footer/item-select panels
+│                      + ReadThroughMode, the full-screen reading overlay with flags)
 ├── sw.js            ← shell-only service worker: precaches index.html + the entry
 │                      chunk + the fonts from a build-injected list. Has NO
 │                      `cache.put` at all, so an /api response cannot be stored

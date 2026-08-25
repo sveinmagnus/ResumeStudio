@@ -4,10 +4,12 @@
  * I/O: every check is computed from the store + an injected `now`, so it's
  * deterministic and unit-testable.
  *
- * Three signals:
+ * Four signals:
  *  - certifications expired or expiring within N months,
  *  - projects / employments still marked "ongoing" (no end date) whose start is
  *    more than N years ago — likely the user forgot to close them out,
+ *  - references included in exports without confirmed (or with aged-out /
+ *    withdrawn) consent — a reference is another person's personal data,
  *  - resume-level staleness (`isResumeStale`) drives a picker badge.
  *
  * Two pieces of intelligence keep the panel from nagging about the obvious:
@@ -26,11 +28,14 @@ export interface FreshnessConfig {
   expiringWithinMonths: number
   /** An ongoing item whose start is older than this many years is "stale". Default 3. */
   staleOngoingYears: number
+  /** A reference consent confirmed longer ago than this is worth re-confirming. Default 24. */
+  consentStaleMonths: number
 }
 
 export const DEFAULT_FRESHNESS: FreshnessConfig = {
   expiringWithinMonths: 3,
   staleOngoingYears: 3,
+  consentStaleMonths: 24,
 }
 
 /** How long (months) a dismissed warning stays suppressed — "at least a year". */
@@ -54,6 +59,11 @@ export function certWarningKey(id: string): string {
 /** Stable dismissal key for a stale-ongoing warning. */
 export function staleWarningKey(section: StaleOngoing['section'], id: string): string {
   return `stale:${section}:${id}`
+}
+
+/** Stable dismissal key for a reference-consent warning. */
+export function consentWarningKey(id: string): string {
+  return `refconsent:${id}`
 }
 
 export interface CertWarning {
@@ -82,10 +92,30 @@ export interface SnoozedWarning {
   until: string
 }
 
+/**
+ * A reference is another person's contact data, so listing them in exports
+ * needs their agreement — and an old agreement needs refreshing.
+ *  - 'missing'  — included in exports but consent never confirmed
+ *  - 'declined' — included in exports although the person said no
+ *  - 'stale'    — confirmed, but longer ago than `consentStaleMonths`
+ * Only export-included references are checked: a private entry never leaves
+ * the machine, so nagging about it would train the user to ignore the panel.
+ */
+export interface ReferenceConsentWarning {
+  id: string
+  name: string
+  status: 'missing' | 'declined' | 'stale'
+  /** For 'stale': when consent was last confirmed. */
+  confirmedAt: string | null
+  /** Key to pass to the store's dismissAttention(). */
+  dismissKey: string
+}
+
 export interface FreshnessReport {
   expiredCerts: CertWarning[]
   expiringCerts: CertWarning[]
   staleOngoing: StaleOngoing[]
+  referenceConsent: ReferenceConsentWarning[]
   /** Active warning count (excludes auto-exempt and currently-snoozed items). */
   total: number
   /** Warnings the user dismissed that are still suppressed — shown so they're recoverable. */
@@ -196,18 +226,48 @@ export function freshnessReport(
     (it) => resolve((it as { employer?: Parameters<typeof resolve>[0] }).employer, locale) || 'Untitled employer',
   )
 
+  // Reference consent: only export-included references are checked — a private
+  // entry never leaves the machine. A confirmation with no timestamp (hand-
+  // edited or imported data) is taken at its word rather than aged.
+  const consentStaleMs = now.getTime() - config.consentStaleMonths * 30.44 * 24 * 3600 * 1000
+  const referenceConsent: ReferenceConsentWarning[] = []
+  for (const ref of store.references) {
+    if (!ref.include_in_exports) continue
+    const status = ref.consent_status ?? 'not_asked'
+    let warn: ReferenceConsentWarning['status'] | null = null
+    if (status === 'declined') warn = 'declined'
+    else if (status !== 'confirmed') warn = 'missing'
+    else if (ref.consent_confirmed_at) {
+      const t = Date.parse(ref.consent_confirmed_at)
+      if (!Number.isNaN(t) && t < consentStaleMs) warn = 'stale'
+    }
+    if (!warn) continue
+    const name = ref.name.trim() || 'Unnamed reference'
+    const key = consentWarningKey(ref.id)
+    if (isSnoozed(key)) { snoozed.push({ key, label: name, until: dismissals[key] }); continue }
+    referenceConsent.push({
+      id: ref.id, name, status: warn,
+      confirmedAt: ref.consent_confirmed_at ?? null, dismissKey: key,
+    })
+  }
+
   // Soonest-expiring / oldest-stale first so the most urgent reads at the top.
   expiredCerts.sort((a, b) => ymIndex(a.expires, 12) - ymIndex(b.expires, 12))
   expiringCerts.sort((a, b) => ymIndex(a.expires, 12) - ymIndex(b.expires, 12))
   staleOngoing.sort((a, b) =>
     (a.start ? ymIndex(a.start, 1) : 0) - (b.start ? ymIndex(b.start, 1) : 0))
+  // Declined (listed against a "no") outranks never-asked outranks aged-out.
+  const consentRank = { declined: 0, missing: 1, stale: 2 } as const
+  referenceConsent.sort((a, b) =>
+    consentRank[a.status] - consentRank[b.status] || a.name.localeCompare(b.name))
   snoozed.sort((a, b) => a.label.localeCompare(b.label))
 
   return {
     expiredCerts,
     expiringCerts,
     staleOngoing,
-    total: expiredCerts.length + expiringCerts.length + staleOngoing.length,
+    referenceConsent,
+    total: expiredCerts.length + expiringCerts.length + staleOngoing.length + referenceConsent.length,
     snoozed,
   }
 }
