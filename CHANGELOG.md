@@ -6,6 +6,71 @@ The version a build reports is the git tag it was built from; anything else
 reports `Dev-<commit>`. Desktop builds update themselves — see
 [DESKTOP.md](./DESKTOP.md).
 
+## 1.2.0 — 2026-08-25
+
+The truth-and-maintenance release. Everything before this stored and shaped a
+CV; this release helps keep it *true and current* — the claims backed, the
+prose unrepeated, the references consenting, the just-finished project captured
+while you still remember it — and teaches the app one more open interchange
+format plus two new ways to read and share a view.
+
+### Added
+
+- **Project debrief interview.** When an engagement ends, the Overview nudges:
+  "recently finished — capture it while it's fresh." The interview asks three
+  to six pointed questions *derived from what the project lacks* (no AI needed
+  to ask), and your answers are reshaped — by your configured model, or through
+  the copy-prompt/paste-reply path with any AI — into project highlights,
+  registry-interned skill links and a short description. Everything is a review
+  list you tick: existing skills pre-ticked, new registry entries a deliberate
+  click, and a drafted one-liner never replaces a line you wrote without an
+  explicit tick. Applying is one undo step; "nothing new" retires the nudge
+  too. Also available any time from the project card.
+- **Claim–evidence check.** An Overview panel for the claims the CV's own
+  structure doesn't back: a 4–5/5 skill rating with no dated project behind it,
+  a showcased skill no project links, a role claiming years with no linked
+  engagements, a key competency no project or employment prose ever mentions.
+  Offline and structural, like the cross-language check beside it — hints with
+  a click-to-open, not verdicts, and each row can be dismissed for a year once
+  you've judged it defensible.
+- **Repetition check.** The same achievement sold twice — usually pasted into
+  both the employment and its project — found by sentence-level matching
+  (exact and near-identical) plus whole-field similarity, across every
+  language. A summary restating its own long description is by design and never
+  flagged; both sides of a real pair are one click away.
+- **Reference consent tracking.** A reference is another person's contact data,
+  so each now carries a consent status — not asked / asked / confirmed (with a
+  stamped date) / declined. Only export-included references are policed:
+  declined-but-still-exported is the loudest warning, never-confirmed next, and
+  a confirmation older than two years asks to be refreshed. Private references
+  never nag.
+- **Read-through mode.** "Read through" in the view editor opens the view as
+  one flowing document — what the PDF says, minus the layout — with a flag
+  gutter on every item and a notes rail. Flags survive leaving to fix the first
+  one ("Open in editor" jumps straight to the flagged card), persist per view,
+  and the button shows how many are still standing.
+- **Single-file HTML export.** One self-contained `.html` per view: brand fonts
+  inlined, images already embedded, opens straight from disk or an email
+  attachment with nothing to reach back for. If a font can't be fetched the
+  export degrades to system fallbacks rather than failing.
+- **JSON Resume import and export.** The open jsonresume.org format joins
+  CVpartner, LinkedIn and Europass. Import detects the format positively (our
+  own files can never be misrouted), turns a skills group's keywords into a
+  skill category with members, and lands JSON Resume "references" — testimonial
+  quotes — as Recommendations, not as our consent-bearing References. Export is
+  per-view like every other format: exclusions, anonymization and the view's
+  skill-section choices all hold, so an anonymized view leaks no client name
+  through a skill list.
+
+### Quality
+
+- The whole wave went through a pre-release audit: a live click-through of
+  every new surface, the three-engine browser suite, axe accessibility checks
+  over the three new components (clean), and a mutation-testing pass over all
+  eight touched modules with targeted tests added for what it caught —
+  boundary conditions, disabled-item filters and orderings the first tests
+  asserted from only one side.
+
 ## 1.1.0 — 2026-08-22
 
 Multi-user accounts for hosted instances. A server used to authenticate a
