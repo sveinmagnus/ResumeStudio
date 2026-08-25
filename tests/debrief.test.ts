@@ -175,3 +175,104 @@ describe('debriefCandidates — the recently-finished nudge', () => {
     expect(debriefCandidates(s, NOW, { [key]: '2026-01-01T00:00:00Z' }).map((c) => c.id)).toEqual(['p'])
   })
 })
+
+// ─── Mutation-audit tripwires ────────────────────────────────────────────────
+// Each case kills a mutant the first Stryker pass reported surviving.
+
+describe('debrief — boundaries and filters (mutation audit)', () => {
+  it('a description of exactly 200 characters suppresses the summary question', () => {
+    const at = makeProject({ long_description: { en: 'x'.repeat(200) }, end: { year: 2026, month: 1 } })
+    const under = makeProject({ long_description: { en: 'x'.repeat(199) }, end: { year: 2026, month: 1 } })
+    expect(debriefQuestions(at, 'en').map((q) => q.id)).not.toContain('summary')
+    expect(debriefQuestions(under, 'en').map((q) => q.id)).toContain('summary')
+  })
+
+  it('a whitespace-only answer is no answer — the prompt reports none', () => {
+    const p = makeProject()
+    const qs = debriefQuestions(p, 'en')
+    expect(buildDebriefPrompt(p, 'en', qs, { outcome: '   ' })).toContain('(no answers)')
+  })
+
+  it('rejects null with the JSON-object message, not a crash', () => {
+    expect(() => validateDebrief(null)).toThrow('not a JSON object')
+  })
+
+  it('a created skill starts unstarred, unhighlighted and unrated', () => {
+    const s = emptyStore()
+    s.projects = [makeProject({ id: 'p1' })]
+    const next = applyDebrief(s, 'p1', {
+      highlights: [], linkSkillIds: [], newSkills: ['Go'], shortDescription: null,
+    }, 'en', NOW, () => 'g1')
+    const created = next.skills.find((sk) => sk.name.en === 'Go')!
+    expect(created.is_highlighted).toBe(false)
+    expect(created.proficiency).toBe(0)
+  })
+
+  it('new links continue the sort order after the existing ones', () => {
+    const s = emptyStore()
+    s.skills = [makeSkill({ id: 'sk1', name: { en: 'React' } })]
+    s.projects = [makeProject({
+      id: 'p1',
+      skills: [makeProjectSkill({ skill_id: 'existing', sort_order: 0 })],
+    })]
+    let n = 0
+    const next = applyDebrief(s, 'p1', {
+      highlights: [], linkSkillIds: ['sk1'], newSkills: ['Go'], shortDescription: null,
+    }, 'en', NOW, () => `g${n++}`)
+    expect(next.projects[0].skills.map((ps) => ps.sort_order)).toEqual([0, 1, 2])
+  })
+
+  it('an unknown linkSkillId is skipped silently, and only the right skill is linked', () => {
+    const s = emptyStore()
+    s.skills = [makeSkill({ id: 'sk1', name: { en: 'First' } }), makeSkill({ id: 'sk2', name: { en: 'Second' } })]
+    s.projects = [makeProject({ id: 'p1', skills: [] })]
+    const next = applyDebrief(s, 'p1', {
+      highlights: [], linkSkillIds: ['ghost', 'sk2'], newSkills: [], shortDescription: null,
+    }, 'en', NOW, () => 'g1')
+    expect(next.projects[0].skills.map((ps) => ps.skill_id)).toEqual(['sk2'])
+  })
+
+  it('applying to one project leaves every other project untouched', () => {
+    const s = emptyStore()
+    s.projects = [makeProject({ id: 'p1', highlights: [] }), makeProject({ id: 'p2', highlights: [] })]
+    const next = applyDebrief(s, 'p1', {
+      highlights: ['New'], linkSkillIds: [], newSkills: [], shortDescription: null,
+    }, 'en', NOW, () => 'g1')
+    expect(next.projects[1].highlights).toEqual([])
+    expect(next.projects[1].debriefed_at).toBeUndefined()
+  })
+
+  it('the nudge window is inclusive on both edges', () => {
+    const s = emptyStore()
+    s.projects = [
+      makeProject({ id: 'this-month', customer: { en: 'A' }, end: { year: 2026, month: 6 } }),
+      makeProject({ id: 'exactly-six', customer: { en: 'B' }, end: { year: 2025, month: 12 } }),
+      makeProject({ id: 'seven-ago', customer: { en: 'C' }, end: { year: 2025, month: 11 } }),
+    ]
+    expect(debriefCandidates(s, NOW).map((c) => c.id)).toEqual(['this-month', 'exactly-six'])
+  })
+
+  it('a debrief stamped INSIDE the end month counts as done', () => {
+    const s = emptyStore()
+    s.projects = [makeProject({
+      id: 'p', end: { year: 2026, month: 5 }, debriefed_at: '2026-05-20T00:00:00Z',
+    })]
+    expect(debriefCandidates(s, NOW)).toEqual([])
+  })
+
+  it('a dismissal expiring exactly NOW has lapsed — the nudge returns', () => {
+    const s = emptyStore()
+    s.projects = [makeProject({ id: 'p', end: { year: 2026, month: 5 } })]
+    const key = debriefCandidates(s, NOW)[0].dismissKey
+    expect(debriefCandidates(s, NOW, { [key]: NOW.toISOString() }).map((c) => c.id)).toEqual(['p'])
+  })
+
+  it('labels fall back customer → project name → "Untitled project"', () => {
+    const s = emptyStore()
+    s.projects = [
+      makeProject({ id: 'named', customer: {}, description: { en: 'The Platform' }, end: { year: 2026, month: 5 } }),
+      makeProject({ id: 'bare', customer: {}, description: {}, end: { year: 2026, month: 4 } }),
+    ]
+    expect(debriefCandidates(s, NOW).map((c) => c.label)).toEqual(['The Platform', 'Untitled project'])
+  })
+})

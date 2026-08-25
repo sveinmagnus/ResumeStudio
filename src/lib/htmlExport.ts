@@ -78,6 +78,17 @@ function fontFaceBlockRe(path: string): RegExp {
 }
 
 /**
+ * The only shape a font value may take to be inlined. `fontData` normally
+ * comes from collectFontAssets, whose values are constructed here and can only
+ * match — but this is an interpolation into a `<style>` block, so the value is
+ * validated AT THE BOUNDARY (the security skill's rule), not trusted by
+ * provenance. base64's charset has no quote, brace or angle bracket, so a
+ * conforming value cannot break out of `url('…')`. A non-conforming value is
+ * treated as missing: the block is removed, the value never emitted.
+ */
+const FONT_DATA_RE = /^data:font\/woff2;base64,[A-Za-z0-9+/=]+$/
+
+/**
  * buildViewHtml's document, made genuinely self-contained: fonts with data
  * inlined as data: URIs, fonts without data removed whole (a dead `src` still
  * fails from file://; the fallback stack renders instead), and the CSP's two
@@ -90,20 +101,29 @@ export function buildStandaloneViewHtml(
   globalFonts: GlobalFonts | undefined,
   fontData: Record<string, string>,
 ): string {
-  let html = buildViewHtml(store, view, locale, globalFonts)
+  const full = buildViewHtml(store, view, locale, globalFonts)
+
+  // Everything rewritten here — the @font-face blocks and the CSP meta — lives
+  // in the <head>, so the surgery is bounded to it. That keeps the block-
+  // removal regex away from user-authored body prose, which could otherwise
+  // contain text shaped like `@font-face { … /fonts/… }` and lose a span to it.
+  const headEnd = full.indexOf('</head>')
+  if (headEnd === -1) return full
+  let head = full.slice(0, headEnd)
+  const rest = full.slice(headEnd)
 
   for (const path of STANDALONE_FONT_FILES) {
     const dataUri = lookup(fontData, path, '')
-    if (dataUri) {
+    if (dataUri && FONT_DATA_RE.test(dataUri)) {
       // split/join: literal replacement with no regex or `$`-pattern hazards.
-      html = html.split(`url('${path}')`).join(`url('${dataUri}')`)
+      head = head.split(`url('${path}')`).join(`url('${dataUri}')`)
     } else {
-      html = html.replace(fontFaceBlockRe(path), '')
+      head = head.replace(fontFaceBlockRe(path), '')
     }
   }
 
-  // First occurrence only — the CSP meta precedes any user-authored content.
-  html = html.replace("font-src 'self'", 'font-src data:')
-  html = html.replace("img-src 'self' data:", 'img-src data:')
-  return html
+  // First occurrence only — the CSP meta precedes everything else in the head.
+  head = head.replace("font-src 'self'", 'font-src data:')
+  head = head.replace("img-src 'self' data:", 'img-src data:')
+  return head + rest
 }

@@ -306,3 +306,145 @@ describe('claimEvidenceReport — checked count and ordering', () => {
     expect(report(emptyStore())).toEqual({ findings: [], snoozed: [], checked: 0 })
   })
 })
+
+// ─── Mutation-audit tripwires ────────────────────────────────────────────────
+// Each case below kills a mutant the first Stryker pass reported surviving —
+// boundaries, filters and orderings the original suite asserted only from one
+// side.
+
+describe('claimEvidenceReport — boundaries and filters (mutation audit)', () => {
+  it('exactly a year of usage is NOT thin — the threshold is strict', () => {
+    const s = emptyStore()
+    s.skills = [makeSkill({ id: 's1', proficiency: 5 })]
+    // Jan..Dec inclusive = exactly 12 months.
+    s.projects = [makeProject({
+      start: { year: 2023, month: 1 }, end: { year: 2023, month: 12 },
+      skills: [makeProjectSkill({ skill_id: 's1' })],
+    })]
+    expect(report(s).findings).toEqual([])
+  })
+
+  it('a single month reads singular in the thin-evidence detail', () => {
+    const s = emptyStore()
+    s.skills = [makeSkill({ id: 's1', proficiency: 4 })]
+    s.projects = [makeProject({
+      start: { year: 2023, month: 3 }, end: { year: 2023, month: 3 },
+      skills: [makeProjectSkill({ skill_id: 's1' })],
+    })]
+    expect(report(s).findings[0].detail).toBe('Rated 4/5 — 1 month across 1 project.')
+  })
+
+  it('names a manual adjustment with its sign, both directions', () => {
+    const s = emptyStore()
+    s.skills = [
+      makeSkill({ id: 'neg', name: { en: 'Neg' }, proficiency: 5, experience_offset_years: -1.5 }),
+      makeSkill({ id: 'pos', name: { en: 'Pos' }, proficiency: 5, experience_offset_years: 0.5 }),
+    ]
+    const details = report(s).findings.map((f) => f.detail)
+    expect(details.find((d) => d.includes('-1y 6m'))).toContain('(a manual adjustment of -1y 6m is set)')
+    expect(details.find((d) => d.includes('of 6m'))).toContain('(a manual adjustment of 6m is set)')
+  })
+
+  it('a disabled project never inflates the project count past the thin threshold', () => {
+    const s = emptyStore()
+    s.skills = [makeSkill({ id: 's1', proficiency: 4 })]
+    s.projects = [
+      makeProject({
+        start: { year: 2023, month: 1 }, end: { year: 2023, month: 6 },
+        skills: [makeProjectSkill({ skill_id: 's1' })],
+      }),
+      makeProject({ disabled: true, skills: [makeProjectSkill({ skill_id: 's1' })] }),
+    ]
+    const r = report(s)
+    expect(r.findings.map((f) => [f.kind, f.severity])).toEqual([['proficiency', 'low']])
+    expect(r.findings[0].detail).toContain('across 1 project')
+  })
+
+  it('showcase evidence is ANY link on the project, not every link', () => {
+    const s = emptyStore()
+    s.skills = [
+      makeSkill({ id: 's1', proficiency: 0, is_highlighted: true }),
+      makeSkill({ id: 's2', proficiency: 0 }),
+    ]
+    // Undated, so no proficiency signal — and s1 shares the project with s2.
+    s.projects = [makeProject({
+      start: null, end: null,
+      skills: [makeProjectSkill({ skill_id: 's1' }), makeProjectSkill({ skill_id: 's2' })],
+    })]
+    expect(report(s).findings).toEqual([])
+  })
+
+  it('an unrelated project is not showcase evidence', () => {
+    const s = emptyStore()
+    s.skills = [makeSkill({ id: 's1', proficiency: 0, is_highlighted: true })]
+    s.projects = [makeProject({ skills: [makeProjectSkill({ skill_id: 'someone-else' })] })]
+    expect(report(s).findings.map((f) => f.kind)).toEqual(['showcase'])
+  })
+
+  it('a role claiming exactly the minimum years is checked, not exempt', () => {
+    const s = emptyStore()
+    s.roles = [makeRole({ id: 'r1', years_of_experience: 3 })]
+    expect(report(s).findings.map((f) => f.kind)).toEqual(['role_years'])
+  })
+
+  it('a four-letter title word is a searchable token — the length floor is inclusive', () => {
+    const s = emptyStore()
+    s.key_competencies = [makeKeyCompetency({ id: 'c1', title: { en: 'Grid' } })]
+    s.key_qualifications = [makeKQ({ competency_ids: ['c1'] })]
+    expect(report(s).findings.map((f) => f.kind)).toEqual(['competency'])
+  })
+
+  it('a stopword-only title is skipped, never flagged — but still counted as checked', () => {
+    const s = emptyStore()
+    s.key_competencies = [makeKeyCompetency({ id: 'c1', title: { en: 'With Over That From' } })]
+    s.key_qualifications = [makeKQ({ competency_ids: ['c1'] })]
+    const r = report(s)
+    expect(r.findings).toEqual([])
+    expect(r.checked).toBe(1)
+  })
+
+  it('an EMPLOYMENT mention silences a competency; a DISABLED item mention does not', () => {
+    const base = () => {
+      const s = emptyStore()
+      s.key_competencies = [makeKeyCompetency({ id: 'c1', title: { en: 'Kubernetes drift' } })]
+      s.key_qualifications = [makeKQ({ competency_ids: ['c1'] })]
+      return s
+    }
+    const silenced = base()
+    silenced.work_experiences = [makeWork({ long_description: { en: '<p>Tamed Kubernetes drift daily.</p>' } })]
+    expect(report(silenced).findings).toEqual([])
+
+    // The same prose on DISABLED items never ships, so it is not evidence.
+    const stillFlagged = base()
+    stillFlagged.work_experiences = [makeWork({ disabled: true, long_description: { en: 'Kubernetes drift work.' } })]
+    stillFlagged.positions = [makePosition({ disabled: true, description: { en: 'Kubernetes drift work.' } })]
+    expect(report(stillFlagged).findings.map((f) => f.kind)).toEqual(['competency'])
+  })
+
+  it('orders low findings by section, then label — and snoozed rows by label', () => {
+    const s = emptyStore()
+    s.skills = [
+      makeSkill({ id: 'sb', name: { en: 'Beta' }, proficiency: 0, is_highlighted: true }),
+      makeSkill({ id: 'sa', name: { en: 'Alpha' }, proficiency: 0, is_highlighted: true }),
+    ]
+    s.roles = [makeRole({ id: 'r1', name: { en: 'Architect' }, years_of_experience: 5 })]
+    const r = report(s)
+    expect(r.findings.map((f) => [f.section, f.itemLabel])).toEqual([
+      ['roles', 'Architect'], ['skills', 'Alpha'], ['skills', 'Beta'],
+    ])
+
+    const snoozed = report(s, {
+      [claimDismissKey('showcase', 'sb')]: '2027-01-01T00:00:00Z',
+      [claimDismissKey('showcase', 'sa')]: '2027-01-01T00:00:00Z',
+    })
+    expect(snoozed.snoozed.map((x) => x.label)).toEqual(['Alpha', 'Beta'])
+  })
+
+  it('a dismissal expiring exactly NOW has lapsed — the finding surfaces', () => {
+    const s = emptyStore()
+    s.skills = [makeSkill({ id: 's1', proficiency: 5 })]
+    const r = report(s, { [claimDismissKey('proficiency', 's1')]: NOW.toISOString() })
+    expect(r.findings).toHaveLength(1)
+    expect(r.snoozed).toEqual([])
+  })
+})

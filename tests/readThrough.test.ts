@@ -59,4 +59,24 @@ describe('flag list operations', () => {
     expect(findFlag(flags, 'views', null)?.id).toBe('b')
     expect(findFlag(flags, 'projects', 'p2')).toBeUndefined()
   })
+
+  // Mutation-audit tripwires: the operations were only ever tested on
+  // one-element lists, so "touch the right one, leave the rest" went unpinned.
+  it('remove and note-edit touch ONLY the named flag', () => {
+    let flags = [make({ id: 'a', label: 'A' }), make({ id: 'b', label: 'B', note: 'keep me' })]
+    flags = updateFlagNote(flags, 'a', 'edited')
+    expect(flags.map((f) => f.note)).toEqual(['edited', 'keep me'])
+    flags = removeFlag(flags, 'a')
+    expect(flags.map((f) => f.id)).toEqual(['b'])
+  })
+
+  it('loadFlags drops a null element and rows missing any required field, keeps the valid one', () => {
+    localStorage.setItem('resumestudio.readflags.r1.v1', JSON.stringify([
+      null,
+      { id: 'no-section', note: '' },
+      { id: 'no-note', section: 'projects' },
+      { id: 'ok', section: 'projects', itemId: 'p1', label: 'Acme', note: '', created_at: 'x' },
+    ]))
+    expect(loadFlags('r1', 'v1').map((f) => f.id)).toEqual(['ok'])
+  })
 })

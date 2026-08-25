@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   isJsonResumeFormat, parseJsonResumeDate, importFromJsonResume,
 } from '../src/lib/importerJsonResume'
+import { emptyStore as emptyStoreFixture } from './fixtures'
 
 /**
  * Import once, but not until a test asks for it — a shared fixture built in the
@@ -538,5 +539,53 @@ describe('importFromJsonResume — totality and defaults', () => {
     const store = importFromJsonResume({ basics: { name: '  Jane Doe  ', email: ' j@x.io ' } })
     expect(store.resume?.full_name).toBe('Jane Doe')
     expect(store.resume?.email).toBe('j@x.io')
+  })
+})
+
+// ─── Mutation-audit tripwires ────────────────────────────────────────────────
+// Each case kills a mutant the first Stryker pass reported surviving.
+
+describe('importFromJsonResume — boundaries and filters (mutation audit)', () => {
+  it('a bare ResumeStore with a basics stowaway is still ours, never JSON Resume', () => {
+    // No resumestudio $schema to catch it early — only the looksLikeResumeStore
+    // guard stands between this file and the wrong importer.
+    const disguised = { ...emptyStoreFixture(), basics: { name: 'Stowaway' } }
+    expect(isJsonResumeFormat(disguised)).toBe(false)
+  })
+
+  it('keeps the year and drops an out-of-range or zero month', () => {
+    expect(parseJsonResumeDate('2020-13')).toEqual({ year: 2020, month: null })
+    expect(parseJsonResumeDate('2020-00')).toEqual({ year: 2020, month: null })
+  })
+
+  it('imports everything enabled, unstarred and unhighlighted', () => {
+    const store = importFromJsonResume({
+      basics: { name: 'X', summary: 'A summary.' },
+      skills: [{ name: 'React' }],
+      projects: [{ name: 'P', roles: ['Lead'] }],
+    })
+    const kq = store.key_qualifications[0]
+    expect([kq.starred, kq.disabled]).toEqual([false, false])
+    expect(store.skills[0].is_highlighted).toBe(false)
+    const role = store.roles[0]
+    expect([role.starred, role.disabled]).toEqual([false, false])
+  })
+
+  it('a keyword group with NO name still interns its skills, uncategorized', () => {
+    const store = importFromJsonResume({ basics: { name: 'X' }, skills: [{ keywords: ['React'] }] })
+    expect(store.skills.map((s) => s.name.en)).toEqual(['React'])
+    expect(store.skills[0].category_id).toBeNull()
+    expect(store.skill_categories ?? []).toEqual([])
+  })
+
+  it('duplicate role and keyword names inside one project produce one link each', () => {
+    const store = importFromJsonResume({
+      basics: { name: 'X' },
+      projects: [{ name: 'P', roles: ['Tech Lead', 'Tech Lead'], keywords: ['React', 'react.js'] }],
+    })
+    expect(store.projects[0].roles).toHaveLength(1)
+    expect(store.projects[0].skills).toHaveLength(1)
+    expect(store.roles).toHaveLength(1)
+    expect(store.skills).toHaveLength(1)
   })
 })

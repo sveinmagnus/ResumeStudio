@@ -273,3 +273,96 @@ describe('redundancyReport — the scanned pool', () => {
     expect(report(emptyStore())).toEqual({ findings: [], snoozed: [], comparedFields: 0 })
   })
 })
+
+// ─── Mutation-audit tripwires ────────────────────────────────────────────────
+// Each case kills a mutant the first Stryker pass reported surviving.
+
+describe('redundancyReport — boundaries and filters (mutation audit)', () => {
+  it('disabled profiles, competencies, employments and positions are never scanned', () => {
+    const s = emptyStore()
+    s.projects = [makeProject({ id: 'p1', long_description: { en: SHARED } })]
+    s.work_experiences = [makeWork({ disabled: true, long_description: { en: SHARED } })]
+    s.positions = [makePosition({ disabled: true, description: { en: SHARED } })]
+    s.key_competencies = [makeKeyCompetency({ disabled: true, description: { en: SHARED } })]
+    s.key_qualifications = [makeKQ({ disabled: true, summary: { en: SHARED } })]
+    const r = report(s)
+    expect(r.findings).toEqual([])
+    expect(r.comparedFields).toBe(1)
+  })
+
+  it('falls back to "Profile" / "Untitled role" labels when names are empty', () => {
+    const s = emptyStore()
+    s.key_qualifications = [makeKQ({ id: 'k1', label: {}, summary: { en: SHARED } })]
+    s.positions = [makePosition({ id: 'pos1', name: {}, description: { en: SHARED } })]
+    const labels = report(s).findings[0]
+    expect([labels.a.itemLabel, labels.b.itemLabel].sort()).toEqual(['Profile', 'Untitled role'])
+  })
+
+  it('a sentence of exactly eight tokens is indexed — the floor is inclusive', () => {
+    const eight = 'Built the platform for the retail customer group.'
+    const s = emptyStore()
+    s.projects = [makeProject({ id: 'p1', long_description: { en: eight } })]
+    s.work_experiences = [makeWork({ id: 'w1', long_description: { en: eight } })]
+    expect(report(s).findings.map((f) => f.kind)).toEqual(['sentence'])
+  })
+
+  it('matches across casing and punctuation, and quotes the LONGER original', () => {
+    const short = 'Delivered the new platform for the retail customer group.'
+    const long = '"DELIVERED — the NEW platform, for the retail customer group!!!"'
+    const s = emptyStore()
+    s.projects = [makeProject({ id: 'p1', long_description: { en: short } })]
+    s.work_experiences = [makeWork({ id: 'w1', long_description: { en: long } })]
+    const r = report(s)
+    expect(r.findings).toHaveLength(1)
+    expect(r.findings[0].detail).toBe(long)
+  })
+
+  it('a near-match at exactly the 0.8 Jaccard threshold fires', () => {
+    // 9 tokens each, 8 shared → intersection 8 / union 10 = 0.8 exactly.
+    const a = 'Alpha bravo charlie delta echo foxtrot golf hotel india.'
+    const b = 'Alpha bravo charlie delta echo foxtrot golf hotel juliet.'
+    const s = emptyStore()
+    s.projects = [makeProject({ id: 'p1', long_description: { en: a } })]
+    s.work_experiences = [makeWork({ id: 'w1', long_description: { en: b } })]
+    expect(report(s).findings.map((f) => f.kind)).toEqual(['sentence'])
+  })
+
+  it('sentences that normalize to nothing are ignored, not crashed on', () => {
+    const s = emptyStore()
+    s.projects = [makeProject({ id: 'p1', long_description: { en: '!!! ??? ***.' } })]
+    s.work_experiences = [makeWork({ id: 'w1', long_description: { en: '!!! ??? ***.' } })]
+    expect(report(s).findings).toEqual([])
+  })
+
+  it('a field of exactly 25 tokens qualifies for the whole-field pass', () => {
+    // Five 5-token sentences: every sentence is below the 8-token floor, so
+    // only the field pass can see the copy — at exactly the 25-token minimum.
+    const text = Array.from({ length: 5 }, () => 'Rapid delivery of tested software.').join(' ')
+    const s = emptyStore()
+    s.projects = [makeProject({ id: 'p1', long_description: { en: text } })]
+    s.work_experiences = [makeWork({ id: 'w1', long_description: { en: text } })]
+    expect(report(s).findings.map((f) => f.kind)).toEqual(['field'])
+  })
+
+  it('quotes a 120-character sentence whole and clips a longer one with an ellipsis', () => {
+    const make = (len: number): string => {
+      const head = 'alpha bravo charlie delta echo foxtrot golf '
+      return head + 'x'.repeat(len - head.length - 1) + '.'
+    }
+    const s120 = make(120)
+    const s121 = make(121)
+    expect(s120).toHaveLength(120)
+
+    const at = emptyStore()
+    at.projects = [makeProject({ id: 'p1', long_description: { en: s120 } })]
+    at.work_experiences = [makeWork({ id: 'w1', long_description: { en: s120 } })]
+    expect(report(at).findings[0].detail).toBe(s120)
+
+    const over = emptyStore()
+    over.projects = [makeProject({ id: 'p1', long_description: { en: s121 } })]
+    over.work_experiences = [makeWork({ id: 'w1', long_description: { en: s121 } })]
+    const clipped = report(over).findings[0].detail
+    expect(clipped.endsWith('…')).toBe(true)
+    expect(clipped).toHaveLength(120)
+  })
+})
