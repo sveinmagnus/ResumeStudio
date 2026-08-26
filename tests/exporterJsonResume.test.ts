@@ -54,11 +54,15 @@ describe('buildJsonResume — envelope and basics', () => {
     ])
   })
 
-  it('emits a twitter URL as url, a bare handle as username', () => {
+  it('names the network from the URL: X for x.com, the detected platform elsewhere', () => {
     const withTwitter = (twitter: string) => basicsOf(buildJsonResume(
       seeded({ resume: makeResume({ twitter }) }), makeView(), 'en',
     )).profiles as Json[]
-    expect(withTwitter('https://x.com/tp')[0]).toEqual({ network: 'Twitter', url: 'https://x.com/tp' })
+    // The slot is the generic "other social" field now; the detector names it.
+    expect(withTwitter('https://x.com/tp')[0]).toEqual({ network: 'X', url: 'https://x.com/tp' })
+    expect(withTwitter('https://mastodon.social/@tp')[0])
+      .toEqual({ network: 'Mastodon', url: 'https://mastodon.social/@tp' })
+    // A bare handle has no other referent — the historical Twitter reading stays.
     expect(withTwitter('tp')[0]).toEqual({ network: 'Twitter', username: 'tp' })
   })
 
@@ -461,10 +465,10 @@ describe('buildJsonResume — boundaries and filters (mutation audit)', () => {
     ])
   })
 
-  it('a plain-http twitter link is still a URL, not a username', () => {
+  it('a plain-http link is still a URL, not a username', () => {
     const store = seeded({ resume: makeResume({ twitter: 'http://x.com/tp' }) })
     expect((basicsOf(buildJsonResume(store, makeView(), 'en')).profiles as Json[])[0])
-      .toEqual({ network: 'Twitter', url: 'http://x.com/tp' })
+      .toEqual({ network: 'X', url: 'http://x.com/tp' })
   })
 
   it('omits basics entirely when the resume carries nothing', () => {

@@ -4,6 +4,7 @@ import { useStore } from '../../store/useStore'
 import { DualField } from '../ui/DualField'
 import { TextField } from '../ui/Fields'
 import { ImageField } from '../ui/ImageField'
+import { socialSiteName } from '../../lib/socialSite'
 
 /**
  * Personal Details — the resume root's identity fields only
@@ -54,7 +55,12 @@ export function HeaderEditor() {
           <TextField label="Personal website" value={r.personal_website_url || ''} onChange={(v) => updateResume({ personal_website_url: v || null })} />
           <TextField label="LinkedIn URL" value={r.linkedin_url || ''} onChange={(v) => updateResume({ linkedin_url: v })} />
           {/* Stored in the historical `twitter` slot — see the Resume type. */}
-          <TextField label="Other social media URL" value={r.twitter || ''} onChange={(v) => updateResume({ twitter: v })} placeholder="Mastodon, Bluesky, GitHub, X…" />
+          <div>
+            <TextField label="Other social media URL" value={r.twitter || ''} onChange={(v) => updateResume({ twitter: v })} placeholder="Mastodon, Bluesky, GitHub, X…" />
+            {socialSiteName(r.twitter ?? '') && (
+              <p className="he-social-hint">Shown in exports as: <strong>{socialSiteName(r.twitter ?? '')}</strong></p>
+            )}
+          </div>
         </div>
       </div>
 
@@ -104,6 +110,7 @@ export function HeaderEditor() {
       <style>{`
         .he-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
         .eb-desc { font-size: 13px; color: var(--ink-soft); line-height: 1.55; margin-bottom: 14px; }
+        .he-social-hint { font-size: 12px; color: var(--ink-faint); margin-top: 4px; }
       `}</style>
     </div>
   )

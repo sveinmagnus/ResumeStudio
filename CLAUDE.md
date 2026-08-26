@@ -364,7 +364,9 @@ src/
 │   │     regression-tested; round-trips importerJsonResume),
 │   │   coverLetter (letter prompt + resolveLetterParts + text export; PDF/DOCX letter builders ride the lazy exporter/pdfmake chunks),
 │   │   viewStyle (tokens + dividerSpec/tagChipHex — one description per visual
-│   │     effect) + viewHeader (render-boundary sanitisers), richText (allowlist;
+│   │     effect) + viewHeader (render-boundary sanitisers) + socialSite (the
+│   │     platform a URL names — curated map + hostname fallback; feeds the
+│   │     social header label and JSON Resume's network), richText (allowlist;
 │   │   SECURITY-CRITICAL), image (canvas downscale; rejects SVG), sectionSort,
 │   │   viewItemSelect (editor type Filter + view item selection), pageFit,
 │   │   exportFilename, fonts (catalog + pdfFont mapping) + appPrefs (app-wide
