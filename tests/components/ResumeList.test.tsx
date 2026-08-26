@@ -189,7 +189,7 @@ describe('<ResumeList>', () => {
       render(<ResumeList onUnauthorized={() => {}} />)
 
       const link = await screen.findByRole('link', { name: /Ada Lovelace/ })
-      expect(link).toHaveAttribute('href', '/r/testexample')
+      expect(link).toHaveAttribute('href', '/r/test-example')
     })
 
     it('links a cached row with no email by its id', async () => {

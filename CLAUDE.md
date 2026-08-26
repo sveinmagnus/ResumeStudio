@@ -118,9 +118,11 @@ time, because `setActiveSection` clears `expandedItemId` before navigation
 runs. Restore uses `openItem` (not the toggling `setExpandedItem`).
 
 **A resume's URL is a readable address, not its UUID** (`lib/resumeSlug.ts`):
-derived from the header email — local + domain-without-TLD, symbols stripped
-(`sveins@gmail.com` → `/r/sveinsgmail`), the full-domain form when the short
-one collides, the UUID when there is no usable email or even that collides.
+derived from the header email — `name-domain`, a DASH between the parts,
+symbols stripped within each, TLD dropped (`sveins@gmail.com` →
+`/r/sveins-gmail`), the TLD as a third dash-joined part when the short form
+collides (`/r/sveins-gmail-com`), the UUID when there is no usable email or
+even that collides.
 DERIVED, never stored — no second field to drift. `EditorResolver` (App.tsx)
 turns the segment back into the id against the resume list (the local cache
 offline); the UUID stays a working address forever, it just rewrites in place

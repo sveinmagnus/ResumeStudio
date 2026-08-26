@@ -2,26 +2,27 @@ import { describe, it, expect } from 'vitest'
 import { emailSlug, isSlugSegment, preferredSegment, resolveSegment } from '../src/lib/resumeSlug'
 
 describe('emailSlug', () => {
-  it('drops the TLD and every symbol: the compact readable form', () => {
-    expect(emailSlug('sveins@gmail.com', false)).toBe('sveinsgmail')
-    expect(emailSlug('sveins@gmail.com', true)).toBe('sveinsgmailcom')
+  it('reads name-domain with a DASH between them, TLD dropped', () => {
+    expect(emailSlug('sveins@gmail.com', false)).toBe('sveins-gmail')
+    // The collision escape appends the TLD as a third dash-joined part.
+    expect(emailSlug('sveins@gmail.com', true)).toBe('sveins-gmail-com')
   })
 
-  it('lowercases and strips symbols in the local part', () => {
-    expect(emailSlug('Svein.Magnus+cv@Example.COM', false)).toBe('sveinmagnuscvexample')
-    expect(emailSlug('a_b-c@x.no', false)).toBe('abcx')
+  it('lowercases and strips symbols WITHIN each part', () => {
+    expect(emailSlug('Svein.Magnus+cv@Example.COM', false)).toBe('sveinmagnuscv-example')
+    expect(emailSlug('a_b-c@x.no', false)).toBe('abc-x')
   })
 
-  it('a multi-label domain keeps everything but the final label', () => {
+  it('a multi-label domain keeps everything but the final label, compacted', () => {
     // "without TLD" is a mechanical rule — drop the last label — so co.uk
     // keeps its second-level label rather than losing the whole country form.
-    expect(emailSlug('kim@mail.co.uk', false)).toBe('kimmailco')
-    expect(emailSlug('kim@mail.co.uk', true)).toBe('kimmailcouk')
+    expect(emailSlug('kim@mail.co.uk', false)).toBe('kim-mailco')
+    expect(emailSlug('kim@mail.co.uk', true)).toBe('kim-mailco-uk')
   })
 
   it('a single-label domain keeps its one label (dropping it would erase the domain)', () => {
-    expect(emailSlug('me@localhost', false)).toBe('melocalhost')
-    expect(emailSlug('me@localhost', true)).toBe('melocalhost')
+    expect(emailSlug('me@localhost', false)).toBe('me-localhost')
+    expect(emailSlug('me@localhost', true)).toBe('me-localhost')
   })
 
   it('answers null for anything that cannot yield an address', () => {
@@ -34,17 +35,25 @@ describe('emailSlug', () => {
   })
 
   it('survives non-ASCII by stripping, when something remains', () => {
-    expect(emailSlug('sørensen@blåbær.no', false)).toBe('srensenblbr')
+    expect(emailSlug('sørensen@blåbær.no', false)).toBe('srensen-blbr')
   })
 })
 
 describe('isSlugSegment', () => {
-  it('accepts only lowercase alphanumerics — a UUID (hyphens) never qualifies', () => {
-    expect(isSlugSegment('sveinsgmail')).toBe(true)
+  it('accepts dash-joined lowercase alphanumeric runs', () => {
+    expect(isSlugSegment('sveins-gmail')).toBe(true)
+    expect(isSlugSegment('sveins-gmail-com')).toBe(true)
     expect(isSlugSegment('a1b2')).toBe(true)
-    expect(isSlugSegment('6f3a1c2e-0000-4000-8000-000000000000')).toBe(false)
-    expect(isSlugSegment('Sveins')).toBe(false)
+    expect(isSlugSegment('Sveins-Gmail')).toBe(false)
+    expect(isSlugSegment('-leading')).toBe(false)
+    expect(isSlugSegment('trailing-')).toBe(false)
+    expect(isSlugSegment('double--dash')).toBe(false)
     expect(isSlugSegment('')).toBe(false)
+  })
+
+  it('never reads a UUID as a slug — ids skip the list round-trip', () => {
+    expect(isSlugSegment('6f3a1c2e-0000-4000-8000-000000000000')).toBe(false)
+    expect(isSlugSegment('0F612F0B-93A1-4FF7-8ED0-D747652C48C7'.toLowerCase())).toBe(false)
   })
 })
 
@@ -53,14 +62,14 @@ const B = { id: 'id-b', email: 'bob@corp.no' }
 
 describe('preferredSegment', () => {
   it('prefers the short slug when nobody else answers to it', () => {
-    expect(preferredSegment([A, B], 'id-a')).toBe('annagmail')
+    expect(preferredSegment([A, B], 'id-a')).toBe('anna-gmail')
   })
 
-  it('falls back to the full-domain slug on a short collision', () => {
+  it('falls back to the TLD-suffixed slug on a short collision', () => {
     const anna2 = { id: 'id-c', email: 'anna@gmail.no' }
-    // Both shorten to annagmail; the TLD is what still tells them apart.
-    expect(preferredSegment([A, anna2], 'id-a')).toBe('annagmailcom')
-    expect(preferredSegment([A, anna2], 'id-c')).toBe('annagmailno')
+    // Both shorten to anna-gmail; the TLD is what still tells them apart.
+    expect(preferredSegment([A, anna2], 'id-a')).toBe('anna-gmail-com')
+    expect(preferredSegment([A, anna2], 'id-c')).toBe('anna-gmail-no')
   })
 
   it('falls back to the id when even the full slug collides (same email twice)', () => {
@@ -69,12 +78,12 @@ describe('preferredSegment', () => {
     expect(preferredSegment([A, dup], 'id-d')).toBe('id-d')
   })
 
-  it('collides across FORMS too — my short equal to another full is ambiguity', () => {
-    // X's short slug spells exactly Y's full slug; resolution matches both
-    // forms, so X must step past it.
-    const x = { id: 'id-x', email: 'ka@ri.no.x' } // short: karino
-    const y = { id: 'id-y', email: 'kari@no.se' } // full: karinose — short: karino
-    expect(preferredSegment([x, y], 'id-x')).toBe('karinox')
+  it('collides across FORMS too — my short equal to another’s only form is ambiguity', () => {
+    // Y's single-label domain gives it one spelling; X's short form spells the
+    // same. Resolution matches both forms, so X must step past it to its TLD.
+    const x = { id: 'id-x', email: 'kari@nose.de' } // short: kari-nose
+    const y = { id: 'id-y', email: 'kari@nose' }    // only form: kari-nose
+    expect(preferredSegment([x, y], 'id-x')).toBe('kari-nose-de')
   })
 
   it('keeps the id when there is no usable email', () => {
@@ -90,23 +99,23 @@ describe('resolveSegment', () => {
   })
 
   it('matches either spelling of the address', () => {
-    expect(resolveSegment([A, B], 'annagmail')).toBe('id-a')
-    expect(resolveSegment([A, B], 'annagmailcom')).toBe('id-a')
-    expect(resolveSegment([A, B], 'bobcorp')).toBe('id-b')
+    expect(resolveSegment([A, B], 'anna-gmail')).toBe('id-a')
+    expect(resolveSegment([A, B], 'anna-gmail-com')).toBe('id-a')
+    expect(resolveSegment([A, B], 'bob-corp')).toBe('id-b')
   })
 
   it('an ambiguous segment resolves to NOTHING, never to a guess', () => {
     // A collision that appeared after a link was shared: opening the wrong
     // person's CV is worse than a bounce to the picker.
     const anna2 = { id: 'id-c', email: 'anna@gmail.no' }
-    expect(resolveSegment([A, anna2], 'annagmail')).toBeNull()
+    expect(resolveSegment([A, anna2], 'anna-gmail')).toBeNull()
     // The disambiguated forms still work.
-    expect(resolveSegment([A, anna2], 'annagmailcom')).toBe('id-a')
-    expect(resolveSegment([A, anna2], 'annagmailno')).toBe('id-c')
+    expect(resolveSegment([A, anna2], 'anna-gmail-com')).toBe('id-a')
+    expect(resolveSegment([A, anna2], 'anna-gmail-no')).toBe('id-c')
   })
 
   it('an unknown segment resolves to nothing', () => {
-    expect(resolveSegment([A, B], 'nobodyhere')).toBeNull()
-    expect(resolveSegment([], 'annagmail')).toBeNull()
+    expect(resolveSegment([A, B], 'nobody-here')).toBeNull()
+    expect(resolveSegment([], 'anna-gmail')).toBeNull()
   })
 })

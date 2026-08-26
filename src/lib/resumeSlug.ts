@@ -5,11 +5,13 @@
  * The address is DERIVED from the person's email, never stored: an email
  * rarely changes, so the address is stable, and there is no second field that
  * can drift out of sync with the first. Two spellings exist per email —
- * `local + domain-without-TLD` (`sveins@gmail.com` → `sveinsgmail`), and the
- * full-domain form (`sveinsgmailcom`) as the collision escape when two people
- * in the org share the short one. Both are compact and symbol-free: lowercase
- * `a–z0–9` only, so a slug can never be mistaken for a UUID (those always
- * carry hyphens) and never needs URL-encoding.
+ * `name-domain` with the TLD dropped (`sveins@gmail.com` → `sveins-gmail`),
+ * and `name-domain-tld` as the collision escape when two people in the org
+ * share the short one. A DASH separates the parts (that's the spec: the name
+ * and the company must read apart); symbols are stripped WITHIN each part, so
+ * every slug is lowercase `a–z0–9` in one-to-three dash-joined runs, needing
+ * no URL-encoding. A UUID is excluded from the slug shape by an explicit
+ * check (`isSlugSegment`), not by charset — both spellings carry dashes now.
  *
  * The UUID keeps working as an address forever — a slug is an ALIAS the URL
  * bar prefers, not a replacement key. Resolution is deliberately strict: a
@@ -26,27 +28,39 @@ export interface SlugCandidate {
 
 /**
  * The slug for one email, or null when the email cannot yield one (no `@`,
- * or nothing alphanumeric survives on either side). `withTld: false` drops the
- * domain's final label (`gmail.com` → `gmail`); a single-label domain keeps
- * its one label, since dropping it would erase the domain entirely.
+ * or nothing alphanumeric survives on either side). The name and the domain
+ * are dash-separated — `name-domain` — with the domain's final label dropped
+ * (`gmail.com` → `gmail`); `withTld: true` appends that label as a third
+ * dash-joined part (`name-domain-tld`). A single-label domain keeps its one
+ * label in both forms, since dropping it would erase the domain entirely.
  */
 export function emailSlug(email: string, withTld: boolean): string | null {
-  const at = email.trim().toLowerCase().lastIndexOf('@')
-  if (at <= 0) return null
   const raw = email.trim().toLowerCase()
+  const at = raw.lastIndexOf('@')
+  if (at <= 0) return null
   const local = raw.slice(0, at).replace(/[^a-z0-9]/g, '')
   const labels = raw.slice(at + 1).split('.')
     .map((l) => l.replace(/[^a-z0-9]/g, ''))
     .filter(Boolean)
   if (!local || !labels.length) return null
-  const domain = (withTld || labels.length === 1 ? labels : labels.slice(0, -1)).join('')
-  if (!domain) return null
-  return local + domain
+  if (labels.length === 1) return `${local}-${labels[0]}`
+  const domain = labels.slice(0, -1).join('')
+  const tld = labels[labels.length - 1]
+  return withTld ? `${local}-${domain}-${tld}` : `${local}-${domain}`
 }
 
-/** Could this URL segment be a slug at all? (A UUID never can — it has hyphens.) */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * Could this URL segment be a slug at all? Dash-joined lowercase alphanumeric
+ * runs — but never a UUID, which the resolver must treat as an id directly
+ * (no list round-trip). Excluded by shape, not charset: an email would have to
+ * hash out to exactly 8-4-4-4-12 hex runs to collide, which is not a case
+ * worth designing for beyond this check — resolution tries exact ids first
+ * anyway, so even that contrivance could not open the wrong resume.
+ */
 export function isSlugSegment(segment: string): boolean {
-  return /^[a-z0-9]+$/.test(segment)
+  return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(segment) && !UUID_RE.test(segment)
 }
 
 /** Both spellings of a candidate's address, shortest first. Empty without an email. */
