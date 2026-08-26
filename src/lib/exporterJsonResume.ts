@@ -27,6 +27,7 @@ import { sortItems } from './sectionSort'
 import { showcaseGroups } from './showcase'
 import { skillMatrixRows } from './skillMatrix'
 import { skillKey } from './skillExtract'
+import { socialSiteName } from './socialSite'
 
 export const JSON_RESUME_SCHEMA =
   'https://raw.githubusercontent.com/jsonresume/resume-schema/v1.0.0/schema.json'
@@ -104,11 +105,12 @@ export function buildJsonResume(
     if (r.linkedin_url) profiles.push({ network: 'LinkedIn', url: r.linkedin_url })
     if (r.twitter) {
       // The slot holds ANY social profile now (the editor's "Other social
-      // media URL"); only a value that actually points at Twitter/X — or a
-      // bare @handle, which has no other referent — keeps the Twitter network.
+      // media URL"): a URL's network is the detected platform name
+      // (lib/socialSite — the same detector the header label uses), while a
+      // bare @handle, which has no other referent, keeps the historical
+      // Twitter reading.
       const isUrl = /^https?:/i.test(r.twitter)
-      const network = !isUrl || /\/\/(www\.)?(twitter\.com|x\.com)\//i.test(r.twitter)
-        ? 'Twitter' : 'Social'
+      const network = isUrl ? socialSiteName(r.twitter) ?? 'Social' : 'Twitter'
       profiles.push({ network, ...(isUrl ? { url: r.twitter } : { username: r.twitter }) })
     }
     const basics = compact({

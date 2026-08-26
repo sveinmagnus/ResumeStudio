@@ -789,6 +789,39 @@ describe('per-view contact overrides (email/phone)', () => {
   })
 })
 
+describe('the social slot names its platform', () => {
+  const socialOnly = (label?: Record<string, string>): ViewHeaderConfig => ({
+    ...withHeaderDefaults({}),
+    fields: withHeaderDefaults({}).fields.map((f) =>
+      f.key === 'twitter'
+        ? { ...f, show: true, ...(label ? { label } : {}) }
+        : { ...f, show: false }),
+  })
+  const lines = (header: ViewHeaderConfig, twitter: string, locale = 'en') =>
+    buildHeaderLines(header, makeResume({ twitter }), emptyStore(), locale)
+
+  it('a detected platform replaces the generic default label, in any locale', () => {
+    expect(lines(socialOnly(), 'https://instagram.com/me')[0][0].label).toBe('Instagram: ')
+    expect(lines(socialOnly(), 'https://x.com/me', 'no')[0][0].label).toBe('X: ')
+    expect(lines(socialOnly(), 'https://fosstodon.org/@me', 'de')[0][0].label).toBe('Fosstodon: ')
+  })
+
+  it('a bare handle names no site — the localized generic label stays', () => {
+    expect(lines(socialOnly(), '@handle')[0][0].label).toBe('Social media: ')
+    expect(lines(socialOnly(), '@handle', 'no')[0][0].label).toBe('Sosiale medier: ')
+  })
+
+  it('a view saved with the LEGACY baked "Twitter: " label also gets the detected name', () => {
+    const legacy = socialOnly({ en: 'Twitter: ', no: 'Twitter: ' })
+    expect(lines(legacy, 'https://bsky.app/profile/me')[0][0].label).toBe('Bluesky: ')
+  })
+
+  it('a label the user actually customised always wins over detection', () => {
+    const custom = socialOnly({ en: 'Find me: ' })
+    expect(lines(custom, 'https://instagram.com/me')[0][0].label).toBe('Find me: ')
+  })
+})
+
 describe('safeTextStyle — a size that is not a number', () => {
   it('drops a non-numeric size rather than writing it into the CSS', () => {
     // The value lands in a style attribute at the render boundary; a string
