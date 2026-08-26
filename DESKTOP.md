@@ -30,7 +30,7 @@ release/
   ResumeStudio-Windows.vbs       ← Windows launcher, no console window (the
                                    one to pin / make shortcuts to)
   Resume Studio (no window).vbs  ← same shim under its legacy name — kept so
-                                   updates FROM builds ≤1.2.0 can relaunch
+                                   updates FROM builds ≤1.2.1 can relaunch
                                    (their swap scripts bake this filename)
   ResumeStudio.ico               ← the brand mark for shortcuts (a .vbs cannot
                                    embed an icon; a shortcut can)

@@ -452,7 +452,7 @@ export function buildSwapScript(input: SwapScriptInput): SwapScript {
       // app's whole lifetime after a tray-initiated update. The shim ships in
       // every release (build-desktop.mjs), so it exists right after the copy
       // above. The chain tries the current name, then the legacy one (builds
-      // ≤1.2.0 shipped only that), then the .cmd as belt-and-braces.
+      // ≤1.2.1 shipped only that), then the .cmd as belt-and-braces.
       `$vbs = Join-Path $dst 'ResumeStudio-Windows.vbs'`,
       `if (-not (Test-Path -LiteralPath $vbs)) { $vbs = Join-Path $dst 'Resume Studio (no window).vbs' }`,
       `if (Test-Path -LiteralPath $vbs) {`,

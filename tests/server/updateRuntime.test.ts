@@ -64,7 +64,7 @@ describe('buildSwapScript (Windows)', () => {
     // bug class), running the .vbs shim that starts node.exe hidden. A
     // tray-initiated update must not leave the app behind a console window.
     // Both shim names are load-bearing: the current one going forward, the
-    // legacy one because builds ≤1.2.0 shipped only that file.
+    // legacy one because builds ≤1.2.1 shipped only that file.
     expect(s.contents).toContain(`Join-Path $dst 'ResumeStudio-Windows.vbs'`)
     expect(s.contents).toContain(`Join-Path $dst 'Resume Studio (no window).vbs'`)
     expect(s.contents).toContain(`Start-Process -FilePath 'wscript.exe' -ArgumentList ('"' + $vbs + '"')`)
