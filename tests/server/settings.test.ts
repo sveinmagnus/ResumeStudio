@@ -4,12 +4,13 @@ import os from 'os'
 import path from 'path'
 import {
   loadOrInitSettings, loadSettings, saveSettings, applyToEnv, toView,
-  isDesktop, settingsFilePath, DOCKER_TRANSLATE_URL, DEFAULT_SETTINGS,
-  validateSettingsPatch, settingsToMailConfig, applyServerSettings, currentSettings,
+  isDesktop, settingsFilePath, DOCKER_TRANSLATE_URL, DOCKER_OLLAMA_URL, DEFAULT_SETTINGS,
+  validateSettingsPatch, settingsToMailConfig, settingsToLlmConfig, settingsToTranslateConfig,
+  applyServerSettings, currentSettings,
 }  from '../../server/settings'
 import { TRANSLATE_PROVIDERS } from '../../server/translate'
 import { LLM_PROVIDERS } from '../../server/llm'
-import { MAIL_TRANSPORTS, SMTP_SECURITIES, isMailConfigured } from '../../server/mail'
+import { MAIL_TRANSPORTS, SMTP_SECURITIES, isMailConfigured, DEFAULT_SENDMAIL_PATH } from '../../server/mail'
 
 const ENV_KEYS = [
   'RESUME_DATA_DIR', 'RESUME_DESKTOP', 'LIBRETRANSLATE_URL', 'LIBRETRANSLATE_API_KEY',
@@ -18,6 +19,11 @@ const ENV_KEYS = [
   'DEEPL_API_KEY', 'GOOGLE_TRANSLATE_API_KEY', 'AZURE_TRANSLATOR_KEY', 'AZURE_TRANSLATOR_REGION',
   'MAIL_TRANSPORT', 'MAIL_FROM', 'SENDMAIL_PATH', 'SMTP_HOST', 'SMTP_PORT',
   'SMTP_SECURITY', 'SMTP_USER', 'SMTP_PASS', 'RESUME_APP_BASE_URL',
+  'RESUME_USER_USERNAME', 'RESUME_USER_DISPLAY_NAME', 'RESUME_USER_EMAIL',
+  'RESUME_LOCAL_HOSTNAME', 'RESUME_LOCAL_PORT', 'LT_LOAD_ONLY',
+  'LLM_PROVIDER', 'LLM_OLLAMA_URL', 'LLM_OPENAI_API_KEY', 'LLM_COMPAT_URL', 'LLM_COMPAT_API_KEY',
+  'LLM_ANTHROPIC_API_KEY', 'LLM_GEMINI_API_KEY', 'LLM_MISTRAL_API_KEY', 'LLM_MODEL', 'LLM_HIGH_END',
+  'SUMMARIZE_PROVIDER', 'SUMMARIZE_MODEL', 'SUMMARIZE_OLLAMA_URL',
 ]
 const savedEnv: Record<string, string | undefined> = {}
 let dir: string
@@ -40,6 +46,11 @@ describe('isDesktop', () => {
     expect(isDesktop()).toBe(false)
     process.env.RESUME_DESKTOP = '1'
     expect(isDesktop()).toBe(true)
+  })
+
+  it('treats a whitespace-only value as unset', () => {
+    process.env.RESUME_DESKTOP = '   '
+    expect(isDesktop()).toBe(false)
   })
 })
 
@@ -65,6 +76,16 @@ describe('loadOrInitSettings', () => {
     process.env.LIBRETRANSLATE_URL = 'https://lt.example.com'
     loadOrInitSettings()
     expect(process.env.LIBRETRANSLATE_URL).toBe('https://lt.example.com')
+  })
+
+  it('loads the existing file on a second run instead of reseeding from env', () => {
+    process.env.LIBRETRANSLATE_URL = 'https://first.example'
+    loadOrInitSettings()
+    process.env.LIBRETRANSLATE_URL = 'https://drifted.example'
+    const s = loadOrInitSettings()
+    expect(s.libretranslate_url).toBe('https://first.example')
+    // The file is authoritative after the seed, so it wins over the drifted env.
+    expect(process.env.LIBRETRANSLATE_URL).toBe('https://first.example')
   })
 })
 
@@ -149,6 +170,10 @@ describe('toView', () => {
     expect(view).not.toHaveProperty('libretranslate_api_key')
     expect(view.libretranslate_api_key_set).toBe(true)
     expect(toView(DEFAULT_SETTINGS).libretranslate_api_key_set).toBe(false)
+  })
+
+  it('reports a whitespace-only secret as not set', () => {
+    expect(toView({ ...DEFAULT_SETTINGS, smtp_pass: '   ' }).smtp_pass_set).toBe(false)
   })
 })
 
@@ -445,6 +470,314 @@ describe('validateSettingsPatch', () => {
   })
 })
 
+describe('validateSettingsPatch — every field in the table is reachable', () => {
+  it('accepts a valid value for each identity, key and mail field', () => {
+    /*
+     * One row per previously-unexercised descriptor. The FIELDS table is what
+     * the validator, the env projection and the client view all walk, so a
+     * descriptor mutated away shows up here as its key silently vanishing from
+     * the returned patch.
+     */
+    const rows: Array<[string, unknown, unknown]> = [
+      ['user_username', ' svein ', 'svein'],
+      ['user_display_name', ' Svein M. ', 'Svein M.'],
+      ['user_email', '  svein@example.no  ', 'svein@example.no'],
+      ['google_api_key', 'g-key', 'g-key'],
+      ['azure_api_key', 'az-key', 'az-key'],
+      ['azure_region', ' westeurope ', 'westeurope'],
+      ['llm_ollama_url', 'http://ollama.lan:11434', 'http://ollama.lan:11434'],
+      ['llm_compat_url', 'https://compat.example', 'https://compat.example'],
+      ['llm_compat_api_key', 'c-key', 'c-key'],
+      ['llm_anthropic_api_key', 'a-key', 'a-key'],
+      ['llm_gemini_api_key', 'ge-key', 'ge-key'],
+      ['llm_mistral_api_key', 'mi-key', 'mi-key'],
+      ['llm_openai_api_key', 'oa-key', 'oa-key'],
+      ['llm_model', ' llama3.2:3b ', 'llama3.2:3b'],
+      ['llm_high_end', true, true],
+      ['llm_docker', false, false],
+      ['sendmail_path', ' /usr/sbin/sendmail ', '/usr/sbin/sendmail'],
+      ['smtp_user', ' relay-user ', 'relay-user'],
+      // A secret passes through undimmed on the write side (coerce trims on
+      // the way back out) — which is also what tells `secret` from `text`.
+      ['smtp_pass', ' relay-pass ', ' relay-pass '],
+    ]
+    for (const [key, sent, expected] of rows) {
+      expect(validateSettingsPatch({ [key]: sent }), key).toEqual({ patch: { [key]: expected } })
+    }
+  })
+
+  it('refuses a user_email that is not an address', () => {
+    expect(validateSettingsPatch({ user_email: 'not-an-address' })).toHaveProperty('error')
+  })
+
+  it('holds the numeric bounds at their edges', () => {
+    expect(validateSettingsPatch({ local_port: 65535 })).toEqual({ patch: { local_port: 65535 } })
+    expect(validateSettingsPatch({ local_port: 65536 })).toHaveProperty('error')
+    expect(validateSettingsPatch({ smtp_port: 65535 })).toEqual({ patch: { smtp_port: 65535 } })
+    expect(validateSettingsPatch({ backup_interval_ms: 5000 })).toEqual({ patch: { backup_interval_ms: 5000 } })
+    expect(validateSettingsPatch({ backup_interval_ms: 4999 })).toHaveProperty('error')
+  })
+
+  it('refuses an interior space in an address rather than collapsing it', () => {
+    // trimSpaces strips PADDING only; a mutant stripping interior spaces would
+    // quietly turn "no reply@…" into a valid address on its way to a header.
+    expect(validateSettingsPatch({ mail_from: 'no reply@example.no' })).toHaveProperty('error')
+    expect(validateSettingsPatch({ user_email: 'no reply@example.no' })).toHaveProperty('error')
+  })
+
+  it('accepts a region-qualified locale and anchors the code shape', () => {
+    expect(validateSettingsPatch({ translate_languages: ['pt-br'] }))
+      .toEqual({ patch: { translate_languages: ['pt-br'] } })
+    for (const bad of [['!en'], ['a'], ['abcdefghi'], ['en-x']]) {
+      expect(validateSettingsPatch({ translate_languages: bad }), JSON.stringify(bad)).toHaveProperty('error')
+    }
+  })
+})
+
+describe('coerce — what a stored file can and cannot smuggle in', () => {
+  const writeFile = (data: unknown) =>
+    fs.writeFileSync(settingsFilePath(), typeof data === 'string' ? data : JSON.stringify(data))
+
+  it('answers pure defaults when there is no file, or an unparseable one', () => {
+    expect(loadSettings()).toEqual(DEFAULT_SETTINGS)
+    writeFile('{not json')
+    expect(loadSettings()).toEqual(DEFAULT_SETTINGS)
+  })
+
+  it('falls back to the shipped language set when the stored list is unusable', () => {
+    // The concrete four match docker-compose.yml, so an existing install's
+    // container is not recreated just because the setting appeared.
+    writeFile({ translate_languages: 'garbage' })
+    expect(loadSettings().translate_languages).toEqual(['en', 'no', 'se', 'dk'])
+    writeFile({ translate_languages: ['zz!', 42, '###'] })
+    expect(loadSettings().translate_languages).toEqual(['en', 'no', 'se', 'dk'])
+  })
+
+  it('cleans a usable stored list: trims, lower-cases, drops junk, de-duplicates', () => {
+    writeFile({ translate_languages: [' EN ', 'no', 42, 'no', 'zz!'] })
+    expect(loadSettings().translate_languages).toEqual(['en', 'no'])
+  })
+
+  it('lower-cases a stored hostname and drops one outside the reserved suffixes', () => {
+    writeFile({ local_hostname: 'RS.LOCALHOST' })
+    expect(loadSettings().local_hostname).toBe('rs.localhost')
+    writeFile({ local_hostname: 'mail.company.com' })
+    expect(loadSettings().local_hostname).toBe('')
+  })
+
+  it('clamps stored numbers into their bounds instead of trusting them', () => {
+    writeFile({ local_port: 99999 })
+    expect(loadSettings().local_port).toBe(65535)
+    writeFile({ local_port: -5 })
+    expect(loadSettings().local_port).toBe(0)
+    writeFile({ local_port: 'eighty' })
+    expect(loadSettings().local_port).toBe(0)
+  })
+
+  it('trims stored text and secret values', () => {
+    writeFile({ azure_region: '  westeurope  ', libretranslate_api_key: '  k  ' })
+    const s = loadSettings()
+    expect(s.azure_region).toBe('westeurope')
+    expect(s.libretranslate_api_key).toBe('k')
+  })
+
+  it('reads every renamed llm field through its legacy summarize_* key', () => {
+    // The existing legacy test covers provider/model/openai/docker; these are
+    // the remaining descriptors whose legacyKey could silently vanish.
+    writeFile({
+      summarize_ollama_url: 'http://old-ollama:11434',
+      summarize_compat_url: 'https://old-compat.example',
+      summarize_compat_api_key: 'compat-key',
+      summarize_anthropic_api_key: 'anthropic-key',
+      summarize_gemini_api_key: 'gemini-key',
+      summarize_mistral_api_key: 'mistral-key',
+    })
+    const s = loadSettings()
+    expect(s.llm_ollama_url).toBe('http://old-ollama:11434')
+    expect(s.llm_compat_url).toBe('https://old-compat.example')
+    expect(s.llm_compat_api_key).toBe('compat-key')
+    expect(s.llm_anthropic_api_key).toBe('anthropic-key')
+    expect(s.llm_gemini_api_key).toBe('gemini-key')
+    expect(s.llm_mistral_api_key).toBe('mistral-key')
+  })
+})
+
+describe('applyToEnv — projection details', () => {
+  it('projects a boolean as "1" or clears it — never the string "false"', () => {
+    process.env.LLM_HIGH_END = 'stale'
+    applyToEnv({ ...DEFAULT_SETTINGS, llm_high_end: true })
+    expect(process.env.LLM_HIGH_END).toBe('1')
+    applyToEnv({ ...DEFAULT_SETTINGS, llm_high_end: false })
+    expect(process.env.LLM_HIGH_END).toBeUndefined()
+  })
+
+  it('treats a whitespace-only value as empty, and trims one that is not', () => {
+    process.env.AZURE_TRANSLATOR_REGION = 'stale'
+    applyToEnv({ ...DEFAULT_SETTINGS, azure_region: '   ' })
+    expect(process.env.AZURE_TRANSLATOR_REGION).toBeUndefined()
+    applyToEnv({ ...DEFAULT_SETTINGS, azure_region: ' westeurope ' })
+    expect(process.env.AZURE_TRANSLATOR_REGION).toBe('westeurope')
+  })
+
+  it('projects the identity and llm fields their consumers read', () => {
+    applyToEnv({
+      ...DEFAULT_SETTINGS,
+      user_username: 'svein',
+      user_display_name: 'Svein M.',
+      user_email: 'svein@example.no',
+      llm_provider: 'compat',
+      llm_compat_url: 'https://compat.example',
+      llm_compat_api_key: 'c-key',
+      llm_anthropic_api_key: 'a-key',
+      llm_gemini_api_key: 'ge-key',
+      llm_mistral_api_key: 'mi-key',
+      llm_openai_api_key: 'oa-key',
+      llm_model: 'claude-opus-4-5',
+      google_api_key: 'g-key',
+      azure_api_key: 'az-key',
+      sendmail_path: '/usr/local/bin/sendmail',
+      smtp_user: 'relay-user',
+    })
+    expect(process.env.RESUME_USER_USERNAME).toBe('svein')
+    expect(process.env.RESUME_USER_DISPLAY_NAME).toBe('Svein M.')
+    expect(process.env.RESUME_USER_EMAIL).toBe('svein@example.no')
+    expect(process.env.LLM_PROVIDER).toBe('compat')
+    expect(process.env.LLM_COMPAT_URL).toBe('https://compat.example')
+    expect(process.env.LLM_COMPAT_API_KEY).toBe('c-key')
+    expect(process.env.LLM_ANTHROPIC_API_KEY).toBe('a-key')
+    expect(process.env.LLM_GEMINI_API_KEY).toBe('ge-key')
+    expect(process.env.LLM_MISTRAL_API_KEY).toBe('mi-key')
+    expect(process.env.LLM_OPENAI_API_KEY).toBe('oa-key')
+    expect(process.env.LLM_MODEL).toBe('claude-opus-4-5')
+    expect(process.env.GOOGLE_TRANSLATE_API_KEY).toBe('g-key')
+    expect(process.env.AZURE_TRANSLATOR_KEY).toBe('az-key')
+    expect(process.env.SENDMAIL_PATH).toBe('/usr/local/bin/sendmail')
+    expect(process.env.SMTP_USER).toBe('relay-user')
+  })
+
+  it('keeps a manual LibreTranslate URL when docker is off, even with the provider selected', () => {
+    applyToEnv({
+      ...DEFAULT_SETTINGS,
+      translate_provider: 'libretranslate',
+      translate_docker: false,
+      libretranslate_url: 'https://manual.example',
+    })
+    expect(process.env.LIBRETRANSLATE_URL).toBe('https://manual.example')
+  })
+})
+
+describe('settingsTo*Config — the docker override and the slash rule', () => {
+  it('maps the llm settings, stripping trailing slashes from both URLs', () => {
+    const cfg = settingsToLlmConfig({
+      ...DEFAULT_SETTINGS,
+      llm_provider: 'compat',
+      llm_ollama_url: 'http://ollama.lan:11434///',
+      llm_compat_url: 'https://compat.example//',
+      llm_compat_api_key: 'c-key',
+      llm_openai_api_key: 'oa-key',
+      llm_anthropic_api_key: 'a-key',
+      llm_gemini_api_key: 'ge-key',
+      llm_mistral_api_key: 'mi-key',
+      llm_model: 'm',
+      llm_high_end: true,
+    })
+    expect(cfg.provider).toBe('compat')
+    expect(cfg.ollama.url).toBe('http://ollama.lan:11434')
+    expect(cfg.compat).toEqual({ url: 'https://compat.example', apiKey: 'c-key' })
+    expect(cfg.openai.apiKey).toBe('oa-key')
+    expect(cfg.anthropic.apiKey).toBe('a-key')
+    expect(cfg.gemini.apiKey).toBe('ge-key')
+    expect(cfg.mistral.apiKey).toBe('mi-key')
+    expect(cfg.model).toBe('m')
+    expect(cfg.highEnd).toBe(true)
+  })
+
+  it('overrides the ollama URL for docker only under the ollama provider', () => {
+    const base = { ...DEFAULT_SETTINGS, llm_ollama_url: 'http://manual.lan:11434' }
+    expect(settingsToLlmConfig({ ...base, llm_provider: 'ollama', llm_docker: true }).ollama.url)
+      .toBe(DOCKER_OLLAMA_URL)
+    expect(settingsToLlmConfig({ ...base, llm_provider: 'ollama', llm_docker: false }).ollama.url)
+      .toBe('http://manual.lan:11434')
+    // docker=true with another provider must not hijack the manual URL.
+    expect(settingsToLlmConfig({ ...base, llm_provider: 'openai', llm_docker: true }).ollama.url)
+      .toBe('http://manual.lan:11434')
+    // Nothing configured at all still yields a usable default.
+    expect(settingsToLlmConfig(DEFAULT_SETTINGS).ollama.url).toBe(DOCKER_OLLAMA_URL)
+  })
+
+  it('maps the translate settings: docker URL, null for none, slash-stripped otherwise', () => {
+    expect(settingsToTranslateConfig({
+      ...DEFAULT_SETTINGS, translate_provider: 'libretranslate', translate_docker: true,
+    }).libretranslate.url).toBe(DOCKER_TRANSLATE_URL)
+    expect(settingsToTranslateConfig(DEFAULT_SETTINGS).libretranslate.url).toBeNull()
+    const cfg = settingsToTranslateConfig({
+      ...DEFAULT_SETTINGS,
+      translate_provider: 'deepl',
+      libretranslate_url: 'https://lt.example//',
+      libretranslate_api_key: 'lt-key',
+      deepl_api_key: 'd-key',
+      google_api_key: 'g-key',
+      azure_api_key: 'az-key',
+      azure_region: 'westeurope',
+    })
+    expect(cfg.provider).toBe('deepl')
+    expect(cfg.libretranslate).toEqual({ url: 'https://lt.example', apiKey: 'lt-key' })
+    expect(cfg.deepl.apiKey).toBe('d-key')
+    expect(cfg.google.apiKey).toBe('g-key')
+    expect(cfg.azure).toEqual({ apiKey: 'az-key', region: 'westeurope' })
+  })
+
+  it('substitutes the stock sendmail path when the setting is empty', () => {
+    expect(settingsToMailConfig({ ...DEFAULT_SETTINGS, sendmail_path: '' }).sendmailPath)
+      .toBe(DEFAULT_SENDMAIL_PATH)
+    expect(settingsToMailConfig({ ...DEFAULT_SETTINGS, sendmail_path: '/opt/msmtp' }).sendmailPath)
+      .toBe('/opt/msmtp')
+  })
+})
+
+describe('settingsFromEnv — reading a server environment (via currentSettings)', () => {
+  it('reads an LLM_* value, falling back to its pre-rename SUMMARIZE_* name', () => {
+    process.env.SUMMARIZE_MODEL = 'old-model'
+    expect(currentSettings().llm_model).toBe('old-model')
+    process.env.LLM_MODEL = 'new-model'
+    expect(currentSettings().llm_model).toBe('new-model')
+  })
+
+  it('parses a boolean env var by value, case- and padding-insensitively', () => {
+    process.env.LLM_HIGH_END = ' TRUE '
+    expect(currentSettings().llm_high_end).toBe(true)
+    process.env.LLM_HIGH_END = 'on'
+    expect(currentSettings().llm_high_end).toBe(true)
+    process.env.LLM_HIGH_END = '0'
+    expect(currentSettings().llm_high_end).toBe(false)
+  })
+
+  it('parses numeric env vars as numbers', () => {
+    process.env.RESUME_BACKUP_INTERVAL_MS = '120000'
+    expect(currentSettings().backup_interval_ms).toBe(120000)
+  })
+
+  it('trims TRANSLATE_PROVIDER before matching it against the enum', () => {
+    process.env.TRANSLATE_PROVIDER = ' deepl '
+    expect(currentSettings().translate_provider).toBe('deepl')
+  })
+
+  it('infers libretranslate from a bare LIBRETRANSLATE_URL, but not a blank one', () => {
+    process.env.LIBRETRANSLATE_URL = 'https://lt.example'
+    expect(currentSettings().translate_provider).toBe('libretranslate')
+    expect(currentSettings().libretranslate_url).toBe('https://lt.example')
+    process.env.LIBRETRANSLATE_URL = '   '
+    expect(currentSettings().translate_provider).toBe('off')
+  })
+
+  it('prefers LLM_OLLAMA_URL over SUMMARIZE_OLLAMA_URL, and takes the legacy one alone', () => {
+    process.env.SUMMARIZE_OLLAMA_URL = 'http://legacy:11434'
+    expect(currentSettings().llm_ollama_url).toBe('http://legacy:11434')
+    process.env.LLM_OLLAMA_URL = 'http://current:11434'
+    expect(currentSettings().llm_ollama_url).toBe('http://current:11434')
+  })
+})
+
 describe('a hosted owner’s settings survive a restart', () => {
   const KEYS = ['RESUME_DESKTOP', 'RESUME_DATA_DIR', 'SMTP_HOST', 'RESUME_BACKUP_DIR',
     'RESUME_APP_BASE_URL', 'MAIL_TRANSPORT', 'MAIL_FROM']
@@ -555,5 +888,62 @@ describe('a hosted owner’s settings survive a restart', () => {
     const raw = JSON.parse(fs.readFileSync(path.join(dir, 'settings.json'), 'utf8')) as Record<string, unknown>
     expect(Object.keys(raw).length).toBeGreaterThan(1)
     expect(raw.mail_from).toBe('cv@example.no')
+  })
+
+  it('drops a machine-level key from a server save entirely', () => {
+    // A backup_dir smuggled into a PUT body must reach neither the file nor
+    // env — a web request that can move the sync folder is how an instance
+    // talks itself off the network.
+    saveSettings({ mail_from: 'cv@example.no', backup_dir: '/tmp/elsewhere' })
+    const raw = JSON.parse(fs.readFileSync(path.join(dir, 'settings.json'), 'utf8')) as Record<string, unknown>
+    expect(raw).toEqual({ mail_from: 'cv@example.no' })
+    expect(process.env.RESUME_BACKUP_DIR).toBeUndefined()
+  })
+
+  it('treats a garbage settings file as empty when saving over it', () => {
+    fs.writeFileSync(path.join(dir, 'settings.json'), '[1,2]')
+    saveSettings({ mail_from: 'cv@example.no' })
+    const raw = JSON.parse(fs.readFileSync(path.join(dir, 'settings.json'), 'utf8')) as Record<string, unknown>
+    expect(raw).toEqual({ mail_from: 'cv@example.no' })
+  })
+
+  it('ignores an unparseable settings file rather than dying on it', () => {
+    process.env.SMTP_HOST = 'smtp.from-env.no'
+    fs.writeFileSync(path.join(dir, 'settings.json'), '{not json')
+    expect(currentSettings().smtp_host).toBe('smtp.from-env.no')
+    expect(() => { applyServerSettings() }).not.toThrow()
+  })
+
+  it('survives having no file at all', () => {
+    expect(() => { applyServerSettings() }).not.toThrow()
+    expect(process.env.MAIL_FROM).toBeUndefined()
+  })
+
+  it('does nothing at all on the desktop build, where applyToEnv owns projection', () => {
+    process.env.RESUME_DESKTOP = '1'
+    fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify({ mail_from: 'cv@example.no' }))
+    applyServerSettings()
+    expect(process.env.MAIL_FROM).toBeUndefined()
+  })
+
+  it('an explicitly cleared owner key clears the env var it maps to', () => {
+    // The owner saved "" deliberately; leaving the stale env value standing
+    // would mean the settings screen accepts an edit that silently reverts.
+    process.env.MAIL_FROM = 'stale@example.no'
+    fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify({ mail_from: '' }))
+    applyServerSettings()
+    expect(process.env.MAIL_FROM).toBeUndefined()
+  })
+
+  it('projects a saved enum through its alwaysSet path', () => {
+    fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify({ mail_transport: 'sendmail' }))
+    applyServerSettings()
+    expect(process.env.MAIL_TRANSPORT).toBe('sendmail')
+  })
+
+  it('the desktop build reads machine keys back from its own file', () => {
+    process.env.RESUME_DESKTOP = '1'
+    fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify({ backup_dir: '/drive/rs' }))
+    expect(currentSettings().backup_dir).toBe('/drive/rs')
   })
 })
