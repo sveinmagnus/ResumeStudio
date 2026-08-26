@@ -17,6 +17,7 @@ import type {
 } from '../types'
 import { resolve } from './locales'
 import { lookup } from './lookup'
+import { socialSiteName } from './socialSite'
 
 // ─── Boundary validators ──────────────────────────────────────────────────────
 // View config can arrive from an untrusted backup / snapshot import, not just
@@ -175,6 +176,32 @@ export function headerFieldLabel(field: HeaderField, locale: string): string {
   const stored: LocalizedString = field.label ?? {}
   if (locale in stored) return stored[locale]
   return resolve({ ...defaultFieldLabels(field.key), ...stored }, locale)
+}
+
+/**
+ * Every label the social slot's defaults have EVER baked into a stored view —
+ * the current per-locale "Social media" family plus the legacy "Twitter: "
+ * (identical in every locale back then). `defaultHeaderFields` copies defaults
+ * INTO the view at creation, so "the user never chose a label" is only
+ * detectable by recognising these; anything else is a real customisation.
+ */
+const DEFAULTISH_SOCIAL_LABELS = new Set<string>([
+  'Twitter: ',
+  ...Object.values(DEFAULT_FIELD_LABELS.twitter),
+])
+
+/**
+ * The label the social slot renders for `value`: the platform's proper name
+ * ("Instagram: ", "Fosstodon: " — lib/socialSite.ts, curated + derived-from-
+ * hostname) when the URL names one, the stored/default label otherwise. A
+ * label the user actually customised always wins; a bare handle names no site
+ * and keeps the localized generic label.
+ */
+export function socialHeaderLabel(field: HeaderField, value: string, locale: string): string {
+  const label = headerFieldLabel(field, locale)
+  if (!DEFAULTISH_SOCIAL_LABELS.has(label)) return label
+  const site = socialSiteName(value)
+  return site ? `${site}: ` : label
 }
 
 /** Field display order + default visibility / line-grouping. */
@@ -383,7 +410,10 @@ export function buildHeaderLines(
     const value = headerFieldOverride(header, field.key)
       || resolveHeaderFieldValue(field.key, resume, store, locale)
     if (!value) continue
-    const segment: HeaderSegment = { label: headerFieldLabel(field, locale), value }
+    const label = field.key === 'twitter'
+      ? socialHeaderLabel(field, value, locale)
+      : headerFieldLabel(field, locale)
+    const segment: HeaderSegment = { label, value }
     if (field.same_line && lines.length > 0) {
       lines[lines.length - 1].push(segment)
     } else {
