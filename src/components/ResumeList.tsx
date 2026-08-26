@@ -11,6 +11,7 @@ import { isResumeStale } from '../lib/freshness'
 import { fmtRelativeTime, detectLocalesInData } from '../lib/locales'
 import { freshStore } from '../lib/freshStore'
 import { listDirty, listCached, type CachedResume } from '../lib/localCache'
+import { preferredSegment } from '../lib/resumeSlug'
 import { navigate, Link } from '../lib/router'
 import { ImportScreen } from './ImportScreen'
 import { SyncPanel } from './SyncPanel'
@@ -405,7 +406,8 @@ export function ResumeList({ onUnauthorized }: ResumeListProps) {
             <ul className="rl-list">
               {cached.map((c) => (
                 <li key={c.id} className="rl-row">
-                  <Link to={{ name: 'editor', id: c.id }} className="rl-link">
+                  {/* Readable address when the cache can vouch it's unambiguous. */}
+                  <Link to={{ name: 'editor', id: preferredSegment(cached, c.id) }} className="rl-link">
                     <div className="rl-icon rl-icon-offline"><CloudOff size={18} /></div>
                     <div className="rl-info">
                       <div className="rl-name">
@@ -461,7 +463,7 @@ export function ResumeList({ onUnauthorized }: ResumeListProps) {
                   </button>
                 </div>
               ) : (
-                <Link to={{ name: 'editor', id: r.id }} className="rl-link">
+                <Link to={{ name: 'editor', id: preferredSegment(items, r.id) }} className="rl-link">
                   <div className="rl-icon"><FileText size={18} /></div>
                   <div className="rl-info">
                     <div className="rl-name">

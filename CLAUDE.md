@@ -117,6 +117,18 @@ returns you where you were; it is stamped CONTINUOUSLY, never at `navigate()`
 time, because `setActiveSection` clears `expandedItemId` before navigation
 runs. Restore uses `openItem` (not the toggling `setExpandedItem`).
 
+**A resume's URL is a readable address, not its UUID** (`lib/resumeSlug.ts`):
+derived from the header email — local + domain-without-TLD, symbols stripped
+(`sveins@gmail.com` → `/r/sveinsgmail`), the full-domain form when the short
+one collides, the UUID when there is no usable email or even that collides.
+DERIVED, never stored — no second field to drift. `EditorResolver` (App.tsx)
+turns the segment back into the id against the resume list (the local cache
+offline); the UUID stays a working address forever, it just rewrites in place
+(replace, never push — Back must not step through spellings). An ambiguous
+slug resolves to NOTHING (picker), never to a guess — the wrong person's CV
+is worse than a bounce. `ResumeMeta.email` exists (json_extract at read) so
+the picker and resolver can derive addresses without fetching documents.
+
 **Navigation is real links, not onClick.** Every sidebar item — each section and
 each Resume View — is an `<a href>` rendered by `<Link>`, so Ctrl/Cmd-click,
 middle-click and "Open in new tab" work; two sections of one CV side by side is a
@@ -303,7 +315,10 @@ src/
 │                      saved/synced/undone). See the store-and-persistence skill
 ├── lib/             ← PURE logic (no React); a few touch browser APIs but stay jsdom-testable
 │   │ — core: locales (resolve/bcp47/detectLocalesInData), sections (GROUP_ORDER,
-│   │   canonicalSectionKey), router (hand-rolled History API), freshStore, migrate
+│   │   canonicalSectionKey), router (hand-rolled History API), resumeSlug (the
+│   │     readable /r/ address DERIVED from the person's email — never stored;
+│   │     uuid stays a valid alias forever, ambiguity resolves to nothing, not
+│   │     to a guess), freshStore, migrate
 │   │   (CURRENT_SHAPE_VERSION; single migration choke point), usage, merge (generic
 │   │   mergeRegistry), completeness (+ shared collectTrackedFields), drift
 │   │   (cross-language divergence; reuses collectTrackedFields), wipeLocale,

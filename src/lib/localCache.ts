@@ -144,6 +144,8 @@ export interface CachedResume {
   id: string
   /** Full name off the cached profile; null when the cache holds none. */
   name: string | null
+  /** Email off the cached profile — resolves readable URLs offline too. */
+  email: string | null
   locales: PendingLocales
   /** True while the local copy holds edits the server hasn't acknowledged. */
   dirty: boolean
@@ -169,9 +171,11 @@ export function listCached(): CachedResume[] {
       const rec = loadPending(id)
       if (!rec) continue
       const name = rec.data.resume?.full_name?.trim()
+      const email = rec.data.resume?.email?.trim()
       out.push({
         id,
         name: name ? name : null,
+        email: email ? email : null,
         locales: rec.locales,
         dirty: rec.dirty,
         saved_at: rec.saved_at,

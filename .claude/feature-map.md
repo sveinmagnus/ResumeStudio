@@ -14,9 +14,13 @@ prescriptive.
 ## What works today
 
 - **Multi-resume** — one instance can hold N distinct master CVs. Picker
-  route at `/`; each resume lives at `/r/:uuid`; header dropdown switches
-  between them; hard-delete with confirm (snapshots cascade). Each resume
-  carries its own per-resume primary/secondary locales server-side. See §8.
+  route at `/`; each resume lives at a **readable address** derived from its
+  header email (`/r/sveinsgmail` — local + domain-without-TLD, symbols
+  stripped; the full-domain form on collision; the plain `/r/:uuid`, which
+  stays a valid alias forever, when there's no email — `lib/resumeSlug.ts`);
+  header dropdown switches between them; hard-delete with confirm (snapshots
+  cascade). Each resume carries its own per-resume primary/secondary locales
+  server-side. See §8.
 - **"Who knows what" skill matrix** (`lib/whoKnowsWhat.ts` +
   `WhoKnowsWhatPanel`, picker) — the small-team affordance: with ≥2 resumes,
   the picker aggregates skills across everyone into a skill × person grid

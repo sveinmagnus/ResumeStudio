@@ -179,14 +179,27 @@ describe('<ResumeList>', () => {
       expect(screen.queryByText(/drop your resume file here/i)).not.toBeInTheDocument()
     })
 
-    it('links each cached row into the editor, which reads the same cache', async () => {
+    it('links each cached row by its readable address, which the resolver reads from the same cache', async () => {
+      // The fixture resume carries makeResume's email — the cached row links
+      // by the derived address (EditorResolver falls back to the same cache
+      // offline, so the address still resolves with the server unreachable).
       cache('cached-id', 'Ada Lovelace')
       unreachable()
 
       render(<ResumeList onUnauthorized={() => {}} />)
 
       const link = await screen.findByRole('link', { name: /Ada Lovelace/ })
-      expect(link).toHaveAttribute('href', '/r/cached-id')
+      expect(link).toHaveAttribute('href', '/r/testexample')
+    })
+
+    it('links a cached row with no email by its id', async () => {
+      cache('no-mail-id', null)
+      unreachable()
+
+      render(<ResumeList onUnauthorized={() => {}} />)
+
+      const link = await screen.findByRole('link', { name: /Untitled resume/ })
+      expect(link).toHaveAttribute('href', '/r/no-mail-id')
     })
 
     it('says which cached copies hold unsynced edits', async () => {

@@ -186,6 +186,12 @@ export interface ResumeMeta {
   name: string
   primary_locale: string
   secondary_locale: string | null
+  /**
+   * The person's email off the CV header, for deriving the readable URL
+   * (`lib/resumeSlug.ts`). Optional so a newer client tolerates an older
+   * server's rows, which simply keep their UUID addresses.
+   */
+  email?: string | null
   saved_at: string
   created_at: string
   /** Optimistic-concurrency token; echo it back as `baseVersion` on save. */

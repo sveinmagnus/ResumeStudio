@@ -34,10 +34,18 @@ export interface SidebarProps {
   isOpen?: boolean
   /** Close request — backdrop click, Esc key, or a nav item being selected. */
   onClose?: () => void
+  /**
+   * The URL segment nav links spell the resume as — the readable address when
+   * one is known (`lib/resumeSlug.ts`), else the id. Must agree with what
+   * EditorRoute's store→URL effect writes, or every nav click would push a
+   * second history entry just to change the spelling.
+   */
+  urlId?: string
 }
 
-export function Sidebar({ isOpen = false, onClose }: SidebarProps = {}) {
+export function Sidebar({ isOpen = false, onClose, urlId }: SidebarProps = {}) {
   const { data, activeSection, activeViewId, currentResumeId } = useStore()
+  const linkId = urlId ?? currentResumeId ?? ''
 
   // Close on Esc + lock body scroll while the drawer is open. The CSS media
   // query owns "is this actually drawer mode?", so we always attach these
@@ -81,7 +89,7 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps = {}) {
     if (isPlainLeftClick(e)) onClose?.()
   }
   const sectionHref = (key: string) => ({
-    name: 'editor' as const, id: currentResumeId ?? '', section: key,
+    name: 'editor' as const, id: linkId, section: key,
   })
 
   return (
@@ -158,7 +166,7 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps = {}) {
                             return (
                               <Link
                                 key={v.id}
-                                to={{ name: 'editor', id: currentResumeId ?? '', section: 'views', viewId: v.id }}
+                                to={{ name: 'editor', id: linkId, section: 'views', viewId: v.id }}
                                 className={`sb-subitem ${vActive ? 'active' : ''}`}
                                 aria-current={vActive ? 'page' : undefined}
                                 onClick={closeOnPlainClick}

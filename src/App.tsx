@@ -36,10 +36,12 @@ const TeamScreen = lazy(() =>
   import('./components/account/TeamScreen').then((m) => ({ default: m.TeamScreen })))
 import {
   useRoute, navigate, Link, stampHistoryState, takePendingRestore, isPublicAccountScreen,
+  parseRoute, pathFor,
   type AccountScreen,
 } from './lib/router'
-import { dropLegacyCache } from './lib/localCache'
-import { api, forgetIdentity, type MeInfo } from './lib/api'
+import { resolveSegment, preferredSegment, isSlugSegment, type SlugCandidate } from './lib/resumeSlug'
+import { dropLegacyCache, listCached } from './lib/localCache'
+import { api, forgetIdentity, UnauthorizedError, type MeInfo } from './lib/api'
 
 // One-shot legacy-cache cleanup on first module load. The pre-multi-resume
 // localStorage key holds data that can't safely be attributed to any one
@@ -93,10 +95,14 @@ export default function App() {
   }
 
   if (route.name === 'editor') {
+    // NOT keyed on route.id: the segment changes spelling (uuid ↔ the readable
+    // address) without changing which resume is open, and a remount on that
+    // would reload the editor mid-rewrite. The resolver keys EditorRoute on
+    // the RESOLVED id instead.
     return (
-      <EditorRoute
-        key={`${route.id}:${authEpoch}`}
-        resumeId={route.id}
+      <EditorResolver
+        key={`editor:${authEpoch}`}
+        segment={route.id}
         routeSection={route.section}
         routeViewId={route.viewId}
         onUnauthorized={onUnauthorized}
@@ -167,8 +173,77 @@ function AccountChunk({ children }: { children: ReactNode }) {
 
 // ── Editor route ─────────────────────────────────────────────────────────────
 
-function EditorRoute({ resumeId, routeSection, routeViewId, onUnauthorized }: {
+/**
+ * Turn the URL's id segment into (resumeId, urlId) before the editor mounts.
+ *
+ * The segment is either the UUID or the resume's readable address derived from
+ * the person's email (`lib/resumeSlug.ts`). A UUID passes straight through and
+ * starts loading immediately; a slug has to be resolved against the resume
+ * list first — and the list is fetched either way, because choosing the
+ * PREFERRED spelling (short slug / full slug / id) needs the other resumes'
+ * emails to check for collisions. Offline, the local cache stands in for the
+ * list, so a bookmarked readable address still opens the cached copy.
+ *
+ * `urlId` is what every URL write inside the editor spells the resume as; the
+ * UUID remains a valid address forever (bookmarks, exports), it just gets
+ * rewritten to the readable form once the list confirms one.
+ */
+function EditorResolver({ segment, routeSection, routeViewId, onUnauthorized }: {
+  segment: string
+  routeSection?: string
+  routeViewId?: string
+  onUnauthorized: () => void
+}) {
+  const [list, setList] = useState<SlugCandidate[] | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    api.listResumes()
+      .then((rows) => {
+        if (cancelled) return
+        setList(rows.map((r) => ({ id: r.id, email: r.email ?? null })))
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return
+        if (err instanceof UnauthorizedError) { onUnauthorized(); return }
+        // Offline / server down: the per-id cache knows enough to resolve.
+        setList(listCached().map((c) => ({ id: c.id, email: c.email })))
+      })
+    return () => { cancelled = true }
+  }, [onUnauthorized])
+
+  // A slug-shaped segment needs the list; anything else IS the id (an unknown
+  // one bounces via the persistence layer's 404, exactly as before).
+  const resumeId = isSlugSegment(segment) && list
+    ? resolveSegment(list, segment)
+    : isSlugSegment(segment) ? null : segment
+
+  // A readable address that matches nothing (or, after a collision appeared,
+  // more than one thing) is an unknown address — the picker, not a guess.
+  useEffect(() => {
+    if (list && isSlugSegment(segment) && !resolveSegment(list, segment)) {
+      navigate('/', { replace: true })
+    }
+  }, [list, segment])
+
+  if (!resumeId) return <BootScreen />
+
+  return (
+    <EditorRoute
+      key={resumeId}
+      resumeId={resumeId}
+      urlId={list ? preferredSegment(list, resumeId) : segment}
+      routeSection={routeSection}
+      routeViewId={routeViewId}
+      onUnauthorized={onUnauthorized}
+    />
+  )
+}
+
+function EditorRoute({ resumeId, urlId, routeSection, routeViewId, onUnauthorized }: {
   resumeId: string
+  /** How URL writes spell this resume: its readable address, or the id. */
+  urlId: string
   routeSection?: string
   routeViewId?: string
   onUnauthorized: () => void
@@ -202,14 +277,14 @@ function EditorRoute({ resumeId, routeSection, routeViewId, onUnauthorized }: {
     // key, so the address bar self-heals.
     const section = canonicalSectionKey(routeSection ?? 'overview')
     if (!SECTIONS.some((s) => s.key === section)) {
-      navigate({ name: 'editor', id: resumeId }, { replace: true })
+      navigate({ name: 'editor', id: urlId }, { replace: true })
       return
     }
     if (section === 'views') {
       // An unknown view id (deleted elsewhere, mistyped link) falls back to
       // the view list rather than rendering a broken editor.
       if (routeViewId && !st.data.views.some((v) => v.id === routeViewId)) {
-        navigate({ name: 'editor', id: resumeId, section: 'views' }, { replace: true })
+        navigate({ name: 'editor', id: urlId, section: 'views' }, { replace: true })
         return
       }
       if (st.activeSection !== 'views' || st.activeViewId !== (routeViewId ?? null)) {
@@ -230,7 +305,7 @@ function EditorRoute({ resumeId, routeSection, routeViewId, onUnauthorized }: {
     requestAnimationFrame(() => requestAnimationFrame(() => {
       window.scrollTo({ top: restore.scrollY, behavior: 'auto' })
     }))
-  }, [hasData, resumeId, routeSection, routeViewId])
+  }, [hasData, urlId, routeSection, routeViewId])
 
   /**
    * Keep the current history entry's snapshot fresh as the user scrolls and
@@ -259,13 +334,19 @@ function EditorRoute({ resumeId, routeSection, routeViewId, onUnauthorized }: {
   useEffect(() => {
     const st = useStore.getState()
     if (!st.hasData) return
-    navigate({
-      name: 'editor',
-      id: resumeId,
+    const target = {
+      name: 'editor' as const,
+      id: urlId,
       section: st.activeSection,
       viewId: st.activeSection === 'views' ? (st.activeViewId ?? undefined) : undefined,
-    })
-  }, [activeSection, activeViewId, hasData, resumeId])
+    }
+    // When only the ID SEGMENT changes spelling (the uuid becoming the
+    // readable address once the list confirms it), rewrite in place — Back
+    // must never step through spellings of the same location.
+    const cur = parseRoute(window.location.pathname)
+    const sameSpot = cur.name === 'editor' && pathFor({ ...cur, id: urlId }) === pathFor(target)
+    navigate(target, sameSpot ? { replace: true } : undefined)
+  }, [activeSection, activeViewId, hasData, urlId])
 
   // The conflict modal can be dismissed (keep editing); the SaveStatus badge
   // re-opens it. A fresh conflict re-opens automatically.
@@ -307,21 +388,7 @@ function EditorRoute({ resumeId, routeSection, routeViewId, onUnauthorized }: {
   }, [loadState])
 
   if (loadState === 'loading' || loadState === 'not-found' || !hasData) {
-    return (
-      <div className="app-loading">
-        <img src="/cartavio-logo.png" alt="Cartavio" className="app-loading-logo" />
-        <p className="app-loading-text">Resume Studio — Connecting…</p>
-        <style>{`
-          .app-loading {
-            min-height: 100vh; display: flex; flex-direction: column;
-            align-items: center; justify-content: center; gap: 20px;
-          }
-          .app-loading-logo { width: 180px; height: auto; animation: pulse 2s ease-in-out infinite; }
-          .app-loading-text { font-size: 13px; color: var(--ink-faint); letter-spacing: .02em; }
-          @keyframes pulse { 0%,100% { opacity:.5 } 50% { opacity:1 } }
-        `}</style>
-      </div>
-    )
+    return <BootScreen />
   }
 
   // ── Main editor shell ────────────────────────────────────────────────────
@@ -335,7 +402,7 @@ function EditorRoute({ resumeId, routeSection, routeViewId, onUnauthorized }: {
       {/* First Tab stop: skip the ~25 sidebar items straight to the editor
           pane (WCAG 2.4.1). Visible only while focused — see index.css. */}
       <a className="skip-link" href="#main-content">Skip to content</a>
-      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} urlId={urlId} />
       {/* App-level on purpose: an advisor run finishing has to reach you
           wherever you navigated to while the model was thinking. */}
       <AdvisorToast />
@@ -439,6 +506,25 @@ function EditorRoute({ resumeId, routeSection, routeViewId, onUnauthorized }: {
         @media (max-width: 560px) {
           .app-content { padding: 16px 12px 48px; }
         }
+      `}</style>
+    </div>
+  )
+}
+
+/** The connecting screen — shown while resolving the address AND while loading. */
+function BootScreen() {
+  return (
+    <div className="app-loading">
+      <img src="/cartavio-logo.png" alt="Cartavio" className="app-loading-logo" />
+      <p className="app-loading-text">Resume Studio — Connecting…</p>
+      <style>{`
+        .app-loading {
+          min-height: 100vh; display: flex; flex-direction: column;
+          align-items: center; justify-content: center; gap: 20px;
+        }
+        .app-loading-logo { width: 180px; height: auto; animation: pulse 2s ease-in-out infinite; }
+        .app-loading-text { font-size: 13px; color: var(--ink-faint); letter-spacing: .02em; }
+        @keyframes pulse { 0%,100% { opacity:.5 } 50% { opacity:1 } }
       `}</style>
     </div>
   )

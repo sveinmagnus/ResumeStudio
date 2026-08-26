@@ -625,6 +625,49 @@ describe('createResumeDb — dumpResumes / restoreResumes (store sync)', () => {
   })
 })
 
+/**
+ * `ResumeMeta.email` — the CV header's email surfaced into the LIST via
+ * json_extract, so the client can derive each resume's readable URL
+ * (`lib/resumeSlug.ts`) without fetching every document. One source of truth:
+ * it reads the JSON blob, so an edit to the header is visible on the very
+ * next list with no second field to keep in step.
+ */
+describe('createResumeDb — meta email (readable-URL source)', () => {
+  it('extracts data.resume.email into list rows and getResume meta', () => {
+    const db = freshDb()
+    const { id } = db.createResume(V, { name: 'CV', data: { resume: { email: 'kari@corp.no' } } })
+    expect(db.listResumes(V)[0].email).toBe('kari@corp.no')
+    expect(db.getResume(V, id)?.meta.email).toBe('kari@corp.no')
+    db.close()
+  })
+
+  it('tracks a header edit — the email is read from the document, never copied', () => {
+    const db = freshDb()
+    const { id } = db.createResume(V, { name: 'CV', data: { resume: { email: 'old@corp.no' } } })
+    db.saveResume(V, id, { resume: { email: 'new@corp.no' } })
+    expect(db.listResumes(V)[0].email).toBe('new@corp.no')
+    db.close()
+  })
+
+  it('answers null for a missing, empty, or non-string value', () => {
+    const db = freshDb()
+    db.createResume(V, { name: 'none', data: {} })
+    db.createResume(V, { name: 'empty', data: { resume: { email: '  ' } } })
+    // Imported JSON can hold anything at that path.
+    db.createResume(V, { name: 'weird', data: { resume: { email: 42 } } })
+    expect(db.listResumes(V).map((r) => r.email)).toEqual([null, null, null])
+    db.close()
+  })
+
+  it('createResume itself reports the carried email in its returned meta', () => {
+    const db = freshDb()
+    const meta = db.createResume(V, { name: 'CV', data: { resume: { email: 'ny@corp.no' } } })
+    expect(meta.email).toBe('ny@corp.no')
+    expect(db.createResume(V, { name: 'blank' }).email).toBeNull()
+    db.close()
+  })
+})
+
 describe('createResumeDb — close()', () => {
   const rmQuiet = (dir: string) => {
     try { fs.rmSync(dir, { recursive: true, force: true }) } catch { /* ignore */ }
@@ -701,7 +744,7 @@ describe('createResumeDb — upgrading an existing database file', () => {
     expect(db.listResumes(V)).toEqual([{
       id: 'r1', name: 'My CV', primary_locale: 'no', secondary_locale: 'en',
       saved_at: '2026-01-01', created_at: '2026-01-01', version: 1, saved_by: null,
-      owner_id: null, visibility: 'private',
+      owner_id: null, visibility: 'private', email: null,
     }])
     expect(db.getResume(V, 'r1')?.data).toEqual({ shape_version: 9 })
     expect(db.listSnapshots(V, 'r1')).toHaveLength(1)

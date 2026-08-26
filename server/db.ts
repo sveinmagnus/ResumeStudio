@@ -90,6 +90,16 @@ export interface ResumeMeta {
   owner_id: string | null
   /** Who else may read it. See `server/access.ts`. */
   visibility: Visibility
+  /**
+   * The person's email as the CV's header states it (`data.resume.email`),
+   * surfaced into the LIST so the client can derive each resume's readable
+   * URL (`lib/resumeSlug.ts`) and check it for collisions without fetching
+   * every full document. Read via json_extract, never stored twice — a copy
+   * would drift the first time the header was edited. Null when the header
+   * has none. No new read surface: anyone who can see the row can read the
+   * document it is extracted from.
+   */
+  email: string | null
 }
 
 export interface ResumeFull {
@@ -389,8 +399,11 @@ export function createResumeDb(dbPath: string): ResumeDb {
   }
 
   // ─── Prepared statements ───────────────────────────────────────────────────
+  // `email` is extracted from the JSON document on read (see ResumeMeta.email)
+  // — one source of truth, no column to keep in step with the data blob.
   const META_COLS =
-    'id, name, primary_locale, secondary_locale, saved_at, created_at, version, saved_by, owner_id, visibility'
+    'id, name, primary_locale, secondary_locale, saved_at, created_at, version, saved_by, owner_id, visibility, '
+    + "json_extract(data, '$.resume.email') AS email"
 
   /**
    * Prepare-once cache for the scoped variants of a query.
@@ -512,6 +525,8 @@ export function createResumeDb(dbPath: string): ResumeDb {
     saved_by: string | null
     owner_id: string | null
     visibility: string
+    /** json_extract answers whatever the JSON holds — narrowed in metaOf. */
+    email: unknown
   }
   interface FullRow extends MetaRow { data: string }
   interface DumpRow extends Omit<MetaRow, 'saved_by' | 'visibility'> { data: string }
@@ -531,6 +546,8 @@ export function createResumeDb(dbPath: string): ResumeDb {
     saved_by: row.saved_by,
     owner_id: row.owner_id,
     visibility: normaliseVisibility(row.visibility),
+    // Imported JSON can hold anything at that path — a non-string is no email.
+    email: typeof row.email === 'string' && row.email.trim() ? row.email : null,
   })
 
   // ─── Public API ───────────────────────────────────────────────────────────
@@ -550,6 +567,7 @@ export function createResumeDb(dbPath: string): ResumeDb {
     const primary = input.primary_locale ?? 'en'
     const secondary = input.secondary_locale ?? null
     insertResume.run(id, input.name, json, primary, secondary, now, now, viewer.userId)
+    const carried = (input.data as { resume?: { email?: unknown } } | undefined)?.resume?.email
     return {
       id,
       name: input.name,
@@ -561,6 +579,7 @@ export function createResumeDb(dbPath: string): ResumeDb {
       saved_by: null,
       owner_id: viewer.userId,
       visibility: 'private',
+      email: typeof carried === 'string' && carried.trim() ? carried : null,
     }
   }
 

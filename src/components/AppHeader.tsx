@@ -8,6 +8,7 @@ import { SettingsModal } from './SettingsModal'
 import { onOpenSettings, type SettingsTabId } from '../lib/settingsBus'
 import { GlobalSearch } from './GlobalSearch'
 import { api, type ResumeMeta, UnauthorizedError } from '../lib/api'
+import { preferredSegment } from '../lib/resumeSlug'
 import { Link, navigate } from '../lib/router'
 import { useStore } from '../store/useStore'
 import { AccountMenu } from './account/AccountMenu'
@@ -371,7 +372,7 @@ function ResumeSwitcher({ resumeId, onUnauthorized }: ResumeSwitcherProps) {
               className="rsw-item"
               onClick={() => {
                 setOpen(false)
-                navigate({ name: 'editor', id: r.id })
+                navigate({ name: 'editor', id: preferredSegment(items ?? [], r.id) })
               }}
             >
               <FileText size={13} />
