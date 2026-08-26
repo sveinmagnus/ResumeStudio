@@ -27,9 +27,25 @@ self-contained `release/` folder:
 release/
   node[.exe]                     ← the Node runtime (copied from your machine)
   Resume Studio.cmd              ← Windows launcher (shows a status/log window)
-  Resume Studio (no window).vbs  ← Windows launcher, no console window
+  ResumeStudio-Windows.vbs       ← Windows launcher, no console window (the
+                                   one to pin / make shortcuts to)
+  Resume Studio (no window).vbs  ← same shim under its legacy name — kept so
+                                   updates FROM builds ≤1.2.0 can relaunch
+                                   (their swap scripts bake this filename)
+  ResumeStudio.ico               ← the brand mark for shortcuts (a .vbs cannot
+                                   embed an icon; a shortcut can)
+  Create Desktop Shortcut.vbs    ← one double-click: a Desktop shortcut with
+                                   the Cartavio icon, targeting wscript.exe +
+                                   the shim by name
   resume-studio.sh               ← Linux/macOS launcher
   Resume Studio.command          ← macOS Finder-double-clickable (macOS builds)
+  Resume Studio.app              ← macOS: a minimal bundle wrapping the same
+                                   launcher, because macOS attaches icons to
+                                   bundles, not scripts (unsigned — the usual
+                                   right-click → Open once)
+  resume-studio.png +            ← Linux: the brand mark plus a helper that
+  create-desktop-entry.sh          installs a .desktop menu entry with it
+                                   (icons attach to .desktop entries there)
   README.txt                     ← end-user quick start
   app/
     launcher.cjs                 ← the whole server, bundled by esbuild
@@ -74,8 +90,9 @@ your browser (handy after you've closed the tab).
 > safely).
 
 Other ways to stop, if you prefer: **close the launcher window**, or press
-**Ctrl-C** in it — both do the same clean shutdown. (The `.vbs` "no window"
-launcher has no window to close, which is exactly why the tray Quit exists.)
+**Ctrl-C** in it — both do the same clean shutdown. (The windowless
+`ResumeStudio-Windows.vbs` launcher has no window to close, which is exactly
+why the tray Quit exists.)
 
 If the tray icon doesn't appear (e.g. a minimal Linux desktop with no system
 tray, or Docker-style headless box), the app still runs — just use the window /
@@ -380,8 +397,10 @@ Electron. Because a running program can't overwrite its own files (especially
 the Node binary on Windows, which is locked while running), the install hands
 off to a tiny helper script (a visible PowerShell window on Windows) that waits
 for the app to exit, copies the new files with a progress bar, and relaunches.
-On Windows the relaunch uses the **no-window launcher** (`Resume Studio
-(no window).vbs`), so after an update the app runs without a console window —
+On Windows the relaunch uses the **no-window launcher**
+(`ResumeStudio-Windows.vbs`, falling back to its legacy `Resume Studio
+(no window).vbs` name for older trees), so after an update the app runs
+without a console window —
 exactly as if you had started it windowless yourself; quit it from the tray
 icon as usual. The downloaded asset is a `.tar.gz` (extracted with the system
 `tar`, present on Windows 10+/macOS/Linux).
