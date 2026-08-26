@@ -57,9 +57,19 @@ export interface Resume {
   nationality: LocalizedString
   place_of_residence: LocalizedString
   date_of_birth: string | null
+  /**
+   * Any OTHER social profile URL or handle — Mastodon, Bluesky, GitHub, or the
+   * historical Twitter/X value this field was named for. The name is kept (a
+   * rename is a shape bump plus backup churn for zero data value); the editor
+   * labels it "Other social media URL" and the export default label is the
+   * neutral "Social media".
+   */
   twitter: string | null
   linkedin_url: string | null
+  /** The BUSINESS website (the consultancy / employer site). */
   website_url: string | null
+  /** A personal site or portfolio, distinct from the business one. Additive/optional. */
+  personal_website_url?: string | null
   profile_image_url: string | null
   /** Uploaded profile photo as a base64 data URL (distinct from profile_image_url, an external link). */
   profile_photo?: string | null
@@ -897,7 +907,7 @@ export interface ViewSection {
  */
 export type HeaderFieldKey =
   | 'phone' | 'email' | 'location' | 'nationality' | 'date_of_birth'
-  | 'linkedin' | 'website' | 'twitter' | 'languages'
+  | 'linkedin' | 'website' | 'personal_website' | 'twitter' | 'languages'
 
 export interface HeaderField {
   key: HeaderFieldKey
@@ -951,6 +961,15 @@ export interface ViewHeaderConfig {
    * Board CV read "Board Member" while a Consultant CV keeps the master title.
    */
   title_override?: LocalizedString
+  /**
+   * Override the contact email for this view — a role that wants its own
+   * communication channel (a board seat, an agency submission) shows this
+   * address instead of the master one. Empty/absent → the resume's email.
+   * Plain string (contact values aren't localized). Additive/optional.
+   */
+  email_override?: string | null
+  /** Override the contact phone for this view — see {@link email_override}. */
+  phone_override?: string | null
   photo_placement: PhotoPlacement
   /** Override the master profile photo for this view (base64 data URL). null = use the master photo. */
   photo_override: string | null

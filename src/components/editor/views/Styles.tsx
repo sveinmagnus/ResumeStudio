@@ -389,6 +389,20 @@ export function Styles() {
       /* Placement (+ shape) settings stacked to the right of the override upload. */
       .rv-hdr-img-settings { display: flex; flex-direction: column; gap: 14px; max-width: 320px; }
       .rv-hdr-title-override { margin-top: 14px; }
+      /* Per-view email/phone overrides — beside each other under the title. */
+      .rv-hdr-contact-overrides {
+        display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 10px;
+      }
+      .rv-hdr-ov { display: flex; flex-direction: column; gap: 5px; }
+      .rv-hdr-ov-label {
+        font-size: 11px; font-weight: 600; letter-spacing: .08em;
+        text-transform: uppercase; color: var(--ink-faint);
+      }
+      .rv-hdr-ov-input {
+        padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: var(--r-sm);
+        background: var(--paper-raised); font-size: 13px;
+      }
+      .rv-hdr-ov-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-wash); }
       .rv-hdr-url { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
       .rv-hdr-url-btn {
         display: inline-flex; align-items: center; gap: 6px; align-self: flex-start;
