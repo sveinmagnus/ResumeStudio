@@ -180,6 +180,61 @@ describe('BackupWatcher', () => {
     w.stop()
   })
 
+  it('the DELETE wins an exact tie against the LOCAL row too (mutation audit)', () => {
+    // Same boundary as applyTombstoneRules' tie test, at the watcher's own
+    // local-row check: a row saved at the very instant of the deletion IS the
+    // deleted state, and `<=` vs `<` here was invisible to the suite.
+    db.restoreResumes(V, [entry({ saved_at: '2026-06-01T00:00:00.000Z' })])
+    const w = make()
+    w.start()
+
+    putFiles(dir, [entry({ id: 'r2', name: 'Anything' })], new Date('2027-01-01T00:00:00Z'))
+    putTombstones(dir, [{ id: 'r1', deleted_at: '2026-06-01T00:00:00.000Z' }], new Date('2027-01-01T00:00:00Z'))
+    pollOnce()
+
+    expect(db.dumpResumes(V).map((e) => e.id)).toEqual(['r2'])
+    w.stop()
+  })
+
+  it('fires onMerged for resume changes — update-only included — but not for registry-only ones (mutation audit)', () => {
+    const merges: unknown[] = []
+    // An UPDATE-only merge must notify: the open editor's RemoteUpdateNotice
+    // rides this callback, and an edited resume is its main case.
+    db.restoreResumes(V, [entry({ saved_at: '2026-01-01T00:00:00.000Z' })])
+    const w = new BackupWatcher({
+      db, dir, intervalMs: INTERVAL, log: (m) => logs.push(m),
+      onMerged: (s) => merges.push(s),
+    })
+    w.start()
+    putFiles(dir, [entry({
+      saved_at: '2026-05-01T00:00:00.000Z',
+      data: { resume: { full_name: 'Ada, revised elsewhere' } },
+    })], new Date('2027-01-01T00:00:00Z'))
+    pollOnce()
+    expect(merges).toEqual([{ inserted: 0, updated: 1, deleted: 0, registry: { added: 0, updated: 0 } }])
+
+    // REGRESSION (found by the mutation audit): a registry-only change — a
+    // canonical rename published by another machine, no resume touched — used
+    // to be skipped forever: the feedback-loop guard compared RESUMES only and
+    // returned after the fingerprint had already advanced. It must merge (and
+    // log), but NOT notify: no resume moved, so there is nothing for the open
+    // editor to reload.
+    merges.length = 0
+    writeJsonAtomic(dir, REGISTRY_FILENAME, {
+      $schema: 'resumestudio-registry/v1',
+      format_version: 1,
+      exported_at: '2027-01-01T00:00:00.000Z',
+      generator: 'resume-studio',
+      registry: [{ id: 'c1', kind: 'skill', name: { en: 'React' }, key: 'react', extra: {}, version: 1, updated_at: '2027-01-01T00:00:00.000Z' }],
+    })
+    fs.utimesSync(path.join(dir, REGISTRY_FILENAME), new Date('2027-02-01T00:00:00Z'), new Date('2027-02-01T00:00:00Z'))
+    pollOnce()
+    expect(logs.some((l) => l.includes('registry +1/0'))).toBe(true)
+    expect(db.listRegistry().map((e) => e.key)).toEqual(['react'])
+    expect(merges).toEqual([])
+    w.stop()
+  })
+
   it('does NOT erase a local resume edited after the deletion', () => {
     // No file here argues for the local copy (this machine hasn't published
     // yet), so the tombstone must be checked against the local row's own

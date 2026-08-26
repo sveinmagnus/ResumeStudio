@@ -1,8 +1,49 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import {
   isValidLocalHostname, isLocalhostSuffixed, needsHostsEntry, isLoopbackHostname,
   applyHostsBlock, managedHostnames, hostsMapsToLoopback, resolvesToLoopback,
+  hostsFilePath, hostnameStatus,
 } from '../../server/localHost'
+
+// hostnameStatus reads the SYSTEM hosts file, which a unit test must never
+// depend on: the mock intercepts exactly that path (set per test via
+// hostsControl) and passes every other fs call through untouched, so the pure
+// text-transform tests above are unaffected.
+const hostsControl = vi.hoisted(() => ({
+  content: null as string | null,
+  writable: false,
+}))
+vi.mock('fs', async (importOriginal) => {
+  const real = await importOriginal<typeof import('fs')>()
+  const isHosts = (p: unknown): boolean =>
+    typeof p === 'string' && p.replace(/\\/g, '/').toLowerCase().endsWith('/etc/hosts')
+  const mocked = {
+    ...real,
+    readFileSync: ((p: unknown, ...rest: unknown[]) => {
+      if (isHosts(p) && hostsControl.content !== null) return hostsControl.content
+      return (real.readFileSync as (...a: unknown[]) => unknown)(p, ...rest)
+    }) as typeof real.readFileSync,
+    openSync: ((p: unknown, ...rest: unknown[]) => {
+      if (isHosts(p)) {
+        if (hostsControl.writable) return 99
+        throw new Error('EACCES')
+      }
+      return (real.openSync as (...a: unknown[]) => unknown)(p, ...rest)
+    }) as typeof real.openSync,
+    closeSync: ((fd: unknown) => {
+      if (fd === 99) return
+      return (real.closeSync as (...a: unknown[]) => unknown)(fd)
+    }) as typeof real.closeSync,
+  }
+  return { ...mocked, default: mocked }
+})
+
+/** Run `fn` with process.platform reporting `platform`, restoring afterwards. */
+function onPlatform<T>(platform: NodeJS.Platform, fn: () => T): T {
+  const real = Object.getOwnPropertyDescriptor(process, 'platform')!
+  Object.defineProperty(process, 'platform', { value: platform })
+  try { return fn() } finally { Object.defineProperty(process, 'platform', real) }
+}
 
 // The hosts file is a SYSTEM file shared with the OS and other tools, so the
 // text transform that rewrites it is pure and pinned here: everything outside
@@ -212,5 +253,126 @@ describe('resolvesToLoopback()', () => {
 
   it('is false for a name that does not resolve', async () => {
     expect(await resolvesToLoopback('nothing-here.resumestudio.local')).toBe(false)
+  })
+})
+
+// ─── Mutation-audit tripwires ────────────────────────────────────────────────
+// The full sweep found the validation boundaries and the whole status half
+// (hostnameStatus, hostsFilePath, the platform texts) unmeasured.
+
+describe('validation boundaries (mutation audit)', () => {
+  it('accepts a single-character label', () => {
+    expect(isValidLocalHostname('a.local')).toBe(true)
+  })
+
+  it('the 253-character ceiling is inclusive', () => {
+    const label = 'a'.repeat(61)
+    // 61+61+61+61 chars + 4 dots + "local" = 253 exactly.
+    const at = [label, label, label, label, 'local'].join('.')
+    expect(at).toHaveLength(253)
+    expect(isValidLocalHostname(at)).toBe(true)
+    // One more character (a still-legal 62-char label) tips it to 254.
+    const over = [label, label, label, 'a'.repeat(62), 'local'].join('.')
+    expect(over).toHaveLength(254)
+    expect(isValidLocalHostname(over)).toBe(false)
+  })
+
+  it('a 63-character label passes; 64 fails', () => {
+    expect(isValidLocalHostname(`${'a'.repeat(63)}.local`)).toBe(true)
+    expect(isValidLocalHostname(`${'a'.repeat(64)}.local`)).toBe(false)
+  })
+
+  it('bare "localhost" is not a WRITABLE name (one label), though it is loopback', () => {
+    expect(isValidLocalHostname('localhost')).toBe(false)
+    expect(isLoopbackHostname('localhost')).toBe(true)
+  })
+
+  it('loopback detection survives uppercase and padding', () => {
+    expect(isLoopbackHostname('  LOCALHOST  ')).toBe(true)
+    expect(isLoopbackHostname('APP.LOCALHOST')).toBe(true)
+    expect(isLoopbackHostname('127.0.0.1')).toBe(true)
+    expect(isLoopbackHostname('::1')).toBe(true)
+    expect(isLoopbackHostname('app.local')).toBe(false)
+  })
+})
+
+describe('hostsFilePath()', () => {
+  afterEach(() => vi.unstubAllEnvs())
+
+  it('windows: under SystemRoot, falling back to C:\\Windows when unset', () => {
+    onPlatform('win32', () => {
+      vi.stubEnv('SystemRoot', 'D:\\Win')
+      expect(hostsFilePath()).toBe('D:\\Win\\System32\\drivers\\etc\\hosts')
+      vi.stubEnv('SystemRoot', '  ')
+      expect(hostsFilePath()).toBe('C:\\Windows\\System32\\drivers\\etc\\hosts')
+    })
+  })
+
+  it('everything else: /etc/hosts', () => {
+    onPlatform('linux', () => expect(hostsFilePath()).toBe('/etc/hosts'))
+  })
+})
+
+describe('hostnameStatus()', () => {
+  const BLOCK = [
+    '# >>> Resume Studio (managed) >>>',
+    '127.0.0.1\tresumestudio.local',
+    '# <<< Resume Studio (managed) <<<',
+  ].join('\n')
+
+  const status = (hostname: string, content: string, writable = false) =>
+    onPlatform('linux', () => {
+      hostsControl.content = content
+      hostsControl.writable = writable
+      try { return hostnameStatus(hostname) } finally { hostsControl.content = null }
+    })
+
+  it('a .localhost name is automatic and installed whatever the file says', () => {
+    const s = status('app.localhost', '')
+    expect(s).toMatchObject({ automatic: true, installed: true, managed: false })
+  })
+
+  it('an entry in OUR block is installed AND managed', () => {
+    const s = status('resumestudio.local', BLOCK)
+    expect(s).toMatchObject({ automatic: false, installed: true, managed: true })
+  })
+
+  it('a hand-written entry is installed but NOT ours to remove', () => {
+    const s = status('resumestudio.local', '127.0.0.1 resumestudio.local')
+    expect(s).toMatchObject({ installed: true, managed: false })
+  })
+
+  it('an absent entry is neither installed nor managed', () => {
+    const s = status('resumestudio.local', '127.0.0.1 something.else.local')
+    expect(s).toMatchObject({ installed: false, managed: false })
+  })
+
+  it('writable follows an actual open-for-write probe', () => {
+    expect(status('resumestudio.local', '', true).writable).toBe(true)
+    expect(status('resumestudio.local', '', false).writable).toBe(false)
+  })
+
+  it('offers the platform-appropriate manual command naming the file and the host', () => {
+    const posix = status('resumestudio.local', '')
+    expect(posix.manualCommand).toContain('sudo tee')
+    expect(posix.manualCommand).toContain('/etc/hosts')
+    expect(posix.manualCommand).toContain('resumestudio.local')
+    onPlatform('win32', () => {
+      hostsControl.content = ''
+      try {
+        expect(hostnameStatus('resumestudio.local').manualCommand).toContain('Add-Content')
+      } finally { hostsControl.content = null }
+    })
+  })
+
+  it('warns about Bonjour only for .local names on macOS', () => {
+    onPlatform('darwin', () => {
+      hostsControl.content = ''
+      try {
+        expect(hostnameStatus('resumestudio.local').note).toMatch(/mDNS/)
+        expect(hostnameStatus('app.localhost').note).toBeNull()
+      } finally { hostsControl.content = null }
+    })
+    expect(status('resumestudio.local', '').note).toBeNull()
   })
 })
