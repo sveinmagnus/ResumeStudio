@@ -24,10 +24,15 @@ function seed() {
 describe('<HeaderEditor>', () => {
   beforeEach(() => resetStore())
 
-  it('edits the full name through a plain TextField', async () => {
+  it('shows a filled name as a locked display and edits it via the pencil', async () => {
     const user = userEvent.setup()
     seed()
     render(<HeaderEditor />)
+    // Filled = display text, not an input — the write-once pattern.
+    expect(screen.queryByDisplayValue('Test Person')).toBeNull()
+    expect(screen.getByText('Test Person')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /edit full name/i }))
     const input = screen.getByDisplayValue('Test Person')
     await user.clear(input)
     await user.type(input, 'Astrid Solberg')
@@ -35,6 +40,26 @@ describe('<HeaderEditor>', () => {
     // scheduling hiccup under load can't flake the read (still asserts the
     // exact final value).
     await waitFor(() => expect(useStore.getState().data.resume?.full_name).toBe('Astrid Solberg'))
+  })
+
+  it('an EMPTY name opens straight into the input — nothing to protect yet', () => {
+    seed()
+    useStore.setState((s) => ({ data: { ...s.data, resume: { ...s.data.resume!, full_name: '' } } }))
+    render(<HeaderEditor />)
+    expect(screen.getByLabelText('Full name')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /edit full name/i })).toBeNull()
+  })
+
+  it('carries the regrouped fields: personal website and the generic social slot', async () => {
+    const user = userEvent.setup()
+    seed()
+    render(<HeaderEditor />)
+    await user.type(screen.getByLabelText('Personal website'), 'https://me.example')
+    await waitFor(() => expect(useStore.getState().data.resume?.personal_website_url).toBe('https://me.example'))
+    // The old Twitter/X field is gone; its storage slot backs the generic one.
+    expect(screen.queryByText(/twitter/i)).toBeNull()
+    await user.type(screen.getByLabelText('Other social media URL'), 'https://mastodon.social/@a')
+    await waitFor(() => expect(useStore.getState().data.resume?.twitter).toBe('https://mastodon.social/@a'))
   })
 
   it('exposes no personal-details Title field (it comes from the profile tag line)', () => {

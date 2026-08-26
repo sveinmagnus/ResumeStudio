@@ -103,10 +103,13 @@ export function buildJsonResume(
     const profiles: Json[] = []
     if (r.linkedin_url) profiles.push({ network: 'LinkedIn', url: r.linkedin_url })
     if (r.twitter) {
-      profiles.push({
-        network: 'Twitter',
-        ...(/^https?:/i.test(r.twitter) ? { url: r.twitter } : { username: r.twitter }),
-      })
+      // The slot holds ANY social profile now (the editor's "Other social
+      // media URL"); only a value that actually points at Twitter/X — or a
+      // bare @handle, which has no other referent — keeps the Twitter network.
+      const isUrl = /^https?:/i.test(r.twitter)
+      const network = !isUrl || /\/\/(www\.)?(twitter\.com|x\.com)\//i.test(r.twitter)
+        ? 'Twitter' : 'Social'
+      profiles.push({ network, ...(isUrl ? { url: r.twitter } : { username: r.twitter }) })
     }
     const basics = compact({
       name: r.full_name,

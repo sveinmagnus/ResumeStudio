@@ -20,8 +20,9 @@ const HEADER_FIELD_LABELS: Record<HeaderField['key'], string> = {
   nationality: 'Nationality',
   date_of_birth: 'Date of birth',
   linkedin: 'LinkedIn',
-  website: 'Website',
-  twitter: 'Twitter / X',
+  website: 'Business website',
+  personal_website: 'Personal website',
+  twitter: 'Other social media',
   languages: 'Languages summary',
 }
 
@@ -99,6 +100,30 @@ export function ViewHeaderControls({
           onChange={(v) => onChange({ title_override: anyLocale(v) ? v : undefined })}
           placeholder="Leave blank to use the Personal Details title"
         />
+      </div>
+      {/* Per-view communication channel: a role that wants its own address or
+          number (a board seat, an agency submission) overrides the master
+          contact here. Blank = the Personal Details value. */}
+      <div className="rv-hdr-contact-overrides">
+        <label className="rv-hdr-ov">
+          <span className="rv-hdr-ov-label">Email override (this view)</span>
+          <input
+            className="rv-hdr-ov-input"
+            type="email"
+            value={header.email_override ?? ''}
+            onChange={(e) => onChange({ email_override: e.target.value || null })}
+            placeholder="Leave blank to use the Personal Details email"
+          />
+        </label>
+        <label className="rv-hdr-ov">
+          <span className="rv-hdr-ov-label">Phone override (this view)</span>
+          <input
+            className="rv-hdr-ov-input"
+            value={header.phone_override ?? ''}
+            onChange={(e) => onChange({ phone_override: e.target.value || null })}
+            placeholder="Leave blank to use the Personal Details phone"
+          />
+        </label>
       </div>
 
       {/* Detail rows */}

@@ -307,9 +307,16 @@ prescriptive.
 - **View customization** — per-view styling (density, body size, heading font,
   accent color, page margin, tag style; `lib/viewStyle.ts`), per-section detail
   levels (off / summary / full) and style overrides, a configurable
-  **header/footer** (which contact fields show, labels, separators, name/title
-  type sizing, profile photo + company logo placement, footer copyright/note;
-  `lib/viewHeader.ts`), and per-section sort modes (`lib/sectionSort.ts`).
+  **header/footer** (which contact fields show — including the business AND
+  personal websites and the generic "other social" slot (stored in the
+  historical `Resume.twitter` field) — labels, separators, name/title type
+  sizing, profile photo + company logo placement, footer copyright/note;
+  `lib/viewHeader.ts`), **per-view email/phone overrides** (a role with its own
+  communication channel: `ViewHeaderConfig.email_override`/`phone_override`,
+  applied in `buildHeaderLines` so every render target agrees; blank = the
+  master value), and per-section sort modes (`lib/sectionSort.ts`). A view
+  saved before a header field key existed still offers it: `withHeaderDefaults`
+  appends missing default fields hidden, so nothing renders until opted in.
   **Untrusted view config (from imports) is sanitised at the render boundary —
   see the security skill before touching `viewStyle`/`viewHeader`/`viewFilter`.**
 - **Richer content** — limited **rich-text** descriptions (bold/italic/underline/

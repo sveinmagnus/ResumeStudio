@@ -121,11 +121,21 @@ const DEFAULT_FIELD_LABELS: Record<HeaderFieldKey, LocalizedString> = {
     nl: 'Website: ', pt: 'Site: ', pl: 'Strona: ',
     fi: 'Verkkosivu: ', is: 'Vefur: ', ru: 'Сайт: ', uk: 'Сайт: ',
   },
+  personal_website: {
+    en: 'Personal site: ', no: 'Privat nettside: ', se: 'Privat webbplats: ', dk: 'Privat websted: ',
+    de: 'Private Website: ', fr: 'Site personnel : ', es: 'Web personal: ', it: 'Sito personale: ',
+    nl: 'Persoonlijke site: ', pt: 'Site pessoal: ', pl: 'Strona prywatna: ',
+    fi: 'Kotisivu: ', is: 'Persónuleg síða: ', ru: 'Личный сайт: ', uk: 'Особистий сайт: ',
+  },
+  // The stored field is `Resume.twitter` (a rename is a shape bump for zero
+  // data value), but its MEANING widened to any social profile, so the default
+  // label is the neutral noun. Views saved earlier keep their stored
+  // "Twitter: " labels — a stored label always wins (see headerFieldLabel).
   twitter: {
-    en: 'Twitter: ', no: 'Twitter: ', se: 'Twitter: ', dk: 'Twitter: ',
-    de: 'Twitter: ', fr: 'Twitter: ', es: 'Twitter: ', it: 'Twitter: ',
-    nl: 'Twitter: ', pt: 'Twitter: ', pl: 'Twitter: ',
-    fi: 'Twitter: ', is: 'Twitter: ', ru: 'Twitter: ', uk: 'Twitter: ',
+    en: 'Social media: ', no: 'Sosiale medier: ', se: 'Sociala medier: ', dk: 'Sociale medier: ',
+    de: 'Soziale Medien: ', fr: 'Réseaux sociaux : ', es: 'Redes sociales: ', it: 'Social media: ',
+    nl: 'Sociale media: ', pt: 'Redes sociais: ', pl: 'Media społecznościowe: ',
+    fi: 'Sosiaalinen media: ', is: 'Samfélagsmiðlar: ', ru: 'Соцсети: ', uk: 'Соцмережі: ',
   },
   languages: {
     en: 'Languages: ', no: 'Språk: ', se: 'Språk: ', dk: 'Sprog: ',
@@ -175,9 +185,10 @@ const DEFAULT_FIELD_SPEC: Array<{ key: HeaderFieldKey; show: boolean; same_line:
   { key: 'languages',     show: true,  same_line: false },
   { key: 'nationality',   show: false, same_line: false },
   { key: 'date_of_birth', show: false, same_line: false },
-  { key: 'linkedin',      show: false, same_line: false },
-  { key: 'website',       show: false, same_line: true  },
-  { key: 'twitter',       show: false, same_line: true  },
+  { key: 'linkedin',          show: false, same_line: false },
+  { key: 'website',           show: false, same_line: true  },
+  { key: 'personal_website',  show: false, same_line: true  },
+  { key: 'twitter',           show: false, same_line: true  },
 ]
 
 export function defaultHeaderFields(): HeaderField[] {
@@ -215,14 +226,32 @@ export const DEFAULT_VIEW_FOOTER: ViewFooterConfig = {
  * views (backups, snapshots) may lack `header` entirely; this is the boundary
  * that guarantees renderers always see a populated config.
  */
+/**
+ * A stored field list, extended with any default keys it predates — a view
+ * saved before `personal_website` existed would otherwise never OFFER the new
+ * field (its header controls iterate the stored list). Appended hidden, at the
+ * end, so nothing a saved view renders changes until the user turns it on.
+ */
+function withMissingFields(fields: HeaderField[]): HeaderField[] {
+  const present = new Set(fields.map((f) => f.key))
+  const missing = defaultHeaderFields().filter((f) => !present.has(f.key))
+  if (!missing.length) return fields
+  const base = Math.max(...fields.map((f) => f.sort_order), -1) + 1
+  return [...fields, ...missing.map((f, i) => ({ ...f, show: false, sort_order: base + i }))]
+}
+
 export function withHeaderDefaults(header: Partial<ViewHeaderConfig> | undefined): ViewHeaderConfig {
   if (!header) return { ...DEFAULT_VIEW_HEADER, fields: defaultHeaderFields() }
   return {
-    fields: header.fields && header.fields.length ? header.fields : defaultHeaderFields(),
+    fields: header.fields && header.fields.length ? withMissingFields(header.fields) : defaultHeaderFields(),
     separator: typeof header.separator === 'string' ? header.separator : DEFAULT_VIEW_HEADER.separator,
     name_style: safeTextStyle(header.name_style, DEFAULT_VIEW_HEADER.name_style),
     title_style: safeTextStyle(header.title_style, DEFAULT_VIEW_HEADER.title_style),
     title_override: header.title_override,
+    // Untrusted-import surface: anything but a string reads as "no override"
+    // (the values themselves are escaped at render like every header value).
+    email_override: typeof header.email_override === 'string' ? header.email_override : null,
+    phone_override: typeof header.phone_override === 'string' ? header.phone_override : null,
     photo_placement: safePhotoPlacement(header.photo_placement),
     photo_override: header.photo_override ?? null,
     photo_shape: safeProfileImageShape(header.photo_shape),
@@ -299,17 +328,30 @@ export function resolveHeaderFieldValue(
   locale: string,
 ): string {
   switch (key) {
-    case 'phone':         return resume.phone ?? ''
-    case 'email':         return resume.email ?? ''
-    case 'location':      return resolve(resume.place_of_residence, locale)
-    case 'nationality':   return resolve(resume.nationality, locale)
-    case 'date_of_birth': return resume.date_of_birth ?? ''
-    case 'linkedin':      return resume.linkedin_url ?? ''
-    case 'website':       return resume.website_url ?? ''
-    case 'twitter':       return resume.twitter ?? ''
-    case 'languages':     return buildLanguageSummary(store, locale)
-    default:              return ''
+    case 'phone':            return resume.phone ?? ''
+    case 'email':            return resume.email ?? ''
+    case 'location':         return resolve(resume.place_of_residence, locale)
+    case 'nationality':      return resolve(resume.nationality, locale)
+    case 'date_of_birth':    return resume.date_of_birth ?? ''
+    case 'linkedin':         return resume.linkedin_url ?? ''
+    case 'website':          return resume.website_url ?? ''
+    case 'personal_website': return resume.personal_website_url ?? ''
+    case 'twitter':          return resume.twitter ?? ''
+    case 'languages':        return buildLanguageSummary(store, locale)
+    default:                 return ''
   }
+}
+
+/**
+ * A view's own contact channel for a field, when it sets one — a role that
+ * wants its own email/phone (a board seat, an agency submission) overrides the
+ * master value here. Empty or whitespace reads as "no override". Applied in
+ * buildHeaderLines so every render target agrees; the resume-only
+ * resolveHeaderFieldValue stays pure.
+ */
+export function headerFieldOverride(header: ViewHeaderConfig, key: HeaderFieldKey): string {
+  const raw = key === 'email' ? header.email_override : key === 'phone' ? header.phone_override : null
+  return typeof raw === 'string' ? raw.trim() : ''
 }
 
 export interface HeaderSegment {
@@ -338,7 +380,8 @@ export function buildHeaderLines(
   const lines: HeaderLine[] = []
   for (const field of ordered) {
     if (!field.show) continue
-    const value = resolveHeaderFieldValue(field.key, resume, store, locale)
+    const value = headerFieldOverride(header, field.key)
+      || resolveHeaderFieldValue(field.key, resume, store, locale)
     if (!value) continue
     const segment: HeaderSegment = { label: headerFieldLabel(field, locale), value }
     if (field.same_line && lines.length > 0) {
