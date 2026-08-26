@@ -20,7 +20,7 @@ const SUGGESTIONS = [
   {
     hostname: 'resumestudio.localhost',
     label: 'resumestudio.localhost',
-    detail: 'Works immediately in any browser — nothing to install.',
+    detail: 'Works immediately in any browser — nothing to install. This is the default.',
   },
   {
     hostname: 'resumestudio.local',

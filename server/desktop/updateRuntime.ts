@@ -388,29 +388,61 @@ export function buildSwapScript(input: SwapScriptInput): SwapScript {
       `Write-Host '  ==========================================='`,
       `Write-Host ''`,
       `Write-Host '  Waiting for the app to close...'`,
-      // Reliable wait for OUR process to exit so node.exe unlocks (no tasklist).
-      `Wait-Process -Id ${pid} -Timeout 60 -ErrorAction SilentlyContinue`,
+      // Wait on the actual lock, not a bare PID: the launcher's freed PID can be
+      // handed to an unrelated process within the shutdown handoff, and the old
+      // `Wait-Process -Id <pid> -Timeout 60` then sat a full minute on that
+      // stranger. What the copy really needs is that nothing is still executing
+      // the installed node.exe — so watch for exactly that, bounded at 30s.
+      `$nodeDst = Join-Path $dst 'node.exe'`,
+      `for ($w = 0; $w -lt 60; $w++) {`,
+      `  $live = @(Get-Process -Name node -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $nodeDst })`,
+      `  if ($live.Count -eq 0) { break }`,
+      `  Start-Sleep -Milliseconds 500`,
+      `}`,
       `Start-Sleep -Milliseconds 400`,
+      // Renamed-aside leftovers from a previous update (see below) die here.
+      `Get-ChildItem -LiteralPath $dst -Recurse -Filter '*.updater-old' -File -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue`,
       `Write-Host '  Copying files...'`,
       `$files = @(Get-ChildItem -LiteralPath $src -Recurse -File)`,
       `$total = [Math]::Max($files.Count, 1)`,
       `$i = 0`,
+      `$failed = @()`,
       `foreach ($f in $files) {`,
       `  $i++`,
       `  $rel = $f.FullName.Substring($src.Length).TrimStart([char]92)`,
       `  $target = Join-Path $dst $rel`,
       `  $tdir = Split-Path -Parent $target`,
       `  if (-not (Test-Path -LiteralPath $tdir)) { New-Item -ItemType Directory -Path $tdir -Force | Out-Null }`,
-      // Retry per file in case a handle lingers briefly after exit.
+      `  $ok = $false`,
       `  for ($t = 0; $t -lt 40; $t++) {`,
-      `    try { Copy-Item -LiteralPath $f.FullName -Destination $target -Force -ErrorAction Stop; break }`,
-      `    catch { Start-Sleep -Milliseconds 500 }`,
+      `    try { Copy-Item -LiteralPath $f.FullName -Destination $target -Force -ErrorAction Stop; $ok = $true; break }`,
+      `    catch {`,
+      // A locked destination can still be RENAMED (Windows keeps the mapping on
+      // the file, not the name) — move it aside and land the copy immediately.
+      // This is what saves node.exe when a scanner or straggler holds it: the
+      // plain retry loop once burned its whole budget on that file and then
+      // skipped it, leaving the old binary under a new app.
+      `      if ($t -eq 0 -and (Test-Path -LiteralPath $target)) {`,
+      `        try { Move-Item -LiteralPath $target -Destination ($target + '.updater-old') -Force -ErrorAction Stop; continue } catch {}`,
+      `      }`,
+      `      Start-Sleep -Milliseconds 500`,
+      `    }`,
       `  }`,
+      `  if (-not $ok) { $failed += $rel }`,
       `  $fill = [int](40 * $i / $total)`,
       `  $bar = ('#' * $fill) + ('-' * (40 - $fill))`,
       `  Write-Host ([char]13 + ('  [' + $bar + '] ' + [int](100 * $i / $total) + '%  ' + $i + '/' + $total + ' files')) -NoNewline`,
       `}`,
       `Write-Host ''`,
+      `Get-ChildItem -LiteralPath $dst -Recurse -Filter '*.updater-old' -File -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue`,
+      // A file that never copied is a PARTIAL install — say so instead of
+      // closing over it. The window stays up long enough to be read.
+      `if ($failed.Count -gt 0) {`,
+      `  Write-Host ''`,
+      `  Write-Host ('  WARNING: ' + $failed.Count + ' file(s) could not be updated:')`,
+      `  $failed | ForEach-Object { Write-Host ('    ' + $_) }`,
+      `  Start-Sleep -Seconds 8`,
+      `}`,
       `Write-Host ''`,
       `Write-Host '  Update installed. Restarting Resume Studio...'`,
       `Start-Sleep -Milliseconds 800`,
@@ -450,7 +482,15 @@ export function buildSwapScript(input: SwapScriptInput): SwapScript {
   const sh = (p: string) => `'${p.replace(/'/g, `'\\''`)}'` // single-quote-safe
   const contents = [
     '#!/bin/sh',
-    `while kill -0 ${pid} 2>/dev/null; do sleep 1; done`,
+    // Bounded, identity-checked wait. A bare `kill -0` loop had two failure
+    // modes: a freed PID reused by a long-lived process made it wait forever,
+    // and there was no cap at all. Stop when the PID is gone, no longer names a
+    // node process, or 60s pass.
+    'n=0',
+    `while [ "$n" -lt 60 ] && ps -p ${pid} -o comm= 2>/dev/null | grep -q node; do`,
+    '  sleep 1',
+    '  n=$((n+1))',
+    'done',
     // Overlay the staged build onto the install dir (data lives elsewhere).
     `cp -R ${sh(stagedDir)}/. ${sh(installDir)}/`,
     `chmod +x ${sh(nodeBin)} 2>/dev/null || true`,

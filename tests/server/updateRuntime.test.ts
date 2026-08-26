@@ -1,4 +1,7 @@
-import { describe, it, expect, afterEach, vi } from 'vitest'
+import fs from 'fs'
+import os from 'os'
+import path from 'path'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
   buildSwapScript, initUpdateRuntime, runCheck, runInstall, getUpdateStatus, trayView,
   setTrayRefresher, handleCheckClick, handleInstallClick, __resetUpdateRuntimeForTests,
@@ -25,8 +28,15 @@ describe('buildSwapScript (Windows)', () => {
     expect(s.spawn.args[s.spawn.args.length - 1]).toBe(s.path)
   })
 
-  it('waits via Wait-Process (not tasklist|find/ping) and copies with a progress bar', () => {
-    expect(s.contents).toContain('Wait-Process -Id 4321')
+  it('waits on processes running the INSTALLED node.exe, never a bare PID', () => {
+    // The launcher's freed PID can be reassigned within the shutdown handoff,
+    // and `Wait-Process -Id <pid> -Timeout 60` then waited a full minute on the
+    // stranger (a real update spent ~70s on a ~10s swap). The true condition is
+    // that nothing still executes the installed node.exe.
+    expect(s.contents).not.toContain('Wait-Process')
+    expect(s.contents).toContain(`Join-Path $dst 'node.exe'`)
+    expect(s.contents).toContain('Get-Process -Name node')
+    expect(s.contents).toContain('$_.Path -eq $nodeDst')
     expect(s.contents).not.toContain('tasklist')
     expect(s.contents).not.toContain('robocopy')
     expect(s.contents).toContain('Copy-Item')
@@ -34,6 +44,19 @@ describe('buildSwapScript (Windows)', () => {
     expect(s.contents).toContain("'#' * $fill")
     // Paths embedded as single-quoted PS literals.
     expect(s.contents).toContain(`$dst = '/opt/Resume Studio'`)
+  })
+
+  it('renames a locked destination aside instead of burning the retry budget', () => {
+    // A locked file can still be renamed on Windows; without this, node.exe
+    // once failed all 40 retries and was SKIPPED — new app on the old binary.
+    expect(s.contents).toContain(`Move-Item -LiteralPath $target -Destination ($target + '.updater-old')`)
+    // Leftovers are swept on the next run (and best-effort at the end).
+    expect(s.contents).toContain(`-Filter '*.updater-old'`)
+  })
+
+  it('reports files it could not update instead of finishing silently', () => {
+    expect(s.contents).toContain('$failed += $rel')
+    expect(s.contents).toContain('could not be updated')
   })
 
   it('relaunches WINDOWLESS via wscript.exe + the no-window .vbs shim', () => {
@@ -59,8 +82,14 @@ describe('buildSwapScript (POSIX)', () => {
     expect(s.spawn).toEqual({ cmd: 'sh', args: [s.path] })
   })
 
-  it('waits for the PID, copies the build, relaunches, and cleans staging', () => {
-    expect(s.contents).toContain('kill -0 4321')
+  it('waits BOUNDED on an identity-checked PID, copies, relaunches, cleans staging', () => {
+    // `while kill -0 pid` was unbounded AND blind to PID reuse — a freed PID
+    // taken by a long-lived process would stall the update forever. The wait
+    // must confirm the PID still names a node process and give up after a cap.
+    expect(s.contents).not.toContain('kill -0')
+    expect(s.contents).toContain('ps -p 4321 -o comm=')
+    expect(s.contents).toContain('grep -q node')
+    expect(s.contents).toContain('[ "$n" -lt 60 ]')
     expect(s.contents).toContain('cp -R')
     // Linux launcher name
     expect(s.contents).toContain('resume-studio.sh')
@@ -313,7 +342,20 @@ describe('the click handlers', () => {
 })
 
 describe('runInstall — the checksum rejection, end to end', () => {
-  afterEach(() => { __resetUpdateRuntimeForTests(); vi.unstubAllGlobals() })
+  // stageUpdate resolves its staging root from RESUME_DATA_DIR. Left unstubbed,
+  // this test wrote a real `updates/9.9.9/` into the developer's actual
+  // %APPDATA%\ResumeStudio — one was found on a live machine.
+  let scratch: string
+  beforeEach(() => {
+    scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'rs-update-test-'))
+    vi.stubEnv('RESUME_DATA_DIR', scratch)
+  })
+  afterEach(() => {
+    __resetUpdateRuntimeForTests()
+    vi.unstubAllGlobals()
+    vi.unstubAllEnvs()
+    fs.rmSync(scratch, { recursive: true, force: true })
+  })
 
   it('rejects a download whose checksum does not verify, and installs NOTHING', async () => {
     /*

@@ -356,6 +356,24 @@ describe('stageUpdate verification', () => {
   it('rejects when the release publishes a sidecar it cannot serve', async () => {
     // Sidecar 404s
     const f = routedFetch({ [assetUrl]: payload })
-    await expect(stageUpdate(info(), tmpRoot(), undefined, 'linux', f)).rejects.toThrow(ChecksumError)
+    const root = tmpRoot()
+    await expect(stageUpdate(info(), root, undefined, 'linux', f)).rejects.toThrow(ChecksumError)
+    // This failure path used to leave the downloaded archive behind in staging
+    // (a real machine still carried one from months back). Any failure cleans.
+    expect(fs.existsSync(path.join(root, '9.9.9'))).toBe(false)
+  })
+
+  it('clears stale staging from PREVIOUS versions before staging a new one', async () => {
+    // A cancelled swap leaves its version dir behind, and only the swap script
+    // for that same run ever deleted it — so old dirs accumulated forever.
+    const root = tmpRoot()
+    fs.mkdirSync(path.join(root, '0.9.2', 'extracted'), { recursive: true })
+    fs.writeFileSync(path.join(root, '0.9.2', 'apply-update.ps1'), 'stale')
+    const f = routedFetch({
+      [assetUrl]: 'TAMPERED',
+      [sumUrl]: `${realDigest}  pkg.tar.gz\n`,
+    })
+    await expect(stageUpdate(info(), root, undefined, 'linux', f)).rejects.toThrow(ChecksumError)
+    expect(fs.existsSync(path.join(root, '0.9.2'))).toBe(false)
   })
 })

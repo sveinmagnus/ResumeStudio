@@ -21,7 +21,7 @@ import path from 'path'
 import { resolvePaths } from './config.js'
 import { ltLoadOnly, TRANSLATE_PROVIDERS, type TranslateConfig, type TranslateProvider } from './translate.js'
 import { DEFAULT_OLLAMA_URL, LLM_PROVIDERS, type LlmConfig, type LlmProvider } from './llm.js'
-import { isValidLocalHostname } from './localHost.js'
+import { isValidLocalHostname, DEFAULT_LOCALHOST_NAME } from './localHost.js'
 import {
   DEFAULT_SENDMAIL_PATH, isValidEmailAddress, MAIL_TRANSPORTS, SMTP_SECURITIES,
   type MailConfig, type MailTransport, type SmtpSecurity,
@@ -75,9 +75,10 @@ export interface AppSettings {
   translate_languages: string[]
   // ── Local address (desktop) ──
   /**
-   * The name this machine reaches the app at instead of `127.0.0.1`
-   * (`resumestudio.localhost` / `resumestudio.local`). Empty = the IP.
-   * Also widens the desktop Host guard — see server/app.ts.
+   * The name this machine reaches the app at (`resumestudio.localhost` /
+   * `resumestudio.local`). Defaults to `resumestudio.localhost`, which needs no
+   * setup; an explicitly stored '' means "use 127.0.0.1" (the Address tab's
+   * opt-out). Also widens the desktop Host guard — see server/app.ts.
    */
   local_hostname: string
   /**
@@ -166,7 +167,12 @@ export const DEFAULT_SETTINGS: AppSettings = {
   // Matches what docker-compose.yml shipped with, so an existing install's
   // container isn't recreated just because the setting appeared.
   translate_languages: ['en', 'no', 'se', 'dk'],
-  local_hostname: '',
+  // The readable name IS the default: `.localhost` is loopback by definition
+  // (RFC 6761), needs no setup on any OS, and the desktop Host guard already
+  // accepts the whole TLD. An install that never chose keeps opening at
+  // `resumestudio.localhost`; an explicitly stored '' still means "the IP" —
+  // that remains the Address tab's opt-out.
+  local_hostname: DEFAULT_LOCALHOST_NAME,
   local_port: 0,
   backup_dir: '',
   backup_interval_ms: 60_000,
@@ -440,11 +446,15 @@ function coerceField(f: FieldSpec, raw: unknown): AppSettings[keyof AppSettings]
       const floored = f.min !== undefined ? Math.max(f.min, n) : n
       return f.max !== undefined ? Math.min(f.max, floored) : floored
     }
-    // An invalid stored name falls back to empty (the IP) rather than being
-    // written onto the Host guard's allow-list unchecked.
+    // An ABSENT key gets the default name; an explicitly stored '' is a real
+    // choice ("use the IP") and is kept. An invalid stored name falls back to
+    // the default rather than being written onto the Host guard's allow-list
+    // unchecked — the default is `.localhost`, which the guard accepts by
+    // definition, so nothing unvetted widens it.
     case 'host': {
-      const h = typeof raw === 'string' ? raw.trim().toLowerCase() : ''
-      return isValidLocalHostname(h) ? h : ''
+      if (typeof raw !== 'string') return dflt
+      const h = raw.trim().toLowerCase()
+      return h === '' || isValidLocalHostname(h) ? h : dflt
     }
     // An invalid stored address falls back to empty, which reads as "mail is
     // not configured" rather than being written into a header unchecked.

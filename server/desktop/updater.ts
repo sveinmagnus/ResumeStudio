@@ -416,32 +416,43 @@ export async function stageUpdate(
     throw new ChecksumError(`This release publishes no checksum for ${info.assetName}, so the download cannot be verified.`)
   }
   const verDir = path.join(stagingRoot, info.latestVersion)
-  fs.rmSync(verDir, { recursive: true, force: true })
+  // Clear the WHOLE staging root, not just this version's dir: a cancelled or
+  // failed update leaves its staging behind, and nothing else ever deletes it
+  // (a real machine was found still carrying a version dir from months back).
+  // Nothing but our own version dirs lives under stagingRoot.
+  fs.rmSync(stagingRoot, { recursive: true, force: true })
   fs.mkdirSync(verDir, { recursive: true })
 
-  const archive = path.join(verDir, info.assetName)
-  await downloadAsset(info.assetUrl, archive, onProgress, fetchImpl)
+  try {
+    const archive = path.join(verDir, info.assetName)
+    await downloadAsset(info.assetUrl, archive, onProgress, fetchImpl)
 
-  // Verify BEFORE tar sees the bytes: extraction trusts the archive, so the
-  // digest check is what stands between a tampered blob and our filesystem.
-  const expected = await fetchChecksum(info.checksumUrl, info.assetName, fetchImpl)
-  const actual = await sha256File(archive)
-  if (actual !== expected) {
+    // Verify BEFORE tar sees the bytes: extraction trusts the archive, so the
+    // digest check is what stands between a tampered blob and our filesystem.
+    const expected = await fetchChecksum(info.checksumUrl, info.assetName, fetchImpl)
+    const actual = await sha256File(archive)
+    if (actual !== expected) {
+      throw new ChecksumError('Downloaded update failed its checksum check and was discarded.')
+    }
+
+    const extractDir = path.join(verDir, 'extracted')
+    await extractArchive(archive, extractDir)
+    // The build script tars the contents of release/ (so entries are at the root
+    // of the archive). If a single wrapping dir slipped in, unwrap it.
+    const root = resolveBuildRoot(extractDir, platform)
+    if (!looksLikeValidBuild(root, platform)) {
+      throw new Error('Downloaded update failed its integrity check.')
+    }
+    // Free the archive once extracted.
+    try { fs.rmSync(archive, { force: true }) } catch { /* best-effort */ }
+    return { dir: root, version: info.latestVersion }
+  } catch (err) {
+    // Whatever failed — download, verification, extraction — nothing staged
+    // may remain: a rejected blob must not be left on disk, and a half-staged
+    // dir would otherwise linger until the next attempt at the SAME version.
     try { fs.rmSync(verDir, { recursive: true, force: true }) } catch { /* best-effort */ }
-    throw new ChecksumError('Downloaded update failed its checksum check and was discarded.')
+    throw err
   }
-
-  const extractDir = path.join(verDir, 'extracted')
-  await extractArchive(archive, extractDir)
-  // The build script tars the contents of release/ (so entries are at the root
-  // of the archive). If a single wrapping dir slipped in, unwrap it.
-  const root = resolveBuildRoot(extractDir, platform)
-  if (!looksLikeValidBuild(root, platform)) {
-    throw new Error('Downloaded update failed its integrity check.')
-  }
-  // Free the archive once extracted.
-  try { fs.rmSync(archive, { force: true }) } catch { /* best-effort */ }
-  return { dir: root, version: info.latestVersion }
 }
 
 /**

@@ -1041,7 +1041,12 @@ Full end-user + build docs in **`DESKTOP.md`**. Load-bearing invariants for work
   `resumestudio.localhost` needs no setup — RFC 6761 reserves the whole
   `.localhost` TLD for loopback, browsers resolve it internally, and it is not
   delegated in the DNS root, so `app.ts`'s rebinding guard accepts **any**
-  `.localhost` name unconditionally. `resumestudio.local` needs a hosts-file
+  `.localhost` name unconditionally. **It is also the DEFAULT**
+  (`DEFAULT_SETTINGS.local_hostname`): the launcher opens the name on every OS
+  with zero configuration, and an ABSENT `local_hostname` key coerces to it —
+  that absence was exactly why an upgraded install kept opening `127.0.0.1`. An
+  explicitly stored `''` remains the Address tab's "Use the IP address" opt-out
+  and is preserved. `resumestudio.local` needs a hosts-file
   line, so it is accepted only when the user configured it
   (`RESUME_LOCAL_HOSTNAME`). Names are constrained to those two suffixes: an
   arbitrary one written into a hosts file could shadow a real site on the user's
@@ -1096,7 +1101,7 @@ Full end-user + build docs in **`DESKTOP.md`**. Load-bearing invariants for work
 - **Auto-update = staged-swap, not Electron.** `updater.ts` checks GitHub Releases, downloads the per-platform `.tar.gz` (host-allowlisted — SSRF guard), extracts with system `tar`, validates the tree. To replace files a running process can't overwrite (esp. `node.exe` on Windows) it writes a detached per-OS swap script (`buildSwapScript`) that waits for our PID, mirrors the staged build over `RESUME_INSTALL_DIR`, relaunches, and self-deletes. Gated by `isUpdateSupported()` — VPS reports `supported:false` and 403s (a server must never rewrite its own files). `RESUME_NO_UPDATE` disables; `RESUME_UPDATE_REPO` overrides. Keep `assetNameFor` in `updater.ts` and its copy in `build-desktop.mjs` in sync.
 - **Version source of truth (don't reintroduce the v0.3.2 drift bug).** A *published* build's version is the **git tag** — `release.yml` derives it from `GITHUB_REF_NAME`, exports `RESUME_APP_VERSION`, and **hard-fails if `package.json` doesn't match the tag**. To cut a release: bump `package.json` **and** `package-lock.json`, commit, then tag `vX.Y.Z`. Local `npm run build:desktop` (no env) uses `package.json`.
 - **Two version strings, and only CI may claim the release one.** `APP_VERSION` stays a bare semver (the updater compares it to the latest release); `APP_VERSION_LABEL` is what humans read — `v<semver>` **only** when `RESUME_BUILD_CHANNEL=release`, which is set in exactly one place (`release.yml`, beside the tag check), otherwise `Dev-<commit>`. The channel is **declared, never sniffed**, for the same reason as `llm_high_end` (§15): a local `build:desktop` produces a near-identical tree, so anything the tree can observe about itself would let a working copy claim to be the artifact users downloaded. The tray, the Version tab, the picker footer and the update banner all render the server's label **verbatim** — don't re-add a `v` prefix at a display site, since `Dev-…` has no version number to prefix.
-- **Windows update UX:** the swap is a **visible PowerShell window** with a progress bar (`Wait-Process`, file-by-file `Copy-Item`); the **relaunch is windowless** via `wscript.exe` (invoked by name — never by file association, which opened a text editor and was the original install bug) running `Resume Studio (no window).vbs`. POSIX stays a detached `sh` script. See `DESKTOP.md §6`.
+- **Windows update UX:** the swap is a **visible PowerShell window** with a progress bar (file-by-file `Copy-Item`); the **relaunch is windowless** via `wscript.exe` (invoked by name — never by file association, which opened a text editor and was the original install bug) running `Resume Studio (no window).vbs`. POSIX stays a detached `sh` script. **The swap never waits on a bare PID** — a freed PID can be reassigned within the shutdown handoff, and `Wait-Process -Id <pid> -Timeout 60` once sat a full minute on the stranger (a ~70s update that should have taken ~10). Windows waits (bounded) until no process is running the *installed* `node.exe`; POSIX bounds its wait and checks the PID still names a node process. A locked destination file is **renamed aside** (`*.updater-old`, swept next run) rather than retried into oblivion — the plain retry loop once exhausted its budget on `node.exe` and silently skipped it, leaving the new app on the old binary; any file that still fails is named in a visible WARNING, never skipped silently. See `DESKTOP.md §6`.
 
 ---
 

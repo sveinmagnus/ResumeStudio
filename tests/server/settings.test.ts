@@ -13,6 +13,7 @@ import { MAIL_TRANSPORTS, SMTP_SECURITIES, isMailConfigured } from '../../server
 
 const ENV_KEYS = [
   'RESUME_DATA_DIR', 'RESUME_DESKTOP', 'LIBRETRANSLATE_URL', 'LIBRETRANSLATE_API_KEY',
+  'RESUME_LOCAL_HOSTNAME', 'RESUME_LOCAL_PORT',
   'RESUME_BACKUP_DIR', 'RESUME_BACKUP_INTERVAL_MS', 'TRANSLATE_PROVIDER',
   'DEEPL_API_KEY', 'GOOGLE_TRANSLATE_API_KEY', 'AZURE_TRANSLATOR_KEY', 'AZURE_TRANSLATOR_REGION',
   'MAIL_TRANSPORT', 'MAIL_FROM', 'SENDMAIL_PATH', 'SMTP_HOST', 'SMTP_PORT',
@@ -287,6 +288,29 @@ describe('validateSettingsPatch', () => {
     expect(validateSettingsPatch({ local_port: 1923 })).toEqual({ patch: { local_port: 1923 } })
     expect(validateSettingsPatch({ local_port: -1 })).toHaveProperty('error')
     expect(validateSettingsPatch({ local_port: 70000 })).toHaveProperty('error')
+  })
+
+  /**
+   * The readable name is the DEFAULT: a settings.json that predates the feature
+   * (no key at all) must come back as `resumestudio.localhost` so the launcher
+   * opens the name with zero configuration — that key being absent was exactly
+   * why an upgraded install kept opening 127.0.0.1. An explicitly stored '' is
+   * the Address tab's "Use the IP address" choice and must survive the load.
+   */
+  it('defaults an ABSENT local_hostname to resumestudio.localhost, keeps an explicit ""', () => {
+    expect(DEFAULT_SETTINGS.local_hostname).toBe('resumestudio.localhost')
+
+    fs.mkdirSync(path.dirname(settingsFilePath()), { recursive: true })
+    fs.writeFileSync(settingsFilePath(), JSON.stringify({ llm_model: 'x' }))
+    expect(loadSettings().local_hostname).toBe('resumestudio.localhost')
+
+    fs.writeFileSync(settingsFilePath(), JSON.stringify({ local_hostname: '' }))
+    expect(loadSettings().local_hostname).toBe('')
+
+    // A garbled stored name falls back to the default — which is `.localhost`,
+    // so nothing unvetted ever widens the desktop Host guard.
+    fs.writeFileSync(settingsFilePath(), JSON.stringify({ local_hostname: 'mail.company.com' }))
+    expect(loadSettings().local_hostname).toBe('resumestudio.localhost')
   })
 
   it('constrains translate_languages to locale-shaped codes', () => {

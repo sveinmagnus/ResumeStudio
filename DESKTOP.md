@@ -169,13 +169,15 @@ immediately.
 
 ## 4a. A name instead of `127.0.0.1`
 
-**Settings → Local address** lets you reach the app at something you can
-remember and bookmark. Two kinds of name are offered, and they cost different
-amounts:
+The app opens at **`http://resumestudio.localhost`** by default — no
+configuration needed, on every OS. **Settings → Local address** lets you pick a
+different name, or opt back to the bare IP ("Use the IP address"). Two kinds of
+name are offered, and they cost different amounts:
 
-- **`resumestudio.localhost`** — works immediately, in any browser, with
-  nothing installed. The whole `.localhost` domain is reserved for "this
-  computer" (RFC 6761) and browsers resolve it themselves without asking DNS.
+- **`resumestudio.localhost`** (the default) — works immediately, in any
+  browser, with nothing installed. The whole `.localhost` domain is reserved for
+  "this computer" (RFC 6761) and browsers resolve it themselves without asking
+  DNS.
 - **`resumestudio.local`** — needs **one line added to your system hosts file**,
   which needs administrator approval. In exchange it works everywhere, not just
   in browsers: `curl`, scripts, other tools.
@@ -380,6 +382,11 @@ Electron. Because a running program can't overwrite its own files (especially
 the Node binary on Windows, which is locked while running), the install hands
 off to a tiny helper script (a visible PowerShell window on Windows) that waits
 for the app to exit, copies the new files with a progress bar, and relaunches.
+The wait watches for processes actually running the installed `node.exe`
+(bounded — never a bare PID, which the OS can hand to an unrelated process the
+moment the app exits), and a file something still holds locked is renamed aside
+so the new copy lands immediately; anything that genuinely cannot be replaced is
+named in a visible warning rather than skipped silently.
 On Windows the relaunch uses the **no-window launcher** (`Resume Studio
 (no window).vbs`), so after an update the app runs without a console window —
 exactly as if you had started it windowless yourself; quit it from the tray
@@ -420,7 +427,7 @@ first run, then overrides them.
 | `RESUME_CLIENT_DIR` | Where the built client lives | set by the launcher shim |
 | `RESUME_COMPOSE_FILE` | docker-compose file for managed translate | set by the launcher shim |
 | `PORT` / `RESUME_LOCAL_PORT` | Pin the port. Set explicitly, it is the ONLY candidate tried (an OS-assigned port is used if it's taken, and the log says so) | unset (try 80, then 1923) |
-| `RESUME_LOCAL_HOSTNAME` | The `.local`/`.localhost` name the app opens at and accepts as `Host` (usually set via Settings → Local address) | unset (use `127.0.0.1`) |
+| `RESUME_LOCAL_HOSTNAME` | The `.local`/`.localhost` name the app opens at and accepts as `Host` (usually set via Settings → Local address) | `resumestudio.localhost` |
 | `RESUME_NO_BROWSER` | Don't auto-open a browser (headless/CI) | unset |
 | `RESUME_API_TOKEN` | Require a bearer token (not needed for loopback-only) | unset |
 | `RESUME_NO_UPDATE` | Disable the auto-updater (background check + install) | unset (updates on) |
