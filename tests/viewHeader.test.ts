@@ -432,7 +432,7 @@ describe('the default field spec', () => {
 
   it('puts email on the phone\u2019s line and starts a new line for the rest', () => {
     const sameLine = defaultHeaderFields().filter((f) => f.same_line).map((f) => f.key)
-    expect(sameLine).toEqual(['email', 'website', 'twitter'])
+    expect(sameLine).toEqual(['email', 'website', 'personal_website', 'twitter'])
   })
 
   it('numbers the fields in spec order with no gaps or duplicates', () => {
@@ -503,8 +503,21 @@ describe('withHeaderDefaults — the untrusted-import boundary', () => {
       .toEqual(defaultHeaderFields().map((f) => f.key))
   })
 
-  it('keeps a supplied field list', () => {
+  it('keeps a supplied field list, appending only the default keys it predates — hidden', () => {
+    // The append is what lets a view saved before a field key existed still
+    // OFFER it (the header controls iterate the stored list); hidden + last,
+    // so nothing the saved view renders changes until the user turns it on.
     const fields = [{ key: 'email' as const, show: true, same_line: false, sort_order: 0, label: {} }]
+    const out = withHeaderDefaults({ fields }).fields
+    expect(out[0]).toEqual(fields[0])
+    const appended = out.slice(1)
+    expect(appended.every((f) => !f.show)).toBe(true)
+    expect(new Set(out.map((f) => f.key)).size).toBe(defaultHeaderFields().length)
+    expect(appended.map((f) => f.sort_order)).toEqual(appended.map((_, i) => i + 1))
+  })
+
+  it('a complete stored list is returned exactly as supplied', () => {
+    const fields = defaultHeaderFields().map((f) => ({ ...f, show: true }))
     expect(withHeaderDefaults({ fields }).fields).toEqual(fields)
   })
 
@@ -729,6 +742,50 @@ describe('resolveHeaderFieldValue', () => {
 
   it('returns an empty string for a field the resume never filled', () => {
     expect(resolveHeaderFieldValue('phone', makeResume({ phone: undefined }), emptyStore(), 'en')).toBe('')
+  })
+
+  it('reads the personal website off its own field, absent tolerated', () => {
+    expect(resolveHeaderFieldValue(
+      'personal_website', makeResume({ personal_website_url: 'https://me.example' }), emptyStore(), 'en',
+    )).toBe('https://me.example')
+    expect(resolveHeaderFieldValue('personal_website', makeResume(), emptyStore(), 'en')).toBe('')
+  })
+})
+
+describe('per-view contact overrides (email/phone)', () => {
+  // A role that wants its own communication channel: the view's override wins
+  // over the master value in every render target — buildHeaderLines is the one
+  // place all four read.
+  const showAll = (h: ViewHeaderConfig): ViewHeaderConfig => ({
+    ...h,
+    fields: h.fields.map((f) => ({ ...f, show: f.key === 'phone' || f.key === 'email' })),
+  })
+  const r = () => makeResume({ phone: '+47 1', email: 'master@x.no' })
+
+  const values = (over: Partial<ViewHeaderConfig>): string[] =>
+    buildHeaderLines(showAll(withHeaderDefaults(over)), r(), emptyStore(), 'en')
+      .flat().map((s) => s.value)
+
+  it('an override replaces the master value; blank falls back', () => {
+    expect(values({})).toEqual(['+47 1', 'master@x.no'])
+    expect(values({ email_override: 'board@x.no', phone_override: '+47 2' }))
+      .toEqual(['+47 2', 'board@x.no'])
+    expect(values({ email_override: '  ', phone_override: null }))
+      .toEqual(['+47 1', 'master@x.no'])
+  })
+
+  it('an override even supplies a value the master never had', () => {
+    const bare = makeResume({ phone: null, email: '' })
+    const lines = buildHeaderLines(
+      showAll(withHeaderDefaults({ phone_override: '+47 9' })), bare, emptyStore(), 'en',
+    )
+    expect(lines.flat().map((s) => s.value)).toEqual(['+47 9'])
+  })
+
+  it('the untrusted-import boundary reads a non-string override as none', () => {
+    expect(withHeaderDefaults({ email_override: 42 as never }).email_override).toBeNull()
+    expect(withHeaderDefaults({ phone_override: ['x'] as never }).phone_override).toBeNull()
+    expect(withHeaderDefaults({ email_override: 'a@b.no' }).email_override).toBe('a@b.no')
   })
 })
 

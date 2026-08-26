@@ -4,15 +4,17 @@ import type { YearMonth } from '../../types'
 
 // ─── Plain text field (not localized) ─────────────────────────────────────────
 
-export function TextField({ label, value, onChange, placeholder, type = 'text' }: {
+export function TextField({ label, value, onChange, placeholder, type = 'text', onBlur }: {
   label: string; value: string; onChange: (v: string) => void; placeholder?: string; type?: string
+  /** For write-once wrappers (HeaderEditor's LockedField) that close on blur. */
+  onBlur?: () => void
 }) {
   const id = useId()
   return (
     <div className="pf-wrap">
       <label className="pf-label" htmlFor={id}>{label}</label>
       <input id={id} className="pf-input" type={type} value={value} placeholder={placeholder}
-        onChange={(e) => onChange(e.target.value)} />
+        onChange={(e) => onChange(e.target.value)} onBlur={onBlur} />
     </div>
   )
 }
