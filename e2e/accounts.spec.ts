@@ -268,6 +268,10 @@ test('a member cannot see the owner resume until it is shared, and then only rea
   await expect(memberPage.getByRole('status').filter({ hasText: /read only/i })).toBeVisible()
 
   await memberPage.getByRole('link', { name: 'Personal Details' }).click()
+  // The filled name shows as the write-once display; the pencil reopens the
+  // input (component state only — refusing the WRITE is the store's job, and
+  // is exactly what the next lines prove).
+  await memberPage.getByRole('button', { name: 'Edit full name' }).click()
   const fullName = memberPage.getByLabel('Full name', { exact: true })
   await expect(fullName).toHaveValue(FULL_NAME)
   await fullName.fill('Member Was Here')
@@ -282,12 +286,14 @@ test('a member cannot see the owner resume until it is shared, and then only rea
   await memberPage.waitForTimeout(2_000)
   await expect(memberPage.getByText('Saved', { exact: true })).toHaveCount(0)
   await memberPage.reload()
+  await memberPage.getByRole('button', { name: 'Edit full name' }).click()
   await expect(memberPage.getByLabel('Full name', { exact: true })).toHaveValue(FULL_NAME)
 
   // And the owner's own copy is untouched.
   await ownerPage.goto('/')
   await ownerPage.getByRole('link', { name: RESUME_NAME }).click()
   await ownerPage.getByRole('link', { name: 'Personal Details' }).click()
+  await ownerPage.getByRole('button', { name: 'Edit full name' }).click()
   await expect(ownerPage.getByLabel('Full name', { exact: true })).toHaveValue(FULL_NAME)
 })
 

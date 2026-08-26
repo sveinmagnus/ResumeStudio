@@ -1,3 +1,4 @@
+import path from 'path'
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import {
   isValidLocalHostname, isLocalhostSuffixed, needsHostsEntry, isLoopbackHostname,
@@ -300,11 +301,15 @@ describe('hostsFilePath()', () => {
   afterEach(() => vi.unstubAllEnvs())
 
   it('windows: under SystemRoot, falling back to C:\\Windows when unset', () => {
+    // Pin the SEGMENTS, not the separator: onPlatform mocks process.platform,
+    // but path.join still joins with the RUNNING platform's separator — the
+    // literal backslash expectation passed on the Windows dev box and failed
+    // on every Linux CI runner.
     onPlatform('win32', () => {
       vi.stubEnv('SystemRoot', 'D:\\Win')
-      expect(hostsFilePath()).toBe('D:\\Win\\System32\\drivers\\etc\\hosts')
+      expect(hostsFilePath()).toBe(path.join('D:\\Win', 'System32', 'drivers', 'etc', 'hosts'))
       vi.stubEnv('SystemRoot', '  ')
-      expect(hostsFilePath()).toBe('C:\\Windows\\System32\\drivers\\etc\\hosts')
+      expect(hostsFilePath()).toBe(path.join('C:\\Windows', 'System32', 'drivers', 'etc', 'hosts'))
     })
   })
 

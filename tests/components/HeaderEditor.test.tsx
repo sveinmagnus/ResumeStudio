@@ -42,6 +42,32 @@ describe('<HeaderEditor>', () => {
     await waitFor(() => expect(useStore.getState().data.resume?.full_name).toBe('Astrid Solberg'))
   })
 
+  it('typing into an EMPTY name keeps the input mounted for the whole word', async () => {
+    // Regression: the first keystroke made the value non-empty while the
+    // wrapper's `editing` was still false, so the write-once field unmounted
+    // its input MID-WORD — one character kept, the rest dropped. Focus must
+    // mark editing-in-progress; the display takes over only on blur. The
+    // keyboard-only e2e journey (a11y.spec.ts) is what caught it.
+    const user = userEvent.setup()
+    useStore.setState({
+      data: { ...emptyStore(), resume: makeResume({ full_name: '' }) },
+      hasData: true, activeSection: 'header',
+      primaryLocale: 'en', secondaryLocale: null, expandedItemId: null, mutationCount: 0,
+    })
+    render(<HeaderEditor />)
+
+    const input = screen.getByLabelText('Full name')
+    await user.click(input)
+    await user.type(input, 'Kari Nordmann')
+    expect(useStore.getState().data.resume?.full_name).toBe('Kari Nordmann')
+    // Still the input while focused…
+    expect(screen.getByLabelText('Full name')).toBeInTheDocument()
+    // …and the locked display only after leaving the field.
+    await user.tab()
+    expect(screen.getByText('Kari Nordmann')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Full name')).toBeNull()
+  })
+
   it('an EMPTY name opens straight into the input — nothing to protect yet', () => {
     seed()
     useStore.setState((s) => ({ data: { ...s.data, resume: { ...s.data.resume!, full_name: '' } } }))

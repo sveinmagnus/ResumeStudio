@@ -133,6 +133,12 @@ function LockedField({ label, value, onChange, type = 'text', placeholder }: {
           type={type}
           onChange={onChange}
           placeholder={placeholder}
+          // Focus marks editing-in-progress. Without it, the FIRST keystroke
+          // into an empty field made the value non-empty while `editing` was
+          // still false — `open` flipped and the input unmounted mid-word,
+          // keeping one character and dropping the rest. The keyboard-only
+          // e2e journey is what caught it.
+          onFocus={() => setEditing(true)}
           onBlur={() => setEditing(false)}
         />
       </div>

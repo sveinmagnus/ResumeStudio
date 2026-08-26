@@ -39,8 +39,11 @@ test('an edit auto-saves to the server and survives a reload', async ({ page }) 
   // Auto-save: 1s debounce + PUT round-trip → header shows "Saved".
   await expect(page.getByText('Saved', { exact: true })).toBeVisible({ timeout: 10_000 })
 
-  // The URL carries the section — a reload lands straight back on it.
+  // The URL carries the section — a reload lands straight back on it. A FILLED
+  // name renders as the write-once display (Personal Details restructure);
+  // its pencil reopens the real input, which must hold the saved value.
   await page.reload()
+  await page.getByRole('button', { name: 'Edit full name' }).click()
   await expect(fullName(page)).toHaveValue('Kari Nordmann')
 })
 
