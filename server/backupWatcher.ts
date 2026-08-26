@@ -35,7 +35,7 @@
  */
 
 import fs from 'fs'
-import { backupSignature } from './backup.js'
+import { storeSignature } from './backupScheduler.js'
 import { folderFingerprint, scanBackupDir, type Tombstone } from './backupFiles.js'
 import { SYSTEM_VIEWER, type ResumeBackupEntry, type ResumeDb } from './db.js'
 
@@ -190,7 +190,14 @@ export class BackupWatcher {
 
     // Feedback-loop guard: if the folder already matches the live store (our own
     // BackupScheduler write, or data we merged earlier), there's nothing to pull.
-    if (!erasedIds.length && backupSignature(keep) === backupSignature(local)) return
+    // The comparison must include the REGISTRY, exactly as the scheduler's write
+    // gate does: `resume-studio-registry.json` is its own file, so another
+    // machine's canonical rename lands without any resume's `saved_at` moving —
+    // a resumes-only guard returned here AFTER advancing the fingerprint, and
+    // the rename never merged until some resume happened to change too. Found
+    // by the mutation audit; regression-tested in backupWatcher.test.ts.
+    if (!erasedIds.length
+      && storeSignature(keep, scan.registry) === storeSignature(local, this.db.listRegistry())) return
 
     try {
       // Merge mode: newest-wins per resume, and no row is removed here —

@@ -78,3 +78,35 @@ describe('APP_VERSION_LABEL', () => {
     expect(mod.BUILD_COMMIT).toBe('0123456')
   })
 })
+
+// Mutation-audit tripwires: the package.json fallback walk ran in no test at
+// all — a wrong branch there ships APP_VERSION '0.0.0' and the updater then
+// offers every release as an upgrade, forever.
+
+describe('APP_VERSION resolution', () => {
+  it('the baked env version wins, trimmed', async () => {
+    const mod = await loadVersion({ RESUME_APP_VERSION: '  9.9.9  ' })
+    expect(mod.APP_VERSION).toBe('9.9.9')
+  })
+
+  it('falls back to the repo package.json version when nothing is baked', async () => {
+    const fs = await import('fs')
+    const expected = (JSON.parse(fs.readFileSync('package.json', 'utf8')) as { version: string }).version
+    const mod = await loadVersion({ RESUME_APP_VERSION: undefined })
+    expect(mod.APP_VERSION).toBe(expected)
+    // Whatever it resolved to, the updater's input must stay a bare semver.
+    expect(mod.APP_VERSION).toMatch(/^\d+\.\d+\.\d+$/)
+  })
+
+  it('the dev label is always Dev-<short-sha> or Dev-local, never a version', async () => {
+    // No baked commit: git answers where a repo exists; the Stryker sandbox has
+    // none, so the assertion accepts both honest outcomes — what it refuses is
+    // a version number leaking into a non-release label.
+    const mod = await loadVersion({
+      RESUME_APP_VERSION: '1.0.0',
+      RESUME_BUILD_CHANNEL: undefined,
+      RESUME_BUILD_COMMIT: undefined,
+    })
+    expect(mod.APP_VERSION_LABEL).toMatch(/^Dev-([0-9a-f]{7}|local)$/)
+  })
+})
