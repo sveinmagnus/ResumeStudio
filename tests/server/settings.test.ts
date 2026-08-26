@@ -561,7 +561,13 @@ describe('coerce — what a stored file can and cannot smuggle in', () => {
   it('lower-cases a stored hostname and drops one outside the reserved suffixes', () => {
     writeFile({ local_hostname: 'RS.LOCALHOST' })
     expect(loadSettings().local_hostname).toBe('rs.localhost')
+    // A name outside .local/.localhost must never survive coercion (it could
+    // shadow a real site). Since the readable-address default landed, dropping
+    // one lands on the DEFAULT — loopback by definition — while an explicit ''
+    // stays the "use the IP address" opt-out.
     writeFile({ local_hostname: 'mail.company.com' })
+    expect(loadSettings().local_hostname).toBe('resumestudio.localhost')
+    writeFile({ local_hostname: '' })
     expect(loadSettings().local_hostname).toBe('')
   })
 
