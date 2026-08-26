@@ -21,8 +21,10 @@ import { lookup } from '../../lib/lookup'
 export function AdvisorToast() {
   const resumeId = useStore((s) => s.currentResumeId)
   const setActiveSection = useStore((s) => s.setActiveSection)
+  const setActiveView = useStore((s) => s.setActiveView)
   const runs = useAdvisors((s) => s.runs)
   const markSeen = useAdvisors((s) => s.markSeen)
+  const requestReveal = useAdvisors((s) => s.requestReveal)
 
   if (!resumeId) return null
   const pending = unseenRuns(runs, resumeId)
@@ -30,8 +32,16 @@ export function AdvisorToast() {
 
   const show = (run: AdvisorRun) => {
     // Scoped advisors (a view's intro, one section's gaps) know where they
-    // belong better than a static per-advisor map does.
-    setActiveSection(advisorSection(run))
+    // belong better than a static per-advisor map does. A view-scoped run
+    // belongs to ONE view's editor — landing on the views LIST would show
+    // nothing (setActiveView also switches to the Views section; a deleted
+    // view degrades to the list).
+    if ((run.id === 'intro' || run.id === 'ats') && run.scope) setActiveView(run.scope)
+    else setActiveSection(advisorSection(run))
+    // "Show me" promises the RESPONSE, not just the right page. Results that
+    // live behind a control (the section-gaps modal) need their owning surface
+    // to open itself — this is the one-shot signal it consumes.
+    requestReveal({ id: run.id, resumeId: run.resumeId, scope: run.scope })
     markSeen(run)
   }
 

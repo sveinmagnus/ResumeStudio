@@ -11,7 +11,7 @@ const RESUME = 'resume-1'
 
 beforeEach(() => {
   localStorage.clear()
-  useAdvisors.setState({ runs: {} })
+  useAdvisors.setState({ runs: {}, reveal: null })
 })
 
 describe('advisor runs', () => {
@@ -121,6 +121,33 @@ describe('scoped runs', () => {
     )
     expect(selectRun(useAdvisors.getState().runs, 'ats', RESUME, 'v1')?.input)
       .toBe('Kubernetes, Terraform, Go')
+  })
+})
+
+/**
+ * The toast's "Show me" can navigate, but results living behind a control (the
+ * section-gaps modal) also need their owning surface to OPEN — the reveal is
+ * that one-shot request. Reported bug: clicking "Show me" landed on the section
+ * and showed nothing.
+ */
+describe('reveal — the "Show me" handoff', () => {
+  it('is set by requestReveal, stamped with a time, and consumed by clearReveal', () => {
+    useAdvisors.getState().requestReveal({ id: 'section', resumeId: RESUME, scope: 'courses' })
+    expect(useAdvisors.getState().reveal).toMatchObject({
+      id: 'section', resumeId: RESUME, scope: 'courses',
+    })
+    expect(useAdvisors.getState().reveal!.at).toBeTypeOf('number')
+    useAdvisors.getState().clearReveal()
+    expect(useAdvisors.getState().reveal).toBeNull()
+  })
+
+  it('never rides the localStorage persistence — a reveal is a click, not state', async () => {
+    useAdvisors.getState().requestReveal({ id: 'section', resumeId: RESUME, scope: 'courses' })
+    // start() is what writes the blob; the pending reveal must not go with it.
+    await useAdvisors.getState().start({ id: 'section', resumeId: RESUME, scope: 'courses' }, async () => 'x')
+    const blob = JSON.parse(localStorage.getItem('rs-advisor-runs-v1')!) as Record<string, unknown>
+    expect(blob).not.toHaveProperty('reveal')
+    for (const v of Object.values(blob)) expect(v).toHaveProperty('status')
   })
 })
 

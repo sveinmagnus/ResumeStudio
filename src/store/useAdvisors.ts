@@ -132,6 +132,19 @@ export interface AdvisorRef {
 
 interface AdvisorState {
   runs: Record<string, AdvisorRun>
+  /**
+   * A one-shot request that whatever surface OWNS a run's results open itself.
+   *
+   * Set by the toast's "Show me" alongside the navigation. Most panels are
+   * simply visible where you land, but the section-gaps results live behind
+   * the section bar's modal — navigating to the section showed NOTHING, which
+   * was a reported bug: a button promising "show me" must end with the
+   * response on screen. Deliberately not persisted (see `save`): a reveal is
+   * the click that asked for it, not state worth outliving the session.
+   */
+  reveal: (AdvisorRef & { at: number }) | null
+  requestReveal: (ref: AdvisorRef) => void
+  clearReveal: () => void
   start: (ref: AdvisorRef, exec: () => Promise<string>, input?: string) => Promise<void>
   resolve: (ref: AdvisorRef, key: string, how: 'accepted' | 'dismissed') => void
   resolveMany: (ref: AdvisorRef, keys: readonly string[], how: 'accepted' | 'dismissed') => void
@@ -140,6 +153,15 @@ interface AdvisorState {
   clear: (ref: AdvisorRef) => void
   clearResume: (resumeId: string) => void
 }
+
+/**
+ * How long a reveal stays actable. Navigation is synchronous, so a consumer
+ * normally fires within a render — the window only matters when nothing could
+ * consume it (the owning surface gated off since the run started). Without the
+ * bound, that orphaned reveal would pop a modal on an unrelated visit to the
+ * section minutes later.
+ */
+export const REVEAL_FRESH_MS = 15_000
 
 const runKey = ({ id, resumeId, scope }: AdvisorRef) =>
   scope ? `${resumeId}::${id}::${scope}` : `${resumeId}::${id}`
@@ -185,6 +207,15 @@ function save(runs: Record<string, AdvisorRun>): void {
 
 export const useAdvisors = create<AdvisorState>((set, get) => ({
   runs: load(),
+  reveal: null,
+
+  requestReveal(ref) {
+    set({ reveal: { ...ref, at: Date.now() } })
+  },
+
+  clearReveal() {
+    set((s) => (s.reveal ? { reveal: null } : s))
+  },
 
   /**
    * Start a run and see it through, regardless of what the user does next.

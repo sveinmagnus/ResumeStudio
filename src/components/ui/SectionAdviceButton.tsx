@@ -16,7 +16,7 @@
  * itself.
  */
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Lightbulb, X } from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import { useDialog } from './useDialog'
@@ -24,6 +24,7 @@ import { AssistRun } from './AssistRun'
 import { useAdvancedAssist } from './AdvancedAssistCard'
 import { AssistFindingsPanel } from './AssistFindingsPanel'
 import { useAdvisorRun, jsonReply } from '../../store/useAdvisorRun'
+import { useAdvisors, REVEAL_FRESH_MS } from '../../store/useAdvisors'
 import { validateFindings, type FindingsResult } from '../../lib/assistFindings'
 import { buildSectionAdvicePrompt, hasAdvisableContent } from '../../lib/sectionAdvice'
 import { sectionLabel } from '../../lib/sections'
@@ -31,9 +32,27 @@ import { sectionLabel } from '../../lib/sections'
 export function SectionAdviceButton({ section }: { section: string }) {
   const { enabled } = useAdvancedAssist()
   const data = useStore((s) => s.data)
+  const resumeId = useStore((s) => s.currentResumeId)
+  const reveal = useAdvisors((s) => s.reveal)
+  const clearReveal = useAdvisors((s) => s.clearReveal)
   const [open, setOpen] = useState(false)
 
-  if (!enabled || !hasAdvisableContent(data, section)) return null
+  const canShow = enabled && hasAdvisableContent(data, section)
+
+  // The toast's "Show me" can only navigate; the results here live behind this
+  // button's modal, so landing on the section alone showed nothing. A pending
+  // reveal naming this section is that click asking for the modal — consume it
+  // (one-shot) and open. Ignored when stale: navigation is synchronous, so a
+  // reveal old enough to miss the freshness window is an orphan nothing could
+  // consume, not a click.
+  useEffect(() => {
+    if (!canShow || !reveal || reveal.id !== 'section') return
+    if (reveal.scope !== section || reveal.resumeId !== resumeId) return
+    clearReveal()
+    if (Date.now() - reveal.at < REVEAL_FRESH_MS) setOpen(true)
+  }, [canShow, reveal, section, resumeId, clearReveal])
+
+  if (!canShow) return null
 
   return (
     <>
