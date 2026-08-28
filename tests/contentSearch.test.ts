@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { searchStore } from '../src/lib/contentSearch'
 import {
   emptyStore, makeResume, makeProject, makeSkill, makeWork, makeReference, makeIndustry, makeSkillCategory,
-  makeView,
+  makeView, makeKQ,
 } from './fixtures'
 import type { ProjectSkill, ResumeStore } from '../src/types'
 
@@ -84,6 +84,49 @@ describe('searchStore', () => {
     store.projects.push(p)
     // Searching the id substring should not match (ids are denylisted).
     expect(searchStore(store, 'searchable-id-xyz', 'en')).toEqual([])
+  })
+
+  /**
+   * Regression: `_id`/`_ids` cross-reference fields leaked into search by
+   * SHAPE, not just the entity's own `id` — a profile's `competency_ids`
+   * bundle, a project's `role_ids`, a shared registry's `canonical_id` were
+   * never on the old per-name denylist, so a query that happened to land
+   * inside one of those opaque UUIDs surfaced a hit naming no field the user
+   * has ever seen. The fix denies by KEY SHAPE (`^id$|_ids?$`) so it covers
+   * every reference field, present and future, not just the ones enumerated
+   * by hand.
+   */
+  it('does not match inside a profile’s competency_ids bundle', () => {
+    const store = emptyStore()
+    const bundledId = 'searchable-competency-uuid-123'
+    store.key_qualifications.push(makeKQ({ id: 'kq1', competency_ids: [bundledId] }))
+    expect(searchStore(store, 'searchable-competency-uuid', 'en')).toEqual([])
+  })
+
+  it('does not match inside a work experience’s role_ids links', () => {
+    const store = emptyStore()
+    store.work_experiences.push(makeWork({
+      id: 'w1', employer: { en: 'Cartavio' },
+      role_ids: ['searchable-role-uuid-456'],
+    }))
+    expect(searchStore(store, 'searchable-role-uuid', 'en')).toEqual([])
+  })
+
+  it('does not match a skill’s category_id or canonical_id', () => {
+    const store = emptyStore()
+    store.skills.push(makeSkill({
+      id: 's1', name: { en: 'Kubernetes' },
+      category_id: 'searchable-category-uuid-789',
+      canonical_id: 'searchable-canonical-uuid-000',
+    }))
+    expect(searchStore(store, 'searchable-category-uuid', 'en')).toEqual([])
+    expect(searchStore(store, 'searchable-canonical-uuid', 'en')).toEqual([])
+  })
+
+  it('still matches the skill’s own name — the fix denies by key, not by looking like a UUID', () => {
+    const store = emptyStore()
+    store.skills.push(makeSkill({ id: 's1', name: { en: 'Kubernetes' } }))
+    expect(searchStore(store, 'kubernetes', 'en').some((h) => h.id === 's1')).toBe(true)
   })
 
   it('searches inside arrays of text, not just single values', () => {

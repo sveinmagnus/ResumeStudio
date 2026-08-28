@@ -29,11 +29,26 @@ export interface SearchHit {
   snippet: string
 }
 
-// Keys whose string values are never worth searching (ids, timestamps, enums
-// that aren't human text). LocalizedString locale keys ('en', 'no', …) are NOT
-// listed, so their values ARE collected.
+/**
+ * Keys whose string values are never worth searching, in two parts:
+ *
+ *  - `ID_KEY_RE` matches any cross-reference id by SHAPE — `id`, `role_id`,
+ *    `skill_ids`, `competency_ids`, `canonical_id`, `view_id`, … — rather
+ *    than enumerating every one by name. A profile's `competency_ids` (its
+ *    bundle) and a project's `role_ids` used to leak through this way: typing
+ *    a substring that happened to land inside one of those opaque UUIDs
+ *    surfaced a hit that named no field a user has ever seen, for an entity
+ *    they have no reason to associate with the query. The shape-based rule
+ *    means a newly added `_id`/`_ids` field on any entity is excluded
+ *    automatically — no second commit needed the day someone adds one.
+ *  - `DENY_KEYS` is the short remainder that doesn't fit that shape:
+ *    timestamps, enums, embedded image data.
+ *
+ * LocalizedString locale keys ('en', 'no', …) match neither, so their values
+ * ARE collected.
+ */
+const ID_KEY_RE = /^id$|_ids?$/
 const DENY_KEYS = new Set([
-  'id', 'resume_id', 'work_experience_id', 'role_id', 'skill_id', 'industry_id',
   'created_at', 'updated_at', 'default_locale', 'shape_version',
   'profile_image_url', 'profile_photo', 'company_logo',
 ])
@@ -41,7 +56,7 @@ const DENY_KEYS = new Set([
 /** Recursively collect non-empty string values, skipping denied keys. */
 function collectStrings(value: unknown, key: string, out: string[]): void {
   if (typeof value === 'string') {
-    if (!DENY_KEYS.has(key)) {
+    if (!ID_KEY_RE.test(key) && !DENY_KEYS.has(key)) {
       const t = value.trim()
       if (t) out.push(t)
     }
