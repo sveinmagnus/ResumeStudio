@@ -86,4 +86,78 @@ describe('<LanguageSwitcher>', () => {
     await openPopover()
     expect(screen.getByTitle('Swap languages')).toBeDisabled()
   })
+
+  /**
+   * A resume with a THIRD (or more) supported locale used to have no way to
+   * bring it into view except reopening the Secondary select and noticing it
+   * grew an option — nothing else in the popover changed. The "More" select
+   * now lists every already-added language as a one-click switch target.
+   */
+  describe('the "More" select — switching among already-added languages', () => {
+    function seedThree() {
+      useStore.setState({
+        data: { ...emptyStore(), resume: makeResume({ supported_locales: ['en', 'no', 'se'] }) },
+        hasData: true, primaryLocale: 'en', secondaryLocale: 'no',
+        expandedItemId: null, mutationCount: 0,
+      })
+    }
+
+    it('lists the third language under "Switch secondary to" — not under "Add"', async () => {
+      seedThree()
+      render(<LanguageSwitcher />)
+      await openPopover()
+      const more = screen.getByLabelText('More') as HTMLSelectElement
+      const group = more.querySelector('optgroup[label="Switch secondary to"]')!
+      expect(group).toBeTruthy()
+      expect([...group.querySelectorAll('option')].map((o) => (o as HTMLOptionElement).value)).toEqual(['se'])
+    })
+
+    it('picking the third language sets it as secondary in one action — no new add', async () => {
+      seedThree()
+      render(<LanguageSwitcher />)
+      await openPopover()
+      await userEvent.selectOptions(screen.getByLabelText('More'), 'se')
+      expect(useStore.getState().secondaryLocale).toBe('se')
+      // The switch is not an add: supported_locales is unchanged.
+      expect(useStore.getState().data.resume?.supported_locales).toEqual(['en', 'no', 'se'])
+    })
+
+    it('excludes the current primary AND secondary from the switch list', async () => {
+      seedThree()
+      render(<LanguageSwitcher />)
+      await openPopover()
+      const more = screen.getByLabelText('More') as HTMLSelectElement
+      const group = more.querySelector('optgroup[label="Switch secondary to"]')!
+      const values = [...group.querySelectorAll('option')].map((o) => (o as HTMLOptionElement).value)
+      expect(values).not.toContain('en')
+      expect(values).not.toContain('no')
+    })
+
+    it('picking a genuinely NEW language still adds it, and leaves Secondary alone', async () => {
+      seedThree()
+      render(<LanguageSwitcher />)
+      await openPopover()
+      const more = screen.getByLabelText('More') as HTMLSelectElement
+      const group = more.querySelector('optgroup[label="Add a new language"]')!
+      expect(group).toBeTruthy()
+      await userEvent.selectOptions(more, 'dk')
+      expect(useStore.getState().data.resume?.supported_locales).toContain('dk')
+      // Adding is a DIFFERENT, deliberate action from switching — Secondary
+      // must not silently jump to whatever was just added.
+      expect(useStore.getState().secondaryLocale).toBe('no')
+    })
+
+    it('labels the group "Set secondary to" when nothing is selected yet', async () => {
+      useStore.setState({
+        data: { ...emptyStore(), resume: makeResume({ supported_locales: ['en', 'no'] }) },
+        hasData: true, primaryLocale: 'en', secondaryLocale: null,
+        expandedItemId: null, mutationCount: 0,
+      })
+      render(<LanguageSwitcher />)
+      await openPopover()
+      const more = screen.getByLabelText('More') as HTMLSelectElement
+      expect(more.querySelector('optgroup[label="Set secondary to"]')).toBeTruthy()
+      expect(more.querySelector('optgroup[label="Switch secondary to"]')).toBeFalsy()
+    })
+  })
 })

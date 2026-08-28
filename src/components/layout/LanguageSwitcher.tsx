@@ -16,6 +16,11 @@ export function LanguageSwitcher() {
   const { data, primaryLocale, secondaryLocale, setPrimaryLocale, setSecondaryLocale, detectAndSetLocales, addSupportedLocale } = useStore()
   const locales = data.resume?.supported_locales || ['en']
   const addable = Object.keys(LOCALE_LABELS).filter((c) => !locales.includes(c))
+  // Every language already on the resume EXCEPT the two already showing — a
+  // resume with three-plus locales otherwise had no way to bring the third
+  // one into view except reopening the Secondary select and hoping you
+  // noticed it grew a new option. Picking one here is the one-click switch.
+  const switchable = locales.filter((l) => l !== primaryLocale && l !== secondaryLocale)
 
   const [open, setOpen] = useState(false)
   const wrapRef = useRef<HTMLDivElement>(null)
@@ -109,22 +114,43 @@ export function LanguageSwitcher() {
             </div>
           </div>
 
-          {addable.length > 0 && (
+          {(switchable.length > 0 || addable.length > 0) && (
             <div className="lang-row">
-              <label className="lang-role lang-role-add" htmlFor="lang-sel-add">Add</label>
+              <label className="lang-role lang-role-more" htmlFor="lang-sel-more">More</label>
               <select
-                id="lang-sel-add"
-                className="lang-sel lang-add"
+                id="lang-sel-more"
+                className="lang-sel lang-more"
                 value=""
-                onChange={(e) => { if (e.target.value) addSupportedLocale(e.target.value) }}
-                title="Add another language to the dropdowns"
+                onChange={(e) => {
+                  const code = e.target.value
+                  if (!code) return
+                  // Already on the resume → this IS the one-click switch.
+                  // Not yet on it → the familiar add (leaves Secondary alone;
+                  // adding and switching are two deliberate actions, not one).
+                  if (locales.includes(code)) setSecondaryLocale(code)
+                  else addSupportedLocale(code)
+                }}
+                title="Switch the secondary language, or add a new one"
               >
-                <option value="">+ Language…</option>
-                {addable.map((l) => (
-                  <option key={l} value={l}>
-                    {LOCALE_LABELS[l]?.flag} {LOCALE_LABELS[l]?.name || l}
-                  </option>
-                ))}
+                <option value="">Switch or add a language…</option>
+                {switchable.length > 0 && (
+                  <optgroup label={secondaryLocale ? 'Switch secondary to' : 'Set secondary to'}>
+                    {switchable.map((l) => (
+                      <option key={l} value={l}>
+                        {LOCALE_LABELS[l]?.flag} {LOCALE_LABELS[l]?.name || l}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                {addable.length > 0 && (
+                  <optgroup label="Add a new language">
+                    {addable.map((l) => (
+                      <option key={l} value={l}>
+                        {LOCALE_LABELS[l]?.flag} {LOCALE_LABELS[l]?.name || l}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
               </select>
             </div>
           )}
@@ -168,9 +194,9 @@ export function LanguageSwitcher() {
         .lang-controls { display: flex; gap: 6px; }
         .lang-role { font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
         .lang-role-sec { color: var(--secondary-ink-text); }
-        .lang-role-add { color: var(--ink-faint); }
-        .lang-add { border-style: dashed; color: var(--ink-soft); }
-        .lang-add:hover { border-color: var(--accent); color: var(--accent); }
+        .lang-role-more { color: var(--ink-faint); }
+        .lang-more { border-style: dashed; color: var(--ink-soft); }
+        .lang-more:hover { border-color: var(--accent); color: var(--accent); }
         .lang-sel {
           flex: 1; padding: 6px 10px; border-radius: var(--r-sm); border: 1px solid var(--line);
           background: var(--paper); font-weight: 500; font-size: 13px; cursor: pointer;
