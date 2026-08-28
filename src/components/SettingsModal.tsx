@@ -504,11 +504,15 @@ export function SettingsModal({ initialTab, onClose, onChanged, onUnauthorized }
         /* Panel + tab rail. The tablist is FIRST in the DOM (ARIA tabs order);
            plain row-direction flex is what leaves it on the left. */
         .sm-layout { display: flex; flex-direction: row; align-items: stretch; }
+        /* SettingsTabs' own wrapper: the burger trigger (narrow-only) plus the
+           tablist. A positioning context for the narrow popout below. */
+        .sm-nav { position: relative; flex: 0 0 156px; display: flex; flex-direction: column; }
         /* Tab rail. Vertical, so more tabs cost height the modal has plenty
-           of — a horizontal bar ran out of width and grew a scrollbar. */
+           of — a horizontal SCROLLING bar was tried and rejected: it gives no
+           overview of what's on offer, only of whatever fits before the fold. */
         .sm-tabs {
           display: flex; flex-direction: column; gap: 2px;
-          flex: 0 0 156px; padding: 12px 0;
+          flex: 1; padding: 12px 0;
           border-right: 1px solid var(--line); background: var(--paper-sunken);
         }
         .sm-tab {
@@ -524,23 +528,55 @@ export function SettingsModal({ initialTab, onClose, onChanged, onUnauthorized }
           color: var(--accent); border-right-color: var(--accent);
           background: var(--paper); font-weight: 600;
         }
-        /* Narrow screens: a side rail would starve the panel, so the list goes
-           back to a horizontal bar on top, scrolling sideways rather than
-           wrapping — a wrapped bar reflows the panel below it as tabs change
-           width. SettingsTabs mirrors this query for the arrow-key axis. */
+        /* Narrow screens: a side rail would starve the panel, so the FULL
+           vertical list hides behind a disclosure button and pops out as an
+           overlay on demand — never a horizontal bar, which trades the
+           overview away for whatever tabs happen to fit. The burger is
+           hidden outside this query; SettingsTabs has no idea which mode it's
+           in, CSS alone decides. */
+        .sm-burger { display: none; }
         @media (max-width: 640px) {
           .sm-layout { flex-direction: column; }
+          .sm-nav { flex-basis: auto; }
+          /* .sm-card clips to its rounded corners via overflow:hidden — which
+             would also clip the popout below, since it's an ABSOLUTE child
+             that can extend past the card's own (short) content height. The
+             popout draws its own bottom radius + shadow, so it reads as a
+             self-contained floating panel rather than a clipped card corner. */
+          .sm-card { overflow: visible; }
+          .sm-burger {
+            display: flex; align-items: center; gap: 8px; width: 100%;
+            padding: 11px 16px; border: none; background: none;
+            border-bottom: 1px solid var(--line);
+            font-size: 13px; font-weight: 600; color: var(--ink); cursor: pointer;
+          }
+          .sm-burger:hover { color: var(--accent); }
+          .sm-burger-label {
+            flex: 1; text-align: left;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+          }
+          .sm-burger-chev { transition: transform .15s; flex-shrink: 0; color: var(--ink-faint); }
+          .sm-burger-chev.open { transform: rotate(180deg); }
+          /* Hidden until opened, then an overlay — NOT reflowed inline, so
+             opening it doesn't push the panel down and closing doesn't jump
+             the scroll position. */
           .sm-tabs {
-            flex-direction: row; flex-basis: auto; padding: 0 10px;
-            border-right: none; border-bottom: 1px solid var(--line);
-            overflow-x: auto; scrollbar-width: thin;
+            display: none;
+            position: absolute; top: 100%; left: 0; right: 0; z-index: 20;
+            flex: none; padding: 6px 0;
+            border: 1px solid var(--line); border-top: none;
+            border-radius: 0 0 var(--r-md) var(--r-md);
+            box-shadow: var(--shadow-md);
+            max-height: min(60vh, 360px); overflow-y: auto;
           }
+          .sm-tabs.is-open { display: flex; }
           .sm-tab {
-            text-align: center;
-            border-right: none; margin-right: 0; padding: 10px 12px;
-            border-bottom: 2px solid transparent; margin-bottom: -1px;
+            padding: 11px 16px;
+            border-right: none; margin-right: 0;
           }
-          .sm-tab.is-active { border-bottom-color: var(--accent); background: none; }
+          .sm-tab.is-active {
+            border-right-color: transparent; background: var(--accent-wash);
+          }
         }
         .sm-x { color: var(--ink-faint); display: grid; place-items: center; }
         .sm-x:hover { color: var(--ink); }
