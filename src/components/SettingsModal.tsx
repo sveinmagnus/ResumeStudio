@@ -440,9 +440,9 @@ export function SettingsModal({ initialTab, onClose, onChanged, onUnauthorized }
         {loadErr && <div className="sm-msg sm-err" role="alert">{loadErr}</div>}
 
         {status && (
-          // Tablist first in the DOM (Tab moves from the selected tab into the
-          // panel, per the ARIA tabs pattern); `row-reverse` is what puts the
-          // rail on the RIGHT visually.
+          // Tablist first in the DOM — both for the ARIA tabs pattern (Tab
+          // moves from the selected tab into the panel) and because plain
+          // `row` then puts it on the LEFT visually, with no reordering needed.
           <div className="sm-layout">
             <SettingsTabs tabs={TABS} active={tab} onChange={setTab} />
             <div
@@ -502,26 +502,26 @@ export function SettingsModal({ initialTab, onClose, onChanged, onUnauthorized }
         }
         .sm-title { font-size: 17px; font-weight: 600; flex: 1; }
         /* Panel + tab rail. The tablist is FIRST in the DOM (ARIA tabs order);
-           row-reverse is what places it on the right. */
-        .sm-layout { display: flex; flex-direction: row-reverse; align-items: stretch; }
+           plain row-direction flex is what leaves it on the left. */
+        .sm-layout { display: flex; flex-direction: row; align-items: stretch; }
         /* Tab rail. Vertical, so more tabs cost height the modal has plenty
            of — a horizontal bar ran out of width and grew a scrollbar. */
         .sm-tabs {
           display: flex; flex-direction: column; gap: 2px;
           flex: 0 0 156px; padding: 12px 0;
-          border-left: 1px solid var(--line); background: var(--paper-sunken);
+          border-right: 1px solid var(--line); background: var(--paper-sunken);
         }
         .sm-tab {
           flex: 0 0 auto; padding: 9px 14px; border: none; background: none;
           font-size: 13px; font-weight: 500; color: var(--ink-soft); cursor: pointer;
           text-align: left;
-          border-left: 2px solid transparent; margin-left: -1px;
+          border-right: 2px solid transparent; margin-right: -1px;
           transition: color .12s, border-color .12s, background-color .12s;
           white-space: nowrap;
         }
         .sm-tab:hover { color: var(--accent); }
         .sm-tab.is-active {
-          color: var(--accent); border-left-color: var(--accent);
+          color: var(--accent); border-right-color: var(--accent);
           background: var(--paper); font-weight: 600;
         }
         /* Narrow screens: a side rail would starve the panel, so the list goes
@@ -532,12 +532,12 @@ export function SettingsModal({ initialTab, onClose, onChanged, onUnauthorized }
           .sm-layout { flex-direction: column; }
           .sm-tabs {
             flex-direction: row; flex-basis: auto; padding: 0 10px;
-            border-left: none; border-bottom: 1px solid var(--line);
+            border-right: none; border-bottom: 1px solid var(--line);
             overflow-x: auto; scrollbar-width: thin;
           }
           .sm-tab {
             text-align: center;
-            border-left: none; margin-left: 0; padding: 10px 12px;
+            border-right: none; margin-right: 0; padding: 10px 12px;
             border-bottom: 2px solid transparent; margin-bottom: -1px;
           }
           .sm-tab.is-active { border-bottom-color: var(--accent); background: none; }
