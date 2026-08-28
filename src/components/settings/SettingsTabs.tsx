@@ -5,10 +5,9 @@
  * screens a rail would starve the panel, so the tablist hides behind a
  * disclosure button instead (a "burger" — CSS shows/hides it, so this
  * component doesn't need to know the viewport width): tapping it pops the
- * FULL vertical list out as an overlay. A horizontal scrolling bar was tried
- * first and rejected — it gives no overview of what's available, only of
- * whatever fits before the fold. The popout is a vertical list for the same
- * reason the wide rail is: you can see every option at once.
+ * FULL vertical list out as an overlay. Both layouts are vertical lists for
+ * the same reason — every option legible at once, where a horizontal bar
+ * would show only what fits before the fold.
  *
  * Because both layouts stack vertically, arrow keys always move along the
  * vertical axis (Up/Down) — there's no orientation to detect. Only the
@@ -38,24 +37,30 @@ export function SettingsTabs({ tabs, active, onChange }: Props) {
   // CSS-hidden at ordinary widths, so this can never become true there.
   const [open, setOpen] = useState(false)
 
-  // Close on outside click; Escape closes and returns focus to the trigger —
-  // the same disclosure idiom as the header's resume switcher.
+  // Close on outside click; Escape closes and returns focus to the trigger.
   useEffect(() => {
     if (!open) return
+    const nav = navRef.current
     const onDocClick = (e: MouseEvent) => {
-      if (navRef.current && !navRef.current.contains(e.target as Node)) setOpen(false)
+      if (nav && !nav.contains(e.target as Node)) setOpen(false)
     }
-    const onKey = (e: KeyboardEvent | globalThis.KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setOpen(false)
-        triggerRef.current?.focus()
-      }
+    // Escape binds to the NAV, not to document: `useDialog` binds the enclosing
+    // modal's own Escape to the dialog CARD and stops propagation there, so a
+    // document-level listener is never reached and Escape would close the whole
+    // Settings dialog while this list sits open on top of it. Binding inside the
+    // card means this runs first on the way up, and stopping here keeps the
+    // modal open — Escape closes the innermost thing, then the dialog.
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      e.stopPropagation()
+      setOpen(false)
+      triggerRef.current?.focus()
     }
     document.addEventListener('mousedown', onDocClick)
-    document.addEventListener('keydown', onKey)
+    nav?.addEventListener('keydown', onKey)
     return () => {
       document.removeEventListener('mousedown', onDocClick)
-      document.removeEventListener('keydown', onKey)
+      nav?.removeEventListener('keydown', onKey)
     }
   }, [open])
 
@@ -66,7 +71,6 @@ export function SettingsTabs({ tabs, active, onChange }: Props) {
     if (open) listRef.current?.querySelector<HTMLButtonElement>('[aria-selected="true"]')?.focus()
   }, [open])
 
-  /** Select a tab and, if the popout is open, close it — that's what "select" means there. */
   const selectTab = (id: string) => {
     onChange(id)
     setOpen(false)

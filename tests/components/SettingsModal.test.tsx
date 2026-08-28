@@ -452,4 +452,41 @@ describe('<SettingsModal>', () => {
     await waitFor(() => expect(saveSpy).toHaveBeenCalled())
     expect(saveSpy.mock.calls[0][0]).toMatchObject({ local_port: 1923 })
   })
+
+  /**
+   * The narrow-width tab popout lives INSIDE this dialog, so its Escape only
+   * means anything in the real composition: `useDialog` binds the dialog's own
+   * Escape to the CARD and stops propagation there, which swallows any listener
+   * bound further out — Escape closed the entire Settings dialog while the tab
+   * list sat open on top of it. Escape must close the innermost open thing
+   * first, then the dialog on a second press.
+   *
+   * The burger is driven directly rather than through a role query: jsdom has
+   * no media-query support, so it applies the base `.sm-burger { display: none }`
+   * and the control has no accessible name there. What is under test — which
+   * listener sees the keydown on the way up — is DOM propagation, and that does
+   * not depend on the viewport. The narrow layout itself is verified in a real
+   * browser.
+   */
+  it('Escape closes the open tab popout without closing the whole dialog', async () => {
+    vi.spyOn(api, 'getSettings').mockResolvedValue(managedStatus())
+    const onClose = vi.fn()
+    const { container } = render(
+      <SettingsModal onClose={onClose} onChanged={() => {}} onUnauthorized={() => {}} />,
+    )
+    await screen.findByRole('tab', { name: /version/i })
+
+    const burger = container.querySelector('.sm-burger') as HTMLElement
+    fireEvent.click(burger)
+    expect(burger).toHaveAttribute('aria-expanded', 'true')
+
+    // From the focused tab, exactly as a keyboard user would press it.
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape', bubbles: true })
+    expect(burger).toHaveAttribute('aria-expanded', 'false')
+    expect(onClose).not.toHaveBeenCalled()
+
+    // With the popout shut, Escape belongs to the dialog again.
+    fireEvent.keyDown(container.querySelector('.sm-card')!, { key: 'Escape', bubbles: true })
+    expect(onClose).toHaveBeenCalled()
+  })
 })

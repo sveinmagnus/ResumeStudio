@@ -16,10 +16,9 @@ export function LanguageSwitcher() {
   const { data, primaryLocale, secondaryLocale, setPrimaryLocale, setSecondaryLocale, detectAndSetLocales, addSupportedLocale } = useStore()
   const locales = data.resume?.supported_locales || ['en']
   const addable = Object.keys(LOCALE_LABELS).filter((c) => !locales.includes(c))
-  // Every language already on the resume EXCEPT the two already showing — a
-  // resume with three-plus locales otherwise had no way to bring the third
-  // one into view except reopening the Secondary select and hoping you
-  // noticed it grew a new option. Picking one here is the one-click switch.
+  // The resume's other languages: everything it supports minus the pair already
+  // on screen. On a resume with three or more, this is the only affordance that
+  // names them — the selects above only offer the two being edited.
   const switchable = locales.filter((l) => l !== primaryLocale && l !== secondaryLocale)
 
   const [open, setOpen] = useState(false)
@@ -124,9 +123,9 @@ export function LanguageSwitcher() {
                 onChange={(e) => {
                   const code = e.target.value
                   if (!code) return
-                  // Already on the resume → this IS the one-click switch.
-                  // Not yet on it → the familiar add (leaves Secondary alone;
-                  // adding and switching are two deliberate actions, not one).
+                  // Adding a language and choosing to edit in it are two
+                  // decisions: an add must not move the secondary column out
+                  // from under whatever the user is mid-translation on.
                   if (locales.includes(code)) setSecondaryLocale(code)
                   else addSupportedLocale(code)
                 }}

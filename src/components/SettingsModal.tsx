@@ -504,12 +504,12 @@ export function SettingsModal({ initialTab, onClose, onChanged, onUnauthorized }
         /* Panel + tab rail. The tablist is FIRST in the DOM (ARIA tabs order);
            plain row-direction flex is what leaves it on the left. */
         .sm-layout { display: flex; flex-direction: row; align-items: stretch; }
-        /* SettingsTabs' own wrapper: the burger trigger (narrow-only) plus the
-           tablist. A positioning context for the narrow popout below. */
+        /* SettingsTabs' wrapper — the positioning context the narrow popout
+           below anchors to. */
         .sm-nav { position: relative; flex: 0 0 156px; display: flex; flex-direction: column; }
-        /* Tab rail. Vertical, so more tabs cost height the modal has plenty
-           of — a horizontal SCROLLING bar was tried and rejected: it gives no
-           overview of what's on offer, only of whatever fits before the fold. */
+        /* Tab rail. Vertical so the whole list stays visible as it grows —
+           height is what this modal has to spare. A horizontal bar shows only
+           what fits before the fold, which is an overview of nothing. */
         .sm-tabs {
           display: flex; flex-direction: column; gap: 2px;
           flex: 1; padding: 12px 0;
@@ -528,12 +528,11 @@ export function SettingsModal({ initialTab, onClose, onChanged, onUnauthorized }
           color: var(--accent); border-right-color: var(--accent);
           background: var(--paper); font-weight: 600;
         }
-        /* Narrow screens: a side rail would starve the panel, so the FULL
-           vertical list hides behind a disclosure button and pops out as an
-           overlay on demand — never a horizontal bar, which trades the
-           overview away for whatever tabs happen to fit. The burger is
-           hidden outside this query; SettingsTabs has no idea which mode it's
-           in, CSS alone decides. */
+        /* Narrow screens: a side rail would starve the panel, so the list
+           hides behind a disclosure button and pops out on demand. The burger
+           is display:none outside this query, which is the whole mode switch —
+           SettingsTabs renders both halves unconditionally and never learns
+           the viewport width. */
         .sm-burger { display: none; }
         @media (max-width: 640px) {
           .sm-layout { flex-direction: column; }

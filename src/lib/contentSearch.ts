@@ -33,14 +33,11 @@ export interface SearchHit {
  * Keys whose string values are never worth searching, in two parts:
  *
  *  - `ID_KEY_RE` matches any cross-reference id by SHAPE — `id`, `role_id`,
- *    `skill_ids`, `competency_ids`, `canonical_id`, `view_id`, … — rather
- *    than enumerating every one by name. A profile's `competency_ids` (its
- *    bundle) and a project's `role_ids` used to leak through this way: typing
- *    a substring that happened to land inside one of those opaque UUIDs
- *    surfaced a hit that named no field a user has ever seen, for an entity
- *    they have no reason to associate with the query. The shape-based rule
- *    means a newly added `_id`/`_ids` field on any entity is excluded
- *    automatically — no second commit needed the day someone adds one.
+ *    `skill_ids`, `competency_ids`, `canonical_id`, `view_id`, … — rather than
+ *    by name. A query landing inside one of those opaque UUIDs would surface a
+ *    hit naming no field the user has ever seen, on an item they have no reason
+ *    to connect to what they typed. Matching the shape covers every reference
+ *    field the model grows later; a per-name list silently stops being complete.
  *  - `DENY_KEYS` is the short remainder that doesn't fit that shape:
  *    timestamps, enums, embedded image data.
  *
