@@ -59,10 +59,13 @@ describe('buildSwapScript (Windows)', () => {
     expect(s.contents).toContain('could not be updated')
   })
 
-  it('relaunches WINDOWLESS via wscript.exe + the no-window .vbs shim', () => {
+  it('relaunches WINDOWLESS via wscript.exe + the no-window .vbs shim, trying the current name then the legacy one', () => {
     // wscript invoked by name (not by file association — the "text editor"
     // bug class), running the .vbs shim that starts node.exe hidden. A
     // tray-initiated update must not leave the app behind a console window.
+    // Both shim names are load-bearing: the current one going forward, the
+    // legacy one because builds ≤1.2.1 shipped only that file.
+    expect(s.contents).toContain(`Join-Path $dst 'ResumeStudio-Windows.vbs'`)
     expect(s.contents).toContain(`Join-Path $dst 'Resume Studio (no window).vbs'`)
     expect(s.contents).toContain(`Start-Process -FilePath 'wscript.exe' -ArgumentList ('"' + $vbs + '"')`)
   })
