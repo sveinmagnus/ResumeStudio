@@ -720,6 +720,18 @@ export function hasMarkup(s: string): boolean {
 }
 
 /**
+ * Formatting that flattening to plain text actually LOSES: emphasis and lists.
+ * Deliberately narrower than `hasMarkup`: paragraphs and line breaks survive a
+ * richToPlain → plainToRichHtml round trip, and every value typed in the rich
+ * editor is stored `<p>`-wrapped — so a "your formatting will be lost" warning
+ * keyed on `hasMarkup` fired on plain paragraphs that lose nothing.
+ */
+export function hasRichFormatting(s: string): boolean {
+  if (!s) return false
+  return /<\/?(strong|b|em|i|u|ul|ol|li)\b/i.test(s)
+}
+
+/**
  * Render a rich-text value into safe HTML for inclusion in the printable
  * preview / PDF output. If the input has no markup, the caller-supplied
  * `escapePlain` is used to keep escape-at-render semantics for raw text.

@@ -26,11 +26,11 @@ import { AssistRun } from './AssistRun'
 import { extractJson } from '../../lib/llmAssist'
 import {
   buildCoachPrompt, buildDraftPrompt, validateCoachResponse,
-  hasCoachableSource, hasDraftableFacts, type CoachResult,
+  hasCoachableSource, hasDraftableFacts, isUnchangedRewrite, type CoachResult,
 } from '../../lib/writingCoach'
 import { itemFacts } from '../../lib/cvDigest'
 import { sectionLabel } from '../../lib/sections'
-import { richToPlain, hasMarkup, plainToRichHtml } from '../../lib/richText'
+import { richToPlain, hasRichFormatting, plainToRichHtml } from '../../lib/richText'
 import type { LocalizedString } from '../../types'
 
 interface Props {
@@ -61,9 +61,11 @@ export function WritingAssist({
   const raw = source[locale] ?? ''
   const original = richToPlain(raw).trim()
   const hasSource = hasCoachableSource(source, locale)
-  // The model works on flattened text, so an accepted rewrite is prose. Say so
-  // up front when the current value has formatting to lose.
-  const losesFormatting = hasMarkup(raw)
+  // The model works on flattened text, so an accepted rewrite is prose. Warn
+  // only when the value has formatting that flattening actually loses — plain
+  // `<p>` paragraphs survive the round trip, and every rich-editor value has
+  // them, so hasMarkup here made the warning near-unconditional.
+  const losesFormatting = hasRichFormatting(raw)
 
   const facts = useMemo(
     () => itemFacts(section, item as Record<string, unknown>, locale),
@@ -86,6 +88,10 @@ export function WritingAssist({
     setDraft(null)
   }
 
+  // A rewrite returned verbatim is the model saying "already reads well" (the
+  // prompt names that as the honest answer) — a verdict, not a change to review.
+  const unchanged = draft != null && hasSource && isUnchangedRewrite(draft.rewrite, original)
+
   // Nothing written AND nothing to write from — a blank card has no assist.
   if (!hasSource && !canDraft) return null
 
@@ -93,7 +99,7 @@ export function WritingAssist({
     <div className="wa-wrap">
       <AssistRun
         buildPrompt={() => (hasSource
-          ? buildCoachPrompt(source, locale)
+          ? buildCoachPrompt(source, locale, facts)
           : buildDraftPrompt(facts, sectionLabel(section), locale))}
         onResult={onResult}
         label={hasSource ? `Strengthen this ${noun}` : `Draft this ${noun}`}
@@ -117,24 +123,33 @@ export function WritingAssist({
 
       {draft && (
         <div className="wa-result">
-          <p className="wa-note">
-            {hasSource
-              ? 'Rewritten from your own text — read it against the original and check every claim is one you actually made.'
-              : 'A starting point, not a description of what you did. Replace the generic parts with your own work.'}
-          </p>
+          {unchanged ? (
+            <p className="wa-note wa-ok">
+              <Check size={13} />
+              This {noun} already reads well — the model suggests no changes.
+            </p>
+          ) : (
+            <p className="wa-note">
+              {hasSource
+                ? 'Rewritten from your own text — read it against the original and check every claim is one you actually made.'
+                : 'A starting point, not a description of what you did. Replace the generic parts with your own work.'}
+            </p>
+          )}
 
-          <div className="wa-compare">
-            <div className="wa-side">
-              <div className="wa-side-label">Suggested</div>
-              <p className="wa-text wa-new">{draft.rewrite}</p>
-            </div>
-            {hasSource && (
+          {!unchanged && (
+            <div className="wa-compare">
               <div className="wa-side">
-                <div className="wa-side-label">Yours now</div>
-                <p className="wa-text wa-old">{original}</p>
+                <div className="wa-side-label">Suggested</div>
+                <p className="wa-text wa-new">{draft.rewrite}</p>
               </div>
-            )}
-          </div>
+              {hasSource && (
+                <div className="wa-side">
+                  <div className="wa-side-label">Yours now</div>
+                  <p className="wa-text wa-old">{original}</p>
+                </div>
+              )}
+            </div>
+          )}
 
           {draft.asks.length > 0 && (
             <div className="wa-asks">
@@ -145,18 +160,20 @@ export function WritingAssist({
             </div>
           )}
 
-          {losesFormatting && (
+          {!unchanged && losesFormatting && (
             <p className="wa-note wa-warn">
               Your current {noun} has formatting (bold, lists). Applying replaces it with plain paragraphs.
             </p>
           )}
 
           <div className="wa-actions">
-            <button className="wa-apply" onClick={apply}>
-              <Check size={13} /> {hasSource ? 'Use the suggestion' : 'Use this draft'}
-            </button>
+            {!unchanged && (
+              <button className="wa-apply" onClick={apply}>
+                <Check size={13} /> {hasSource ? 'Use the suggestion' : 'Use this draft'}
+              </button>
+            )}
             <button className="wa-discard" onClick={() => setDraft(null)}>
-              <X size={13} /> Discard
+              <X size={13} /> {unchanged ? 'Dismiss' : 'Discard'}
             </button>
           </div>
         </div>
@@ -171,6 +188,7 @@ export function WritingAssist({
         .wa-note svg { flex-shrink: 0; margin-top: 2px; }
         .wa-warn { color: var(--warn-ink); }
         .wa-err { color: var(--err-ink); }
+        .wa-ok { color: var(--ok-ink); }
         .wa-result {
           display: flex; flex-direction: column; gap: 10px;
           padding: 12px; border: 1px solid var(--line); border-radius: var(--r-sm);

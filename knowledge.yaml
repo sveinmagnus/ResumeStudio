@@ -292,7 +292,7 @@ units:
     intent: "What does Resume Studio do today, feature by feature? (Most current end-user feature list.) Its privacy/security section now points at PRIVACY.md and SECURITY.md for the detail."
     scope: global
     audience: [human, agent]
-    validated: "2026-08-19"
+    validated: "2026-09-01"
     update_frequency: monthly
     triggers: [features, capabilities, what-shipped]
     not_for: ["architecture", "implementation detail"]

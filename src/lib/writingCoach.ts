@@ -19,8 +19,19 @@
  *              team size?"). This is the actual coaching: it tells you what a
  *              reader wants to know, and leaves you the only one who can say.
  *
+ * Both halves see the entry's STRUCTURED FIELDS (`itemFacts` — name, issuer,
+ * dates…), for the same reason `summaryContext` exists on the summarize path:
+ * a model shown only the description has no way to know the course name and
+ * dates are already printed beside it, so it restated them in the rewrite and
+ * asked for them in `asks` ("When was the course completed?") — questions whose
+ * answers have dedicated fields and don't belong in the description at all.
+ * The same blindness produced cosmetic rewrites: with nothing else to say, a
+ * model reshuffles words. So the prompt also names "return it unchanged" as a
+ * legitimate answer, and `isUnchangedRewrite` lets the UI present that as
+ * "already reads well" rather than as a change to review.
+ *
  * The user reviews the rewrite against the original before anything is written
- * (see WritingCoachPanel) — like every assist here, it drafts, it never saves.
+ * (see WritingAssist) — like every assist here, it drafts, it never saves.
  * Drafts stay in ONE locale: rewriting the source locale and leaving the other
  * column stale is honest (the Draft-translation path owns the other column);
  * silently rewriting both would be a translation nobody asked for.
@@ -53,12 +64,29 @@ export function hasCoachableSource(source: LocalizedString, locale: string): boo
 /**
  * The prompt. `source` is rich text, flattened so the model never sees markup
  * it would echo back into a field that then has to be re-sanitised.
+ *
+ * `facts` is the entry's structured fields (`itemFacts`): what the exported CV
+ * prints beside the description from fields of their own. Naming them is what
+ * stops the two reported failures — a rewrite that restates the heading, and
+ * asks requesting a date or credential the form has a field for.
  */
-export function buildCoachPrompt(source: LocalizedString, locale: string): string {
+export function buildCoachPrompt(
+  source: LocalizedString,
+  locale: string,
+  facts: readonly string[] = [],
+): string {
   const text = richToPlain(source[locale] ?? '').trim().slice(0, MAX_SOURCE_CHARS)
+
+  const factBlock = facts.length
+    ? ['--- SHOWN BESIDE IT, FROM ITS OWN FIELDS ---', ...facts, '']
+    : []
 
   return [
     'You are helping a consultant tighten one description on their CV.',
+    '',
+    'The description is printed under a heading built from the entry\'s own',
+    'fields — its name, organisation, dates. The reader already sees those, so',
+    'the description must not spend itself restating them.',
     '',
     'Produce TWO things:',
     '',
@@ -66,25 +94,44 @@ export function buildCoachPrompt(source: LocalizedString, locale: string): strin
     '   - Active voice. Say what the person DID, not what "was done".',
     '   - Lead with the outcome or the responsibility, not the background.',
     '   - Cut filler ("responsible for", "various", "successfully", "utilised").',
+    '   - Drop sentences that only restate the entry\'s own fields (listed below',
+    '     when present) — the heading has already said them.',
     '   - Keep it the same rough length or shorter. Keep the person\'s voice.',
     '   - CRITICAL: use ONLY facts that appear in the text below. Do not add',
     '     numbers, metrics, team sizes, technologies, dates or outcomes that',
     '     are not already there. Do not upgrade "helped" into "led", or',
     '     "improved" into a percentage. An invented claim has to be defended',
     '     in an interview — a flat sentence does not.',
+    '   - If the text is already tight and concrete, return it UNCHANGED.',
+    '     Reshuffling words is not an improvement — every change you make is',
+    '     one the person has to review.',
     '   - Write in the SAME LANGUAGE as the source text.',
     '',
-    '2. "asks" — 0–4 short questions about what is MISSING. These are the',
-    '   facts a reader would want that the text does not give: scale, outcome,',
-    '   your specific role, the measurable result. Ask for them; never guess',
-    '   them. Empty list if the description is already complete.',
+    '2. "asks" — 0–4 short questions about substance MISSING from the text:',
+    '   the person\'s specific part, the scale, the measurable outcome. Ask for',
+    '   them; never guess them. NEVER ask for dates, durations, degree or',
+    '   certification names, issuers or organisations — the CV records those in',
+    '   dedicated fields next to this one, so they do not belong in the',
+    '   description. Empty list if the description is already complete.',
     '',
     `Reply with ONLY this JSON, no prose:`,
     `{"$schema":"${WRITING_COACH_SCHEMA}","rewrite":"the improved text","asks":["What was the team size?"]}`,
     '',
+    ...factBlock,
     '--- DESCRIPTION ---',
     text || '(empty)',
   ].join('\n')
+}
+
+/**
+ * True when the model handed the text back effectively unchanged — its way of
+ * saying "already reads well". Whitespace-insensitive, because the source was
+ * flattened from rich text and the reply's line breaks are the model's own.
+ * The UI shows this as a verdict instead of a change to review.
+ */
+export function isUnchangedRewrite(rewrite: string, original: string): boolean {
+  const norm = (s: string) => s.replace(/\s+/g, ' ').trim()
+  return norm(rewrite) === norm(original)
 }
 
 /** Validate a reply into a coach result, or throw. */
@@ -141,7 +188,9 @@ export function buildDraftPrompt(
     '',
     '1. "rewrite" — 2–4 sentences describing what this entry is about, in the',
     '   third-party-neutral way a CV describes work. Cover what the organisation',
-    '   or subject IS and what work of this kind typically involves.',
+    '   or subject IS and what work of this kind typically involves. The facts',
+    '   below are already printed beside the entry from fields of their own, so',
+    '   do not write sentences that merely restate them.',
     '',
     '   THE LINE YOU MUST NOT CROSS: do not state what THIS PERSON did, what they',
     '   achieved, what they were responsible for, how big the team was, or any',
@@ -155,7 +204,8 @@ export function buildDraftPrompt(
     '',
     '2. "asks" — 2–5 short questions covering exactly what you had to leave out:',
     '   their role, the outcome, the scale, the technologies. These are the',
-    '   sentences only they can write.',
+    '   sentences only they can write. Never ask for dates, credential names,',
+    '   issuers or organisations — the CV records those in dedicated fields.',
     '',
     `   Write both in the language with code "${locale}".`,
     '',
