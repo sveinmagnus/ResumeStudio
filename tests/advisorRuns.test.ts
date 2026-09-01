@@ -4,6 +4,7 @@ import { emptyStore, makeProject } from './fixtures'
 import type { ResumeStore } from '../src/types'
 import {
   selectRun, unresolved, unseenRuns, hasRunning, useAdvisors, advisorSection,
+  fieldScope, parseFieldScope, FIELD_ADVISORS,
 } from '../src/store/useAdvisors'
 import { applyAchievements, validateMining, buildMiningPrompt } from '../src/lib/achievementMining'
 
@@ -111,6 +112,48 @@ describe('scoped runs', () => {
     expect(advisorSection(run)).toBe('courses')
     // Unscoped advisors still use their static home.
     expect(advisorSection({ id: 'review' })).toBe('overview')
+  })
+
+  /**
+   * The field advisors live inside one item's card, which unmounts the moment
+   * you click another item — so their scope has to say WHICH item, and
+   * `advisorSection` has to be able to read the section back out of it.
+   */
+  it('keeps two items\' field runs apart, and knows where each belongs', async () => {
+    const a = { id: 'write' as const, resumeId: RESUME, scope: fieldScope('projects', 'p1') }
+    const b = { id: 'write' as const, resumeId: RESUME, scope: fieldScope('projects', 'p2') }
+    await useAdvisors.getState().start(a, async () => '{"rewrite":"first"}')
+    await useAdvisors.getState().start(b, async () => '{"rewrite":"second"}')
+
+    // Starting the second must not replace the first — that was the bug scope
+    // exists to prevent, and a rewrite you were still reading is expensive.
+    expect(selectRun(useAdvisors.getState().runs, 'write', RESUME, a.scope)?.raw).toBe('{"rewrite":"first"}')
+    expect(selectRun(useAdvisors.getState().runs, 'write', RESUME, b.scope)?.raw).toBe('{"rewrite":"second"}')
+
+    expect(advisorSection({ id: 'write', scope: fieldScope('courses', 'c1') })).toBe('courses')
+    expect(advisorSection({ id: 'points', scope: fieldScope('projects', 'p1') })).toBe('projects')
+  })
+
+  it('falls back to the static home when a field scope is unreadable', () => {
+    // A scope written by an older build (or corrupted in localStorage) must
+    // land somewhere real rather than navigating to a section that isn't one.
+    for (const scope of [undefined, '', 'projects', '/p1', 'projects/']) {
+      expect(advisorSection({ id: 'write', scope })).toBe('overview')
+    }
+  })
+
+  it('round-trips a field scope, and reads an id containing no separator', () => {
+    expect(parseFieldScope(fieldScope('projects', 'p1'))).toEqual({ section: 'projects', itemId: 'p1' })
+    // uuids carry dashes, never slashes — but split on the FIRST one so an id
+    // that somehow held a slash still resolves its section.
+    expect(parseFieldScope('projects/a/b')).toEqual({ section: 'projects', itemId: 'a/b' })
+    expect(parseFieldScope('nope')).toBeNull()
+  })
+
+  it('names every field advisor in the set the toast and navigation check', () => {
+    // The set is what makes AdvisorToast open the item's card; an advisor
+    // missing from it lands you on the right list with everything collapsed.
+    expect([...FIELD_ADVISORS].sort()).toEqual(['points', 'skills', 'write'])
   })
 
   it('stores the user input a report has to be read against', async () => {

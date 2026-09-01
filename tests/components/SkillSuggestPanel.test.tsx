@@ -14,6 +14,7 @@ import { resetStore } from '../helpers/store-reset'
 import { resetLlmAvailability } from '../../src/lib/llmClient'
 import { resetAssistConsent } from '../../src/components/ui/AssistRun'
 import { api } from '../../src/lib/api'
+import { useAdvisors } from '../../src/store/useAdvisors'
 import { emptyStore, makeProject, makeSkill, makeResume } from '../fixtures'
 
 const LOCAL = { configured: true, provider: 'ollama', model: 'llama3.2:3b', local: true, highEnd: false }
@@ -35,7 +36,21 @@ function seed() {
     },
     hasData: true, primaryLocale: 'en', secondaryLocale: null,
     activeSection: 'projects', expandedItemId: 'p1', mutationCount: 0,
+    currentResumeId: 'resume-1',
   })
+}
+
+/**
+ * Collapse the card and open it again — what clicking another project does.
+ *
+ * The middle assertion is load-bearing: without proof that the panel really
+ * left the DOM, React batching the two updates into one render would make the
+ * test pass against the very bug it exists to catch.
+ */
+async function revisit() {
+  useStore.setState({ expandedItemId: null })
+  await waitFor(() => expect(screen.queryByRole('button', { name: /suggest skills/i })).not.toBeInTheDocument())
+  useStore.setState({ expandedItemId: 'p1' })
 }
 
 /** The model replies (fenced, as they do) with one known + one novel skill. */
@@ -49,7 +64,39 @@ const project = () => useStore.getState().data.projects[0]
 const registry = () => useStore.getState().data.skills
 
 describe('<SkillSuggestPanel>', () => {
-  beforeEach(() => { resetStore(); vi.restoreAllMocks() })
+  beforeEach(() => {
+    resetStore()
+    vi.restoreAllMocks()
+    localStorage.clear()
+    useAdvisors.setState({ runs: {}, reveal: null })
+  })
+
+  /**
+   * Collapsing the card unmounts the panel (EditorCard renders its body only
+   * while open), which used to take the suggestions — and any in-flight
+   * request — with it.
+   */
+  it('keeps the suggestions, and the ticks, across collapsing the card', async () => {
+    seed()
+    reply(['React', 'Rust'])
+    render(<ProjectsEditor />)
+    await userEvent.click(await screen.findByRole('button', { name: /suggest skills/i }))
+
+    const boxes = await screen.findAllByRole('checkbox')
+    const named = (n: string) => screen.getAllByRole('checkbox')
+      .find((b) => b.closest('label')?.textContent?.includes(n)) as HTMLInputElement
+    expect(boxes).toHaveLength(2)
+    // Tick the novel one, untick the pre-ticked one — a deliberate selection.
+    await userEvent.click(named('Rust'))
+    await userEvent.click(named('React'))
+
+    await revisit()
+
+    await screen.findByText(/new registry skill/i)
+    expect(named('Rust').checked).toBe(true)
+    expect(named('React').checked).toBe(false)
+    expect(screen.getByRole('button', { name: /add 1 skill/i })).toBeInTheDocument()
+  })
 
   it('links an existing registry skill instead of creating a duplicate', async () => {
     seed()

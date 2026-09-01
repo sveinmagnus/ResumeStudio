@@ -14,7 +14,7 @@ import userEvent from '@testing-library/user-event'
 import { AdvisorToast } from '../../src/components/ui/AdvisorToast'
 import { SectionAdviceButton } from '../../src/components/ui/SectionAdviceButton'
 import { useStore } from '../../src/store/useStore'
-import { useAdvisors, REVEAL_FRESH_MS } from '../../src/store/useAdvisors'
+import { useAdvisors, REVEAL_FRESH_MS, fieldScope } from '../../src/store/useAdvisors'
 import { resetStore } from '../helpers/store-reset'
 import { resetLlmAvailability } from '../../src/lib/llmClient'
 import { api } from '../../src/lib/api'
@@ -119,5 +119,24 @@ describe('view-scoped runs land IN the view, not on the list', () => {
     // on the views LIST would show nothing of the draft.
     expect(useStore.getState().activeSection).toBe('views')
     expect(useStore.getState().activeViewId).toBe('view-9')
+  })
+})
+
+describe('field-scoped runs land IN the item, not on the list', () => {
+  it('"Show me" on a finished rewrite opens that item’s card', async () => {
+    await useAdvisors.getState().start(
+      { id: 'write', resumeId: RESUME, scope: fieldScope('projects', 'p-7') },
+      async () => '{"rewrite":"Led the migration."}',
+    )
+    const user = userEvent.setup()
+    render(<AdvisorToast />)
+
+    await user.click(await screen.findByRole('button', { name: /show me/i }))
+
+    // The card has to be OPENED, not merely navigated to: EditorCard renders
+    // its body only while expanded, and setActiveSection has just collapsed
+    // everything — so a section-only jump lands on a list showing nothing.
+    expect(useStore.getState().activeSection).toBe('projects')
+    expect(useStore.getState().expandedItemId).toBe('p-7')
   })
 })

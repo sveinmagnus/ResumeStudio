@@ -16,6 +16,9 @@ import { WritingAssist } from '../../src/components/ui/WritingAssist'
 import { resetLlmAvailability } from '../../src/lib/llmClient'
 import { resetAssistConsent } from '../../src/components/ui/AssistRun'
 import { api } from '../../src/lib/api'
+import { useStore } from '../../src/store/useStore'
+import { useAdvisors } from '../../src/store/useAdvisors'
+import { resetStore } from '../helpers/store-reset'
 import { makeCourse } from '../fixtures'
 
 const LOCAL = { configured: true, provider: 'ollama', model: 'llama3.2:3b', local: true, highEnd: false }
@@ -42,14 +45,25 @@ function setup(source: Record<string, string> = SOURCE) {
     program: { en: 'Metier Academy' },
     description: source,
   })
-  render(
-    <WritingAssist section="courses" item={course} source={source} locale="en" onApply={onApply} />,
+  const panel = () => (
+    <WritingAssist section="courses" item={course} source={source} locale="en" onApply={onApply} />
   )
-  return { onApply }
+  const { unmount } = render(panel())
+  // Unmount and mount again — what clicking to another item does, since
+  // EditorCard renders its body only while the card is expanded.
+  const revisit = () => { unmount(); render(panel()) }
+  return { onApply, revisit }
 }
 
 describe('<WritingAssist>', () => {
-  beforeEach(() => { vi.restoreAllMocks(); resetAssistConsent() })
+  beforeEach(() => {
+    vi.restoreAllMocks()
+    resetAssistConsent()
+    resetStore()
+    localStorage.clear()
+    useAdvisors.setState({ runs: {}, reveal: null })
+    useStore.setState({ currentResumeId: 'resume-1' })
+  })
 
   it('offers Strengthen when a model is configured and there is prose', async () => {
     backend(LOCAL)
@@ -89,6 +103,62 @@ describe('<WritingAssist>', () => {
     expect(screen.getByText(/Was responsible for the migration of 12 services/)).toBeInTheDocument()
     // Nothing written yet.
     expect(onApply).not.toHaveBeenCalled()
+  })
+
+  /**
+   * The reported bug: start an assist, click to another item, and the spinner
+   * is gone with no way to tell whether a reply is still coming. The card's
+   * body is unmounted on that click, so the run has to belong to the store.
+   */
+  it('is still working when you leave the item and come back', async () => {
+    backend(LOCAL)
+    let settle: (reply: string) => void = () => {}
+    vi.spyOn(api, 'llmComplete').mockReturnValue(new Promise<string>((res) => { settle = res }))
+    const { revisit } = setup()
+
+    await userEvent.click(await screen.findByRole('button', { name: /strengthen this description/i }))
+    expect(await screen.findByRole('button', { name: /working/i })).toBeInTheDocument()
+
+    revisit()
+    expect(await screen.findByRole('button', { name: /working/i })).toBeInTheDocument()
+
+    // And the reply still lands, in the panel that was never mounted for it.
+    settle(REPLY)
+    expect(await screen.findByText('Led the migration of 12 services to Kubernetes.')).toBeInTheDocument()
+  })
+
+  it('still shows a finished suggestion after you leave and come back', async () => {
+    backend(LOCAL)
+    vi.spyOn(api, 'llmComplete').mockResolvedValue(REPLY)
+    const { onApply, revisit } = setup()
+
+    await userEvent.click(await screen.findByRole('button', { name: /strengthen this description/i }))
+    await screen.findByText('Led the migration of 12 services to Kubernetes.')
+
+    revisit()
+    expect(await screen.findByText('Led the migration of 12 services to Kubernetes.')).toBeInTheDocument()
+    expect(screen.getByText('How large was the team?')).toBeInTheDocument()
+    // Still un-applied: only an explicit click writes.
+    expect(onApply).not.toHaveBeenCalled()
+
+    // …and it applies from the second mount just as it would from the first.
+    await userEvent.click(screen.getByRole('button', { name: /use the suggestion/i }))
+    await waitFor(() => expect(onApply).toHaveBeenCalledTimes(1))
+  })
+
+  it('is gone for good once accepted or discarded', async () => {
+    // The other half of the contract: it persists until the user acts, and
+    // then it does NOT come back on the next visit.
+    backend(LOCAL)
+    vi.spyOn(api, 'llmComplete').mockResolvedValue(REPLY)
+    const { revisit } = setup()
+
+    await userEvent.click(await screen.findByRole('button', { name: /strengthen this description/i }))
+    await userEvent.click(await screen.findByRole('button', { name: /discard/i }))
+
+    revisit()
+    await screen.findByRole('button', { name: /strengthen this description/i })
+    expect(screen.queryByText('Led the migration of 12 services to Kubernetes.')).not.toBeInTheDocument()
   })
 
   it('surfaces the asks as questions for the user, not as content', async () => {
