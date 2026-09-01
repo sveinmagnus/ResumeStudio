@@ -16,6 +16,9 @@ const INITIAL = (() => {
   return {
     data: s.data,
     activeSection: s.activeSection,
+    // A stale open view is invisible until two tests reuse a view id: the
+    // second one then renders the EDITOR where it expected the list.
+    activeViewId: s.activeViewId,
     primaryLocale: s.primaryLocale,
     secondaryLocale: s.secondaryLocale,
     expandedItemId: s.expandedItemId,
