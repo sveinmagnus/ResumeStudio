@@ -31,6 +31,7 @@ import { useMemo } from 'react'
 import { Check, X, HelpCircle, AlertTriangle } from 'lucide-react'
 import { AssistRun } from './AssistRun'
 import { useAdvisorRun, jsonReply } from '../../store/useAdvisorRun'
+import { ASSIST_MAX_TOKENS } from '../../lib/llmAssist'
 import { fieldScope } from '../../store/useAdvisors'
 import {
   buildCoachPrompt, buildDraftPrompt, validateCoachResponse,
@@ -108,7 +109,7 @@ export function WritingAssist({
           : buildDraftPrompt(facts, sectionLabel(section), locale))}
         advisor={ref}
         label={hasSource ? `Strengthen this ${noun}` : `Draft this ${noun}`}
-        maxTokens={900}
+        maxTokens={ASSIST_MAX_TOKENS}
         compact
         warnWeakModel
         hasManualPath={false}
@@ -124,7 +125,15 @@ export function WritingAssist({
         </p>
       )}
 
-      {parseError && <p className="wa-note wa-err" role="alert">{parseError}</p>}
+      {/* A stored reply that won't parse would otherwise sit here for good —
+          the run succeeded, so nothing else clears it. */}
+      {parseError && (
+        <p className="wa-note wa-err" role="alert">
+          <AlertTriangle size={12} />
+          <span>The model&rsquo;s reply could not be read: {parseError}</span>
+          <button type="button" className="wa-dismiss" onClick={clear}>Dismiss</button>
+        </p>
+      )}
 
       {draft && (
         <div className="wa-result">
@@ -194,6 +203,11 @@ export function WritingAssist({
         .wa-warn { color: var(--warn-ink); }
         .wa-err { color: var(--err-ink); }
         .wa-ok { color: var(--ok-ink); }
+        .wa-dismiss {
+          flex-shrink: 0; background: none; border: none; padding: 0;
+          font-size: 11.5px; font-weight: 600; color: var(--err-ink);
+          text-decoration: underline; cursor: pointer;
+        }
         .wa-result {
           display: flex; flex-direction: column; gap: 10px;
           padding: 12px; border: 1px solid var(--line); border-radius: var(--r-sm);

@@ -122,6 +122,9 @@ export function AssistRun({
     (advisor ? selectRun(s.runs, advisor.id, advisor.resumeId, advisor.scope) : undefined))
   const busy = advisor ? storedRun?.status === 'running' : localBusy
   const err = advisor ? (storedRun?.status === 'error' ? storedRun.error ?? null : null) : localErr
+  const clearRun = useCallback(() => {
+    if (advisor) useAdvisors.getState().clear(advisor)
+  }, [advisor])
   // Manual is the only path with no model, so it starts open in that case.
   const [manualOpen, setManualOpen] = useState(false)
 
@@ -221,7 +224,19 @@ export function AssistRun({
                 </p>
               )}
               {hint && <p className="ar-blurb ar-hint"><Info size={12} />{hint}</p>}
-              {err && <p className="ar-blurb ar-err" role="alert"><AlertTriangle size={12} />{err}</p>}
+              {err && (
+                <p className="ar-blurb ar-err" role="alert">
+                  <AlertTriangle size={12} />
+                  <span>{err}</span>
+                  {/* A stored run's failure outlives the component, so unlike a
+                      local error it does not disappear when you navigate away —
+                      it needs an explicit way out, or the card keeps the
+                      failure forever. */}
+                  {advisor && (
+                    <button type="button" className="ar-dismiss" onClick={clearRun}>Dismiss</button>
+                  )}
+                </p>
+              )}
             </div>
           </div>
         </>
@@ -289,6 +304,11 @@ export function AssistRun({
         .ar-local { color: var(--ok-ink); }
         .ar-remote { color: var(--warn-ink); }
         .ar-err { color: var(--err-ink); }
+        .ar-dismiss {
+          flex-shrink: 0; background: none; border: none; padding: 0 0 0 2px;
+          font-size: 11.5px; font-weight: 600; color: var(--err-ink);
+          text-decoration: underline; cursor: pointer;
+        }
         .ar-weak { color: var(--warn-ink); }
         .ar-hint { color: var(--ink-faint); }
         .ar-manual { display: flex; flex-direction: column; gap: 8px; }

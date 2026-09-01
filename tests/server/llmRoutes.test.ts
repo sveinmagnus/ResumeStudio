@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest'
 import request from 'supertest'
 import type { Express } from 'express'
+import { ASSIST_MAX_TOKENS } from '../../src/lib/llmAssist'
 
 let app: Express
 
@@ -105,7 +106,20 @@ describe('POST /api/llm/complete', () => {
     vi.stubGlobal('fetch', fn)
     await request(app).post('/api/llm/complete').send({ prompt: 'p', max_tokens: 999_999 })
     const body = JSON.parse((fn.mock.calls[0][1] as RequestInit).body as string)
-    expect(body.max_tokens).toBeLessThanOrEqual(4096)
+    expect(body.max_tokens).toBeLessThanOrEqual(8192)
+  })
+
+  it('leaves a reasoning model room to think before it answers', async () => {
+    // The cap has to clear ASSIST_MAX_TOKENS: a model that deliberates first
+    // spends its budget before writing anything, so a cap sized for the ANSWER
+    // stops it before there is one. Clamping the in-item assists back down was
+    // the production failure.
+    configureLocal()
+    const fn = vi.fn().mockResolvedValue(chat('ok'))
+    vi.stubGlobal('fetch', fn)
+    await request(app).post('/api/llm/complete').send({ prompt: 'p', max_tokens: ASSIST_MAX_TOKENS })
+    const body = JSON.parse((fn.mock.calls[0][1] as RequestInit).body as string)
+    expect(body.max_tokens).toBe(ASSIST_MAX_TOKENS)
   })
 
   it('503s when no model is configured', async () => {

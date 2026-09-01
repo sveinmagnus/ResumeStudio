@@ -16,6 +16,7 @@
 
 import { AssistRun } from './AssistRun'
 import { useAdvisorRun, jsonReply } from '../../store/useAdvisorRun'
+import { ASSIST_MAX_TOKENS } from '../../lib/llmAssist'
 import { fieldScope } from '../../store/useAdvisors'
 import {
   buildKeyPointsPrompt, validateKeyPoints, type DraftPoint, type PointStyle,
@@ -82,11 +83,18 @@ export function KeyPointsPanel({
         // Beside "Add highlight" the long form pushes the row onto two lines,
         // and the source is obvious from where the button sits.
         label={inline ? `Suggest ${noun}` : `Suggest ${noun} from the description`}
-        maxTokens={600}
+        maxTokens={ASSIST_MAX_TOKENS}
         hasManualPath={false}
       />
       {!hasProse && !run && <p className="kp-hint">Write the description first — there’s nothing to reshape yet.</p>}
-      {parseError && <p className="kp-hint kp-err" role="alert">{parseError}</p>}
+      {/* The run succeeded, so nothing else would ever clear an unreadable
+          reply — it needs its own way out. */}
+      {parseError && (
+        <p className="kp-hint kp-err" role="alert">
+          The model&rsquo;s reply could not be read: {parseError}{' '}
+          <button type="button" className="kp-dismiss" onClick={clear}>Dismiss</button>
+        </p>
+      )}
 
       {draft && (
         <div className="kp-result">
@@ -118,6 +126,10 @@ export function KeyPointsPanel({
         .kp-wrap { display: flex; flex-direction: column; gap: 8px; margin: 10px 0; }
         .kp-hint { font-size: 12px; color: var(--ink-faint); margin: 0; }
         .kp-err { color: var(--err-ink); }
+        .kp-dismiss {
+          background: none; border: none; padding: 0; font-size: 11.5px;
+          font-weight: 600; color: var(--err-ink); text-decoration: underline; cursor: pointer;
+        }
         .kp-result {
           display: flex; flex-direction: column; gap: 5px;
           padding: 10px; border: 1px solid var(--line); border-radius: var(--r-sm);

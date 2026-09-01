@@ -68,6 +68,22 @@ The full catalog with per-feature design detail is in
   a model was picked. The same model can also power **translation**
   (`translate_provider: 'llm'`) and the **writing coach** instead of a separate
   engine — `llm.ts → chatComplete()` is the one shared chat round-trip.
+  **A REASONING model thinks out loud first, and both halves of that bite.**
+  `chatComplete` strips the `<thought>`/`<think>`/… wrapper (`stripReasoning`,
+  mirrored in `lib/llmAssist.ts` and cross-checked by
+  `tests/reasoningReply.test.ts`) because the deliberation is not the answer:
+  `summarize.ts` takes the reply's FIRST LINE, and `extractJson` hunts for
+  brackets — and thinking prose is full of them, which is how a production
+  install on `gemma-4-31b-it` answered every assist with "JSON.parse:
+  unexpected character at line 1 column 1". `extractJson` now finds the first
+  BALANCED value that actually parses rather than slicing first-bracket to
+  last. The other half is budget: such a model spends `max_tokens` on thinking
+  BEFORE it writes, so a cap sized for the answer stops it before there is one
+  (measured: ~900 tokens of deliberation on a two-line course description,
+  ~4,900 on a harder one). Hence `ASSIST_MAX_TOKENS` (8k) and the 8192 route
+  cap — a cap is not a spend, so sizing for the slow case is free — and an
+  answer that is empty after stripping is an ERROR naming the budget, never
+  text handed to a caller to fail on later.
   **Config is named `llm_*` / `LLM_*`, never `summarize_*`** — the model powers
   far more than that one feature now; the old names are still read as a
   fallback (settings `legacyKey`, env fallback in `llm.ts`) so upgrades don't

@@ -19,7 +19,7 @@ import { fieldScope } from '../../store/useAdvisors'
 import { KeyPointsPanel } from '../ui/KeyPointsPanel'
 import { WritingAssist } from '../ui/WritingAssist'
 import { toHighlights } from '../../lib/keyPoints'
-import { extractJson } from '../../lib/llmAssist'
+import { extractJson, ASSIST_MAX_TOKENS } from '../../lib/llmAssist'
 import {
   buildSkillExtractPrompt, validateSkillExtract, resolveSuggestions, registryVocabulary,
   type ExtractionResult, type SkillSuggestion,
@@ -554,11 +554,18 @@ function SkillSuggestPanel({ project, onLink, onCreate, inline = false }: {
         compact={inline}
         disabled={!hasProse}
         label={inline ? 'Suggest skills' : 'Suggest skills from the description'}
-        maxTokens={400}
+        maxTokens={ASSIST_MAX_TOKENS}
         hasManualPath={false}
       />
       {!hasProse && !run && <p className="ss-hint">Add a description first — there's nothing to read yet.</p>}
-      {parseError && <p className="ss-hint ss-err" role="alert">{parseError}</p>}
+      {/* The run succeeded, so nothing else would ever clear an unreadable
+          reply — it needs its own way out. */}
+      {parseError && (
+        <p className="ss-hint ss-err" role="alert">
+          The model&rsquo;s reply could not be read: {parseError}{' '}
+          <button type="button" className="ss-dismiss" onClick={clear}>Dismiss</button>
+        </p>
+      )}
 
       {result && (
         <div className="ss-result">
@@ -585,6 +592,10 @@ function SkillSuggestPanel({ project, onLink, onCreate, inline = false }: {
         .ss-wrap { display: flex; flex-direction: column; gap: 8px; margin: 10px 0; }
         .ss-hint { font-size: 12px; color: var(--ink-faint); margin: 0; }
         .ss-err { color: var(--err-ink); }
+        .ss-dismiss {
+          background: none; border: none; padding: 0; font-size: 11.5px;
+          font-weight: 600; color: var(--err-ink); text-decoration: underline; cursor: pointer;
+        }
         .ss-result {
           display: flex; flex-direction: column; gap: 4px;
           padding: 10px; border: 1px solid var(--line); border-radius: var(--r-sm);

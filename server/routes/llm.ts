@@ -33,8 +33,15 @@ export const MAX_PROMPT_CHARS = 60_000
  * reject exactly the requests the high-end model exists to serve.
  */
 export const ADVANCED_MAX_PROMPT_CHARS = 240_000
-/** Cap on the reply, so a runaway generation can't stream forever. */
-const MAX_OUTPUT_TOKENS = 4096
+/**
+ * Cap on the reply, so a runaway generation can't stream forever.
+ *
+ * Sized for a REASONING model rather than for the answer: one that thinks out
+ * loud spends its budget deliberating first, so a cap tuned to the length of
+ * the answer stops it before it writes one. 4096 was too low for exactly that
+ * reason on a production install (see `ASSIST_MAX_TOKENS`).
+ */
+const MAX_OUTPUT_TOKENS = 8192
 /** Advanced replies are lists of findings/proposals, not one line. */
 const ADVANCED_MAX_OUTPUT_TOKENS = 16_384
 const DEFAULT_OUTPUT_TOKENS = 2048
