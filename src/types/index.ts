@@ -564,6 +564,12 @@ export interface Presentation {
   start: YearMonth | null
   /** When it was last given (shape v13). `null` = ongoing (like other ranges). */
   end: YearMonth | null
+  /**
+   * Editor-only classification (see lib/courseCategories.ts), the same
+   * vocabulary Courses and Certifications use. NEVER exported. Additive/
+   * optional — absent reads as "no category".
+   */
+  category?: string | null
   sort_order: number
   starred: boolean
   disabled: boolean
@@ -595,6 +601,14 @@ export interface Publication {
   url: string | null
   date: YearMonth | null
   publication_type: 'article' | 'research' | 'whitepaper' | 'book' | 'book_chapter' | 'blog_post' | 'report' | 'thesis'
+  /**
+   * Editor-only classification (see lib/courseCategories.ts), the same
+   * vocabulary Courses and Certifications use. Orthogonal to
+   * {@link Publication.publication_type}, which says what KIND of artefact this
+   * is and IS exported; the category says what subject area it belongs to and
+   * is never exported. Additive/optional.
+   */
+  category?: string | null
   sort_order: number
   starred: boolean
   disabled: boolean

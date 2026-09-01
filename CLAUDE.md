@@ -336,7 +336,9 @@ src/
 │   │   coerce (defensive JSON narrowing), settingsBus, uuid (the one id generator —
 │   │   crypto.randomUUID with a non-secure-context fallback; no `uuid` package),
 │   │   lookup (getBy/hasKey — the ONLY safe read of a map keyed by DATA; see §2)
-│   │ — editor-only vocabularies (never exported): courseCategories, employmentTypes,
+│   │ — editor-only vocabularies (never exported): courseCategories (the ONE
+│   │   category vocabulary, shared by courses/certs/presentations/publications),
+│   │   employmentTypes,
 │   │   positionTypes, publicationTypes, recommendationRelationships, cefr
 │   │ — persistence/sync: api, localCache (per-id fallback+queue), connectivity,
 │   │   syncEngine (PURE boot/drain decisions), diffResume, threeWayMerge (base/mine/
@@ -534,11 +536,17 @@ Every translatable field is a `LocalizedString = Record<string, string>` keyed b
 ### Editor-only organizing fields (never exported)
 Some fields exist purely to organize the editor and are stripped from every
 export (like the anonymization/internal-notes fields):
-- **`Course.category` / `Certification.category`** (shape v11) — a shared,
-  English-only vocabulary (`lib/courseCategories.ts`), mirroring employment/
-  position types. Drives the per-section **type Filter** (`lib/viewItemSelect.ts`),
-  never a heading.
-- Every section with a type/facet (course/cert category, position/publication/
+- **`category`** on **Course / Certification / Presentation / Publication** — ONE
+  shared, English-only vocabulary (`lib/courseCategories.ts`), mirroring
+  employment/position types. Drives the per-section **type Filter** and the view
+  editor's "By type" quick-select (`lib/viewItemSelect.ts`), never a heading.
+  One vocabulary across all four because the question it answers — which subject
+  area is this — doesn't change with the section, so a view can select the
+  security material whether it was a course, a certificate, a talk or a paper.
+  Additive/optional on all four; no shape bump. Note it is **orthogonal to
+  `Publication.publication_type`**, which says what KIND of artefact it is and
+  IS exported — publications carry both facets, and neither subsumes the other.
+- Every section with a type/facet (item category, position/publication/
   employment type, project/employment role) offers a display-only **Filter**
   control beside Sort — it hides rows in the editor only, never in views/exports.
 

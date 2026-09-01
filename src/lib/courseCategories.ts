@@ -1,17 +1,29 @@
 /**
- * PURE: the Course / Certification "category" vocabulary — the SINGLE source for
- * the Courses + Certifications editor dropdowns, the card subtitle, the editor
- * "type" filter, and the view-editor "By type" quick-select facet, so they can't
- * drift.
+ * PURE: the shared item "category" vocabulary — the SINGLE source for the
+ * Courses, Certifications, Presentations and Publications editor dropdowns, the
+ * card subtitle, the editor "type" filter, and the view-editor "By type"
+ * quick-select facet, so they can't drift.
+ *
+ * ONE vocabulary across all four sections, not four: the point of a category is
+ * to answer "which subject area is this" the same way wherever the evidence
+ * happens to live, so a view can select the security material regardless of
+ * whether it was a course, a certificate, a talk or a paper. The module keeps
+ * its `course*` names because those are the values stored on disk.
+ *
+ * A Publication also carries `publication_type`, which is a different question
+ * — what KIND of artefact it is (article, thesis, book) — and IS exported. The
+ * category is orthogonal to it and is not.
  *
  * English-only, like `lib/employmentTypes.ts` (NOT localized like
- * positionTypes / publicationTypes): a course/cert category is an EDITOR-ONLY
- * organizing tool — it is never rendered in an export — so it stays on the
- * editor side of the export/editor boundary (see lib/exportStrings.ts on why
- * editor chrome isn't localized, and CLAUDE.md §12).
+ * positionTypes / publicationTypes): a category is an EDITOR-ONLY organizing
+ * tool — it is never rendered in an export — so it stays on the editor side of
+ * the export/editor boundary (see lib/exportStrings.ts on why editor chrome
+ * isn't localized, and CLAUDE.md §12).
  */
 
-// NOTE: `value` is the opaque key stored on a course/cert — never change an
+import { lookup } from './lookup'
+
+// NOTE: `value` is the opaque key stored on the item — never change an
 // existing value or that item silently loses its category. Labels are free to
 // change (editor-only, never exported). `management` is kept (relabelled to
 // "Company and board management") so items tagged before the management split
@@ -52,7 +64,14 @@ const LABELS: Record<string, string> = Object.fromEntries(
   COURSE_CATEGORIES.map((t) => [t.value, t.label]),
 )
 
-/** Human label for a stored course/cert category; '' for none/unknown. */
+/**
+ * Human label for a stored item category; '' for none/unknown.
+ *
+ * Via `lookup`, not `LABELS[value]`: the key comes from stored resume JSON, so
+ * `'toString'` would otherwise return the INHERITED function — truthy, so the
+ * `|| ''` fallback never fires — and the card subtitle that interpolates this
+ * would print `function toString() { [native code] }`. See lib/lookup.ts.
+ */
 export function courseCategoryLabel(value: string | null | undefined): string {
-  return (value != null && LABELS[value]) || ''
+  return value == null ? '' : lookup(LABELS, value, '')
 }

@@ -87,4 +87,18 @@ describe('the category vocabulary is complete and self-consistent', () => {
     expect(courseCategoryLabel(undefined)).toBe('')
     expect(courseCategoryLabel('')).toBe('')
   })
+
+  it('returns a STRING for an inherited Object.prototype key, never the function', () => {
+    // The label map is an object literal, so it inherits toString/constructor/
+    // valueOf. `LABELS[key]` would hand those back — truthy, so a `|| ''`
+    // fallback never fires — and the value is interpolated into a card
+    // subtitle, which then prints "function toString() { [native code] }".
+    // The key needs no prototype pollution to get here: it is read straight off
+    // stored resume JSON, which arrives from imports and backups.
+    for (const key of ['toString', 'constructor', 'valueOf', 'hasOwnProperty', '__proto__']) {
+      const label = courseCategoryLabel(key)
+      expect(typeof label, `${key} did not return a string`).toBe('string')
+      expect(label).toBe('')
+    }
+  })
 })
