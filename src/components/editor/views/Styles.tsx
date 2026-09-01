@@ -31,6 +31,19 @@ export function Styles() {
       .rv-empty p { font-size: 15px; }
       .rv-empty-sub { font-size: 13px; }
 
+      /* Right-aligned above the cards: whole-list actions sit apart from the
+         create/tailor pair, which make views rather than consume them. */
+      .rv-list-toolbar {
+        display: flex; align-items: center; justify-content: flex-end;
+        gap: 10px; margin-bottom: 10px;
+      }
+      .rv-export-err {
+        display: inline-flex; align-items: center; gap: 8px;
+        padding: 5px 10px; border-radius: var(--r-sm);
+        background: var(--err-wash); color: var(--err-ink); font-size: 12.5px;
+      }
+      .rv-export-err-x { color: inherit; font-size: 12px; padding: 1px 3px; }
+
       .rv-cards { display: flex; flex-direction: column; gap: 10px; }
       .rv-card {
         display: flex; align-items: center; gap: 14px; padding: 16px 18px;
@@ -38,6 +51,13 @@ export function Styles() {
         border-radius: var(--r-md); transition: border-color .15s;
       }
       .rv-card:hover { border-color: var(--accent); }
+      /* The card body is one anchor, so the whole line opens the view — the
+         action buttons stay its SIBLINGS (interactive elements never nest). */
+      .rv-card-main {
+        display: flex; align-items: center; gap: 14px; flex: 1; min-width: 0;
+        color: inherit; text-decoration: none; cursor: pointer;
+      }
+      .rv-card-main:hover .rv-card-name { color: var(--accent); }
       .rv-card-icon { color: var(--accent); flex-shrink: 0; }
       .rv-card-body { flex: 1; min-width: 0; }
       .rv-card-name { font-weight: 600; font-size: 15px; }

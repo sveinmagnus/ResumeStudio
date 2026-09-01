@@ -29,6 +29,28 @@ vi.mock('../../src/lib/pdfExporter', () => ({
   exportPdf: vi.fn().mockResolvedValue(undefined),
 }))
 
+// The list-page export tests assert on the download call (file per view, one
+// per pick) — jsdom would otherwise silently "download" via a blob anchor.
+const downloadText = vi.fn()
+vi.mock('../../src/lib/download', () => ({
+  downloadText: (...args: unknown[]) => downloadText(...args),
+  downloadBlob: vi.fn(),
+}))
+
+// Wrap (not replace) buildViewText so the locale each export ran with is
+// observable while the real output still flows to the download mock.
+const buildViewTextSpy = vi.fn()
+vi.mock('../../src/lib/viewText', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('../../src/lib/viewText')>()
+  return {
+    ...mod,
+    buildViewText: (...args: Parameters<typeof mod.buildViewText>) => {
+      buildViewTextSpy(...args)
+      return mod.buildViewText(...args)
+    },
+  }
+})
+
 function seed() {
   useStore.setState({
     data: emptyStore(), hasData: true, primaryLocale: 'en', secondaryLocale: null,
@@ -75,6 +97,77 @@ describe('<ResumeViewsEditor>', { timeout: FILE_TIMEOUT_MS }, () => {
     expect(useStore.getState().data.views).toHaveLength(1)
     // Editor is now showing — the "All views" back button appears.
     expect(screen.getByRole('button', { name: /all views/i })).toBeInTheDocument()
+  })
+
+  it('opens the editor by clicking anywhere on the card, not just the Edit button', async () => {
+    seed()
+    useStore.setState({
+      data: { ...emptyStore(), views: [makeView({ id: 'v1', name: 'Board CV', purpose: 'For board roles' })] },
+    })
+    render(<ResumeViewsEditor />)
+
+    // The purpose text sits in the card body, far from the Edit button.
+    await userEvent.click(screen.getByText('For board roles'))
+    expect(useStore.getState().activeViewId).toBe('v1')
+    expect(screen.getByRole('button', { name: /all views/i })).toBeInTheDocument()
+  })
+
+  it('the card body is a real link, so a view can open in its own tab', () => {
+    seed()
+    useStore.setState({
+      data: { ...emptyStore(), views: [makeView({ id: 'v1', name: 'Board CV' })] },
+      currentResumeId: 'resume-1',
+    })
+    render(<ResumeViewsEditor />)
+
+    const link = screen.getByRole('link', { name: /board cv/i })
+    expect(link).toHaveAttribute('href', '/r/resume-1/views/v1')
+  })
+
+  it('exports a view straight from the list, in its own language, without opening it', async () => {
+    seed()
+    const store = emptyStore()
+    store.resume = { ...store.resume!, supported_locales: ['en', 'no'] }
+    store.views.push(makeView({ id: 'v1', name: 'Board CV', export_locale: 'no' }))
+    useStore.setState({ data: store })
+    downloadText.mockClear()
+    buildViewTextSpy.mockClear()
+    render(<ResumeViewsEditor />)
+
+    await userEvent.click(screen.getByRole('button', { name: /^export$/i }))
+    await userEvent.click(screen.getByRole('menuitem', { name: /text \(ats\)/i }))
+
+    await waitFor(() => expect(downloadText).toHaveBeenCalledTimes(1))
+    // Exported in the view's persisted language — not the editing language.
+    expect(buildViewTextSpy).toHaveBeenCalledWith(
+      expect.anything(), expect.objectContaining({ id: 'v1' }), 'no',
+    )
+    // The export stamps the view and never opened the editor.
+    expect(useStore.getState().data.views[0].last_exported_at).toBeTruthy()
+    expect(useStore.getState().activeViewId).toBeNull()
+  })
+
+  it('Export all downloads every view in the picked format and stamps each one', async () => {
+    seed()
+    const store = emptyStore()
+    store.views.push(
+      makeView({ id: 'v1', name: 'Board CV' }),
+      makeView({ id: 'v2', name: 'Consultant CV' }),
+    )
+    useStore.setState({ data: store })
+    downloadText.mockClear()
+    render(<ResumeViewsEditor />)
+
+    await userEvent.click(screen.getByRole('button', { name: /export all/i }))
+    await userEvent.click(screen.getByRole('menuitem', { name: /markdown/i }))
+
+    await waitFor(() => expect(downloadText).toHaveBeenCalledTimes(2))
+    // One file per view, told apart by the view name in the filename.
+    const names = downloadText.mock.calls.map((c) => c[1] as string)
+    expect(names[0]).not.toBe(names[1])
+    for (const v of useStore.getState().data.views) {
+      expect(v.last_exported_at).toBeTruthy()
+    }
   })
 
   it('renames the active view', async () => {

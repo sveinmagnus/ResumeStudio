@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode, type CSSProperties } from 'react'
+import { useEffect, useMemo, useState, type ReactNode, type CSSProperties } from 'react'
 import { useStore } from '../../../store/useStore'
 import { DualField } from '../../ui/DualField'
 import { SECTIONS } from '../../../lib/sections'
@@ -23,14 +23,15 @@ import { PageFitPanel } from './PageFitPanel'
 import { selectOnly, isSingleSelectSection } from '../../../lib/viewItemSelect'
 import { VIEW_TEMPLATES, getTemplate, applyTemplate } from '../../../lib/viewTemplates'
 import { useViewPreview } from './useViewPreview'
-import { useViewExport } from './useViewExport'
+import { useViewExport, viewExportLocale } from './useViewExport'
+import { ExportMenu } from './ExportMenu'
 import type {
   ResumeView, ViewStyle, SectionStyle, ViewSection,
   ViewHeaderConfig, ViewFooterConfig, SortMode,
 } from '../../../types'
 import {
   Trash2, ChevronUp, ChevronDown, ChevronRight, GripVertical, Pencil,
-  ArrowLeft, Star, FileText, FileDown, FileType, FileCode,
+  ArrowLeft, Star,
   PanelRight, PanelRightClose, PanelRightOpen, ExternalLink, BookOpen,
 } from 'lucide-react'
 import { ReadThroughMode } from './ReadThroughMode'
@@ -129,111 +130,6 @@ function SortableSecRow({ id, off, children }: {
   )
 }
 
-/**
- * The "Export view" dropdown shown at the top of the editor, next to the
- * preview toggle. Groups the PDF / DOCX / Text / Markdown actions behind one
- * trigger so exporting — the frequent task — is always one click away without
- * scrolling to the bottom of the config. Closes on outside-click / Escape.
- */
-function ExportMenu({ onPdf, onDocx, onHtml, onText, onMarkdown, onEuropass, onJsonResume, pdfBusy, docxBusy, htmlBusy, lastExportedAt }: {
-  onPdf: () => void
-  onDocx: () => void
-  onHtml: () => void
-  onText: () => void
-  onMarkdown: () => void
-  onEuropass: () => void
-  onJsonResume: () => void
-  pdfBusy: boolean
-  docxBusy: boolean
-  htmlBusy: boolean
-  lastExportedAt: string | null
-}) {
-  const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    const onClick = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
-    }
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
-    document.addEventListener('mousedown', onClick)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onClick)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [open])
-
-  // DOCX runs asynchronously and shows a busy label — keep the menu open for it
-  // so the progress is visible; the others complete synchronously and close.
-  const pick = (fn: () => void, keepOpen = false) => { fn(); if (!keepOpen) setOpen(false) }
-
-  return (
-    <div className="rv-exportmenu" ref={ref}>
-      <button
-        type="button"
-        className="rv-export-trigger"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        aria-haspopup="menu"
-      >
-        <FileDown size={15} /> Export view
-        <ChevronDown size={13} className={open ? 'rv-exp-chev open' : 'rv-exp-chev'} />
-      </button>
-      {open && (
-        <div className="rv-export-pop" role="menu">
-          <button type="button" role="menuitem" className="rv-export-item" onClick={() => pick(onPdf, true)} disabled={pdfBusy}>
-            <FileText size={15} /> {pdfBusy ? 'Building PDF…' : 'Export PDF'}
-          </button>
-          <button type="button" role="menuitem" className="rv-export-item" onClick={() => pick(onDocx, true)} disabled={docxBusy}>
-            <FileDown size={15} /> {docxBusy ? 'Building DOCX…' : 'Export DOCX'}
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            className="rv-export-item"
-            onClick={() => pick(onHtml, true)}
-            disabled={htmlBusy}
-            title="One self-contained .html file — fonts embedded, opens anywhere, share as a link-sized attachment"
-          >
-            <FileCode size={15} /> {htmlBusy ? 'Building HTML…' : 'HTML (single file)'}
-          </button>
-          <button type="button" role="menuitem" className="rv-export-item" onClick={() => pick(onText)}>
-            <FileType size={15} /> Text (ATS)
-          </button>
-          <button type="button" role="menuitem" className="rv-export-item" onClick={() => pick(onMarkdown)}>
-            <FileCode size={15} /> Markdown
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            className="rv-export-item"
-            onClick={() => pick(onEuropass)}
-            title="Europass covers identity, work, education and languages — other sections are not part of the format"
-          >
-            <FileType size={15} /> Europass XML
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            className="rv-export-item"
-            onClick={() => pick(onJsonResume)}
-            title="The open jsonresume.org interchange format — for themes, other CV tools and pipelines"
-          >
-            <FileCode size={15} /> JSON Resume
-          </button>
-          {lastExportedAt && (
-            <div className="rv-export-menu-foot">
-              Last exported {new Date(lastExportedAt).toLocaleDateString()}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
-
 // ─── View editor ──────────────────────────────────────────────────────────────
 
 export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
@@ -249,12 +145,9 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   )
   // Seed from the view's persisted export locale (F11) when it's still a
-  // supported locale; else the resume's first locale. Lazy init = once on mount.
-  const [exportLocale, setExportLocale] = useState(() => {
-    const supported = data.resume?.supported_locales ?? []
-    if (view.export_locale && supported.includes(view.export_locale)) return view.export_locale
-    return supported[0] ?? primaryLocale
-  })
+  // supported locale; else the resume's first locale — the same rule the list
+  // page exports with (viewExportLocale). Lazy init = once on mount.
+  const [exportLocale, setExportLocale] = useState(() => viewExportLocale(data, view, primaryLocale))
   // Persist the choice on the view so a Board CV always exports in its language.
   const changeExportLocale = (lc: string) => {
     setExportLocale(lc)
@@ -459,6 +352,7 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
             ))}
           </select>
           <ExportMenu
+            label="Export view"
             onPdf={exportPdf}
             onDocx={exportDocx}
             onHtml={exportHtml}

@@ -17,6 +17,66 @@ import { exportFilename } from '../../../lib/exportFilename'
 import { downloadText } from '../../../lib/download'
 
 export type TextExportKind = 'txt' | 'md' | 'xml' | 'jsonresume'
+export type ExportKind = 'pdf' | 'docx' | 'html' | TextExportKind
+
+/**
+ * The language a view exports in when nobody is standing in the editor to
+ * choose one: its persisted `export_locale` while that is still a supported
+ * locale (a wipe or re-detect can orphan it), else the resume's first locale.
+ * The editor seeds its language selector with the same rule.
+ */
+export function viewExportLocale(data: ResumeStore, view: ResumeView, fallback: string): string {
+  const supported = data.resume?.supported_locales ?? []
+  if (view.export_locale && supported.includes(view.export_locale)) return view.export_locale
+  return supported[0] ?? fallback
+}
+
+/**
+ * Run ONE export of ONE view to a downloaded file. The single implementation
+ * behind both the editor's dropdown and the list's per-row / export-all
+ * actions, so a format cannot behave differently depending on where it was
+ * clicked. PDF/DOCX lazy-load their renderers (CLAUDE.md §11); HTML fetches
+ * the fonts it inlines; the string formats build synchronously.
+ */
+export async function runViewExport(
+  kind: ExportKind,
+  data: ResumeStore,
+  view: ResumeView,
+  locale: string,
+  globalFonts: GlobalFonts,
+): Promise<void> {
+  switch (kind) {
+    case 'pdf': {
+      const { exportPdf } = await import('../../../lib/pdfExporter')
+      await exportPdf(data, view, locale, globalFonts)
+      return
+    }
+    case 'docx': {
+      const { exportDocx } = await import('../../../lib/exporter')
+      await exportDocx(data, view, locale, globalFonts)
+      return
+    }
+    case 'html': {
+      const { collectFontAssets, buildStandaloneViewHtml } = await import('../../../lib/htmlExport')
+      const fonts = await collectFontAssets()
+      const html = buildStandaloneViewHtml(data, view, locale, globalFonts, fonts)
+      downloadText(html, exportFilename(data.resume?.full_name, view.name, 'html'), 'text/html;charset=utf-8')
+      return
+    }
+    case 'xml':
+      downloadText(exportEuropassXml(data, view, locale), exportFilename(data.resume?.full_name, view.name, 'xml'), 'application/xml;charset=utf-8')
+      return
+    case 'jsonresume':
+      downloadText(JSON.stringify(buildJsonResume(data, view, locale), null, 2), exportFilename(data.resume?.full_name, view.name, 'json'), 'application/json;charset=utf-8')
+      return
+    case 'txt':
+      downloadText(buildViewText(data, view, locale), exportFilename(data.resume?.full_name, view.name, 'txt'), 'text/plain;charset=utf-8')
+      return
+    case 'md':
+      downloadText(buildViewMarkdown(data, view, locale), exportFilename(data.resume?.full_name, view.name, 'md'), 'text/plain;charset=utf-8')
+      return
+  }
+}
 
 export interface ViewExport {
   pdfBusy: boolean
@@ -64,42 +124,17 @@ export function useViewExport(
     })()
   }
 
-  // pdfmake is ~1.5 MB and docx ~400 kB — both are lazy-loaded only when the
-  // user actually exports (CLAUDE.md §11).
-  const exportPdf = () => runHeavy('PDF', setPdfBusy, async () => {
-    const { exportPdf: run } = await import('../../../lib/pdfExporter')
-    await run(data, view, exportLocale, globalFonts)
-  })
-
-  const exportDocx = () => runHeavy('DOCX', setDocxBusy, async () => {
-    const { exportDocx: run } = await import('../../../lib/exporter')
-    await run(data, view, exportLocale, globalFonts)
-  })
-
-  // Not heavy like pdfmake, but async: the brand fonts are fetched and inlined
-  // so the file opens from disk (file://) with nothing to reach back for.
-  const exportHtml = () => runHeavy('HTML', setHtmlBusy, async () => {
-    const { collectFontAssets, buildStandaloneViewHtml } = await import('../../../lib/htmlExport')
-    const fonts = await collectFontAssets()
-    const html = buildStandaloneViewHtml(data, view, exportLocale, globalFonts, fonts)
-    downloadText(html, exportFilename(data.resume?.full_name, view.name, 'html'), 'text/html;charset=utf-8')
-  })
+  const exportPdf = () => runHeavy('PDF', setPdfBusy, () => runViewExport('pdf', data, view, exportLocale, globalFonts))
+  const exportDocx = () => runHeavy('DOCX', setDocxBusy, () => runViewExport('docx', data, view, exportLocale, globalFonts))
+  const exportHtml = () => runHeavy('HTML', setHtmlBusy, () => runViewExport('html', data, view, exportLocale, globalFonts))
 
   const exportTextual = (kind: TextExportKind) => {
-    const { content, mime, ext } = ((): { content: string; mime: string; ext: string } => {
-      switch (kind) {
-        case 'xml':
-          return { content: exportEuropassXml(data, view, exportLocale), mime: 'application/xml;charset=utf-8', ext: 'xml' }
-        case 'jsonresume':
-          return { content: JSON.stringify(buildJsonResume(data, view, exportLocale), null, 2), mime: 'application/json;charset=utf-8', ext: 'json' }
-        case 'txt':
-          return { content: buildViewText(data, view, exportLocale), mime: 'text/plain;charset=utf-8', ext: 'txt' }
-        case 'md':
-          return { content: buildViewMarkdown(data, view, exportLocale), mime: 'text/plain;charset=utf-8', ext: 'md' }
-      }
-    })()
-    downloadText(content, exportFilename(data.resume?.full_name, view.name, ext), mime)
-    onExported()
+    // The string exports complete synchronously inside runViewExport — the
+    // promise resolves without yielding, so no busy flag is needed.
+    setError(null)
+    void runViewExport(kind, data, view, exportLocale, globalFonts)
+      .then(onExported)
+      .catch((e: unknown) => setError(`Could not export: ${(e as Error).message}`))
   }
 
   return {
@@ -107,4 +142,61 @@ export function useViewExport(
     clearError: () => setError(null),
     exportPdf, exportDocx, exportHtml, exportTextual,
   }
+}
+
+export interface ViewsExportAll {
+  busy: boolean
+  /** "Exporting 2/5…" while running; null at rest. */
+  progress: string | null
+  error: string | null
+  clearError: () => void
+  run: (kind: ExportKind) => void
+}
+
+/**
+ * Export EVERY view in one chosen format, as one file per view.
+ *
+ * Sequential on purpose: the browser treats a burst of programmatic downloads
+ * far better one at a time (Chrome asks once to allow multiple downloads and
+ * then lets a sequence through), and the heavy renderers would otherwise all
+ * load and lay out concurrently. A failure stops the run and names the view it
+ * died on — the files already downloaded are real, so pretending the whole run
+ * failed would be wrong, and continuing past an error would likely repeat it
+ * for every remaining view.
+ */
+export function useExportAllViews(
+  data: ResumeStore,
+  views: ResumeView[],
+  fallbackLocale: string,
+  globalFonts: GlobalFonts,
+  onExported: (viewId: string) => void,
+): ViewsExportAll {
+  const [busy, setBusy] = useState(false)
+  const [progress, setProgress] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  const run = (kind: ExportKind) => {
+    if (busy || views.length === 0) return
+    setError(null)
+    setBusy(true)
+    void (async () => {
+      try {
+        for (const [i, view] of views.entries()) {
+          setProgress(`Exporting ${i + 1}/${views.length}…`)
+          try {
+            await runViewExport(kind, data, view, viewExportLocale(data, view, fallbackLocale), globalFonts)
+          } catch (e) {
+            setError(`Could not export "${view.name}": ${(e as Error).message}`)
+            return
+          }
+          onExported(view.id)
+        }
+      } finally {
+        setBusy(false)
+        setProgress(null)
+      }
+    })()
+  }
+
+  return { busy, progress, error, clearError: () => setError(null), run }
 }
