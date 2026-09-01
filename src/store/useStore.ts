@@ -5,6 +5,7 @@ import { detectLocalesInData, sortLocales } from '../lib/locales'
 import { migrateStore, isNewerShape } from '../lib/migrate'
 import { emptyStore as makeEmpty, freshStore as makeFresh } from '../lib/freshStore'
 import { sortItems, type SortMode } from '../lib/sectionSort'
+import { loadSortPrefs, saveSortPrefs } from '../lib/sortPrefs'
 import { overlayCanonicalNames } from '../lib/registrySync'
 
 interface AppState {
@@ -164,9 +165,22 @@ interface AppState {
   addItem: <K extends ArraySectionKey>(section: K, item: ArrayItem<K>, opts?: { open?: boolean }) => void
   removeItem: (section: ArraySectionKey, id: string) => void
   /** Move `id` to the given index (clamped to bounds), then renormalise sort_order. */
-  moveItem: (section: ArraySectionKey, id: string, toIndex: number) => void
+  /**
+   * Move an item to `toIndex` within the list the user is LOOKING at.
+   *
+   * `visibleIds` is that list — post type-filter, post expanded-card pin — and
+   * the caller supplies it because only the component knows it (the pin lives
+   * in a React ref inside `useStableExpanded`, not here). Omit it and the
+   * section's full sorted order is assumed, which is what it is when no filter
+   * is on. Hidden items keep their absolute position; only the visible ones are
+   * rearranged among the slots they already occupy.
+   */
+  moveItem: (section: ArraySectionKey, id: string, toIndex: number, visibleIds?: readonly string[]) => void
   /** Convenience: keyboard up/down → moveItem on the neighbour. */
-  reorderItem: (section: ArraySectionKey, id: string, direction: 'up' | 'down') => void
+  reorderItem: (
+    section: ArraySectionKey, id: string, direction: 'up' | 'down',
+    visibleIds?: readonly string[],
+  ) => void
 }
 
 type ArraySectionKey = Exclude<keyof ResumeStore, 'resume'>
@@ -247,7 +261,13 @@ export const useStore = create<AppState>((set, get) => {
         ? localesArg.secondary
         : (supported[1] ?? null)
       set({
-        data: migrated, hasData: true, mutationCount: 0, sectionSort: {}, sectionTypeFilter: {}, activeViewId: null,
+        // Sort modes are restored from localStorage, not reset: this is the
+        // one place a reload, a remote-update reload and a snapshot restore all
+        // funnel through, and blanking it here is what made a chosen sort look
+        // like it had reverted to Custom on its own. The type filter IS reset —
+        // see lib/sortPrefs.ts on why a hidden-rows state must not persist.
+        data: migrated, hasData: true, mutationCount: 0,
+        sectionSort: loadSortPrefs(migrated.resume?.id), sectionTypeFilter: {}, activeViewId: null,
         dataFromNewerApp: isNewerShape(migrated),
         primaryLocale: primary, secondaryLocale: secondary,
       })
@@ -300,9 +320,11 @@ export const useStore = create<AppState>((set, get) => {
     setSectionTypeFilter: (section, key) => set((st) => ({
       sectionTypeFilter: { ...st.sectionTypeFilter, [section]: key },
     })),
-    setSectionSort: (section, mode) => set((st) => ({
-      sectionSort: { ...st.sectionSort, [section]: mode },
-    })),
+    setSectionSort: (section, mode) => set((st) => {
+      const sectionSort = { ...st.sectionSort, [section]: mode }
+      saveSortPrefs(st.data.resume?.id, sectionSort)
+      return { sectionSort }
+    }),
     // Locale changes are persisted server-side per resume (decision 10) — they
     // ride along on the next PUT, so they go through `mutate()` like any other
     // user-visible change. No-op if the value didn't actually change.
@@ -395,50 +417,94 @@ export const useStore = create<AppState>((set, get) => {
       return { data: { ...st.data, [section]: arr.filter((it) => it.id !== id) } }
     }),
 
-    moveItem: (section, id, toIndex) => mutate((st) => {
+    moveItem: (section, id, toIndex, visibleIds) => mutate((st) => {
       // Order by the section's CURRENT display mode so drag/arrow indices line
       // up with what the user sees (which may be alpha/date, not sort_order).
       const mode = st.sectionSort[section] ?? 'custom'
-      const arr = sortItems(
+      const full = sortItems(
         section,
         st.data[section] as unknown as Array<{ id: string; sort_order: number }>,
         mode,
         st.primaryLocale,
       )
-      const from = arr.findIndex((it) => it.id === id)
+      const present = new Set(full.map((it) => it.id))
+
+      // The rows actually on screen. A type filter hides some, and the expanded
+      // card is pinned at the index it had when opened, so this can differ from
+      // `full` in both membership AND order — which is why the caller passes it.
+      // Stale ids are dropped rather than trusted: `visibleIds` is a prop from
+      // the previous render and an item may have been deleted since.
+      const visible = visibleIds?.length
+        ? visibleIds.filter((vid) => present.has(vid))
+        : full.map((it) => it.id)
+
+      const from = visible.indexOf(id)
       if (from === -1) return null
-      const to = Math.max(0, Math.min(toIndex, arr.length - 1))
-      // A no-op only counts as a no-op in custom mode. In a computed mode the
-      // user has just confirmed they want to commit the current arrangement,
-      // so we still bake it into sort_order + switch back to custom below.
-      if (from === to && mode === 'custom') return null
-      const moved = [...arr]
-      const [item] = moved.splice(from, 1)
-      moved.splice(to, 0, item)
+      const to = Math.max(0, Math.min(toIndex, visible.length - 1))
+      // A move that lands where it started changes nothing, in EVERY mode.
+      //
+      // This used to bake + switch to Custom in a computed mode, on the reading
+      // that the user had just confirmed committing the arrangement. But drag
+      // can never produce from === to (SortableList returns early when the drop
+      // target is the dragged item), so the only way here was pressing Move up
+      // on the top row or Move down on the bottom row — where nothing moves.
+      // The section silently became Custom, sort_order was rewritten and the
+      // result auto-saved, which is how a chosen sort "reset itself".
+      if (from === to) return null
+
+      // Rearrange the visible rows among themselves.
+      const movedVisible = [...visible]
+      const [movedId] = movedVisible.splice(from, 1)
+      movedVisible.splice(to, 0, movedId)
+
+      // Write them back into the slots the visible rows already occupied, so a
+      // hidden item keeps its absolute position instead of being leapfrogged.
+      // Without this, dragging the 2nd of 2 visible rows above the 1st sent it
+      // to the top of the WHOLE section, past every filtered-out item.
+      const byId = new Map(full.map((it) => [it.id, it]))
+      const slots: number[] = []
+      const visibleSet = new Set(visible)
+      full.forEach((it, i) => { if (visibleSet.has(it.id)) slots.push(i) })
+      const placed = [...full]
+      slots.forEach((slot, k) => { placed[slot] = byId.get(movedVisible[k])! })
+
       // Bake the resulting order into sort_order (new objects — keep it pure).
-      const renumbered = moved.map((it, i) => ({ ...it, sort_order: i }))
+      const renumbered = placed.map((it, i) => ({ ...it, sort_order: i }))
       const patch: Partial<AppState> = { data: { ...st.data, [section]: renumbered } }
-      // Any manual move makes the section's order custom from now on.
+      // Any manual move makes the section's order custom from now on — and
+      // that has to be persisted like any other sort choice, or the next reload
+      // would restore the OLD computed mode and re-sort the order the user just
+      // baked by hand.
       if (mode !== 'custom') {
-        patch.sectionSort = { ...st.sectionSort, [section]: 'custom' }
+        const sectionSort = { ...st.sectionSort, [section]: 'custom' as SortMode }
+        saveSortPrefs(st.data.resume?.id, sectionSort)
+        patch.sectionSort = sectionSort
       }
       return patch
     }),
 
-    reorderItem: (section, id, direction) => {
+    reorderItem: (section, id, direction, visibleIds) => {
       // Thin wrapper: keyboard up/down is "move by one neighbour" in the
-      // currently-displayed order (mode-aware via moveItem).
+      // currently-displayed order (mode- and filter-aware via moveItem).
       const st = get()
       const mode = st.sectionSort[section] ?? 'custom'
-      const arr = sortItems(
+      const full = sortItems(
         section,
         st.data[section] as unknown as Array<{ id: string; sort_order: number }>,
         mode,
         st.primaryLocale,
       )
-      const idx = arr.findIndex((it) => it.id === id)
+      const present = new Set(full.map((it) => it.id))
+      const visible = visibleIds?.length
+        ? visibleIds.filter((vid) => present.has(vid))
+        : full.map((it) => it.id)
+      const idx = visible.indexOf(id)
       if (idx === -1) return
-      get().moveItem(section, id, direction === 'up' ? idx - 1 : idx + 1)
+      const to = direction === 'up' ? idx - 1 : idx + 1
+      // Off either end: there is no neighbour to swap with, so do nothing at
+      // all rather than clamping back onto the item's own index (see moveItem).
+      if (to < 0 || to >= visible.length) return
+      get().moveItem(section, id, to, visibleIds)
     },
   }
 })

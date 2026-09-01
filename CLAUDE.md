@@ -373,6 +373,8 @@ src/
 │   │     social header label and JSON Resume's network), richText (allowlist;
 │   │   SECURITY-CRITICAL), image (canvas downscale; rejects SVG), sectionSort,
 │   │   viewItemSelect (editor type Filter + view item selection), pageFit,
+│   sortPrefs (the section sort mode, persisted per resume in localStorage —
+│     a DISPLAY preference, so never in `data`; see §7),
 │   │   exportFilename, fonts (catalog + pdfFont mapping) + appPrefs (app-wide
 │   │   default fonts, localStorage), viewTemplates, viewTailor (BYO-LLM),
 │   │   skillMatrix, showcase (showcaseGroups), anonCheck
@@ -712,6 +714,36 @@ reorderItem('projects', projectId, 'up' | 'down')        // keyboard fallback (t
 - **Every mutating action goes through the private `mutate()` helper** (auto-bumps `mutationCount`; auto-save and undo key off it — a raw `set()` is invisible to both). Return `null` from the updater for a no-op so invisible changes don't bump.
 
 Navigation: `setActiveSection(key)` / `setExpandedItem(id)`. Undo/redo: `useUndoRedo` in `AppHeader` — see the skill.
+
+### The editor's sort mode is a DISPLAY preference, and it persists
+`sectionSort` never enters `data`: nothing about it is resume content, so it
+must not auto-save, sync, snapshot or land on the undo stack. But it also must
+not evaporate — it lived only in Zustand memory, so every reload (and every
+`loadStore`, i.e. also a remote-update reload and a snapshot restore) silently
+dropped the user back to Custom. It is stored per resume in localStorage
+(`lib/sortPrefs.ts`), restored inside `loadStore`, and written by BOTH
+`setSectionSort` and the flip-to-Custom that `moveItem` performs — persisting
+one without the other resurrects a stale mode over a hand-baked order.
+
+The type filter is deliberately NOT persisted; it hides rows, and silently
+restoring a filtered view is worse than re-picking it.
+
+**A reorder that cannot move anything must change nothing** — no `sort_order`
+rewrite, no mode flip, no `mutationCount` bump. `moveItem` treats `from === to`
+as a no-op in every mode, `reorderItem` refuses to run off either end, and the
+card's arrows are disabled at the list boundaries.
+
+**A reorder index means a position in the list the user is LOOKING at.** That
+list is the section sorted, then type-filtered, then reordered by the
+expanded-card pin — and the pin lives in a React ref inside `useStableExpanded`,
+so the store cannot rebuild it. `moveItem`/`reorderItem` therefore take an
+optional `visibleIds`, which `SortableList` (its `ids` prop) and `EditorCard`
+(`useSortable`'s `items`) already hold. The store rearranges only those rows,
+writing them back into the slots they already occupied so a **hidden item keeps
+its absolute position**; omit `visibleIds` and the full sorted order is assumed,
+which is what it is when no filter is on. Without this, dragging the second of
+two visible rows above the first sent it to the top of the whole section, past
+every filtered-out item.
 
 ### Adding a new section
 1. Add the array to `ResumeStore` in `types/index.ts`.

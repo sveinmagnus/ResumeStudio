@@ -5,6 +5,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { EditorCard } from '../../src/components/ui/EditorCard'
+import { SortableList } from '../../src/components/ui/SortableList'
 import { useStore } from '../../src/store/useStore'
 import { resetStore } from '../helpers/store-reset'
 import { emptyStore, makeCourse } from '../fixtures'
@@ -84,5 +85,51 @@ describe('<EditorCard>', () => {
     render(card({ sortable: false }))
     expect(screen.queryByLabelText('Drag handle')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Move up in this section')).not.toBeInTheDocument()
+  })
+})
+
+describe('<EditorCard> reorder arrows at the list boundaries', () => {
+  beforeEach(() => resetStore())
+
+  /** Two courses inside a real SortableList, so useSortable reports a position. */
+  function renderList() {
+    useStore.setState({
+      data: {
+        ...emptyStore(),
+        courses: [
+          makeCourse({ id: 'c1', name: { en: 'First' } }),
+          makeCourse({ id: 'c2', name: { en: 'Second' } }),
+        ],
+      },
+      hasData: true, primaryLocale: 'en', secondaryLocale: null,
+      activeSection: 'courses', expandedItemId: null, mutationCount: 0,
+    })
+    return render(
+      <SortableList section="courses" ids={['c1', 'c2']} addLabel="Add" onAdd={() => {}}>
+        <EditorCard section="courses" id="c1" title="First"><div /></EditorCard>
+        <EditorCard section="courses" id="c2" title="Second"><div /></EditorCard>
+      </SortableList>,
+    )
+  }
+
+  it('disables Move up on the first row and Move down on the last', () => {
+    // Pressing either used to raise the "Switch to custom order?" prompt and
+    // then reset the section's sort mode without moving anything.
+    renderList()
+    const ups = screen.getAllByRole('button', { name: 'Move up in this section' })
+    const downs = screen.getAllByRole('button', { name: 'Move down in this section' })
+    expect(ups[0]).toBeDisabled()
+    expect(downs[0]).toBeEnabled()
+    expect(ups[1]).toBeEnabled()
+    expect(downs[1]).toBeDisabled()
+  })
+
+  it('a click on a disabled boundary arrow leaves the sort mode alone', async () => {
+    renderList()
+    useStore.getState().setSectionSort('courses', 'alpha')
+    const ups = screen.getAllByRole('button', { name: 'Move up in this section' })
+    await userEvent.click(ups[0])
+    expect(useStore.getState().sectionSort.courses).toBe('alpha')
+    expect(useStore.getState().mutationCount).toBe(0)
   })
 })
