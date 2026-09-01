@@ -94,6 +94,11 @@ export default defineConfig({
   // so '/' is correct everywhere. (Caught by e2e/smoke.spec.ts.)
   base: '/',
   server: {
+    // An injected PORT names the CLIENT's port (see scripts/dev-server.mjs,
+    // which pins the API elsewhere for exactly that reason). Honouring it lets
+    // a launcher place the dev client on a free port when 5173 is taken by
+    // another checkout; unset, Vite's own default holds.
+    port: Number(process.env.PORT) || 5173,
     proxy: {
       '/api': {
         // Kept in step with scripts/dev-server.mjs, which pins the API port to

@@ -1,14 +1,17 @@
 import { useEffect, useId, useState, useRef, useLayoutEffect } from 'react'
 import {
   Copy, Languages, Loader2, Bold, Italic, Underline, List, ListOrdered,
-  IndentIncrease, IndentDecrease,
+  IndentIncrease, IndentDecrease, RemoveFormatting,
 } from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import type { LocalizedString } from '../../types'
 import { LOCALE_LABELS, bcp47 } from '../../lib/locales'
 import { canDraftBetween } from '../../lib/translateClient'
 import { useTranslationAvailable } from '../../store/useTranslation'
-import { sanitizeRich, cleanPastedHtml, plainToRichHtml, paraGapEm } from '../../lib/richText'
+import {
+  sanitizeRich, cleanPastedHtml, plainToRichHtml, paraGapEm,
+  hasRichFormatting, stripRichFormatting,
+} from '../../lib/richText'
 import { useTranslationAssist } from './useTranslationAssist'
 
 interface RichFieldProps {
@@ -307,6 +310,19 @@ function RichColumn({ variant, locale, fieldLabel, html, onCommit, placeholder, 
   }
 
   /**
+   * Whole-field, not selection: the button exists for a paste whose formatting
+   * arrived mixed but allowed, and selecting exactly the affected stretches to
+   * un-bold, un-list and un-indent them one command at a time is the chore it
+   * replaces. Committing the stripped value repaints the editor through the
+   * store round trip, so undo covers it like any other edit.
+   */
+  const clearFormatting = () => {
+    const el = editorRef.current
+    if (!el) return
+    onCommit(stripRichFormatting(el.innerHTML))
+  }
+
+  /**
    * Paste: never let the browser insert the clipboard's raw HTML — Word /
    * Google Docs / website markup would flood the field with junk the
    * sanitiser only partially digests (lost paragraphs, stray bold). Clean it
@@ -398,7 +414,15 @@ function RichColumn({ variant, locale, fieldLabel, html, onCommit, placeholder, 
           not spelled out here — a name above every column of every rich field
           costs a row per field for information the flag already gives. */}
       <div className="rf-col-head">{header}</div>
-      {!readOnly && <Toolbar onCmd={exec} active={fmt} flag={LOCALE_LABELS[locale]?.flag} />}
+      {!readOnly && (
+        <Toolbar
+          onCmd={exec}
+          active={fmt}
+          onClear={clearFormatting}
+          canClear={hasRichFormatting(html)}
+          flag={LOCALE_LABELS[locale]?.flag}
+        />
+      )}
       {/* contentEditable is inherently focusable; the rule only looks for tabIndex. */}
       {/* eslint-disable-next-line jsx-a11y/interactive-supports-focus -- see above */}
       <div
@@ -472,8 +496,10 @@ type Cmd =
 
 interface ToolbarActive { bold: boolean; italic: boolean; underline: boolean; inList: boolean }
 
-function Toolbar({ onCmd, active, flag }: {
+function Toolbar({ onCmd, active, onClear, canClear, flag }: {
   onCmd: (c: Cmd) => void; active: ToolbarActive
+  /** Strip every emphasis and list from the WHOLE field (see clearFormatting). */
+  onClear: () => void; canClear: boolean
   /** The column's language flag, parked in the bar's top-right corner. */
   flag?: string
 }) {
@@ -487,6 +513,8 @@ function Toolbar({ onCmd, active, flag }: {
       <ToolBtn label="Numbered list" onClick={() => onCmd('insertOrderedList')}><ListOrdered size={13} /></ToolBtn>
       <ToolBtn label="Increase indent (Tab)" disabled={!active.inList} onClick={() => onCmd('indent')}><IndentIncrease size={13} /></ToolBtn>
       <ToolBtn label="Decrease indent (Shift+Tab)" disabled={!active.inList} onClick={() => onCmd('outdent')}><IndentDecrease size={13} /></ToolBtn>
+      <span className="rf-tb-sep" />
+      <ToolBtn label="Clear formatting (whole field)" disabled={!canClear} onClick={onClear}><RemoveFormatting size={13} /></ToolBtn>
       {/* aria-hidden: the editor below already carries the language in its
           accessible name and its `lang`, so this is decoration. */}
       {flag && <span className="rf-tb-flag" aria-hidden="true">{flag}</span>}

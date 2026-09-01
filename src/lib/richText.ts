@@ -732,6 +732,27 @@ export function hasRichFormatting(s: string): boolean {
 }
 
 /**
+ * Remove exactly what `hasRichFormatting` detects: emphasis and underline are
+ * dropped, every list item becomes a plain paragraph of its own. Paragraph
+ * boundaries survive — clearing formatting must not run paragraphs together —
+ * and a `<br>` inside a list item becomes a boundary too, since outside a list
+ * the canonical shape has no other way to keep that break.
+ *
+ * Backs the toolbar's "Clear formatting" button, which exists because a paste
+ * can arrive with allowed-but-unwanted formatting the sanitiser rightly keeps.
+ */
+export function stripRichFormatting(html: string): string {
+  if (!html) return ''
+  const esc = (s: string) =>
+    s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  const paras = parseRichBlocks(html)
+    .flatMap((b) => b.runs.map((r) => r.text).join('').split('\n'))
+    .map((t) => t.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+  return paras.map((p) => `<p>${esc(p)}</p>`).join('')
+}
+
+/**
  * Render a rich-text value into safe HTML for inclusion in the printable
  * preview / PDF output. If the input has no markup, the caller-supplied
  * `escapePlain` is used to keep escape-at-render semantics for raw text.
