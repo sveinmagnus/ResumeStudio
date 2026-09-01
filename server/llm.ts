@@ -360,11 +360,20 @@ export async function chatComplete(
     : openAIChat(ep, messages, opts)
 }
 
-/** Map an upstream HTTP status to a safe, actionable LlmError (502). */
+/**
+ * Map an upstream HTTP status to a safe, actionable LlmError (502).
+ *
+ * The distinction that earns its keep is TRANSIENT vs not. A hosted model
+ * answering 503 "experiencing high demand" is worth clicking Run again a moment
+ * later; a wrong model name never is. Both used to arrive as "The AI model
+ * returned an error", which tells the user nothing about which of those they
+ * are looking at — and on a busy provider the retryable one is the common case.
+ */
 function mapUpstreamError(status: number): LlmError {
   if (status === 401 || status === 403) return new LlmError(502, 'The AI provider rejected the API key')
   if (status === 404) return new LlmError(502, 'Model or endpoint not found — check the model name / URL')
-  if (status === 429) return new LlmError(502, 'The AI provider is rate-limited or out of quota')
+  if (status === 429) return new LlmError(502, 'The AI provider is rate-limited or out of quota — wait a moment, or check the plan for this model')
+  if (status >= 500) return new LlmError(502, 'The AI provider is busy or temporarily unavailable — try again in a moment')
   return new LlmError(502, 'The AI model returned an error')
 }
 

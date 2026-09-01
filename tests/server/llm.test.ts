@@ -276,6 +276,44 @@ describe('chatComplete()', () => {
     const err = await chatComplete(ASK, { maxTokens: 50 }).catch((e: unknown) => e)
     expect((err as LlmError).message).toMatch(/rejected the API key/i)
   })
+
+  /**
+   * Separating RETRYABLE from not is the distinction worth drawing. Measured
+   * against a live Gemini key, `gemini-flash-latest` answers 503 "experiencing
+   * high demand" and then 429 within a handful of calls — so on a busy hosted
+   * provider the transient failure is the COMMON one, and "The AI model
+   * returned an error" left the user with no idea that clicking Run again was
+   * the answer.
+   */
+  it('says a 5xx is transient and worth retrying', async () => {
+    vi.stubEnv('LLM_PROVIDER', 'openai')
+    vi.stubEnv('LLM_OPENAI_API_KEY', 'k')
+    vi.stubEnv('LLM_MODEL', 'gpt-4o-mini')
+    for (const status of [500, 502, 503, 504]) {
+      mockFetch({ ok: false, status })
+      const err = await chatComplete(ASK, { maxTokens: 50 }).catch((e: unknown) => e)
+      expect((err as LlmError).status, String(status)).toBe(502)
+      expect((err as LlmError).message, String(status)).toMatch(/try again in a moment/i)
+    }
+  })
+
+  it('keeps quota exhaustion distinct from a busy provider', async () => {
+    vi.stubEnv('LLM_PROVIDER', 'openai')
+    vi.stubEnv('LLM_OPENAI_API_KEY', 'k')
+    vi.stubEnv('LLM_MODEL', 'gpt-4o-mini')
+    mockFetch({ ok: false, status: 429 })
+    const err = await chatComplete(ASK, { maxTokens: 50 }).catch((e: unknown) => e)
+    expect((err as LlmError).message).toMatch(/rate-limited or out of quota/i)
+  })
+
+  it('still reports an unclassified 4xx plainly', async () => {
+    vi.stubEnv('LLM_PROVIDER', 'openai')
+    vi.stubEnv('LLM_OPENAI_API_KEY', 'k')
+    vi.stubEnv('LLM_MODEL', 'gpt-4o-mini')
+    mockFetch({ ok: false, status: 400 })
+    const err = await chatComplete(ASK, { maxTokens: 50 }).catch((e: unknown) => e)
+    expect((err as LlmError).message).toBe('The AI model returned an error')
+  })
 })
 
 describe('the language table — inherited keys', () => {
