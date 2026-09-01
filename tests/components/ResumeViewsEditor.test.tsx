@@ -124,12 +124,15 @@ describe('<ResumeViewsEditor>', { timeout: FILE_TIMEOUT_MS }, () => {
     expect(link).toHaveAttribute('href', '/r/resume-1/views/v1')
   })
 
-  it('exports a view straight from the list, in its own language, without opening it', async () => {
+  it('exports a view straight from the list, in the SELECTOR’s language, without opening it', async () => {
     seed()
     const store = emptyStore()
     store.resume = { ...store.resume!, supported_locales: ['en', 'no'] }
+    // The view's own persisted export language differs from the selector on
+    // purpose: on this page the visible selector wins, so one choice explains
+    // every file the page produces (the editor still honours export_locale).
     store.views.push(makeView({ id: 'v1', name: 'Board CV', export_locale: 'no' }))
-    useStore.setState({ data: store })
+    useStore.setState({ data: store, primaryLocale: 'en', secondaryLocale: 'no' })
     downloadText.mockClear()
     buildViewTextSpy.mockClear()
     render(<ResumeViewsEditor />)
@@ -138,13 +141,41 @@ describe('<ResumeViewsEditor>', { timeout: FILE_TIMEOUT_MS }, () => {
     await userEvent.click(screen.getByRole('menuitem', { name: /text \(ats\)/i }))
 
     await waitFor(() => expect(downloadText).toHaveBeenCalledTimes(1))
-    // Exported in the view's persisted language — not the editing language.
     expect(buildViewTextSpy).toHaveBeenCalledWith(
-      expect.anything(), expect.objectContaining({ id: 'v1' }), 'no',
+      expect.anything(), expect.objectContaining({ id: 'v1' }), 'en',
     )
     // The export stamps the view and never opened the editor.
     expect(useStore.getState().data.views[0].last_exported_at).toBeTruthy()
     expect(useStore.getState().activeViewId).toBeNull()
+  })
+
+  it('a ROW export follows the selector too — "both" from one row is two locale-named files', async () => {
+    seed()
+    const store = emptyStore()
+    store.resume = { ...store.resume!, supported_locales: ['en', 'no'] }
+    store.views.push(
+      makeView({ id: 'v1', name: 'Board CV' }),
+      makeView({ id: 'v2', name: 'Consultant CV' }),
+    )
+    useStore.setState({ data: store, primaryLocale: 'en', secondaryLocale: 'no' })
+    downloadText.mockClear()
+    buildViewTextSpy.mockClear()
+    render(<ResumeViewsEditor />)
+
+    await userEvent.selectOptions(screen.getByLabelText(/export language/i), 'both')
+    await userEvent.click(screen.getAllByRole('button', { name: /^export$/i })[0])
+    await userEvent.click(screen.getByRole('menuitem', { name: /text \(ats\)/i }))
+
+    // Two files — the FIRST view only; the row never exports its neighbours.
+    await waitFor(() => expect(downloadText).toHaveBeenCalledTimes(2))
+    const names = downloadText.mock.calls.map((c) => c[1] as string)
+    expect(names.some((n) => n.includes('EN'))).toBe(true)
+    expect(names.some((n) => n.includes('NO'))).toBe(true)
+    for (const call of buildViewTextSpy.mock.calls) {
+      expect((call[1] as { id: string }).id).toBe('v1')
+    }
+    expect(useStore.getState().data.views[0].last_exported_at).toBeTruthy()
+    expect(useStore.getState().data.views[1].last_exported_at).toBeNull()
   })
 
   it('Export all downloads every view in the picked format and stamps each one', async () => {
@@ -170,7 +201,7 @@ describe('<ResumeViewsEditor>', { timeout: FILE_TIMEOUT_MS }, () => {
     }
   })
 
-  it('hides the Export-all language selector while only one language is being edited', () => {
+  it('hides the export language selector while only one language is being edited', () => {
     seed()
     const store = emptyStore()
     store.views.push(makeView({ id: 'v1', name: 'Board CV' }))
@@ -178,7 +209,7 @@ describe('<ResumeViewsEditor>', { timeout: FILE_TIMEOUT_MS }, () => {
     render(<ResumeViewsEditor />)
 
     expect(screen.getByRole('button', { name: /export all/i })).toBeInTheDocument()
-    expect(screen.queryByLabelText(/export all — language/i)).not.toBeInTheDocument()
+    expect(screen.queryByLabelText(/export language/i)).not.toBeInTheDocument()
   })
 
   it('Export all in the SECONDARY language exports every view in it', async () => {
@@ -191,7 +222,7 @@ describe('<ResumeViewsEditor>', { timeout: FILE_TIMEOUT_MS }, () => {
     buildViewTextSpy.mockClear()
     render(<ResumeViewsEditor />)
 
-    await userEvent.selectOptions(screen.getByLabelText(/export all — language/i), 'secondary')
+    await userEvent.selectOptions(screen.getByLabelText(/export language/i), 'secondary')
     await userEvent.click(screen.getByRole('button', { name: /export all/i }))
     await userEvent.click(screen.getByRole('menuitem', { name: /text \(ats\)/i }))
 
@@ -212,7 +243,7 @@ describe('<ResumeViewsEditor>', { timeout: FILE_TIMEOUT_MS }, () => {
     buildViewTextSpy.mockClear()
     render(<ResumeViewsEditor />)
 
-    await userEvent.selectOptions(screen.getByLabelText(/export all — language/i), 'both')
+    await userEvent.selectOptions(screen.getByLabelText(/export language/i), 'both')
     await userEvent.click(screen.getByRole('button', { name: /export all/i }))
     await userEvent.click(screen.getByRole('menuitem', { name: /text \(ats\)/i }))
 

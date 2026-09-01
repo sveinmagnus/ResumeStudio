@@ -13,7 +13,7 @@ import { Plus, Pencil, Trash2, LayoutList, Wand2 } from 'lucide-react'
 import { ViewEditor } from './views/ViewEditor'
 import { TailorViewModal } from './views/TailorViewModal'
 import { ExportMenu } from './views/ExportMenu'
-import { useViewExport, useExportAllViews, viewExportLocale } from './views/useViewExport'
+import { useViewsExport } from './views/useViewExport'
 import { Styles } from './views/Styles'
 
 // ─── Main component ───────────────────────────────────────────────────────────
@@ -91,43 +91,40 @@ export function ResumeViewsEditor() {
 
 /**
  * One view's export dropdown on the list, so a routine re-export (same view,
- * same format, newer content) never requires opening the editor. Exports in
- * the view's own persisted language (viewExportLocale) — the list has no
- * language selector, and a Board CV exporting in the wrong language because it
- * was exported from the list would be a trap.
+ * same format, newer content) never requires opening the editor. A batch of
+ * one through the same engine as "Export all", so the toolbar's language
+ * selector (primary/secondary/both) governs a row identically — "both" from a
+ * row is two locale-named files of that one view.
  */
-function RowExport({ data, view, globalFonts, onExported }: {
+function RowExport({ data, view, locales, globalFonts, onExported }: {
   data: ResumeStore
   view: ResumeView
+  locales: string[]
   globalFonts: GlobalFonts
-  onExported: () => void
+  onExported: (viewId: string) => void
 }) {
-  const primaryLocale = useStore((s) => s.primaryLocale)
-  const {
-    pdfBusy, docxBusy, htmlBusy, error, clearError,
-    exportPdf, exportDocx, exportHtml, exportTextual,
-  } = useViewExport(data, view, viewExportLocale(data, view, primaryLocale), globalFonts, onExported)
+  const one = useViewsExport(data, [view], locales, globalFonts, onExported)
 
   return (
     <>
       <ExportMenu
-        label="Export"
-        onPdf={exportPdf}
-        onDocx={exportDocx}
-        onHtml={exportHtml}
-        onText={() => exportTextual('txt')}
-        onMarkdown={() => exportTextual('md')}
-        onEuropass={() => exportTextual('xml')}
-        onJsonResume={() => exportTextual('jsonresume')}
-        pdfBusy={pdfBusy}
-        docxBusy={docxBusy}
-        htmlBusy={htmlBusy}
+        label={one.progress ?? 'Export'}
+        onPdf={() => one.run('pdf')}
+        onDocx={() => one.run('docx')}
+        onHtml={() => one.run('html')}
+        onText={() => one.run('txt')}
+        onMarkdown={() => one.run('md')}
+        onEuropass={() => one.run('xml')}
+        onJsonResume={() => one.run('jsonresume')}
+        pdfBusy={one.busy}
+        docxBusy={one.busy}
+        htmlBusy={one.busy}
         lastExportedAt={view.last_exported_at}
       />
-      {error && (
+      {one.error && (
         <div className="rv-export-err" role="alert">
-          {error}
-          <button type="button" className="rv-export-err-x" onClick={clearError} aria-label="Dismiss">✕</button>
+          {one.error}
+          <button type="button" className="rv-export-err-x" onClick={one.clearError} aria-label="Dismiss">✕</button>
         </div>
       )}
     </>
@@ -155,16 +152,17 @@ function ViewList({ views, onCreate, onTailor, onEdit, onDelete }: {
   const stampExported = (viewId: string) =>
     updateItem('views', viewId, { last_exported_at: new Date().toISOString() })
 
-  // Which language(s) Export all runs in: the current editing pair, chosen
-  // explicitly — a bulk export shouldn't guess. Guarded against the secondary
-  // being turned off after 'secondary'/'both' was picked.
+  // Which language(s) exports from THIS PAGE run in — the toolbar's Export all
+  // and every row's Export alike, so one visible choice explains every file
+  // the page produces. Guarded against the secondary being turned off after
+  // 'secondary'/'both' was picked.
   const [exportLangs, setExportLangs] = useState<'primary' | 'secondary' | 'both'>('primary')
-  const allLocales =
+  const exportLocales =
     exportLangs === 'secondary' && secondaryLocale ? [secondaryLocale]
     : exportLangs === 'both' && secondaryLocale ? [primaryLocale, secondaryLocale]
     : [primaryLocale]
 
-  const exportAll = useExportAllViews(data, views, allLocales, globalFonts, stampExported)
+  const exportAll = useViewsExport(data, views, exportLocales, globalFonts, stampExported)
 
   /**
    * The card body is a real link (Ctrl/middle-click opens the view in its own
@@ -212,10 +210,10 @@ function ViewList({ views, onCreate, onTailor, onEdit, onDelete }: {
             {secondaryLocale && (
               <select
                 className="rv-locale-select"
-                aria-label="Export all — language"
+                aria-label="Export language"
                 value={exportLangs}
                 onChange={(e) => setExportLangs(e.target.value as 'primary' | 'secondary' | 'both')}
-                title="Which language Export all produces each file in"
+                title="Which language every export from this page produces — each row's Export and Export all alike"
               >
                 <option value="primary">
                   {LOCALE_LABELS[primaryLocale]?.flag} {LOCALE_LABELS[primaryLocale]?.name ?? primaryLocale} (primary)
@@ -274,7 +272,7 @@ function ViewList({ views, onCreate, onTailor, onEdit, onDelete }: {
                     </div>
                   </Link>
                   <div className="rv-card-actions">
-                    <RowExport data={data} view={v} globalFonts={globalFonts} onExported={() => stampExported(v.id)} />
+                    <RowExport data={data} view={v} locales={exportLocales} globalFonts={globalFonts} onExported={stampExported} />
                     <button className="rv-btn-edit" onClick={() => onEdit(v.id)}>
                       <Pencil size={13} /> Edit
                     </button>
