@@ -3,7 +3,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import {
-  sanitizeRich, richToPlain, hasMarkup, renderRichHtml, renderRichInlineHtml,
+  sanitizeRich, richToPlain, hasMarkup, hasRichFormatting, renderRichHtml, renderRichInlineHtml,
   parseRichBlocks, cleanPastedHtml, plainToRichHtml, plainParagraphs,
   paraGapEm, PARA_GAP_LINES,
 } from '../src/lib/richText'
@@ -22,6 +22,31 @@ describe('hasMarkup', () => {
   it('ignores tags outside the allowlist', () => {
     expect(hasMarkup('<span>x</span>')).toBe(false)
     expect(hasMarkup('<div>x</div>')).toBe(false)
+  })
+})
+
+describe('hasRichFormatting — what flattening actually loses', () => {
+  it('fires on emphasis and lists', () => {
+    for (const tag of ['strong', 'b', 'em', 'i', 'u', 'ul', 'ol', 'li']) {
+      expect(hasRichFormatting(`<${tag}>x`), tag).toBe(true)
+    }
+    expect(hasRichFormatting('<UL><LI>x</LI></UL>')).toBe(true)
+  })
+
+  it('does not fire on paragraphs or line breaks — they survive the round trip', () => {
+    // Every value typed in the rich editor is <p>-wrapped, so a "formatting
+    // will be lost" warning keyed on <p> fired on essentially every field.
+    expect(hasRichFormatting('<p>One</p><p>Two</p>')).toBe(false)
+    expect(hasRichFormatting('a<br>b')).toBe(false)
+    expect(hasRichFormatting('plain text')).toBe(false)
+    expect(hasRichFormatting('')).toBe(false)
+  })
+
+  it('needs a word boundary, so <br> is not <b> and <img> is not <i>', () => {
+    expect(hasRichFormatting('<br>')).toBe(false)
+    expect(hasRichFormatting('<img src=x>')).toBe(false)
+    expect(hasRichFormatting('<b>bold</b>')).toBe(true)
+    expect(hasRichFormatting('<i>italic</i>')).toBe(true)
   })
 })
 

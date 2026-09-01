@@ -6,7 +6,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   WRITING_COACH_SCHEMA, buildCoachPrompt, validateCoachResponse, hasCoachableSource,
-  hasDraftableFacts,
+  hasDraftableFacts, isUnchangedRewrite,
   InvalidCoachResponseError,
   buildDraftPrompt,
 } from '../src/lib/writingCoach'
@@ -60,6 +60,36 @@ describe('buildCoachPrompt', () => {
 
   it('does not throw on an empty locale (the button is what gates this)', () => {
     expect(() => buildCoachPrompt({}, 'en')).not.toThrow()
+  })
+
+  it("carries the entry's structured fields, so the model knows what is already shown", () => {
+    // The reported failure this pins: shown only a course description, the
+    // model asked "when was it completed?" and "which certification was
+    // obtained?" — answers that live in the date and name fields beside it.
+    const facts = ['Course: Project management', 'Programme: Metier Academy', 'Dates: 2019 → 2021']
+    const prompt = buildCoachPrompt({ en: 'Accredited part-time study.' }, 'en', facts)
+    expect(prompt).toContain('Course: Project management')
+    expect(prompt).toContain('Dates: 2019 → 2021')
+    expect(prompt).toMatch(/restat/i)
+  })
+
+  it('omits the facts block entirely when there are none', () => {
+    expect(buildCoachPrompt({ en: 'Prose.' }, 'en')).not.toMatch(/FROM ITS OWN FIELDS/)
+    expect(buildCoachPrompt({ en: 'Prose.' }, 'en', [])).not.toMatch(/FROM ITS OWN FIELDS/)
+  })
+
+  it('bans asks about facts that have dedicated fields', () => {
+    // Even with no facts supplied (or the fields still empty), a question
+    // about a date or credential belongs in those fields, not the description.
+    const prompt = buildCoachPrompt({ en: 'Some prose' }, 'en')
+    expect(prompt).toMatch(/NEVER ask for dates/i)
+    expect(prompt).toMatch(/dedicated fields/i)
+  })
+
+  it('names "return it unchanged" as the honest answer to good text', () => {
+    // Without this, a model with nothing to improve reshuffles words to have
+    // something to show — a cosmetic reword the person still has to review.
+    expect(buildCoachPrompt({ en: 'Some prose' }, 'en')).toMatch(/return it UNCHANGED/)
   })
 
   it('says the description is empty rather than handing over a blank', () => {
@@ -125,6 +155,21 @@ describe('validateCoachResponse', () => {
   })
 })
 
+describe('isUnchangedRewrite', () => {
+  it('recognises a verbatim return, ignoring whitespace differences', () => {
+    // The source was flattened from rich text, so the reply's line breaks are
+    // the model's own — they must not make "unchanged" read as a rewrite.
+    expect(isUnchangedRewrite('Led the work.', 'Led the work.')).toBe(true)
+    expect(isUnchangedRewrite('Led  the\nwork.', 'Led the work.')).toBe(true)
+    expect(isUnchangedRewrite('  Led the work.  ', 'Led the work.')).toBe(true)
+  })
+
+  it('any wording change is a rewrite', () => {
+    expect(isUnchangedRewrite('Led the work', 'Led the work.')).toBe(false)
+    expect(isUnchangedRewrite('Drove the work.', 'Led the work.')).toBe(false)
+  })
+})
+
 describe('hasDraftableFacts()', () => {
   it('needs at least one fact to draft FROM', () => {
     // Drafting from a blank card would be pure invention, which is the one
@@ -165,6 +210,14 @@ describe('buildDraftPrompt — the empty-entry starting point', () => {
 
   it('names the language to write in', () => {
     expect(buildDraftPrompt(['Customer: Statoil'], 'Projects', 'no')).toContain('"no"')
+  })
+
+  it('tells the model the facts are already printed beside the entry', () => {
+    // A draft opening "Akkreditert deltidsstudium gjennom Metier Academy" under
+    // a heading that already says exactly that adds nothing.
+    const p = prompt()
+    expect(p).toMatch(/do not write sentences that merely restate/i)
+    expect(p).toMatch(/Never ask for dates/i)
   })
 
   it('says so plainly when there is nothing filled in yet', () => {

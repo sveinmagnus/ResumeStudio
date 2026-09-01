@@ -1,17 +1,22 @@
 /**
  * @vitest-environment jsdom
  *
- * The writing coach's contract is "suggest, never save". These tests pin that
+ * The writing assist's contract is "suggest, never save". These tests pin that
  * a rewrite is shown next to the original and only written on an explicit
- * click — the comparison is what lets the user catch an invented fact.
+ * click — the comparison is what lets the user catch an invented fact — plus
+ * the two honesty rules added after real use: the prompt carries the entry's
+ * structured fields (so the model can't ask for a date that has its own
+ * field), and a verbatim rewrite is presented as "already reads well" rather
+ * than as a change to review.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { WritingCoachPanel } from '../../src/components/ui/WritingCoachPanel'
+import { WritingAssist } from '../../src/components/ui/WritingAssist'
 import { resetLlmAvailability } from '../../src/lib/llmClient'
 import { resetAssistConsent } from '../../src/components/ui/AssistRun'
 import { api } from '../../src/lib/api'
+import { makeCourse } from '../fixtures'
 
 const LOCAL = { configured: true, provider: 'ollama', model: 'llama3.2:3b', local: true, highEnd: false }
 const OFF = { configured: false, provider: '', model: '', local: false, highEnd: false }
@@ -28,26 +33,48 @@ const REPLY = JSON.stringify({
   asks: ['How large was the team?'],
 })
 
-function setup(source = { en: '<p>Was responsible for the migration of 12 services</p>' }) {
+const SOURCE = { en: '<p>Was responsible for the migration of 12 services</p>' }
+
+function setup(source: Record<string, string> = SOURCE) {
   const onApply = vi.fn()
-  render(<WritingCoachPanel source={source} locale="en" onApply={onApply} />)
+  const course = makeCourse({
+    name: { en: 'Project management' },
+    program: { en: 'Metier Academy' },
+    description: source,
+  })
+  render(
+    <WritingAssist section="courses" item={course} source={source} locale="en" onApply={onApply} />,
+  )
   return { onApply }
 }
 
-describe('<WritingCoachPanel>', () => {
+describe('<WritingAssist>', () => {
   beforeEach(() => { vi.restoreAllMocks(); resetAssistConsent() })
 
-  it('offers the coach when a model is configured', async () => {
+  it('offers Strengthen when a model is configured and there is prose', async () => {
     backend(LOCAL)
     setup()
     expect(await screen.findByRole('button', { name: /strengthen this description/i })).toBeInTheDocument()
   })
 
-  it('disables the run when there is nothing written yet', async () => {
+  it('offers Draft instead when the field is empty but the entry has identity', async () => {
     backend(LOCAL)
     setup({ en: '' })
-    expect(await screen.findByRole('button', { name: /strengthen this description/i })).toBeDisabled()
-    expect(screen.getByText(/nothing to work on yet/i)).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: /draft this description/i })).toBeInTheDocument()
+  })
+
+  it("sends the entry's own fields with the prompt, so the model knows what is already shown", async () => {
+    // The reported failure: shown only the description, the model asked "when
+    // was the course completed?" — a question whose answer has its own field.
+    backend(LOCAL)
+    const complete = vi.spyOn(api, 'llmComplete').mockResolvedValue(REPLY)
+    setup()
+    await userEvent.click(await screen.findByRole('button', { name: /strengthen this description/i }))
+    await screen.findByText('Led the migration of 12 services to Kubernetes.')
+    const prompt = complete.mock.calls[0][0]
+    expect(prompt).toContain('Course: Project management')
+    expect(prompt).toContain('Programme: Metier Academy')
+    expect(prompt).toMatch(/NEVER ask for dates/i)
   })
 
   it('shows the suggestion beside the original and does not write until asked', async () => {
@@ -83,6 +110,28 @@ describe('<WritingCoachPanel>', () => {
 
     await waitFor(() => expect(onApply).toHaveBeenCalledTimes(1))
     expect(onApply.mock.calls[0][0]).toContain('Led the migration of 12 services to Kubernetes.')
+  })
+
+  it('presents a verbatim rewrite as "already reads well", with nothing to apply', async () => {
+    // A model with nothing to improve used to reshuffle words to have something
+    // to show; the prompt now names "return it unchanged" as the honest answer,
+    // and the UI must treat that as a verdict rather than a change.
+    backend(LOCAL)
+    vi.spyOn(api, 'llmComplete').mockResolvedValue(
+      JSON.stringify({ rewrite: 'Was responsible for the migration of 12 services', asks: ['How large was the team?'] }),
+    )
+    const { onApply } = setup()
+    await userEvent.click(await screen.findByRole('button', { name: /strengthen this description/i }))
+
+    expect(await screen.findByText(/already reads well/i)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /use the suggestion/i })).not.toBeInTheDocument()
+    expect(screen.queryByText(/yours now/i)).not.toBeInTheDocument()
+    // The asks still show — "nothing to tighten" and "facts are missing" are
+    // independent answers.
+    expect(screen.getByText('How large was the team?')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: /dismiss/i }))
+    expect(onApply).not.toHaveBeenCalled()
   })
 
   it('turns a multi-paragraph rewrite into paragraphs', async () => {
@@ -124,12 +173,23 @@ describe('<WritingCoachPanel>', () => {
     expect(screen.queryByText('Led the migration of 12 services to Kubernetes.')).not.toBeInTheDocument()
   })
 
-  it('warns that applying replaces existing formatting', async () => {
+  it('warns about lost formatting only when there is formatting to lose', async () => {
     backend(LOCAL)
     vi.spyOn(api, 'llmComplete').mockResolvedValue(REPLY)
     setup({ en: '<ul><li>Migrated 12 services</li></ul>' })
     await userEvent.click(await screen.findByRole('button', { name: /strengthen this description/i }))
     expect(await screen.findByText(/replaces it with plain paragraphs/i)).toBeInTheDocument()
+  })
+
+  it('does not warn for plain paragraphs — they survive the round trip', async () => {
+    // Every rich-editor value is <p>-wrapped, so warning on <p> made the
+    // notice near-unconditional and therefore ignored.
+    backend(LOCAL)
+    vi.spyOn(api, 'llmComplete').mockResolvedValue(REPLY)
+    setup({ en: '<p>One paragraph</p><p>Another paragraph</p>' })
+    await userEvent.click(await screen.findByRole('button', { name: /strengthen this description/i }))
+    await screen.findByText('Led the migration of 12 services to Kubernetes.')
+    expect(screen.queryByText(/replaces it with plain paragraphs/i)).not.toBeInTheDocument()
   })
 
   it('reports an unreadable reply instead of writing garbage', async () => {

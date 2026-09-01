@@ -102,7 +102,9 @@ answer back — so nothing requires an API key.
 - **Drafted project highlights** from the project description.
 - **Strengthen the wording.** Coach an existing description into tighter,
   stronger prose — grounded in what you actually wrote, never inventing
-  employers, numbers, or claims.
+  employers, numbers, or claims. It sees the entry's own fields (name, dates,
+  issuer…), so it won't restate them or ask you for facts that already have a
+  field — and text that already reads well is told so instead of reworded.
 - **Anonymization check.** Scan an anonymized view for real client names
   that leaked through in prose.
 - **Cover-letter draft.** Turn a job posting plus the CV you're sending into a
