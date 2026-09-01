@@ -174,6 +174,60 @@ describe('reorderItem()', () => {
   })
 })
 
+describe('moveItem() with a filtered list on screen', () => {
+  /**
+   * When a type filter is on, the editor shows a SUBSET. Drag indices are
+   * positions in that subset, so the store is handed the visible ids: it used
+   * to interpret them against the full list, which sent a row past every
+   * hidden item. Hidden rows must keep their absolute position.
+   */
+  const six = () => [
+    makeProject({ id: 'n1', sort_order: 0 }),
+    makeProject({ id: 'n2', sort_order: 1 }),
+    makeProject({ id: 'n3', sort_order: 2 }),
+    makeProject({ id: 'n4', sort_order: 3 }),
+    makeProject({ id: 'm1', sort_order: 4 }),
+    makeProject({ id: 'm2', sort_order: 5 }),
+  ]
+  const order = (): string[] => useStore.getState().data.projects
+    .slice().sort((a, b) => a.sort_order - b.sort_order).map((p) => p.id)
+
+  it('moves within the visible rows without leapfrogging hidden ones', () => {
+    seed('projects', six())
+    // Only m1, m2 are on screen; the user drags m2 above m1 (visible slot 0).
+    useStore.getState().moveItem('projects', 'm2', 0, ['m1', 'm2'])
+    expect(order()).toEqual(['n1', 'n2', 'n3', 'n4', 'm2', 'm1'])
+  })
+
+  it('steps by one VISIBLE neighbour, not one raw neighbour', () => {
+    seed('projects', six())
+    useStore.getState().reorderItem('projects', 'm2', 'up', ['m1', 'm2'])
+    expect(order()).toEqual(['n1', 'n2', 'n3', 'n4', 'm2', 'm1'])
+  })
+
+  it('treats the first VISIBLE row as the top edge', () => {
+    seed('projects', six())
+    const before = useStore.getState().mutationCount
+    // m1 is 5th overall but first on screen, so up must do nothing at all.
+    useStore.getState().reorderItem('projects', 'm1', 'up', ['m1', 'm2'])
+    expect(order()).toEqual(['n1', 'n2', 'n3', 'n4', 'm1', 'm2'])
+    expect(useStore.getState().mutationCount).toBe(before)
+  })
+
+  it('ignores a visible id that has since been deleted', () => {
+    seed('projects', six())
+    // `visibleIds` is a prop from the previous render; it can name a stale row.
+    useStore.getState().moveItem('projects', 'm2', 0, ['gone', 'm1', 'm2'])
+    expect(order()).toEqual(['n1', 'n2', 'n3', 'n4', 'm2', 'm1'])
+  })
+
+  it('falls back to the full order when no visible list is supplied', () => {
+    seed('projects', six())
+    useStore.getState().moveItem('projects', 'n4', 0)
+    expect(order()).toEqual(['n4', 'n1', 'n2', 'n3', 'm1', 'm2'])
+  })
+})
+
 describe('moveItem()', () => {
   it('moves the item to the requested index and renormalises sort_order', () => {
     seed('projects', [

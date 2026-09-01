@@ -72,8 +72,28 @@ export function EditorCard({
   // cost, but we don't render the grip and we ignore the transform so the
   // card looks identical to its old static self.
   const {
-    attributes, listeners, setNodeRef, transform, transition, isDragging,
+    attributes, listeners, setNodeRef, transform, transition, isDragging, index, items,
   } = useSortable({ id })
+
+  // Whether this card can actually move. `index`/`items` come from the
+  // SortableContext, so they describe the list the user is LOOKING at — after
+  // the type filter and after the expanded-card pin — which is what the arrows
+  // act on. Deriving it from the raw section array instead would disagree with
+  // the screen whenever a filter is on.
+  //
+  // Disabled rather than merely inert: pressing Move up on the top row used to
+  // raise the "Switch to custom order?" prompt, and answering it rewrote
+  // sort_order and dropped the section back to Custom without moving anything.
+  // Only when this card is actually inside a SortableContext: outside one
+  // `index` is -1 and `items` empty, which would read as "both ends at once"
+  // and disable both arrows on a card that can still be reordered through the
+  // store. Unknown position therefore means unchanged behaviour.
+  // The displayed order, from the SortableContext this card sits in. Passed
+  // to the store so a reorder is interpreted against the list on screen.
+  const visibleIds = items.map(String)
+  const placed = items.length > 0 && index >= 0
+  const atStart = placed && index === 0
+  const atEnd = placed && index === items.length - 1
 
   const style: React.CSSProperties = sortable
     ? { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 }
@@ -139,8 +159,14 @@ export function EditorCard({
           )}
           {sortable && (
             <>
-              <button className="ec-act" title="Move up in this section" aria-label="Move up in this section" onClick={() => guard(() => reorderItem(section, id, 'up'))}><ArrowUp size={15} /></button>
-              <button className="ec-act" title="Move down in this section" aria-label="Move down in this section" onClick={() => guard(() => reorderItem(section, id, 'down'))}><ArrowDown size={15} /></button>
+              <button className="ec-act" disabled={atStart}
+                title={atStart ? 'Already first in this section' : 'Move up in this section'}
+                aria-label="Move up in this section"
+                onClick={() => guard(() => reorderItem(section, id, 'up', visibleIds))}><ArrowUp size={15} /></button>
+              <button className="ec-act" disabled={atEnd}
+                title={atEnd ? 'Already last in this section' : 'Move down in this section'}
+                aria-label="Move down in this section"
+                onClick={() => guard(() => reorderItem(section, id, 'down', visibleIds))}><ArrowDown size={15} /></button>
             </>
           )}
           <button className="ec-act ec-del" title="Delete this item from the resume" aria-label="Delete this item"
@@ -203,7 +229,8 @@ export function EditorCard({
           width: 30px; height: 30px; display: grid; place-items: center; border-radius: var(--r-sm);
           color: var(--ink-faint); transition: color .13s, background .13s, border-color .13s, box-shadow .13s;
         }
-        .ec-act:hover { background: var(--paper); color: var(--ink); }
+        .ec-act:hover:not(:disabled) { background: var(--paper); color: var(--ink); }
+        .ec-act:disabled { opacity: .35; cursor: default; }
         .ec-act.on { color: var(--gold); }
         .ec-act.on-off { color: var(--accent); }
         .ec-del:hover { background: var(--accent-wash); color: var(--accent); }

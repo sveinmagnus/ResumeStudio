@@ -3,7 +3,7 @@
  *
  * Editors render their EditorCards inside this component. It owns the
  * DndContext + SortableContext boilerplate and turns a successful drop
- * into a `moveItem(section, id, toIndex)` store call. The cards themselves
+ * into a `moveItem(section, id, toIndex, ids)` store call. The cards themselves
  * keep their existing accessible up/down arrow buttons; the drag handle is
  * additive UX, not the only way to reorder.
  */
@@ -49,7 +49,9 @@ export function SortableList({ section, ids, addLabel, onAdd, children }: Props)
     if (toIndex === -1) return
     // Confirm before discarding a saved custom order when a computed sort
     // mode is active; in custom mode this runs the move immediately.
-    guard(() => moveItem(section, String(active.id), toIndex))
+    // `ids` IS the displayed list (sorted, filtered, expanded-card pinned), so
+    // it goes with the index — the store cannot reconstruct it on its own.
+    guard(() => moveItem(section, String(active.id), toIndex, ids))
   }
 
   const list = (
