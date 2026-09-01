@@ -14,7 +14,8 @@
 import { Sparkles, X, ArrowRight, AlertTriangle } from 'lucide-react'
 import { useStore } from '../../store/useStore'
 import {
-  ADVISOR_LABEL, advisorSection, unseenRuns, useAdvisors, type AdvisorRun,
+  ADVISOR_LABEL, advisorSection, parseFieldScope, unseenRuns, useAdvisors,
+  FIELD_ADVISORS, type AdvisorRun,
 } from '../../store/useAdvisors'
 import { lookup } from '../../lib/lookup'
 
@@ -22,6 +23,7 @@ export function AdvisorToast() {
   const resumeId = useStore((s) => s.currentResumeId)
   const setActiveSection = useStore((s) => s.setActiveSection)
   const setActiveView = useStore((s) => s.setActiveView)
+  const openItem = useStore((s) => s.openItem)
   const runs = useAdvisors((s) => s.runs)
   const markSeen = useAdvisors((s) => s.markSeen)
   const requestReveal = useAdvisors((s) => s.requestReveal)
@@ -38,6 +40,13 @@ export function AdvisorToast() {
     // view degrades to the list).
     if ((run.id === 'intro' || run.id === 'ats') && run.scope) setActiveView(run.scope)
     else setActiveSection(advisorSection(run))
+    // A field run's results live inside ONE collapsed card, and setActiveSection
+    // has just cleared the expanded item — so the open has to come after it, or
+    // "Show me" lands on the right list with everything shut.
+    if (FIELD_ADVISORS.has(run.id)) {
+      const parsed = parseFieldScope(run.scope)
+      if (parsed) openItem(parsed.itemId)
+    }
     // "Show me" promises the RESPONSE, not just the right page. Results that
     // live behind a control (the section-gaps modal) need their owning surface
     // to open itself — this is the one-shot signal it consumes.

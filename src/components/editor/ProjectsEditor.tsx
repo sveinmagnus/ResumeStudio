@@ -14,6 +14,8 @@ import { SkillTranslationPopover } from './RegistryEditors'
 import { TranslationPopover } from '../ui/TranslationPopover'
 import { effectiveSkillCategory, categoryNameIndex } from '../../lib/skillCategorize'
 import { AssistRun } from '../ui/AssistRun'
+import { useAdvisorRun } from '../../store/useAdvisorRun'
+import { fieldScope } from '../../store/useAdvisors'
 import { KeyPointsPanel } from '../ui/KeyPointsPanel'
 import { WritingAssist } from '../ui/WritingAssist'
 import { toHighlights } from '../../lib/keyPoints'
@@ -176,6 +178,8 @@ function HighlightsEditor({ project }: { project: Project }) {
       <div className="sub-add-row">
         <button className="sub-add" onClick={add}><Plus size={13} /> Add highlight</button>
         <KeyPointsPanel
+          section="projects"
+          itemId={project.id}
           source={project.long_description}
           locale={primaryLocale}
           style="highlights"
@@ -492,42 +496,51 @@ function SkillSuggestPanel({ project, onLink, onCreate, inline = false }: {
   inline?: boolean
 }) {
   const { data, primaryLocale } = useStore()
-  const [result, setResult] = useState<ExtractionResult | null>(null)
-  const [picked, setPicked] = useState<Set<string>>(new Set())
-  const [error, setError] = useState<string | null>(null)
+  // The run outlives this panel: the card it sits in unmounts the moment you
+  // click another project (CLAUDE.md §15 — the same reason the Overview
+  // advisors moved here first). The parse re-resolves against the LIVE
+  // registry, so a skill linked by hand meanwhile re-reads as already linked.
+  const {
+    ref, result, parseError, run, resolve: resolveRow, clear,
+  } = useAdvisorRun<ExtractionResult>(
+    'skills',
+    (raw) => resolveSuggestions(
+      validateSkillExtract(JSON.parse(extractJson(raw))).skills,
+      project, data.skills, primaryLocale,
+    ),
+    fieldScope('projects', project.id),
+    `${data.skills.length}:${project.skills.length}`,
+  )
 
   const hasProse = !!resolve(project.long_description, primaryLocale).trim()
     || !!resolve(project.description, primaryLocale).trim()
 
-  const onResult = (text: string) => {
-    setError(null); setResult(null)
-    try {
-      const parsed = validateSkillExtract(JSON.parse(extractJson(text)))
-      const res = resolveSuggestions(parsed.skills, project, data.skills, primaryLocale)
-      setResult(res)
-      // Existing registry hits start ticked; novel ones don't.
-      setPicked(new Set(res.existing.map((s) => s.label)))
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'The reply could not be read.')
-    }
+  // Existing registry hits start ticked; novel ones don't — growing the shared
+  // registry deserves a deliberate click. The user's own ticks override that
+  // default and ride with the run, so navigating away doesn't reset them.
+  const isPicked = (s: SkillSuggestion, isNew: boolean) => {
+    const mark = run?.resolved[s.label]
+    return mark ? mark === 'accepted' : !isNew
   }
+  const pickedCount = result
+    ? result.existing.filter((s) => isPicked(s, false)).length
+      + result.novel.filter((s) => isPicked(s, true)).length
+    : 0
 
   const apply = () => {
     if (!result) return
-    for (const s of result.existing) if (picked.has(s.label) && s.skillId) onLink(s.skillId)
-    for (const s of result.novel) if (picked.has(s.label)) onCreate(s.label)
-    setResult(null); setPicked(new Set())
+    for (const s of result.existing) if (isPicked(s, false) && s.skillId) onLink(s.skillId)
+    for (const s of result.novel) if (isPicked(s, true)) onCreate(s.label)
+    clear()
   }
-
-  const toggle = (label: string) => setPicked((p) => {
-    const next = new Set(p)
-    if (next.has(label)) next.delete(label); else next.add(label)
-    return next
-  })
 
   const row = (s: SkillSuggestion, isNew: boolean) => (
     <label key={s.label} className="ss-row">
-      <input type="checkbox" checked={picked.has(s.label)} onChange={() => toggle(s.label)} />
+      <input
+        type="checkbox"
+        checked={isPicked(s, isNew)}
+        onChange={() => resolveRow(s.label, isPicked(s, isNew) ? 'dismissed' : 'accepted')}
+      />
       <span className="ss-name">{s.label}</span>
       <span className={`ss-tag ${isNew ? 'ss-new' : ''}`}>{isNew ? 'new registry skill' : 'in registry'}</span>
     </label>
@@ -537,15 +550,15 @@ function SkillSuggestPanel({ project, onLink, onCreate, inline = false }: {
     <div className={inline ? 'ss-wrap ss-inline' : 'ss-wrap'}>
       <AssistRun
         buildPrompt={() => buildSkillExtractPrompt(project, primaryLocale, registryVocabulary(data.skills, primaryLocale))}
-        onResult={onResult}
+        advisor={ref}
         compact={inline}
         disabled={!hasProse}
         label={inline ? 'Suggest skills' : 'Suggest skills from the description'}
         maxTokens={400}
         hasManualPath={false}
       />
-      {!hasProse && <p className="ss-hint">Add a description first — there's nothing to read yet.</p>}
-      {error && <p className="ss-hint ss-err" role="alert">{error}</p>}
+      {!hasProse && !run && <p className="ss-hint">Add a description first — there's nothing to read yet.</p>}
+      {parseError && <p className="ss-hint ss-err" role="alert">{parseError}</p>}
 
       {result && (
         <div className="ss-result">
@@ -559,9 +572,9 @@ function SkillSuggestPanel({ project, onLink, onCreate, inline = false }: {
           )}
           {(result.existing.length > 0 || result.novel.length > 0) && (
             <div className="ss-actions">
-              <button className="ss-btn" onClick={() => setResult(null)}>Discard</button>
-              <button className="ss-btn ss-primary" onClick={apply} disabled={picked.size === 0}>
-                Add {picked.size} skill{picked.size === 1 ? '' : 's'}
+              <button className="ss-btn" onClick={clear}>Discard</button>
+              <button className="ss-btn ss-primary" onClick={apply} disabled={pickedCount === 0}>
+                Add {pickedCount} skill{pickedCount === 1 ? '' : 's'}
               </button>
             </div>
           )}

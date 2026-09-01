@@ -6,17 +6,27 @@
  * unlike a new registry skill, adding a bullet to one item is local and trivially
  * undone, so the cost of a wrong default is a keystroke rather than a shared
  * resource polluted.
+ *
+ * The run lives in the ADVISOR STORE, scoped to this item — `EditorCard` renders
+ * its body only while expanded, so clicking to another item used to unmount this
+ * panel and lose both the spinner and the finished list. The TICKS ride along
+ * too (`resolved`), because coming back to find eight carefully-unticked points
+ * all re-ticked is the same loss in miniature.
  */
 
-import { useState } from 'react'
 import { AssistRun } from './AssistRun'
-import { extractJson } from '../../lib/llmAssist'
+import { useAdvisorRun, jsonReply } from '../../store/useAdvisorRun'
+import { fieldScope } from '../../store/useAdvisors'
 import {
   buildKeyPointsPrompt, validateKeyPoints, type DraftPoint, type PointStyle,
 } from '../../lib/keyPoints'
 import type { LocalizedString } from '../../types'
 
 interface Props {
+  /** The section and item this belongs to — scopes the run, and takes the
+   *  "ready" notice back to the right card. */
+  section: string
+  itemId: string
   /** The prose to reshape — the item's long description. */
   source: LocalizedString
   locale: string
@@ -33,41 +43,40 @@ interface Props {
   inline?: boolean
 }
 
-export function KeyPointsPanel({ source, locale, style, onApply, noun = 'points', inline = false }: Props) {
-  const [draft, setDraft] = useState<DraftPoint[] | null>(null)
-  const [picked, setPicked] = useState<Set<number>>(new Set())
-  const [error, setError] = useState<string | null>(null)
+/**
+ * A point's identity within its run. The body rather than the index: the list is
+ * re-parsed from the raw reply on every render, and an index would re-point at a
+ * different line if the model's ordering were ever read differently.
+ */
+const pointKey = (p: DraftPoint, i: number) => `${i}:${p.label}|${p.body}`
+
+export function KeyPointsPanel({
+  section, itemId, source, locale, style, onApply, noun = 'points', inline = false,
+}: Props) {
+  const {
+    ref, result: draft, parseError, run, resolve, clear,
+  } = useAdvisorRun('points', jsonReply(validateKeyPoints), fieldScope(section, itemId))
 
   const hasProse = !!(source[locale] ?? '').trim()
 
-  const onResult = (text: string) => {
-    setError(null); setDraft(null)
-    try {
-      const points = validateKeyPoints(JSON.parse(extractJson(text)))
-      setDraft(points)
-      setPicked(new Set(points.map((_, i) => i)))
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'The reply could not be read.')
-    }
-  }
+  // Ticked unless explicitly unticked, so a fresh result arrives all-ticked
+  // (the deliberate default) with no effect to synchronise.
+  const isPicked = (key: string) => run?.resolved[key] !== 'dismissed'
+  const picked = (draft ?? []).filter((p, i) => isPicked(pointKey(p, i)))
+
+  const toggle = (key: string) => resolve(key, isPicked(key) ? 'dismissed' : 'accepted')
 
   const apply = () => {
-    if (!draft) return
-    onApply(draft.filter((_, i) => picked.has(i)))
-    setDraft(null); setPicked(new Set())
+    if (!picked.length) return
+    onApply(picked)
+    clear()
   }
-
-  const toggle = (i: number) => setPicked((p) => {
-    const next = new Set(p)
-    if (next.has(i)) next.delete(i); else next.add(i)
-    return next
-  })
 
   return (
     <div className={inline ? 'kp-wrap kp-inline' : 'kp-wrap'}>
       <AssistRun
         buildPrompt={() => buildKeyPointsPrompt(source, locale, style)}
-        onResult={onResult}
+        advisor={ref}
         compact={inline}
         disabled={!hasProse}
         // Beside "Add highlight" the long form pushes the row onto two lines,
@@ -76,27 +85,30 @@ export function KeyPointsPanel({ source, locale, style, onApply, noun = 'points'
         maxTokens={600}
         hasManualPath={false}
       />
-      {!hasProse && <p className="kp-hint">Write the description first — there’s nothing to reshape yet.</p>}
-      {error && <p className="kp-hint kp-err" role="alert">{error}</p>}
+      {!hasProse && !run && <p className="kp-hint">Write the description first — there’s nothing to reshape yet.</p>}
+      {parseError && <p className="kp-hint kp-err" role="alert">{parseError}</p>}
 
       {draft && (
         <div className="kp-result">
           <p className="kp-hint">
             Drafted from your own text — review each one before adding.
           </p>
-          {draft.map((p, i) => (
-            <label key={i} className="kp-row">
-              <input type="checkbox" checked={picked.has(i)} onChange={() => toggle(i)} />
-              <span className="kp-text">
-                {p.label && <strong className="kp-label">{p.label}: </strong>}
-                {p.body}
-              </span>
-            </label>
-          ))}
+          {draft.map((p, i) => {
+            const key = pointKey(p, i)
+            return (
+              <label key={key} className="kp-row">
+                <input type="checkbox" checked={isPicked(key)} onChange={() => toggle(key)} />
+                <span className="kp-text">
+                  {p.label && <strong className="kp-label">{p.label}: </strong>}
+                  {p.body}
+                </span>
+              </label>
+            )
+          })}
           <div className="kp-actions">
-            <button className="kp-btn" onClick={() => setDraft(null)}>Discard</button>
-            <button className="kp-btn kp-primary" onClick={apply} disabled={picked.size === 0}>
-              Add {picked.size}
+            <button className="kp-btn" onClick={clear}>Discard</button>
+            <button className="kp-btn kp-primary" onClick={apply} disabled={picked.length === 0}>
+              Add {picked.length}
             </button>
           </div>
         </div>

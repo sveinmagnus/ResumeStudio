@@ -105,6 +105,11 @@ answer back — so nothing requires an API key.
   employers, numbers, or claims. It sees the entry's own fields (name, dates,
   issuer…), so it won't restate them or ask you for facts that already have a
   field — and text that already reads well is told so instead of reworded.
+- **Assists keep working while you do.** Start one and carry on — move to
+  another item, another section, or reload the page. The spinner is still there
+  when you come back, a finished suggestion waits until you accept or discard
+  it (ticks and all), and a notice tells you the moment it's ready wherever you
+  happen to be.
 - **Anonymization check.** Scan an anonymized view for real client names
   that leaked through in prose.
 - **Cover-letter draft.** Turn a job posting plus the CV you're sending into a

@@ -34,6 +34,7 @@ import { lookup } from '../lib/lookup'
 export type AdvisorId =
   | 'review' | 'voice' | 'drift' | 'achievements' | 'jobfit'
   | 'profile' | 'intro' | 'section' | 'ats' | 'hygiene'
+  | 'write' | 'points' | 'skills'
 
 /** Where the results are read, so a notification can take you back to them. */
 export const ADVISOR_HOME: Record<AdvisorId, string> = {
@@ -49,6 +50,12 @@ export const ADVISOR_HOME: Record<AdvisorId, string> = {
   // D3 runs against whichever section you were standing in; the scope carries
   // which one, and `advisorSection` resolves it.
   section: 'overview',
+  // The field advisors live inside ONE item's card, so their scope carries the
+  // section AND the item — see `fieldScope`. The map entry is only the fallback
+  // for a scope that can't be parsed.
+  write: 'overview',
+  points: 'overview',
+  skills: 'overview',
 }
 
 export const ADVISOR_LABEL: Record<AdvisorId, string> = {
@@ -62,17 +69,60 @@ export const ADVISOR_LABEL: Record<AdvisorId, string> = {
   section: 'Section gaps',
   ats: 'ATS keyword audit',
   hygiene: 'Registry hygiene',
+  write: 'Writing assist',
+  points: 'Suggested points',
+  skills: 'Suggested skills',
+}
+
+/**
+ * The advisors that belong to ONE item's card rather than to a whole page.
+ *
+ * They are the reason field-level runs are in this store at all. An
+ * `EditorCard` renders its children only while expanded, so collapsing the card
+ * — or clicking to any other item, which collapses it for you — unmounted the
+ * panel and took the in-flight request's spinner and the finished suggestion
+ * with it. You could not tell whether a reply was still coming, and coming back
+ * showed nothing either way. Same defect the Overview advisors had, one level
+ * down.
+ */
+export const FIELD_ADVISORS: ReadonlySet<AdvisorId> = new Set<AdvisorId>(['write', 'points', 'skills'])
+
+/**
+ * The scope for a field advisor: which item, in which section.
+ *
+ * Both halves are load-bearing. The section is what `advisorSection` navigates
+ * to; the item id is what keeps two projects' rewrites apart — without it,
+ * starting a second one would silently replace the first, which is the bug
+ * `AdvisorRun.scope` was introduced for.
+ *
+ * `/` rather than `::`, which `runKey` already uses to join the parts.
+ */
+export function fieldScope(section: string, itemId: string): string {
+  return `${section}/${itemId}`
+}
+
+/** Read a field scope back. Null for anything that isn't one. */
+export function parseFieldScope(scope: string | undefined): { section: string; itemId: string } | null {
+  if (!scope) return null
+  const at = scope.indexOf('/')
+  if (at <= 0 || at === scope.length - 1) return null
+  return { section: scope.slice(0, at), itemId: scope.slice(at + 1) }
 }
 
 /**
  * Which editor section a finished run wants you on.
  *
  * Scoped advisors know better than their static home: a "Section gaps" run
- * belongs to the section it examined, and a view-scoped run belongs to that
- * view's editor. Falls back to the static map.
+ * belongs to the section it examined, a view-scoped run belongs to that view's
+ * editor, and a field run belongs to the section holding its item. Falls back
+ * to the static map.
  */
 export function advisorSection(run: Pick<AdvisorRun, 'id' | 'scope'>): string {
   if (run.id === 'section' && run.scope) return run.scope
+  if (FIELD_ADVISORS.has(run.id)) {
+    const parsed = parseFieldScope(run.scope)
+    if (parsed) return parsed.section
+  }
   return lookup(ADVISOR_HOME, run.id, 'overview')
 }
 

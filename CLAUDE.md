@@ -1230,10 +1230,23 @@ component state:
   `components/ui/AdvisorToast.tsx` is mounted at APP level so the "ready"
   notice reaches you wherever you went.
 - **Runs can be SCOPED** (`AdvisorRef.scope`): one advisor, several targets — a
-  view id for D2/B4, a section key for D3. Without it, drafting an intro for the
-  second view would silently replace the one you were still reading for the
+  view id for D2/B4, a section key for D3, `fieldScope(section, itemId)` for the
+  field advisors. Without it, drafting an intro for the second view would
+  silently replace the one you were still reading for the
   first. `advisorSection(run)` sends a finished scoped run back to where it
   belongs rather than to a static per-advisor home.
+- **The FIELD advisors are in this store for the same reason, one level down**
+  (`FIELD_ADVISORS` = `write` / `points` / `skills` — the writing assist,
+  suggested points and suggested skills). `EditorCard` renders its body only
+  while the card is expanded, and clicking any other item collapses it, so a
+  panel holding its run in `useState` lost the spinner mid-request — you could
+  not tell whether a reply was still coming — and lost the finished suggestion
+  on the way back. They persist now until the user accepts or discards, which
+  is the only thing that ends a run. Their TICKS ride along too, in `resolved`:
+  coming back to find a carefully-pruned list of eight all re-ticked is the same
+  loss in miniature. `AdvisorToast`'s "Show me" must `openItem` AFTER
+  `setActiveSection` — the latter clears `expandedItemId`, so the other order
+  lands you on the right list with everything shut.
 - **`AdvisorRun.input` keeps the user's own input** (the pasted posting) where
   the result can only be read beside it — B4 maps the model's answers onto terms
   extracted from the posting, so a restored report with an empty textarea is a
@@ -1243,9 +1256,9 @@ component state:
 the run store and a result view (parse-on-render, per-suggestion resolution,
 markSeen, collapse). It was extracted from `CvAdvisors` when the remaining five
 panels were wired; use it rather than reading `useAdvisors` directly, and use
-`jsonReply()` for the usual JSON-payload validators. All ten panels (A1–A4, B1,
-D1, D2, D3, B4, C4) now go through it, so no advisor result is lost to
-navigation any more.
+`jsonReply()` for the usual JSON-payload validators. All ten advanced panels
+(A1–A4, B1, D1, D2, D3, B4, C4) go through it, and so do the three field
+assists, so no assist result is lost to navigation any more.
 
 **A4 fills both language columns.** An accepted achievement is translated into
 the secondary locale (`lib/achievementTranslate.ts`, via the ordinary Draft path

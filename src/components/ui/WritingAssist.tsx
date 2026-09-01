@@ -18,15 +18,23 @@
  * Replaces `WritingCoachPanel`, which existed only on Projects and only for a
  * non-empty field. Nothing here is project-specific — the identity facts come
  * from `cvFields`/`cvDigest`, so a section gets this by passing its key.
+ *
+ * The run lives in the ADVISOR STORE, not in this component: `EditorCard`
+ * renders its body only while expanded, so clicking to another item unmounted
+ * the panel mid-request — the spinner vanished with no way to tell whether a
+ * reply was still coming, and coming back showed nothing. Scoped per item
+ * (`fieldScope`), so a rewrite started on one project can't replace the one you
+ * are still reading on another.
  */
 
-import { useCallback, useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { Check, X, HelpCircle, AlertTriangle } from 'lucide-react'
 import { AssistRun } from './AssistRun'
-import { extractJson } from '../../lib/llmAssist'
+import { useAdvisorRun, jsonReply } from '../../store/useAdvisorRun'
+import { fieldScope } from '../../store/useAdvisors'
 import {
   buildCoachPrompt, buildDraftPrompt, validateCoachResponse,
-  hasCoachableSource, hasDraftableFacts, isUnchangedRewrite, type CoachResult,
+  hasCoachableSource, hasDraftableFacts, isUnchangedRewrite,
 } from '../../lib/writingCoach'
 import { itemFacts } from '../../lib/cvDigest'
 import { sectionLabel } from '../../lib/sections'
@@ -37,12 +45,12 @@ interface Props {
   /** Section key, e.g. 'projects' — used for the identity facts and wording. */
   section: string
   /**
-   * The item, for its identity facts when drafting from scratch. Typed loosely
-   * because callers pass a concrete entity (Project, Course, …) and TypeScript
-   * won't widen an interface to an index signature; `itemFacts` only ever reads
-   * keys the section's field map names.
+   * The item, for its identity facts when drafting from scratch and for the id
+   * that scopes the run. Typed loosely because callers pass a concrete entity
+   * (Project, Course, …) and TypeScript won't widen an interface to an index
+   * signature; `itemFacts` only ever reads keys the section's field map names.
    */
-  item: object
+  item: { id: string }
   /** The field being written. */
   source: LocalizedString
   locale: string
@@ -55,8 +63,9 @@ interface Props {
 export function WritingAssist({
   section, item, source, locale, onApply, noun = 'description',
 }: Props) {
-  const [draft, setDraft] = useState<CoachResult | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const {
+    ref, result: draft, parseError, run, clear,
+  } = useAdvisorRun('write', jsonReply(validateCoachResponse), fieldScope(section, item.id))
 
   const raw = source[locale] ?? ''
   const original = richToPlain(raw).trim()
@@ -68,24 +77,18 @@ export function WritingAssist({
   const losesFormatting = hasRichFormatting(raw)
 
   const facts = useMemo(
-    () => itemFacts(section, item as Record<string, unknown>, locale),
+    () => itemFacts(section, item as unknown as Record<string, unknown>, locale),
     [section, item, locale],
   )
   const canDraft = hasDraftableFacts(facts)
 
-  const onResult = useCallback((text: string) => {
-    setError(null); setDraft(null)
-    try {
-      setDraft(validateCoachResponse(JSON.parse(extractJson(text))))
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'The reply could not be read.')
-    }
-  }, [])
-
+  // Applying and discarding both END the run — the suggestion stays on screen
+  // through any amount of navigation until one of them happens, which is the
+  // whole contract.
   const apply = () => {
     if (!draft) return
     onApply(plainToRichHtml(draft.rewrite))
-    setDraft(null)
+    clear()
   }
 
   // A rewrite returned verbatim is the model saying "already reads well" (the
@@ -93,7 +96,9 @@ export function WritingAssist({
   const unchanged = draft != null && hasSource && isUnchangedRewrite(draft.rewrite, original)
 
   // Nothing written AND nothing to write from — a blank card has no assist.
-  if (!hasSource && !canDraft) return null
+  // A live run outranks that: emptying the field while a request is in flight
+  // must not take the spinner (or an unreviewed suggestion) off screen.
+  if (!hasSource && !canDraft && !run) return null
 
   return (
     <div className="wa-wrap">
@@ -101,7 +106,7 @@ export function WritingAssist({
         buildPrompt={() => (hasSource
           ? buildCoachPrompt(source, locale, facts)
           : buildDraftPrompt(facts, sectionLabel(section), locale))}
-        onResult={onResult}
+        advisor={ref}
         label={hasSource ? `Strengthen this ${noun}` : `Draft this ${noun}`}
         maxTokens={900}
         compact
@@ -119,7 +124,7 @@ export function WritingAssist({
         </p>
       )}
 
-      {error && <p className="wa-note wa-err" role="alert">{error}</p>}
+      {parseError && <p className="wa-note wa-err" role="alert">{parseError}</p>}
 
       {draft && (
         <div className="wa-result">
@@ -172,7 +177,7 @@ export function WritingAssist({
                 <Check size={13} /> {hasSource ? 'Use the suggestion' : 'Use this draft'}
               </button>
             )}
-            <button className="wa-discard" onClick={() => setDraft(null)}>
+            <button className="wa-discard" onClick={clear}>
               <X size={13} /> {unchanged ? 'Dismiss' : 'Discard'}
             </button>
           </div>
