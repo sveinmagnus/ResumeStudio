@@ -20,10 +20,11 @@ export type TextExportKind = 'txt' | 'md' | 'xml' | 'jsonresume'
 export type ExportKind = 'pdf' | 'docx' | 'html' | TextExportKind
 
 /**
- * The language a view exports in when nobody is standing in the editor to
- * choose one: its persisted `export_locale` while that is still a supported
- * locale (a wipe or re-detect can orphan it), else the resume's first locale.
- * The editor seeds its language selector with the same rule.
+ * The editor's opening export language: the view's persisted `export_locale`
+ * while that is still a supported locale (a wipe or re-detect can orphan it),
+ * else the resume's first locale. The LIST page deliberately does not use
+ * this — its exports follow the visible primary/secondary/both selector, so
+ * one choice explains every file the page produces.
  */
 export function viewExportLocale(data: ResumeStore, view: ResumeView, fallback: string): string {
   const supported = data.resume?.supported_locales ?? []
@@ -144,7 +145,7 @@ export function useViewExport(
   }
 }
 
-export interface ViewsExportAll {
+export interface ViewsExport {
   busy: boolean
   /** "Exporting 2/5…" while running; null at rest. */
   progress: string | null
@@ -154,16 +155,19 @@ export interface ViewsExportAll {
 }
 
 /**
- * Export EVERY view in one chosen format, as one file per view per language.
+ * Export a SET of views in one chosen format, one file per view per language.
+ * The list page's single engine: "Export all" hands it every view, a row's
+ * Export hands it just that one — so the toolbar's language selector governs
+ * both identically.
  *
- * `locales` is the caller's choice (the list's primary/secondary/both
- * selector). With more than one, each file's view-name part carries the locale
- * code — the two languages of one view would otherwise download under the SAME
- * filename and the browser would dedupe one of them into "…(1)". The suffix
- * rides the view name because every exporter (including PDF/DOCX, which build
- * their filenames internally) derives its filename from it; the only content
- * that sees it is the standalone HTML's browser-tab <title>, where naming the
- * language is a feature.
+ * `locales` is the selector's choice (primary/secondary/both). With more than
+ * one, each file's view-name part carries the locale code — the two languages
+ * of one view would otherwise download under the SAME filename and the browser
+ * would dedupe one of them into "…(1)". The suffix rides the view name because
+ * every exporter (including PDF/DOCX, which build their filenames internally)
+ * derives its filename from it; the only content that sees it is the
+ * standalone HTML's browser-tab <title>, where naming the language is a
+ * feature.
  *
  * Sequential on purpose: the browser treats a burst of programmatic downloads
  * far better one at a time (Chrome asks once to allow multiple downloads and
@@ -173,13 +177,13 @@ export interface ViewsExportAll {
  * failed would be wrong, and continuing past an error would likely repeat it
  * for every remaining view.
  */
-export function useExportAllViews(
+export function useViewsExport(
   data: ResumeStore,
   views: ResumeView[],
   locales: string[],
   globalFonts: GlobalFonts,
   onExported: (viewId: string) => void,
-): ViewsExportAll {
+): ViewsExport {
   const [busy, setBusy] = useState(false)
   const [progress, setProgress] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)

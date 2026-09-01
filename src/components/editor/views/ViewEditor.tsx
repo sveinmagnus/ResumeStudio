@@ -145,8 +145,7 @@ export function ViewEditor({ view, onBack, onDelete, onUpdate }: {
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   )
   // Seed from the view's persisted export locale (F11) when it's still a
-  // supported locale; else the resume's first locale — the same rule the list
-  // page exports with (viewExportLocale). Lazy init = once on mount.
+  // supported locale; else the resume's first locale. Lazy init = once on mount.
   const [exportLocale, setExportLocale] = useState(() => viewExportLocale(data, view, primaryLocale))
   // Persist the choice on the view so a Board CV always exports in its language.
   const changeExportLocale = (lc: string) => {
