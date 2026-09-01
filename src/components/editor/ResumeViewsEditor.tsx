@@ -4,6 +4,7 @@ import { buildViewSections } from '../../lib/viewFilter'
 import { DEFAULT_VIEW_STYLE } from '../../lib/viewStyle'
 import { DEFAULT_VIEW_HEADER, DEFAULT_VIEW_FOOTER, defaultHeaderFields } from '../../lib/viewHeader'
 import { getDefaultFonts, onDefaultFontsChanged } from '../../lib/appPrefs'
+import { LOCALE_LABELS } from '../../lib/locales'
 import { Link, isPlainLeftClick } from '../../lib/router'
 import type { TailorResult } from '../../lib/viewTailor'
 import type { ResumeStore, ResumeView } from '../../types'
@@ -144,6 +145,7 @@ function ViewList({ views, onCreate, onTailor, onEdit, onDelete }: {
   const currentResumeId = useStore((s) => s.currentResumeId)
   const updateItem = useStore((s) => s.updateItem)
   const primaryLocale = useStore((s) => s.primaryLocale)
+  const secondaryLocale = useStore((s) => s.secondaryLocale)
 
   // App-wide default fonts an 'inherit' view exports with; track live so a
   // Settings change mid-session reaches an export clicked from this page.
@@ -153,7 +155,16 @@ function ViewList({ views, onCreate, onTailor, onEdit, onDelete }: {
   const stampExported = (viewId: string) =>
     updateItem('views', viewId, { last_exported_at: new Date().toISOString() })
 
-  const exportAll = useExportAllViews(data, views, primaryLocale, globalFonts, stampExported)
+  // Which language(s) Export all runs in: the current editing pair, chosen
+  // explicitly — a bulk export shouldn't guess. Guarded against the secondary
+  // being turned off after 'secondary'/'both' was picked.
+  const [exportLangs, setExportLangs] = useState<'primary' | 'secondary' | 'both'>('primary')
+  const allLocales =
+    exportLangs === 'secondary' && secondaryLocale ? [secondaryLocale]
+    : exportLangs === 'both' && secondaryLocale ? [primaryLocale, secondaryLocale]
+    : [primaryLocale]
+
+  const exportAll = useExportAllViews(data, views, allLocales, globalFonts, stampExported)
 
   /**
    * The card body is a real link (Ctrl/middle-click opens the view in its own
@@ -196,6 +207,25 @@ function ViewList({ views, onCreate, onTailor, onEdit, onDelete }: {
       ) : (
         <>
           <div className="rv-list-toolbar">
+            {/* Only offered while a language PAIR is being edited — with one
+                language there is nothing to choose. */}
+            {secondaryLocale && (
+              <select
+                className="rv-locale-select"
+                aria-label="Export all — language"
+                value={exportLangs}
+                onChange={(e) => setExportLangs(e.target.value as 'primary' | 'secondary' | 'both')}
+                title="Which language Export all produces each file in"
+              >
+                <option value="primary">
+                  {LOCALE_LABELS[primaryLocale]?.flag} {LOCALE_LABELS[primaryLocale]?.name ?? primaryLocale} (primary)
+                </option>
+                <option value="secondary">
+                  {LOCALE_LABELS[secondaryLocale]?.flag} {LOCALE_LABELS[secondaryLocale]?.name ?? secondaryLocale} (secondary)
+                </option>
+                <option value="both">Both languages</option>
+              </select>
+            )}
             <ExportMenu
               label={exportAll.progress ?? 'Export all'}
               onPdf={() => exportAll.run('pdf')}

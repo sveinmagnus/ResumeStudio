@@ -154,12 +154,21 @@ export interface ViewsExportAll {
 }
 
 /**
- * Export EVERY view in one chosen format, as one file per view.
+ * Export EVERY view in one chosen format, as one file per view per language.
+ *
+ * `locales` is the caller's choice (the list's primary/secondary/both
+ * selector). With more than one, each file's view-name part carries the locale
+ * code — the two languages of one view would otherwise download under the SAME
+ * filename and the browser would dedupe one of them into "…(1)". The suffix
+ * rides the view name because every exporter (including PDF/DOCX, which build
+ * their filenames internally) derives its filename from it; the only content
+ * that sees it is the standalone HTML's browser-tab <title>, where naming the
+ * language is a feature.
  *
  * Sequential on purpose: the browser treats a burst of programmatic downloads
  * far better one at a time (Chrome asks once to allow multiple downloads and
  * then lets a sequence through), and the heavy renderers would otherwise all
- * load and lay out concurrently. A failure stops the run and names the view it
+ * load and lay out concurrently. A failure stops the run and names the file it
  * died on — the files already downloaded are real, so pretending the whole run
  * failed would be wrong, and continuing past an error would likely repeat it
  * for every remaining view.
@@ -167,7 +176,7 @@ export interface ViewsExportAll {
 export function useExportAllViews(
   data: ResumeStore,
   views: ResumeView[],
-  fallbackLocale: string,
+  locales: string[],
   globalFonts: GlobalFonts,
   onExported: (viewId: string) => void,
 ): ViewsExportAll {
@@ -176,18 +185,25 @@ export function useExportAllViews(
   const [error, setError] = useState<string | null>(null)
 
   const run = (kind: ExportKind) => {
-    if (busy || views.length === 0) return
+    if (busy || views.length === 0 || locales.length === 0) return
     setError(null)
     setBusy(true)
     void (async () => {
+      const total = views.length * locales.length
+      let done = 0
       try {
-        for (const [i, view] of views.entries()) {
-          setProgress(`Exporting ${i + 1}/${views.length}…`)
-          try {
-            await runViewExport(kind, data, view, viewExportLocale(data, view, fallbackLocale), globalFonts)
-          } catch (e) {
-            setError(`Could not export "${view.name}": ${(e as Error).message}`)
-            return
+        for (const view of views) {
+          for (const locale of locales) {
+            setProgress(`Exporting ${++done}/${total}…`)
+            const named = locales.length > 1
+              ? { ...view, name: `${view.name} ${locale.toUpperCase()}` }
+              : view
+            try {
+              await runViewExport(kind, data, named, locale, globalFonts)
+            } catch (e) {
+              setError(`Could not export "${named.name}": ${(e as Error).message}`)
+              return
+            }
           }
           onExported(view.id)
         }

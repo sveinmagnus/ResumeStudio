@@ -170,6 +170,67 @@ describe('<ResumeViewsEditor>', { timeout: FILE_TIMEOUT_MS }, () => {
     }
   })
 
+  it('hides the Export-all language selector while only one language is being edited', () => {
+    seed()
+    const store = emptyStore()
+    store.views.push(makeView({ id: 'v1', name: 'Board CV' }))
+    useStore.setState({ data: store, secondaryLocale: null })
+    render(<ResumeViewsEditor />)
+
+    expect(screen.getByRole('button', { name: /export all/i })).toBeInTheDocument()
+    expect(screen.queryByLabelText(/export all — language/i)).not.toBeInTheDocument()
+  })
+
+  it('Export all in the SECONDARY language exports every view in it', async () => {
+    seed()
+    const store = emptyStore()
+    store.resume = { ...store.resume!, supported_locales: ['en', 'no'] }
+    store.views.push(makeView({ id: 'v1', name: 'Board CV' }))
+    useStore.setState({ data: store, primaryLocale: 'en', secondaryLocale: 'no' })
+    downloadText.mockClear()
+    buildViewTextSpy.mockClear()
+    render(<ResumeViewsEditor />)
+
+    await userEvent.selectOptions(screen.getByLabelText(/export all — language/i), 'secondary')
+    await userEvent.click(screen.getByRole('button', { name: /export all/i }))
+    await userEvent.click(screen.getByRole('menuitem', { name: /text \(ats\)/i }))
+
+    await waitFor(() => expect(downloadText).toHaveBeenCalledTimes(1))
+    expect(buildViewTextSpy).toHaveBeenCalledWith(expect.anything(), expect.anything(), 'no')
+  })
+
+  it('Export all in BOTH languages: one file per view per language, locale in the name', async () => {
+    seed()
+    const store = emptyStore()
+    store.resume = { ...store.resume!, supported_locales: ['en', 'no'] }
+    store.views.push(
+      makeView({ id: 'v1', name: 'Board CV' }),
+      makeView({ id: 'v2', name: 'Consultant CV' }),
+    )
+    useStore.setState({ data: store, primaryLocale: 'en', secondaryLocale: 'no' })
+    downloadText.mockClear()
+    buildViewTextSpy.mockClear()
+    render(<ResumeViewsEditor />)
+
+    await userEvent.selectOptions(screen.getByLabelText(/export all — language/i), 'both')
+    await userEvent.click(screen.getByRole('button', { name: /export all/i }))
+    await userEvent.click(screen.getByRole('menuitem', { name: /text \(ats\)/i }))
+
+    await waitFor(() => expect(downloadText).toHaveBeenCalledTimes(4))
+    // The locale in the filename is what keeps the pair from colliding in the
+    // download folder — without it the browser dedupes one into "…(1)".
+    const names = downloadText.mock.calls.map((c) => c[1] as string)
+    expect(new Set(names).size).toBe(4)
+    expect(names.filter((n) => n.includes('EN'))).toHaveLength(2)
+    expect(names.filter((n) => n.includes('NO'))).toHaveLength(2)
+    const localesUsed = buildViewTextSpy.mock.calls.map((c) => c[2] as string)
+    expect(localesUsed.filter((l) => l === 'en')).toHaveLength(2)
+    expect(localesUsed.filter((l) => l === 'no')).toHaveLength(2)
+    for (const v of useStore.getState().data.views) {
+      expect(v.last_exported_at).toBeTruthy()
+    }
+  })
+
   it('renames the active view', async () => {
     seed()
     render(<ResumeViewsEditor />)
