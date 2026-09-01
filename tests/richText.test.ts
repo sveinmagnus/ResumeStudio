@@ -3,7 +3,8 @@
  */
 import { describe, it, expect } from 'vitest'
 import {
-  sanitizeRich, richToPlain, hasMarkup, hasRichFormatting, renderRichHtml, renderRichInlineHtml,
+  sanitizeRich, richToPlain, hasMarkup, hasRichFormatting, stripRichFormatting,
+  renderRichHtml, renderRichInlineHtml,
   parseRichBlocks, cleanPastedHtml, plainToRichHtml, plainParagraphs,
   paraGapEm, PARA_GAP_LINES,
 } from '../src/lib/richText'
@@ -47,6 +48,51 @@ describe('hasRichFormatting — what flattening actually loses', () => {
     expect(hasRichFormatting('<img src=x>')).toBe(false)
     expect(hasRichFormatting('<b>bold</b>')).toBe(true)
     expect(hasRichFormatting('<i>italic</i>')).toBe(true)
+  })
+})
+
+describe('stripRichFormatting — the toolbar\'s Clear formatting', () => {
+  it('drops emphasis and underline, keeping the text', () => {
+    expect(stripRichFormatting('<p><strong>Led</strong> the <em>whole</em> <u>team</u></p>'))
+      .toBe('<p>Led the whole team</p>')
+  })
+
+  it('keeps paragraph boundaries — clearing must not run paragraphs together', () => {
+    expect(stripRichFormatting('<p>One</p><p>Two</p>')).toBe('<p>One</p><p>Two</p>')
+  })
+
+  it('turns each list item into a plain paragraph of its own', () => {
+    expect(stripRichFormatting('<ul><li>alpha</li><li>beta</li></ul>'))
+      .toBe('<p>alpha</p><p>beta</p>')
+    expect(stripRichFormatting('<ol><li>first</li><li>second</li></ol>'))
+      .toBe('<p>first</p><p>second</p>')
+  })
+
+  it('flattens a nested list — depth is formatting too', () => {
+    expect(stripRichFormatting('<ul><li>outer</li><li><ul><li>inner</li></ul></li></ul>'))
+      .toBe('<p>outer</p><p>inner</p>')
+  })
+
+  it('turns a <br> inside a list item into a paragraph boundary', () => {
+    // Outside a list the canonical shape has no <br>, so the break can only
+    // survive as a boundary — dropping it would glue the two lines together.
+    expect(stripRichFormatting('<ul><li>line one<br>line two</li></ul>'))
+      .toBe('<p>line one</p><p>line two</p>')
+  })
+
+  it('escapes text content on the way back to markup', () => {
+    expect(stripRichFormatting('<p><b>a &lt; b &amp; c</b></p>')).toBe('<p>a &lt; b &amp; c</p>')
+  })
+
+  it('produces output the strip itself is a no-op on (idempotent)', () => {
+    const once = stripRichFormatting('<p><b>Bold</b></p><ul><li>item</li></ul>')
+    expect(stripRichFormatting(once)).toBe(once)
+    expect(hasRichFormatting(once)).toBe(false)
+  })
+
+  it('handles the empty value', () => {
+    expect(stripRichFormatting('')).toBe('')
+    expect(stripRichFormatting('<p></p>')).toBe('')
   })
 })
 

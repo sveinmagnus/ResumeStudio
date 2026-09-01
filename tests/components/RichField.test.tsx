@@ -148,6 +148,30 @@ describe('<RichField>', () => {
     expect(screen.getByRole('button', { name: /Decrease indent/ })).toBeDisabled()
   })
 
+  it('Clear formatting strips the whole field down to plain paragraphs', () => {
+    const onChange = vi.fn()
+    render(<RichField label="Description" value={{
+      en: '<p><strong>Bold</strong> intro</p><ul><li>one</li><li><em>two</em></li></ul>',
+    }} onChange={onChange} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /Clear formatting/ }))
+
+    const next = onChange.mock.calls.at(-1)![0] as Record<string, string>
+    expect(next.en).toBe('<p>Bold intro</p><p>one</p><p>two</p>')
+  })
+
+  it('disables Clear formatting when there is no formatting to clear', () => {
+    // Plain paragraphs are structure, not formatting — the strip would be a
+    // no-op, and an always-enabled button teaches people to ignore it.
+    render(<RichField label="Description" value={{ en: '<p>One</p><p>Two</p>' }} onChange={() => {}} />)
+    expect(screen.getByRole('button', { name: /Clear formatting/ })).toBeDisabled()
+  })
+
+  it('enables Clear formatting once the value carries emphasis or a list', () => {
+    render(<RichField label="Description" value={{ en: '<p><b>x</b></p>' }} onChange={() => {}} />)
+    expect(screen.getByRole('button', { name: /Clear formatting/ })).toBeEnabled()
+  })
+
   it('renders one toolbar per visible locale column', () => {
     useStore.setState({ primaryLocale: 'en', secondaryLocale: 'no' })
     render(<RichField label="Description" value={{}} onChange={() => {}} />)
