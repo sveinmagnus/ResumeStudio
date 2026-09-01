@@ -370,6 +370,63 @@ function mapUpstreamError(status: number): LlmError {
 
 const UNREACHABLE = 'The AI model is unreachable (is it running / the URL correct?)'
 
+/**
+ * The wrappers a REASONING model puts its deliberation in. Mirror of
+ * `src/lib/llmAssist.ts → REASONING_TAGS`; `tests/reasoningReply.test.ts`
+ * cross-checks the two so they cannot drift, the same arrangement as
+ * `server/skillKey.ts`.
+ */
+export const REASONING_TAGS = ['thought', 'think', 'reasoning', 'thinking', 'scratchpad'] as const
+
+/**
+ * Strip a reasoning model's thinking, leaving the answer.
+ *
+ * Done HERE, at the wire boundary, so every caller benefits: `summarize.ts`
+ * takes the first line of the reply and would otherwise put "<thought>*  Role:
+ * …" in a CV field, and the assists' JSON extraction would hunt for brackets
+ * inside the deliberation. An unterminated block counts too — a reply cut off
+ * mid-thought is all thinking and no answer.
+ */
+export function stripReasoning(text: string): string {
+  let s = text
+  for (const tag of REASONING_TAGS) {
+    s = s.replace(new RegExp(`<${tag}\\b[^>]*>[\\s\\S]*?</${tag}>`, 'gi'), '')
+    s = s.replace(new RegExp(`<${tag}\\b[^>]*>[\\s\\S]*$`, 'i'), '')
+  }
+  return s.trim()
+}
+
+/**
+ * What came back once the thinking is removed — or a precise error saying why
+ * there is nothing.
+ *
+ * The distinction is the whole point. A reasoning model that spends its entire
+ * budget deliberating returns plenty of text and NO answer, and the old code
+ * handed that straight to the client, where it surfaced as
+ * "JSON.parse: unexpected character at line 1 column 1" — an error about the
+ * wrong thing entirely, three layers from the cause. It was reported against a
+ * production install running `gemma-4-31b-it`, which reliably burns ~1–5k
+ * tokens thinking before it answers.
+ */
+function usableAnswer(content: unknown, finishReason: string | undefined): string {
+  if (typeof content !== 'string' || !content.trim()) {
+    throw new LlmError(502, truncated(finishReason)
+      ? 'The AI model hit its reply limit before answering. Raise the reply limit, or choose a model that does not think out loud.'
+      : 'The AI model returned no text')
+  }
+  const answer = stripReasoning(content)
+  if (!answer) {
+    throw new LlmError(502, truncated(finishReason)
+      ? 'The AI model used its whole reply budget on internal reasoning and never answered. Raise the reply limit, or choose a model that does not think out loud.'
+      : 'The AI model replied with its reasoning only, and no answer')
+  }
+  return answer
+}
+
+function truncated(finishReason: string | undefined): boolean {
+  return finishReason === 'length' || finishReason === 'max_tokens'
+}
+
 /** OpenAI Chat Completions round-trip (ollama/openai/compat/gemini/mistral). */
 async function openAIChat(ep: ResolvedEndpoint, messages: ChatMessage[], opts: ChatOpts): Promise<string> {
   let res: Response
@@ -392,10 +449,11 @@ async function openAIChat(ep: ResolvedEndpoint, messages: ChatMessage[], opts: C
     throw new LlmError(502, UNREACHABLE)
   }
   if (!res.ok) throw mapUpstreamError(res.status)
-  const json = await res.json().catch(() => null) as { choices?: { message?: { content?: string } }[] } | null
-  const content = json?.choices?.[0]?.message?.content
-  if (typeof content !== 'string' || !content.trim()) throw new LlmError(502, 'The AI model returned no text')
-  return content
+  const json = await res.json().catch(() => null) as {
+    choices?: { message?: { content?: string }; finish_reason?: string }[]
+  } | null
+  const choice = json?.choices?.[0]
+  return usableAnswer(choice?.message?.content, choice?.finish_reason)
 }
 
 /**
@@ -429,8 +487,9 @@ async function anthropicChat(ep: ResolvedEndpoint, messages: ChatMessage[], opts
     throw new LlmError(502, UNREACHABLE)
   }
   if (!res.ok) throw mapUpstreamError(res.status)
-  const json = await res.json().catch(() => null) as { content?: { type?: string; text?: string }[] } | null
+  const json = await res.json().catch(() => null) as {
+    content?: { type?: string; text?: string }[]; stop_reason?: string
+  } | null
   const text = json?.content?.find((b) => b.type === 'text')?.text
-  if (typeof text !== 'string' || !text.trim()) throw new LlmError(502, 'The AI model returned no text')
-  return text
+  return usableAnswer(text, json?.stop_reason)
 }

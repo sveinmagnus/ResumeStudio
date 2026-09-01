@@ -116,6 +116,23 @@ export function estimateTokens(chars: number): number {
 }
 
 /**
+ * Reply budget for a short-answer, in-item assist (rewrite, points, skills).
+ *
+ * The ANSWER is one line or a handful of bullets — a few hundred tokens. The
+ * rest is headroom for a REASONING model, which spends its budget thinking
+ * before it writes anything: production's `gemma-4-31b-it` burned ~900 tokens
+ * deliberating over a two-line course description and ~4,900 over a harder one,
+ * answering correctly both times once it had the room. At the old 900 it
+ * produced no answer at all — under-budgeting a reasoning model does not
+ * truncate the answer, it PREVENTS the answer, and what reaches the user is a
+ * parse error about the thinking.
+ *
+ * Sizing for the slow case is free: a cap is not a spend, so a model that
+ * answers in eighty tokens is still billed for eighty.
+ */
+export const ASSIST_MAX_TOKENS = 8_000
+
+/**
  * A warning when `chars` looks too big for the configured model — never a block.
  * The user asked to keep Run available and step aside to the manual path with a
  * stronger model when they choose to, so this informs rather than decides.
@@ -203,31 +220,116 @@ export const MANUAL_BLURB =
   'Whatever you paste it into sees the content.'
 
 /**
+ * The wrappers a REASONING model puts its deliberation in before answering.
+ *
+ * Kept in step with `server/llm.ts → REASONING_TAGS` (cross-checked by
+ * `tests/reasoningReply.test.ts`), because both boundaries where a model reply
+ * enters the app have to agree on what counts as thinking rather than answer.
+ */
+export const REASONING_TAGS = ['thought', 'think', 'reasoning', 'thinking', 'scratchpad'] as const
+
+/**
+ * Drop a reasoning model's thinking, leaving only the answer.
+ *
+ * Not cosmetic. Google's `gemma-4-31b-it` (and every model of that shape) emits
+ * a `<thought>` block first, and that prose is full of brackets — so the old
+ * "slice from the first bracket to the last" heuristic below sliced out
+ * `[Accredited study] in [Project management]` and JSON.parse died at column 1.
+ * That is exactly the error reported against the production instance.
+ *
+ * The UNCLOSED form matters as much as the closed one: a reply that ran out of
+ * budget mid-thought has an opening tag and no closing one, and everything
+ * after it is thinking, never answer.
+ */
+export function stripReasoning(reply: string): string {
+  let s = reply
+  for (const tag of REASONING_TAGS) {
+    s = s.replace(new RegExp(`<${tag}\\b[^>]*>[\\s\\S]*?</${tag}>`, 'gi'), '')
+    s = s.replace(new RegExp(`<${tag}\\b[^>]*>[\\s\\S]*$`, 'i'), '')
+  }
+  return s.trim()
+}
+
+/** True when `s` is a complete JSON document. */
+function parses(s: string): boolean {
+  if (!s) return false
+  try {
+    JSON.parse(s)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * The substring starting at `start` that closes its own bracket, or null.
+ *
+ * String-aware, so a `}` inside a quoted value doesn't end the object early —
+ * which is the case a plain bracket count gets wrong on any reply containing
+ * punctuation in its text fields, i.e. most of ours.
+ */
+function balancedAt(s: string, start: number): string | null {
+  const open = s[start]
+  const close = open === '{' ? '}' : ']'
+  let depth = 0
+  let inString = false
+  let escaped = false
+  for (let i = start; i < s.length; i++) {
+    const ch = s[i]
+    if (inString) {
+      if (escaped) escaped = false
+      else if (ch === '\\') escaped = true
+      else if (ch === '"') inString = false
+      continue
+    }
+    if (ch === '"') inString = true
+    else if (ch === open) depth++
+    else if (ch === close && --depth === 0) return s.slice(start, i + 1)
+  }
+  return null
+}
+
+/** The first balanced `{…}` / `[…]` in `s` that is valid JSON, or null. */
+function firstJsonValue(s: string): string | null {
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] !== '{' && s[i] !== '[') continue
+    const candidate = balancedAt(s, i)
+    if (candidate && parses(candidate)) return candidate
+  }
+  return null
+}
+
+/**
  * Pull the JSON payload out of a model's reply.
  *
- * Models wrap JSON in ```json fences and prepend "Here's the JSON:" no matter
- * how firmly the prompt says not to — small local ones especially. Rather than
- * fail on output that is *obviously* correct bar its packaging, find the JSON.
+ * Models wrap JSON in ```json fences, prepend "Here's the JSON:", and — if they
+ * reason — think out loud first, no matter how firmly the prompt says not to.
+ * Rather than fail on output that is *obviously* correct bar its packaging,
+ * find the JSON.
  *
- * This helps BOTH paths: a reply pasted from ChatGPT arrives fenced today and
- * fails `JSON.parse`, so running it through here fixes an existing papercut.
- * Returns the input unchanged when there's nothing to strip — the caller's
- * parse error stays the one the user sees.
+ * Each step is checked by whether the result actually PARSES rather than by
+ * where a bracket happens to sit: the old version sliced blindly from the first
+ * bracket to the last, so one stray bracket in a preamble produced a string
+ * that could never parse and an error naming the wrong culprit.
+ *
+ * This helps BOTH paths: a reply pasted from ChatGPT arrives fenced, and a
+ * reply from a local reasoning model arrives behind a `<thought>` block.
+ * Returns the cleaned reply when nothing parses — the caller's own error stays
+ * the one the user sees.
  */
 export function extractJson(reply: string): string {
-  let s = reply.trim()
+  const s = stripReasoning(reply)
 
-  // ```json … ``` (or a bare ``` fence).
+  // ```json … ``` (or a bare ``` fence), when it really holds the payload.
   const fence = /```(?:json)?\s*\r?\n?([\s\S]*?)```/i.exec(s)
-  if (fence) s = fence[1].trim()
+  const fenced = fence ? fence[1].trim() : ''
+  if (fenced && parses(fenced)) return fenced
 
-  // Otherwise take the outermost object/array, dropping any prose either side.
-  if (!(s.startsWith('{') || s.startsWith('['))) {
-    const first = s.search(/[{[]/)
-    const lastObj = s.lastIndexOf('}')
-    const lastArr = s.lastIndexOf(']')
-    const last = Math.max(lastObj, lastArr)
-    if (first !== -1 && last > first) s = s.slice(first, last + 1).trim()
-  }
-  return s
+  const found = firstJsonValue(s)
+  if (found) return found
+
+  // Nothing parsed. Prefer the fence's contents when there was one — it is the
+  // model's own claim about where its answer is, and a truncated payload there
+  // gives a better error than the surrounding prose would.
+  return fenced || s
 }
