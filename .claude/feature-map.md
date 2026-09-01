@@ -348,12 +348,17 @@ prescriptive.
   profile) with a lightbox to edit — like the registries' "By category". This
   replaced the inert `KeyCompetency.profile_id` grouping + "By profile" facet
   that shipped in v11 (`migrateBundleMembership`).
-- **Courses & Certifications** carry a shared **editor-only Category** vocabulary
-  (`lib/courseCategories.ts`, English-only, never exported) that drives the
-  per-section type Filter; Courses use a **from/to date range** (shape v11,
-  `start`/`end`; a new course defaults `end` to today) and sort like the other
-  ranged sections. **Presentations** gained the same from/to range (shape v13,
-  `migratePresentationDates`) for talks given regularly over a period.
+- **Courses, Certifications, Presentations & Publications** share ONE
+  **editor-only Category** vocabulary (`lib/courseCategories.ts`, English-only,
+  never exported) that drives the per-section type Filter **and** the view
+  editor's "By type" quick-select — so a view can be built around a subject
+  area regardless of which of the four sections the evidence sits in. A
+  publication carries it *alongside* its exported `publication_type`: what kind
+  of artefact and what subject area are different questions. Courses use a
+  **from/to date range** (shape v11, `start`/`end`; a new course defaults `end`
+  to today) and sort like the other ranged sections. **Presentations** gained
+  the same from/to range (shape v13, `migratePresentationDates`) for talks given
+  regularly over a period.
 - **CVpartner JSON import** and **portable JSON backup** (export + load) with
   a versioned format and a migration scaffold. Loading either kind of file
   from the picker creates a new resume (the in-editor "load file" button is

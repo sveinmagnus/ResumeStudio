@@ -155,8 +155,9 @@ function roleFacet(getIds: (item: SelectableItem) => string[], locale: string): 
 
 /**
  * The facets each section offers, in dropdown order. `locale` localizes the
- * enum labels (position/publication) and the role names; employment type is
- * English-only (editor metadata, not exported — see lib/employmentTypes.ts).
+ * enum labels (position/publication type) and the role names; employment type
+ * and the shared item category are English-only (editor metadata, not exported
+ * — see lib/employmentTypes.ts and lib/courseCategories.ts).
  *
  * Adding a facet is adding one entry here — `ItemSelectTools` renders them all
  * generically.
@@ -167,8 +168,16 @@ function sectionFacets(sectionKey: string, locale: string): FacetSpec[] {
       return [enumFacet('Type', 'position_type',
         POSITION_TYPES.map((t) => t.value), (v) => positionTypeLabel(v, locale))]
     case 'publications':
-      return [enumFacet('Type', 'publication_type',
-        PUBLICATION_TYPES.map((t) => t.value as string), (v) => publicationTypeLabel(v, locale))]
+      // Two facets, asking different questions: the exported publication_type
+      // (what kind of artefact) and the editor-only category (which subject
+      // area). A view may want either — "only my security writing", "only the
+      // peer-reviewed papers" — so neither subsumes the other.
+      return [
+        enumFacet('Type', 'publication_type',
+          PUBLICATION_TYPES.map((t) => t.value as string), (v) => publicationTypeLabel(v, locale)),
+        enumFacet('Category', 'category',
+          COURSE_CATEGORIES.map((t) => t.value), (v) => courseCategoryLabel(v)),
+      ]
     case 'work_experiences':
       return [
         enumFacet('Employment type', 'employment_type',
@@ -183,6 +192,7 @@ function sectionFacets(sectionKey: string, locale: string): FacetSpec[] {
       )]
     case 'courses':
     case 'certifications':
+    case 'presentations':
       return [enumFacet('Category', 'category',
         COURSE_CATEGORIES.map((t) => t.value), (v) => courseCategoryLabel(v))]
     default:

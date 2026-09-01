@@ -11,7 +11,10 @@ import userEvent from '@testing-library/user-event'
 import { ResumeViewsEditor } from '../../src/components/editor/ResumeViewsEditor'
 import { useStore } from '../../src/store/useStore'
 import { resetStore } from '../helpers/store-reset'
-import { emptyStore, makePosition, makeProject, makeEducation, makeRole, makeKQ } from '../fixtures'
+import {
+  emptyStore, makePosition, makeProject, makeEducation, makeRole, makeKQ,
+  makePresentation, makePublication,
+} from '../fixtures'
 
 // This file also mounts the real view editor — see the note in
 // ResumeViewsEditor.test.tsx for why pdfmake must not load here.
@@ -163,6 +166,55 @@ describe('<ItemSelectTools>', () => {
       const row = await openSection(/^expand education settings$/i)
       expect(within(row).getByRole('button', { name: /^none$/i })).toBeInTheDocument()
       expect(within(row).queryByRole('button', { name: /by type/i })).not.toBeInTheDocument()
+    })
+  })
+
+  describe('the shared item category facet', () => {
+    it('selects presentations by subject area', async () => {
+      useStore.setState({
+        data: {
+          ...emptyStore(),
+          presentations: [
+            makePresentation({ id: 't1', category: 'sales', sort_order: 0 }),
+            makePresentation({ id: 't2', category: 'medical', sort_order: 1 }),
+          ],
+        },
+        hasData: true, primaryLocale: 'en', secondaryLocale: null,
+        activeSection: 'views', expandedItemId: null, mutationCount: 0,
+      })
+      const row = await openSection(/^expand presentations settings$/i)
+      await userEvent.click(within(row).getByRole('button', { name: /by type/i }))
+      await userEvent.click(within(row).getByRole('checkbox', { name: /sales —/i }))
+      expect(view().excluded_item_ids).toEqual(['t1'])
+    })
+
+    it('offers publications both the exported type and the editor category', async () => {
+      // Two facets side by side, cutting the same rows different ways: the
+      // subject area spans a thesis and an article, the artefact type splits
+      // them. Each facet needs two groups of its own, or the dropdown drops it
+      // as "just a second All".
+      useStore.setState({
+        data: {
+          ...emptyStore(),
+          publications: [
+            makePublication({ id: 'x1', publication_type: 'thesis', category: 'medical', sort_order: 0 }),
+            makePublication({ id: 'x2', publication_type: 'article', category: 'medical', sort_order: 1 }),
+            makePublication({ id: 'x3', publication_type: 'article', category: 'finance', sort_order: 2 }),
+          ],
+        },
+        hasData: true, primaryLocale: 'en', secondaryLocale: null,
+        activeSection: 'views', expandedItemId: null, mutationCount: 0,
+      })
+      const row = await openSection(/^expand publications settings$/i)
+      await userEvent.click(within(row).getByRole('button', { name: /by type/i }))
+
+      expect(within(row).getByRole('checkbox', { name: /medical — 2 of 2 selected/i })).toBeInTheDocument()
+      expect(within(row).getByRole('checkbox', { name: /thesis — 1 of 1 selected/i })).toBeInTheDocument()
+
+      // Dropping the whole subject area takes the thesis and the article with
+      // it, leaving the finance paper — which the type facet alone can't express.
+      await userEvent.click(within(row).getByRole('checkbox', { name: /medical —/i }))
+      expect(view().excluded_item_ids.sort()).toEqual(['x1', 'x2'])
     })
   })
 

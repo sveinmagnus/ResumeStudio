@@ -12,7 +12,8 @@ import {
 } from '../../src/components/editor/SimpleEditors'
 import { useStore } from '../../src/store/useStore'
 import { resetStore } from '../helpers/store-reset'
-import { emptyStore, makeWork, makePublication, makeRecommendation, makeKQ, makeKeyCompetency } from '../fixtures'
+import { emptyStore, makeWork, makePresentation, makePublication, makeRecommendation, makeKQ, makeKeyCompetency } from '../fixtures'
+import { COURSE_CATEGORIES } from '../../src/lib/courseCategories'
 import type { ResumeStore } from '../../src/types'
 
 function seed(data: ResumeStore = emptyStore()) {
@@ -83,6 +84,51 @@ describe('SimpleEditors — editing seeded items', () => {
     // one by its current selected-option text.
     await userEvent.selectOptions(screen.getByDisplayValue('Article'), 'whitepaper')
     expect(useStore.getState().data.publications[0].publication_type).toBe('whitepaper')
+  })
+
+  it('PublicationsEditor sets the editor-only category without touching the type', async () => {
+    const pub = makePublication({ publication_type: 'article' })
+    seed({ ...emptyStore(), publications: [pub] })
+    useStore.setState({ expandedItemId: pub.id })
+    render(<PublicationsEditor />)
+
+    await userEvent.selectOptions(screen.getByLabelText('Category'), 'medical')
+    const saved = useStore.getState().data.publications[0]
+    expect(saved.category).toBe('medical')
+    // The two are orthogonal: one is exported, the other is not.
+    expect(saved.publication_type).toBe('article')
+  })
+
+  it('PresentationsEditor sets the editor-only category', async () => {
+    const talk = makePresentation()
+    seed({ ...emptyStore(), presentations: [talk] })
+    useStore.setState({ expandedItemId: talk.id })
+    render(<PresentationsEditor />)
+
+    await userEvent.selectOptions(screen.getByLabelText('Category'), 'sales')
+    expect(useStore.getState().data.presentations[0].category).toBe('sales')
+  })
+
+  it('offers Presentations and Publications the same vocabulary as Courses', () => {
+    // One vocabulary across the four sections — a second copy would drift.
+    const labels = (): string[] =>
+      [...screen.getByLabelText('Category').querySelectorAll('option')]
+        .map((o) => o.textContent ?? '').filter((t) => t !== '—')
+
+    const talk = makePresentation()
+    seed({ ...emptyStore(), presentations: [talk] })
+    useStore.setState({ expandedItemId: talk.id })
+    const { unmount } = render(<PresentationsEditor />)
+    const fromTalk = labels()
+    unmount()
+
+    const pub = makePublication()
+    seed({ ...emptyStore(), publications: [pub] })
+    useStore.setState({ expandedItemId: pub.id })
+    render(<PublicationsEditor />)
+
+    expect(fromTalk).toEqual(COURSE_CATEGORIES.map((c) => c.label))
+    expect(labels()).toEqual(fromTalk)
   })
 })
 

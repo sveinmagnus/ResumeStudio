@@ -206,7 +206,7 @@ describe('typeGroups() — project roles', () => {
   })
 })
 
-describe('typeGroups() — course/certification category', () => {
+describe('typeGroups() — the shared item category', () => {
   const course = (id: string, category?: string | null): SelectableItem => ({ id, category })
 
   it('groups courses by their editor category', () => {
@@ -222,6 +222,40 @@ describe('typeGroups() — course/certification category', () => {
   it('offers the same category facet for certifications', () => {
     const sets = typeGroups('certifications', [course('a', 'medical'), course('b', 'medical')], 'en')
     expect(facet(sets, 'Category')!.groups.find((x) => x.label === 'Medical')!.ids.sort()).toEqual(['a', 'b'])
+  })
+
+  it('offers the same category facet for presentations', () => {
+    const sets = typeGroups('presentations', [course('a', 'sales'), course('b', null)], 'en')
+    const g = facet(sets, 'Category')!.groups
+    expect(g.find((x) => x.label === 'Sales')!.ids).toEqual(['a'])
+    expect(g.find((x) => x.value === '')!.ids).toEqual(['b'])
+  })
+
+  it('gives publications BOTH the exported type and the editor category', () => {
+    // Orthogonal questions: what KIND of artefact (exported) vs which subject
+    // area (editor-only). A paper can be selected by either.
+    const sets = typeGroups('publications', [
+      { id: 'a', publication_type: 'thesis', category: 'medical' },
+      { id: 'b', publication_type: 'thesis', category: 'finance' },
+    ], 'en')
+    expect(sets.map((s) => s.name)).toEqual(['Type', 'Category'])
+    expect(facet(sets, 'Type')!.groups.find((x) => x.label === 'Thesis')!.ids.sort()).toEqual(['a', 'b'])
+    expect(facet(sets, 'Category')!.groups.find((x) => x.label === 'Medical')!.ids).toEqual(['a'])
+  })
+
+  it('keys a publication category filter apart from a publication type filter', () => {
+    // Both facets can hold the value-space of the other's groups; the facet
+    // name is part of the key precisely so the two can never collide.
+    const items = [
+      { id: 'a', publication_type: 'report', category: 'medical' },
+      { id: 'b', publication_type: 'article', category: 'medical' },
+    ]
+    const byCategory = itemsMatchingTypeFilter(
+      'publications', items, 'en', { roles: [] }, typeFilterKey('Category', 'medical'))
+    const byType = itemsMatchingTypeFilter(
+      'publications', items, 'en', { roles: [] }, typeFilterKey('Type', 'report'))
+    expect(byCategory && [...byCategory].sort()).toEqual(['a', 'b'])
+    expect(byType && [...byType]).toEqual(['a'])
   })
 
   it('offers no facet for key competencies (bundle scoping replaced the Profile facet)', () => {

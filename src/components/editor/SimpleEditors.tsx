@@ -71,8 +71,10 @@ function ShortDescriptionField<K extends 'work_experiences' | 'educations' | 'co
 }
 
 /**
- * The shared Course/Certification "Category" picker — an editor-only organizing
- * type (never exported). Same vocabulary for both sections (lib/courseCategories).
+ * The shared "Category" picker — an editor-only organizing type (never
+ * exported). ONE vocabulary across Courses, Certifications, Presentations and
+ * Publications (lib/courseCategories), so a view can select a subject area
+ * regardless of which section the evidence sits in.
  */
 function CategorySelect({ value, onChange }: { value: string | null | undefined; onChange: (v: string | null) => void }) {
   return (
@@ -468,7 +470,7 @@ export function PresentationsEditor() {
       id: newId(), resume_id: data.resume!.id, title: {}, event: {}, description: {},
       // New presentations default the "To" date to today and leave "From" blank;
       // a talk given once needs only "To", a recurring one carries both.
-      url: null, date: null, start: null, end: thisMonth(),
+      url: null, date: null, start: null, end: thisMonth(), category: null,
       sort_order: items.length, starred: false, disabled: false,
     }
     addItem('presentations', p)
@@ -498,8 +500,9 @@ export function PresentationsEditor() {
           <FieldRow>
             <DateField label="From" value={p.start} onChange={(v) => updateItem('presentations', p.id, { start: v })} />
             <DateField label="To" value={p.end} onChange={(v) => updateItem('presentations', p.id, { end: v })} allowOngoing />
-            <TextField label="URL" value={p.url || ''} onChange={(v) => updateItem('presentations', p.id, { url: v })} />
+            <CategorySelect value={p.category} onChange={(v) => updateItem('presentations', p.id, { category: v })} />
           </FieldRow>
+          <TextField label="URL" value={p.url || ''} onChange={(v) => updateItem('presentations', p.id, { url: v })} />
         </EditorCard>
       ))}
       </SortableList>
@@ -515,8 +518,8 @@ export function PublicationsEditor() {
   const add = () => {
     const p: Publication = {
       id: newId(), resume_id: data.resume!.id, title: {}, publisher: {}, co_authors: [], abstract: {},
-      url: null, date: null, publication_type: 'article', sort_order: items.length,
-      starred: false, disabled: false, internal_notes: null,
+      url: null, date: null, publication_type: 'article', category: null,
+      sort_order: items.length, starred: false, disabled: false, internal_notes: null,
     }
     addItem('publications', p)
   }
@@ -559,8 +562,9 @@ export function PublicationsEditor() {
               </select>
             </label>
             <DateField label="Date" value={p.date} onChange={(v) => updateItem('publications', p.id, { date: v })} />
-            <TextField label="URL" value={p.url || ''} onChange={(v) => updateItem('publications', p.id, { url: v })} />
+            <CategorySelect value={p.category} onChange={(v) => updateItem('publications', p.id, { category: v })} />
           </FieldRow>
+          <TextField label="URL" value={p.url || ''} onChange={(v) => updateItem('publications', p.id, { url: v })} />
         </EditorCard>
       ))}
       </SortableList>
