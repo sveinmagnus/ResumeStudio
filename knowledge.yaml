@@ -490,10 +490,10 @@ units:
 
   - id: changelog
     path: CHANGELOG.md
-    intent: "What changed in each release, newest first? Full detail for 1.0.0 (a quality milestone, not a feature release); earlier 0.x lines summarised by wave with dates."
+    intent: "What changed in each release, newest first? Full detail per release from 1.0.0 onward (including the 1.2.x line); earlier 0.x lines summarised by wave with dates."
     scope: global
     audience: [human, developer, agent]
-    validated: "2026-08-19"
+    validated: "2026-09-02"
     update_frequency: as-needed
     depends_on: [feature-map]
     triggers: [changelog, release-notes, history, what-changed, version]

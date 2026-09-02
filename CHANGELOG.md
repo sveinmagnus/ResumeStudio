@@ -57,6 +57,118 @@ reports `Dev-<commit>`. Desktop builds update themselves — see
   now run through the advisor store, scoped per item, so a run in flight still
   reports Working… when you come back and a finished suggestion waits for you.
 
+## 1.2.2 — 2026-09-01
+
+The Resume Views list stops being a table of contents and becomes a launchpad.
+
+### Added
+
+- **Export straight from the views list.** Clicking anywhere on a view's line
+  opens it — the card body is a real `<a href>`, so Ctrl/middle-click puts two
+  views side by side — and each row carries its own Export dropdown, so the
+  routine open-export-go-back round trip collapses into the list itself.
+- **Export all chooses its language.** A selector beside Export all picks the
+  editing primary, the secondary, or **both at once**, named by the actual
+  languages rather than by slot. "Both" produces one file per view per
+  language, with the locale code riding the view-name half of the filename —
+  without it the two languages of one view download under the same name and the
+  browser dedupes one into "…(1)". Offered only while a language pair is being
+  edited, since with one language there is nothing to choose.
+- **The selector governs row exports too**, so one visible choice explains every
+  file the page produces. A row became a batch of one on the shared export
+  engine, rather than teaching a second code path about locale lists.
+- **Clear formatting on the rich-text toolbar.** A paste can arrive with
+  allowed-but-unwanted formatting the sanitiser rightly keeps; undoing it by
+  hand meant selecting each stretch and reversing one command at a time. Whole
+  field by design, disabled when there is nothing to clear, and it rides the
+  normal store path so undo covers it.
+- **Branded launcher icons on all three platforms.** A script file cannot carry
+  an icon on any OS, so each platform ships its native vehicle: on Windows the
+  windowless shim becomes `ResumeStudio-Windows.vbs` with an `.ico` beside it
+  and a one-double-click "Create Desktop Shortcut". The legacy shim filename
+  still ships — every build through 1.2.1 bakes it into its update swap script.
+
+### Fixed
+
+- **The writing coach asked for facts the entry already carried.** The
+  "Strengthen description" prompt sent only the description, so the model asked
+  for dates, durations and credential names that have dedicated fields beside
+  it — and, with nothing else to offer, produced cosmetic rewords. It now
+  carries the entry's own facts and is told not to ask for anything that has a
+  field; "return it unchanged" is named as the honest answer to good text, and
+  a verbatim rewrite shows as "already reads well" with nothing to apply.
+- **Search surfaced technical id fields.** The denylist named ids one at a time
+  and missed the rest — competency bundles, role id lists, a registry's
+  canonical id, a cover letter's view id — so a query landing inside an opaque
+  UUID produced a hit naming no field the user has ever seen. Replaced with a
+  shape rule that covers any key that is `id` or ends in `_id`/`_ids`.
+- **A resume's other languages were a click away, invisibly.** Adding a third
+  language grew the Primary/Secondary option lists but nothing showed it. The
+  "Add" row is now a "More" select that lists the languages already on the
+  resume under "Switch secondary to".
+- **Escape closed the whole Settings dialog** instead of the tab popout, which
+  bound its handler to `document` while the modal stops Escape at the dialog
+  card — below it on the way up, so the popout's handler never ran.
+- **The narrow-width tab fallback was a sideways scroll bar**, showing only
+  what fit before the fold. It is a burger popout listing every tab at once,
+  and the rail moved back to the left of the panel.
+
+## 1.2.1 — 2026-08-26
+
+Readable resume addresses, and a Personal Details section that says what each
+field is for.
+
+### Added
+
+- **A resume's URL is a readable address, not its UUID.** `/r/6f3a1c2e-…` told
+  nobody whose CV they were looking at; an address is now derived from the
+  header email — `name-domain`, TLD dropped (`sveins@gmail.com` →
+  `/r/sveins-gmail`), with the TLD appended when two people share the short
+  form. Derived, never stored, so there is no second field to drift, and the
+  UUID stays a valid alias forever — a bookmarked link keeps working and
+  rewrites in place. Resolution is deliberately strict: a segment matching
+  several resumes resolves to **nothing** and bounces to the picker, because
+  opening the wrong person's CV is worse than a bounce.
+- **Personal Details, restructured into three purposeful groups** — Identity
+  (name and date of birth as write-once fields, since an always-editable input
+  invites the accidental edit those two never need), Contact details and online
+  profiles (adding a personal website, and replacing the Twitter/X slot with a
+  general social one), and Photo & company.
+- **Per-view contact overrides.** A board seat or an agency submission can carry
+  its own email and phone, applied at one point so the preview, PDF, DOCX and
+  ATS text all agree.
+- **The social slot names its own platform** — "Instagram:", "X:", "Bluesky:"
+  instead of a generic label — from a curated map for platforms whose domain
+  cannot spell their name, plus a hostname fallback that handles the long tail
+  with no list. A label you customised always wins.
+- **The Settings tab list became a vertical rail**, six tabs having outgrown the
+  modal's width as a horizontal bar.
+
+### Fixed
+
+- **Typing into an empty write-once field kept only the first letter.** The
+  field treated "has a value" as "stop editing", so it unmounted on the first
+  keystroke and every later character went nowhere. Focus now marks editing in
+  progress, so the input lives until blur.
+- **A registry-only change from another machine never synced.** The desktop
+  watcher's feedback-loop guard compared resume signatures only, so a canonical
+  skill or role rename published with no resume touched was skipped permanently
+  until some resume also changed. The write gate had been widened for exactly
+  this case when the registry became its own file; the read gate was missed.
+  Found by the overnight mutation sweep, which also left ~240 tripwire tests
+  across modules whose silent-failure logic ran in no test.
+- **The desktop update swap was slow and dishonest.** A 1.0.0 → 1.2.0 update
+  took 71 seconds for a ~10-second copy, and `node.exe` was never replaced at
+  all — the app ran new code on the old binary. The wait was a bare
+  `Wait-Process` on a PID that can be reassigned during the shutdown handoff,
+  so it sat its whole timeout on a stranger; and a locked destination burned
+  its retry budget and was then skipped **silently**. The wait now watches the
+  real condition, and a locked file is renamed aside rather than skipped.
+- **"Show me" left you on a page showing nothing.** The section-gaps toast
+  navigated to the section and stopped, with the results still behind a modal
+  nothing opened. The toast now leaves a one-shot reveal the owning surface
+  consumes; a view-scoped run opens the view rather than the views list.
+
 ## 1.2.0 — 2026-08-25
 
 The truth-and-maintenance release. Everything before this stored and shaped a
