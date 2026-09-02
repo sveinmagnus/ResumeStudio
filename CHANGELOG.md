@@ -6,6 +6,57 @@ The version a build reports is the git tag it was built from; anything else
 reports `Dev-<commit>`. Desktop builds update themselves — see
 [DESKTOP.md](./DESKTOP.md).
 
+## 1.2.3 — 2026-09-02
+
+### Added
+
+- **Presentations and Publications carry a Category.** The same editor-only
+  vocabulary Courses and Certifications already use, not a second copy: the
+  question a category answers — which subject area is this — doesn't change
+  with the section, so a view can select the security material whether it was a
+  course, a certificate, a talk or a paper. Both sections also gain the
+  Category facet in the view editor's "By type" quick-select and the
+  editor-side type Filter. A publication carries it *alongside* its exported
+  publication type: what kind of artefact and what subject area are different
+  questions, and neither subsumes the other. Never exported, on any of the four.
+
+### Fixed
+
+- **A chosen section sort reset itself to Custom order.** Three separate
+  defects behind one symptom. The sort mode was never persisted — it lived only
+  in memory, so every reload dropped you back to Custom, and a remote-update
+  reload or a snapshot restore did the same mid-session; it is now stored per
+  resume and restored on load. Pressing Move up on the top row (or Move down on
+  the bottom) moved nothing but still rewrote the saved order and switched the
+  section to Custom; a reorder that cannot move anything now changes nothing,
+  and those arrows are disabled at the list boundaries. And a reorder while a
+  type Filter was on was measured against the unfiltered list, so dragging the
+  second visible row above the first sent it to the top of the whole section,
+  past every hidden item — hidden items now keep their position.
+- **The item-category label could return a function.** `courseCategoryLabel`
+  read its map with a key taken straight from stored resume JSON, so
+  `'toString'` returned the inherited method rather than falling back — and the
+  card subtitle that interpolates it printed
+  `function toString() { [native code] }`. It goes through `lib/lookup.ts` now,
+  like every other data-keyed lookup.
+- **Assists failed against a model that thinks out loud before answering.**
+  Reported on a production install: a `<thought>` block ahead of the reply
+  broke JSON extraction (the deliberation is full of brackets, and the slice
+  ran from the first to the last), and such a model spends its token budget
+  thinking before it writes anything, so a cap sized for the answer stopped it
+  before there was one. Extraction now takes the first balanced value that
+  actually parses, string-aware.
+- **A busy provider read as a broken configuration.** A 5xx fell through to
+  "The AI model returned an error" — the same wording a wrong model name gets —
+  so a user had no way to know that clicking Run again was the whole fix. A 5xx
+  now reads as temporary, and the 429 message points at the plan for that
+  model rather than the account.
+- **Field assists died when you left the item they were started on.** The card
+  renders its body only while expanded, so a panel holding its run in component
+  state lost it the moment anything else was opened. The three in-item assists
+  now run through the advisor store, scoped per item, so a run in flight still
+  reports Working… when you come back and a finished suggestion waits for you.
+
 ## 1.2.0 — 2026-08-25
 
 The truth-and-maintenance release. Everything before this stored and shaped a
