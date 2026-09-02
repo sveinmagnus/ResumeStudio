@@ -64,11 +64,15 @@ describe('the chosen sort mode survives a reload', () => {
   })
 
   it('restores it on loadStore, rather than dropping back to Custom', () => {
+    // The real load effect sets the row id before loading; sort prefs key on it.
+    useStore.getState().setCurrentResumeId('row-1')
     useStore.getState().loadStore(seeded())
     useStore.getState().setSectionSort('courses', 'end')
 
     // A reload, a remote-update reload and a snapshot restore all land here.
     useStore.getState().unloadStore()
+    // The real load effect sets the row id before loading; sort prefs key on it.
+    useStore.getState().setCurrentResumeId('row-1')
     useStore.getState().loadStore(seeded())
 
     expect(useStore.getState().sectionSort.courses).toBe('end')
@@ -77,20 +81,28 @@ describe('the chosen sort mode survives a reload', () => {
   it('persists the switch to Custom that a manual reorder causes', () => {
     // Otherwise the next reload restores the old computed mode and re-sorts the
     // order the user just baked by hand.
+    // The real load effect sets the row id before loading; sort prefs key on it.
+    useStore.getState().setCurrentResumeId('row-1')
     useStore.getState().loadStore(seeded())
     useStore.getState().setSectionSort('courses', 'end')
     useStore.getState().reorderItem('courses', 'b', 'down')
     expect(useStore.getState().sectionSort.courses).toBe('custom')
 
     useStore.getState().unloadStore()
+    // The real load effect sets the row id before loading; sort prefs key on it.
+    useStore.getState().setCurrentResumeId('row-1')
     useStore.getState().loadStore(seeded())
     expect(useStore.getState().sectionSort.courses ?? 'custom').toBe('custom')
   })
 
   it('does not persist the type filter, which hides rows', () => {
+    // The real load effect sets the row id before loading; sort prefs key on it.
+    useStore.getState().setCurrentResumeId('row-1')
     useStore.getState().loadStore(seeded())
     useStore.getState().setSectionTypeFilter('courses', 'Category\u001Fmedical')
     useStore.getState().unloadStore()
+    // The real load effect sets the row id before loading; sort prefs key on it.
+    useStore.getState().setCurrentResumeId('row-1')
     useStore.getState().loadStore(seeded())
     expect(useStore.getState().sectionTypeFilter.courses ?? '').toBe('')
   })

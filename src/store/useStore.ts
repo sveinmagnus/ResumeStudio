@@ -266,8 +266,13 @@ export const useStore = create<AppState>((set, get) => {
         // funnel through, and blanking it here is what made a chosen sort look
         // like it had reverted to Custom on its own. The type filter IS reset —
         // see lib/sortPrefs.ts on why a hidden-rows state must not persist.
+        //
+        // Keyed on `currentResumeId` (the row id the URL and picker use), which
+        // the load effect sets before calling this. NOT `data.resume.id`: that
+        // is the id INSIDE the document and the two genuinely differ, so two
+        // resumes imported from one backup file would share a sort preference.
         data: migrated, hasData: true, mutationCount: 0,
-        sectionSort: loadSortPrefs(migrated.resume?.id), sectionTypeFilter: {}, activeViewId: null,
+        sectionSort: loadSortPrefs(get().currentResumeId), sectionTypeFilter: {}, activeViewId: null,
         dataFromNewerApp: isNewerShape(migrated),
         primaryLocale: primary, secondaryLocale: secondary,
       })
@@ -322,7 +327,7 @@ export const useStore = create<AppState>((set, get) => {
     })),
     setSectionSort: (section, mode) => set((st) => {
       const sectionSort = { ...st.sectionSort, [section]: mode }
-      saveSortPrefs(st.data.resume?.id, sectionSort)
+      saveSortPrefs(st.currentResumeId, sectionSort)
       return { sectionSort }
     }),
     // Locale changes are persisted server-side per resume (decision 10) — they
@@ -477,7 +482,7 @@ export const useStore = create<AppState>((set, get) => {
       // baked by hand.
       if (mode !== 'custom') {
         const sectionSort = { ...st.sectionSort, [section]: 'custom' as SortMode }
-        saveSortPrefs(st.data.resume?.id, sectionSort)
+        saveSortPrefs(st.currentResumeId, sectionSort)
         patch.sectionSort = sectionSort
       }
       return patch
