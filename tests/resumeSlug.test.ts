@@ -47,6 +47,12 @@ describe('isSlugSegment', () => {
     expect(isSlugSegment('Sveins-Gmail')).toBe(false)
     expect(isSlugSegment('-leading')).toBe(false)
     expect(isSlugSegment('trailing-')).toBe(false)
+    // The uuid rejection is ANCHORED: a slug that merely contains something
+    // uuid-shaped is still a slug, or a person called after one would lose
+    // their readable address to the id branch.
+    expect(isSlugSegment('9461ca82-d415-48b2-ba5d-3be2cec85cd1')).toBe(false)
+    expect(isSlugSegment('x-9461ca82-d415-48b2-ba5d-3be2cec85cd1')).toBe(true)
+    expect(isSlugSegment('9461ca82-d415-48b2-ba5d-3be2cec85cd1-x')).toBe(true)
     expect(isSlugSegment('double--dash')).toBe(false)
     expect(isSlugSegment('')).toBe(false)
   })
@@ -70,6 +76,14 @@ describe('preferredSegment', () => {
     // Both shorten to anna-gmail; the TLD is what still tells them apart.
     expect(preferredSegment([A, anna2], 'id-a')).toBe('anna-gmail-com')
     expect(preferredSegment([A, anna2], 'id-c')).toBe('anna-gmail-no')
+  })
+
+  it('falls back to the id when the address yields no slug at all', () => {
+    // A non-empty email that reduces to nothing usable (no local part) must
+    // produce the id, never an empty or null segment — the segment is going
+    // straight into a URL.
+    expect(preferredSegment([{ id: 'id-x', email: '@example.com' }], 'id-x')).toBe('id-x')
+    expect(preferredSegment([{ id: 'id-y', email: '@@' }], 'id-y')).toBe('id-y')
   })
 
   it('falls back to the id when even the full slug collides (same email twice)', () => {

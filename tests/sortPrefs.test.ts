@@ -44,6 +44,42 @@ describe('sortPrefs (localStorage)', () => {
     expect(Object.keys(prefs)).not.toContain('__proto__')
   })
 
+  it.each([
+    ['an array', JSON.stringify(['end', 'alpha'])],
+    ['a bare string', JSON.stringify('end')],
+    ['a number', JSON.stringify(42)],
+    ['null', JSON.stringify(null)],
+  ])('rejects %s payload rather than reading keys off it', (_label, raw) => {
+    // An array's INDICES would otherwise become section names — `{0: 'end'}` —
+    // and a stray section key in sectionSort is a filter nothing can clear.
+    localStorage.setItem('rs.sectionSort.r1', raw)
+    expect(loadSortPrefs('r1')).toEqual({})
+  })
+
+  it('never reads a bucket for a missing resume id', () => {
+    // Without the guard the key becomes the literal 'rs.sectionSort.null',
+    // which is a single shared bucket every id-less caller would read.
+    localStorage.setItem('rs.sectionSort.null', JSON.stringify({ courses: 'end' }))
+    localStorage.setItem('rs.sectionSort.undefined', JSON.stringify({ courses: 'end' }))
+    expect(loadSortPrefs(null)).toEqual({})
+    expect(loadSortPrefs(undefined)).toEqual({})
+  })
+
+  it('writes nothing when there is no resume id', () => {
+    saveSortPrefs(null, { courses: 'end' })
+    saveSortPrefs(undefined, { courses: 'end' })
+    expect(Object.keys(localStorage)).toEqual([])
+  })
+
+  it('REMOVES the record when the last non-custom mode is cleared', () => {
+    // Not just "reads back as empty": an empty record left behind accumulates
+    // one dead key per resume the user ever sorted and then unsorted.
+    saveSortPrefs('r1', { courses: 'end' })
+    expect(localStorage.getItem('rs.sectionSort.r1')).not.toBeNull()
+    saveSortPrefs('r1', { courses: 'custom' })
+    expect(localStorage.getItem('rs.sectionSort.r1')).toBeNull()
+  })
+
   it('survives unusable storage instead of throwing', () => {
     localStorage.setItem('rs.sectionSort.r1', 'not json{')
     expect(loadSortPrefs('r1')).toEqual({})
