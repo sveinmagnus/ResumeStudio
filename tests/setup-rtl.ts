@@ -12,6 +12,8 @@
  *    into the next and queries like `getAllByRole` return stale nodes.
  *
  * 3. Aligns RTL's async timeout with the raised `testTimeout`.
+ *
+ * 4. Restores jsdom's Web Storage over Node's built-in one (Node 25+).
  */
 import { afterEach } from 'vitest'
 // eslint-disable-next-line testing-library/no-manual-cleanup -- RTL auto-cleanup only runs when afterEach is a global, and Vitest does not register globals (see above)
@@ -31,6 +33,26 @@ import '@testing-library/jest-dom/vitest'
  * before that were whole-test timeouts, not query timeouts.)
  */
 configure({ asyncUtilTimeout: 3000 })
+
+/**
+ * Node 25+ ships its own `localStorage`/`sessionStorage` globals, and Vitest's
+ * jsdom environment only copies a window key onto the global when the global
+ * does not already have it. So under jsdom the tests got Node's storage, which
+ * is `undefined` unless Node was started with `--localstorage-file` — 215
+ * component tests failed on Node 26 while CI, on Node 24, stayed green. Point
+ * both names back at jsdom's own storage. A no-op under the `node` environment
+ * (no `jsdom` global) and on Node 24 (the values are already jsdom's).
+ */
+const dom = (globalThis as { jsdom?: { window: Pick<Window, 'localStorage' | 'sessionStorage'> } }).jsdom
+if (dom) {
+  for (const key of ['localStorage', 'sessionStorage'] as const) {
+    Object.defineProperty(globalThis, key, {
+      value: dom.window[key],
+      configurable: true,
+      writable: true,
+    })
+  }
+}
 
 afterEach(() => {
   cleanup()
