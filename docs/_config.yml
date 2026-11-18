@@ -35,3 +35,4 @@ defaults:
       path: ""
     values:
       layout: default
+      image: /assets/social-preview.png
