@@ -1,5 +1,6 @@
 ---
-title: AI Import Template
+title: "AI Import Template"
+description: "The resumestudio-ai/v1 template for importing an existing PDF or Word resume into Cartavio Resume Studio with your own AI model."
 ---
 
 # Resume Studio — AI Import Template (v1)

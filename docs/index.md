@@ -1,8 +1,9 @@
 ---
-title: Resume Studio
+title: "Multi-language CV manager for consultants"
+description: "Cartavio Resume Studio is a self-hosted resume manager: keep one master CV in several languages and export targeted PDF, Word and ATS versions."
 ---
 
-# Resume Studio
+# Cartavio Resume Studio
 
 **One master CV across languages. Targeted PDF and Word exports for each audience.**
 

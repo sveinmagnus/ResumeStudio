@@ -1,5 +1,6 @@
 ---
-title: Features
+title: "Features"
+description: "What Cartavio Resume Studio does: side-by-side multi-language editing, Resume Views, PDF/DOCX/ATS export, imports, and optional AI assist."
 ---
 
 # Features

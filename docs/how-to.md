@@ -1,5 +1,6 @@
 ---
-title: How to use Resume Studio
+title: "How to use Resume Studio"
+description: "Step-by-step guide to Cartavio Resume Studio: create a master CV, add languages, build Resume Views and export."
 ---
 
 # How to use Resume Studio

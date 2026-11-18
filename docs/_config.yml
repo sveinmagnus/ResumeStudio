@@ -1,9 +1,23 @@
-title: Resume Studio
-description: One master CV across languages. Targeted PDF and Word exports for each audience.
+title: Cartavio Resume Studio
+description: Self-hosted multi-language CV manager for consultants. One master resume, targeted PDF, Word and ATS exports for each audience.
+url: https://sveinmagnus.github.io
+baseurl: /ResumeStudio
+lang: en
+logo: /assets/logo.png
+author: Cartavio
+social:
+  name: Cartavio
+  links:
+    - https://cartavio.no
+    - https://github.com/sveinmagnus/ResumeStudio
+
+plugins:
+  - jekyll-seo-tag
+  - jekyll-sitemap
 theme: jekyll-theme-cayman
 
 # All download/source links in the site read from {{ site.repo_url }}.
-repo_url: https://github.com/sveinmagnus/resumestudio
+repo_url: https://github.com/sveinmagnus/ResumeStudio
 
 # Navigation shown on every page (rendered in the layout's header).
 nav:

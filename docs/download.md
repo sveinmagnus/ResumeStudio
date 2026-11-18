@@ -1,5 +1,6 @@
 ---
-title: Download
+title: "Download"
+description: "Download Cartavio Resume Studio, the portable self-updating desktop app for Windows, macOS and Linux."
 ---
 
 # Download
